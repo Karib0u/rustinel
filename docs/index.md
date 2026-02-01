@@ -34,13 +34,3 @@ cargo build --release
 # Run (requires Administrator)
 .\target\release\rustinel.exe run --console
 ```
-
-## Documentation
-
-- [Getting Started](getting-started.md)
-- [Configuration](configuration.md)
-- [Architecture](architecture.md)
-- [Detection](detection.md)
-- [CLI Reference](cli.md)
-- [Output Format](output.md)
-- [Development](development.md)

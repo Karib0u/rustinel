@@ -1,131 +1,163 @@
-# Rustinel: High-Performance ETW Sentinel
+# Rustinel
+**High-performance, user-mode Windows EDR in Rust**
 
 <p align="center">
+  <a href="https://karib0u.github.io/rustinel/"><img src="https://img.shields.io/badge/docs-available-brightgreen" alt="Docs"></a>
   <img src="https://img.shields.io/badge/platform-Windows-blue?logo=windows" alt="Platform Windows">
   <img src="https://img.shields.io/badge/language-Rust-orange?logo=rust" alt="Language Rust">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
   <img src="https://img.shields.io/badge/status-Alpha-yellow" alt="Status">
 </p>
 
-Rustinel is a Windows-only, user-mode EDR agent built in Rust. It consumes ETW telemetry, normalizes events into a Sysmon-compatible schema, evaluates Sigma and YARA rules in real time, and writes ECS-style NDJSON alerts.
+Rustinel is a **high-throughput Windows EDR agent** written in **Rust**. It collects **kernel telemetry via ETW**, normalizes events into a **Sysmon-compatible schema**, detects threats using **Sigma** + **YARA**, and outputs alerts as **ECS NDJSON** for straightforward SIEM ingestion.
+
+> ✅ No kernel driver  
+> ✅ User-mode ETW pipeline  
+> ✅ Sigma behavioral detection + YARA scanning  
+> ✅ ECS NDJSON alerts + operational logs
 
 <p align="center">
-  <img src="docs/images/demo.gif" alt="Rustinel Demo" width="800">
+  <img src="docs/images/demo.gif" alt="Rustinel Demo" width="900">
 </p>
 
-## Overview
-Rustinel focuses on high-volume Windows telemetry without a kernel driver. It uses ETW providers for process, file, registry, network, and operational events, then normalizes and enriches those events for Sigma rules. Detections are emitted as ECS-style NDJSON for easy SIEM ingestion.
+---
 
-## Highlights
-- User-mode ETW collection via ferrisetw (no kernel driver).
-- Kernel keyword filtering plus router-level network noise filtering.
-- Sysmon-style normalization with NT path conversion and PE metadata enrichment.
-- Sigma engine with boolean logic, wildcards, regex, and modifier support.
-- YARA scanning on process start using a background worker (non-blocking ETW path).
-- ECS NDJSON alerts and separate operational logs (tracing).
-- Windows Service support (install/start/stop/uninstall).
+## Why Rustinel?
 
-## Architecture
-1. Collector: ferrisetw ETW session with provider keyword filters.
-2. Router: provider GUID dispatch; drops noisy network send/recv events.
-3. Normalizer: ETW -> Sysmon-style fields, path normalization, enrichment with Process/SID/DNS caches.
-4. Detection: Sigma engine and YARA worker.
-5. Output: ECS NDJSON alerts + operational logs.
+Rustinel is built for defenders who want:
+- **Kernel-grade telemetry** without kernel risk (ETW, user-mode)
+- **Performance under volume** (async pipeline + caching + noise reduction)
+- **Detection compatibility** (Sysmon-style normalization for Sigma)
+- **Operational simplicity** (NDJSON alerts on disk, easy to ship to a SIEM)
+
+---
+
+## What it does
+
+Rustinel monitors Windows endpoints by:
+- Collecting kernel events via **ETW** (process, network, file, registry, DNS, PowerShell, WMI, services, tasks)
+- Normalizing ETW events into **Sysmon-compatible** fields
+- Detecting threats using **Sigma rules** and **YARA scanning**
+- Writing alerts in **ECS NDJSON** format
+
+---
+
+## Key features
+
+- **User-mode only**: no kernel driver required
+- **Dual detection engines**:
+  - **Sigma** for behavioral detection
+  - **YARA** for file scanning on process start
+- **Noise reduction**:
+  - keyword filtering at the ETW session
+  - router-level filtering for high-volume network events
+  - optional network connection aggregation
+- **Enrichment**:
+  - NT → DOS path normalization
+  - PE metadata extraction (OriginalFileName/Product/Description)
+  - parent process correlation
+  - SID → `DOMAIN\User` resolution
+  - DNS caching and reverse mapping
+- **Windows service support** (install/start/stop/uninstall)
+- **ECS NDJSON alerts** for SIEM ingestion
+
+---
 
 ## Requirements
-- Windows (ETW + Windows APIs).
-- Administrator privileges (ETW access and service management).
-- Rust 1.92+ to build from source.
 
-## Quick Start
-Use an elevated PowerShell.
+- Windows 10/11 or Server 2016+
+- Administrator privileges (ETW + service management)
+- Rust 1.92+ (build from source)
 
-```
-cargo run
-```
+---
 
-Force console output even if logging.console_output is false:
+## Quick start
 
-```
+> Run from an elevated PowerShell.
+
+```powershell
+# Build
+cargo build --release
+
+# Run (console output)
+.\target\release\rustinel.exe run --console
+````
+
+Running without arguments is equivalent to `rustinel run`.
+
+---
+
+## 2-minute demo
+
+### Sigma demo
+
+This repo ships with an example rule: `rules/sigma/example_whoami.yml`
+
+1. Start Rustinel (admin shell):
+
+```powershell
 cargo run -- run --console
 ```
 
-## First Demo (Sigma)
-This repo ships with a simple demo rule: `rules/sigma/example_whoami.yml`.
+2. Trigger the rule:
 
-1. Start the agent (admin shell):
-
-```
-cargo run -- run --console
-```
-
-2. In another admin shell, trigger the rule:
-
-```
+```powershell
 whoami /all
 ```
 
-3. Verify an alert was written to `logs/alerts.json.YYYY-MM-DD` and the console shows a Sigma detection.
+3. Verify an alert was written:
 
-## First Demo (YARA)
-This repo ships with a simple YARA rule: `rules/yara/example_test_string.yar`.
+* `logs/alerts.json.YYYY-MM-DD`
 
-1. Build the demo binary (admin shell):
+---
 
-```
+### YARA demo
+
+This repo ships with an example rule: `rules/yara/example_test_string.yar`
+
+1. Build the demo binary:
+
+```powershell
 rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
 ```
 
-2. Run it to trigger a YARA scan on process start:
+2. Run it:
 
-```
+```powershell
 .\examples\yara_demo.exe
 ```
 
-3. Verify an alert was written to `logs/alerts.json.YYYY-MM-DD` with rule name `ExampleMarkerString`.
+3. Verify an alert includes the rule name:
 
-## Build and Run
+* `ExampleMarkerString`
 
-Build a release binary:
+---
 
-```
-cargo build --release
-```
+## Service mode
 
-Binary path:
-
-```
-target\release\rustinel.exe
-```
-
-Run in console mode:
-
-```
-.\target\release\rustinel.exe
-# or
-.\target\release\rustinel.exe run
-# force console output
-.\target\release\rustinel.exe run --console
-```
-
-## Service Mode
-The service commands are built into the same binary.
-
-```
+```powershell
 .\target\release\rustinel.exe service install
 .\target\release\rustinel.exe service start
 .\target\release\rustinel.exe service stop
 .\target\release\rustinel.exe service uninstall
 ```
 
-Notes:
-- `service install` registers the current executable path. Run it from the final location you want the service to use.
-- Config and rule paths are resolved from the current working directory. For services, use absolute paths or environment overrides if needed.
+**Notes**
+
+* `service install` registers the *current executable path* — run it from the final location.
+* Config and rules paths resolve from the working directory; for services, prefer absolute paths or env overrides.
+
+---
 
 ## Configuration
-Config is loaded from defaults, `config.toml`, and environment variables prefixed with `EDR__` (double underscore separates levels).
 
-Example `config.toml` (matches defaults):
+Configuration precedence:
+
+1. Environment variables (highest)
+2. `config.toml`
+3. Built-in defaults
+
+Example `config.toml`:
 
 ```toml
 [scanner]
@@ -135,7 +167,7 @@ yara_enabled = true
 yara_rules_path = "rules/yara"
 
 [logging]
-level = "info"              # trace, debug, info, warn, error
+level = "info"
 directory = "logs"
 filename = "rustinel.log"
 console_output = true
@@ -143,141 +175,113 @@ console_output = true
 [alerts]
 directory = "logs"
 filename = "alerts.json"
+
+[network]
+aggregation_enabled = true
+aggregation_max_entries = 20000
+aggregation_interval_buffer_size = 50
 ```
 
-Environment override examples:
+Environment overrides:
 
+```powershell
+set EDR__LOGGING__LEVEL=debug
+set EDR__SCANNER__SIGMA_RULES_PATH=C:\rules\sigma
 ```
-EDR__LOGGING__LEVEL=debug
-EDR__SCANNER__SIGMA_RULES_PATH=C:\rustinel\rules\sigma
-```
+
+---
 
 ## Rules
 
 ### Sigma
-- Loaded recursively from `rules/sigma` (files: `.yml`, `.yaml`).
-- Supports multi-document rules with `action: global`.
-- The repo includes example rules prefixed with `example_` and test rules prefixed with `test_`.
+
+* Place `.yml` / `.yaml` files under `rules/sigma/`
+* Supported categories include:
+  `process_creation`, `network_connection`, `file_event`, `registry_event`,
+  `dns_query`, `image_load`, `ps_script`, `wmi_event`, `service_creation`, `task_creation`
 
 ### YARA
-- Loaded from the top level of `rules/yara` (files: `.yar`, `.yara`).
-- YARA is invoked on process start; scans the process image path.
-- The repo includes example rules prefixed with `example_` and test rules prefixed with `test_`.
 
-If rule directories are missing, the agent logs a warning and continues.
+* Place `.yar` / `.yara` files under `rules/yara/`
+* Rules compile at startup
+* Scans trigger on **process creation** (runs in a background worker)
 
-## Sigma Compatibility
+---
 
-Logsource filtering:
-- Only `logsource.category` is used for routing. `product` and `service` are parsed but not enforced.
+## Output
 
-Categories recognized by the engine:
-- `process_creation`
-- `network_connection`
-- `file_event`
-- `registry_event`
-- `dns_query`
-- `image_load`
-- `ps_script`
-- `wmi_event`
-- `service_creation`
-- `task_creation`
+Rustinel produces:
 
-Notes:
-- The engine has code paths for `file_create`/`file_delete` and `registry_add`/`registry_set`/`registry_delete`, but the current EventID normalization maps file/registry opcodes to Sysmon IDs (11/23, 12/13). As a result, those subcategories are not emitted yet. Use `file_event` and `registry_event` for now.
+* **Operational logs**: `logs/rustinel.log.YYYY-MM-DD`
+* **Security alerts** (ECS NDJSON): `logs/alerts.json.YYYY-MM-DD`
 
-Condition support:
-- `and`, `or`, `not`
-- Parentheses
-- `1 of them`, `all of them`
-- `1 of selection*`, `all of selection*`
-
-Modifier support (non-exhaustive, implemented in code):
-- String: `contains`, `startswith`, `endswith`, `all`, `cased`
-- Regex: `re` with optional flags `i`, `m`, `s`
-- Encoding: `wide`/`utf16`/`utf16le`, `utf16be`, `base64`, `base64offset`
-- Other: `windash`, `cidr`, `exists`, `fieldref`, `lt`, `gt`, `le`/`lte`, `ge`/`gte`
-
-## Normalization and Event IDs
-Rustinel maps kernel OpCodes to Sysmon-style Event IDs for Sigma compatibility:
-
-- Process Start -> 1 (Sysmon Process Create)
-- Process Stop -> 5 (Sysmon Process Terminate)
-- Image Load (Kernel-Process OpCode 10) -> 7
-- File Create/Overwrite (OpCode 64/65) -> 11
-- File Delete (OpCode 70/72) -> 23
-- Registry Create/Delete -> 12
-- Registry SetValue -> 13
-- Network TCP/UDP Connect -> 3
-- DNS -> 22
-- WMI -> 19
-- PowerShell Script Block -> 4104 (Windows Security Event ID)
-- Service Install -> 7045 (Windows System Event ID)
-- Task Registered -> 106 (TaskScheduler Event ID)
-
-If no mapping exists, the raw ETW Event ID is retained.
-
-## Telemetry Sources
-ETW providers enabled by the collector:
-
-- Microsoft-Windows-Kernel-Process (process start/stop, image load)
-- Microsoft-Windows-Kernel-Network (connect/accept/disconnect, UDP)
-- Microsoft-Windows-Kernel-File (create/delete/rename/setinfo)
-- Microsoft-Windows-Kernel-Registry (create/set/delete)
-- Microsoft-Windows-DNS-Client
-- Microsoft-Windows-PowerShell (script block logging)
-- Microsoft-Windows-WMI-Activity
-- Microsoft-Windows-Service-Control-Manager (service install)
-- Microsoft-Windows-TaskScheduler (task registration)
-
-Noise reduction:
-- Kernel keyword masks drop read/write and context-switch noise.
-- Router drops network Event IDs 10 and 11 (send/recv).
-
-## Alert Output (ECS NDJSON)
-
-Security alerts are written as one JSON object per line:
-
-- File: `logs/alerts.json.YYYY-MM-DD`
-- Format: ECS-style fields at the top level
-- Engines: Sigma and YARA both emit here
-
-Example:
+Example alert (one JSON object per line):
 
 ```json
 {
-  "@timestamp": "timestamp_1704067200",
+  "@timestamp": "2025-01-15T14:32:10Z",
   "event.kind": "alert",
   "event.category": "process",
+  "event.action": "process_creation",
   "rule.name": "Whoami Execution",
-  "rule.severity": "Low",
+  "rule.severity": "low",
   "rule.engine": "Sigma",
   "process.executable": "C:\\Windows\\System32\\whoami.exe",
   "process.command_line": "whoami /all",
-  "process.parent.executable": "C:\\Windows\\System32\\cmd.exe",
-  "user.name": "NT AUTHORITY\\SYSTEM"
+  "user.name": "DOMAIN\\username"
 }
 ```
 
-Operational logs are written to `logs/rustinel.log.YYYY-MM-DD`.
+---
 
-## Limitations
-- Windows-only; requires Administrator privileges.
-- `@timestamp` is emitted in ISO 8601 UTC.
-- YARA path conversion is best-effort and assumes common NT path layouts; multi-volume systems may need adjustments.
-- `logsource.product` and `logsource.service` are not enforced yet.
-- `file_create`/`file_delete` and `registry_add`/`registry_set`/`registry_delete` Sigma subcategories are not emitted yet due to EventID normalization.
-- `CommandLine` enrichment is best-effort; very short-lived or protected processes may not expose it in time.
+## Documentation
 
-## Roadmap
-Short roadmap:
-- Active response engine (optional prevention mode, terminate on critical alerts).
-- YARA expansion (memory scanning + periodic scans).
-- Resource governor (Windows Job Objects CPU limits).
-- Self-defense hardening (DACL/ACL restrictions + anti-injection).
-- Watchdog sidecar to restart the service if the main process dies.
-- ETW integrity checks to detect blinding/tampering.
-- Deep inspection via stack tracing for “floating code”.
+* 📚 Docs home: [https://karib0u.github.io/rustinel/](https://karib0u.github.io/rustinel/)
+* Getting Started: [https://karib0u.github.io/rustinel/getting-started/](https://karib0u.github.io/rustinel/getting-started/)
+* Configuration: [https://karib0u.github.io/rustinel/configuration/](https://karib0u.github.io/rustinel/configuration/)
+* CLI Reference: [https://karib0u.github.io/rustinel/cli/](https://karib0u.github.io/rustinel/cli/)
+* Architecture: [https://karib0u.github.io/rustinel/architecture/](https://karib0u.github.io/rustinel/architecture/)
+* Detection: [https://karib0u.github.io/rustinel/detection/](https://karib0u.github.io/rustinel/detection/)
+* Output Format: [https://karib0u.github.io/rustinel/output/](https://karib0u.github.io/rustinel/output/)
+* Development: [https://karib0u.github.io/rustinel/development/](https://karib0u.github.io/rustinel/development/)
+
+---
+
+## Development
+
+```powershell
+# Unit tests
+cargo test
+
+# Format + lint
+cargo fmt
+cargo clippy
+
+# Validate Sigma + YARA rules
+cargo run --bin validate_rules
+```
+
+Project layout (high level):
+
+```text
+src/
+├── collector/     # ETW collection + routing
+├── normalizer/    # Sysmon-style normalization + enrichment
+├── engine/        # Sigma engine
+├── scanner/       # YARA scanning worker
+├── state/         # caches (process/sid/dns/aggregation)
+└── bin/validate_rules.rs
+```
+
+---
+
+## Status
+
+Rustinel is **Alpha**. It’s usable for experimentation, lab deployments, and iterative hardening.
+Expect breaking changes while the schema + engines mature.
+
+---
 
 ## License
-Apache 2.0. See `LICENSE`.
+
+Apache 2.0 — see `LICENSE`.
