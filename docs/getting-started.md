@@ -2,10 +2,18 @@
 
 ## Installation
 
+### Download Release (Recommended)
+
+You can download pre-built binaries for Windows from the [Releases page](https://github.com/Karib0u/rustinel/releases).
+
+1. Download the latest `.zip` file.
+2. Extract it to your desired location (e.g., `C:\Program Files\Rustinel`).
+3. Open an Administrator PowerShell prompt in that directory.
+
 ### From Source
 
 ```bash
-git clone https://github.com/your-org/rustinel.git
+git clone https://github.com/Karib0u/rustinel.git
 cd rustinel
 cargo build --release
 ```

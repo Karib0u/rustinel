@@ -75,6 +75,16 @@ Rustinel monitors Windows endpoints by:
 
 > Run from an elevated PowerShell.
 
+**Option 1: Download Release (Recommended)**
+1. Download the latest release from [GitHub Releases](https://github.com/Karib0u/rustinel/releases).
+2. Extract the archive.
+3. Run from an elevated PowerShell:
+   ```powershell
+   .\rustinel.exe run --console
+   ```
+
+**Option 2: Build from Source**
+
 ```powershell
 # Build
 cargo build --release

@@ -27,6 +27,16 @@ Rustinel monitors Windows endpoints by:
 
 ## Quick Start
 
+**Download & Run (No install required):**
+
+1. Get the latest release from [GitHub Releases](https://github.com/Karib0u/rustinel/releases).
+2. Run as Administrator:
+   ```powershell
+   .\rustinel.exe run --console
+   ```
+
+**Or Build from Source:**
+
 ```bash
 # Build
 cargo build --release
