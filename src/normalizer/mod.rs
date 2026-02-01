@@ -7,7 +7,9 @@ mod field_maps;
 mod mapper;
 
 use crate::models::*;
-use crate::state::{DnsCache, ProcessCache, SidCache};
+use crate::state::{
+    AggregationResult, ConnectionAggregator, DnsCache, ProcessCache, Protocol, SidCache,
+};
 #[cfg(windows)]
 use crate::utils::query_process_command_line;
 use crate::utils::{convert_nt_to_dos, parse_metadata};
@@ -25,6 +27,8 @@ pub struct Normalizer {
     process_cache: Arc<ProcessCache>,
     sid_cache: Arc<SidCache>,
     dns_cache: Arc<DnsCache>,
+    connection_aggregator: Arc<ConnectionAggregator>,
+    aggregation_enabled: bool,
 }
 
 impl Normalizer {
@@ -33,12 +37,16 @@ impl Normalizer {
         process_cache: Arc<ProcessCache>,
         sid_cache: Arc<SidCache>,
         dns_cache: Arc<DnsCache>,
+        connection_aggregator: Arc<ConnectionAggregator>,
+        aggregation_enabled: bool,
     ) -> Self {
         Self {
             schema_locator: SchemaLocator::default(),
             process_cache,
             sid_cache,
             dns_cache,
+            connection_aggregator,
+            aggregation_enabled,
         }
     }
 
@@ -465,6 +473,39 @@ impl Normalizer {
             }
         }
 
+        // Connection aggregation: suppress repeated connections to same destination
+        if self.aggregation_enabled {
+            if let (Some(ref image), Some(ref dest_ip_str), Some(ref dest_port_str)) = (
+                &fields.image,
+                &fields.destination_ip,
+                &fields.destination_port,
+            ) {
+                if let (Ok(dest_ip), Ok(dest_port)) =
+                    (dest_ip_str.parse::<IpAddr>(), dest_port_str.parse::<u16>())
+                {
+                    let pid = record.process_id();
+                    // Determine protocol from ETW event ID (12=TCP, 14=UDP for Kernel-Network)
+                    let protocol = match record.event_id() {
+                        12 => Protocol::Tcp,
+                        14 => Protocol::Udp,
+                        _ => Protocol::Unknown,
+                    };
+
+                    let result = self
+                        .connection_aggregator
+                        .record(image, dest_ip, dest_port, protocol, pid);
+
+                    if result == AggregationResult::Aggregated {
+                        debug!(
+                            "Suppressed aggregated connection: {} -> {}:{}",
+                            image, dest_ip, dest_port
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
+
         Some(EventFields::NetworkConnection(fields))
     }
 
@@ -886,10 +927,18 @@ mod tests {
 
     #[test]
     fn test_normalizer_creation() {
+        use crate::state::ConnectionAggregator;
         let process_cache = Arc::new(ProcessCache::new());
         let sid_cache = Arc::new(SidCache::new());
         let dns_cache = Arc::new(DnsCache::new());
-        let _normalizer = Normalizer::new(process_cache, sid_cache, dns_cache);
+        let connection_aggregator = Arc::new(ConnectionAggregator::new());
+        let _normalizer = Normalizer::new(
+            process_cache,
+            sid_cache,
+            dns_cache,
+            connection_aggregator,
+            true,
+        );
     }
 
     #[test]

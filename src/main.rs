@@ -25,7 +25,7 @@ use models::{
 };
 use normalizer::Normalizer;
 use scanner::YaraEventHandler;
-use state::{DnsCache, ProcessCache, SidCache};
+use state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::runtime::Builder;
@@ -698,6 +698,10 @@ async fn run_edr(shutdown_mode: ShutdownMode, force_console: bool) -> Result<()>
     let process_cache = Arc::new(ProcessCache::new());
     let sid_cache = Arc::new(SidCache::new());
     let dns_cache = Arc::new(DnsCache::new());
+    let connection_aggregator = Arc::new(ConnectionAggregator::with_limits(
+        cfg.network.aggregation_max_entries,
+        cfg.network.aggregation_interval_buffer_size,
+    ));
 
     // Snapshot existing processes using Windows API (handles cold start problem)
     #[cfg(windows)]
@@ -825,11 +829,13 @@ async fn run_edr(shutdown_mode: ShutdownMode, force_console: bool) -> Result<()>
         info!("YARA Worker thread shutting down");
     });
 
-    // Initialize normalizer with process cache
+    // Initialize normalizer with process cache and connection aggregator
     let normalizer = Arc::new(Normalizer::new(
         Arc::clone(&process_cache),
         Arc::clone(&sid_cache),
         Arc::clone(&dns_cache),
+        Arc::clone(&connection_aggregator),
+        cfg.network.aggregation_enabled,
     ));
 
     info!("✓ Collector initialized");

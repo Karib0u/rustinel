@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub scanner: ScannerConfig,
     pub logging: LogConfig,
     pub alerts: AlertConfig,
+    pub network: NetworkConfig,
 }
 
 /// Scanner configuration (Sigma and YARA rules)
@@ -46,6 +47,17 @@ pub struct AlertConfig {
     pub filename: String,
 }
 
+/// Network event aggregation configuration
+#[derive(Debug, Deserialize)]
+pub struct NetworkConfig {
+    /// Enable connection aggregation to reduce event volume
+    pub aggregation_enabled: bool,
+    /// Maximum number of unique connections to track
+    pub aggregation_max_entries: usize,
+    /// Number of inter-connection intervals to store for beacon detection
+    pub aggregation_interval_buffer_size: usize,
+}
+
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
@@ -64,6 +76,10 @@ impl AppConfig {
             // Alerts
             .set_default("alerts.directory", "logs")?
             .set_default("alerts.filename", "alerts.json")?
+            // Network
+            .set_default("network.aggregation_enabled", true)?
+            .set_default("network.aggregation_max_entries", 20000)?
+            .set_default("network.aggregation_interval_buffer_size", 50)?
             // --- Sources ---
             .add_source(config::File::with_name("config").required(false))
             .add_source(config::Environment::with_prefix("EDR").separator("__"))
@@ -91,6 +107,11 @@ impl Default for AppConfig {
             alerts: AlertConfig {
                 directory: PathBuf::from("logs"),
                 filename: "alerts.json".to_string(),
+            },
+            network: NetworkConfig {
+                aggregation_enabled: true,
+                aggregation_max_entries: 20_000,
+                aggregation_interval_buffer_size: 50,
             },
         }
     }
