@@ -35,3 +35,8 @@ tests/**/*
 
 *.exe
 *.pdb
+
+rules/sigma/**/*.yml
+rules/sigma/**/*.yaml
+rules/**/*.md
+rules/yara/**/*.yar

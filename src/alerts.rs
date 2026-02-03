@@ -5,7 +5,7 @@
 use crate::models::ecs::EcsAlert;
 use crate::models::Alert;
 use std::io::Write;
-use tracing::warn;
+use tracing::error;
 use tracing_appender::non_blocking::NonBlocking;
 
 #[derive(Clone)]
@@ -23,11 +23,11 @@ impl AlertSink {
             Ok(line) => {
                 let mut writer = self.writer.clone();
                 if let Err(err) = writeln!(writer, "{}", line) {
-                    warn!(error = %err, "Failed to write ECS alert");
+                    error!(error = %err, "Failed to write ECS alert");
                 }
             }
             Err(err) => {
-                warn!(error = %err, "Failed to serialize ECS alert");
+                error!(error = %err, "Failed to serialize ECS alert");
             }
         }
     }

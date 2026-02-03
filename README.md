@@ -156,6 +156,7 @@ rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
 
 * `service install` registers the *current executable path* — run it from the final location.
 * Config and rules paths resolve from the working directory; for services, prefer absolute paths or env overrides.
+* Service runtime does not receive CLI flags; set log level via `config.toml` or `EDR__LOGGING__LEVEL`.
 
 ---
 
@@ -163,9 +164,10 @@ rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
 
 Configuration precedence:
 
-1. Environment variables (highest)
-2. `config.toml`
-3. Built-in defaults
+1. CLI flags (highest, run mode only)
+2. Environment variables
+3. `config.toml`
+4. Built-in defaults
 
 Example `config.toml`:
 
@@ -198,6 +200,14 @@ Environment overrides:
 set EDR__LOGGING__LEVEL=debug
 set EDR__SCANNER__SIGMA_RULES_PATH=C:\rules\sigma
 ```
+
+CLI override (highest precedence, run mode only):
+
+```powershell
+rustinel run --log-level debug
+```
+
+Note: rule logic evaluation errors are only logged at `warn`, `debug`, or `trace` levels (suppressed at `info`).
 
 ---
 

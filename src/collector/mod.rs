@@ -466,7 +466,7 @@ impl Collector {
                             info!("ETW trace session stopped with result: {:?}", e);
                             Ok(())
                         } else {
-                            info!("Trace processing error: {:?}", e);
+                            warn!("Trace processing error: {:?}", e);
                             Ok(())
                         }
                     }

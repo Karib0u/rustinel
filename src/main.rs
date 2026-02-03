@@ -47,6 +47,9 @@ const SERVICE_DESCRIPTION: &str = "High-performance endpoint detection agent";
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+    /// Override logging level (e.g., error, warn, info, debug, trace)
+    #[arg(long, global = true, value_name = "LEVEL")]
+    log_level: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -88,15 +91,15 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Run { console }) => run_console(console),
-        None => run_console(false),
+        Some(Commands::Run { console }) => run_console(console, cli.log_level),
+        None => run_console(false, cli.log_level),
         Some(Commands::Service { action }) => handle_service_command(action),
     }
 }
 
-fn run_console(force_console: bool) -> Result<()> {
+fn run_console(force_console: bool, log_level: Option<String>) -> Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(run_edr(ShutdownMode::Console, force_console))
+    runtime.block_on(run_edr(ShutdownMode::Console, force_console, log_level))
 }
 
 #[cfg(windows)]
@@ -257,7 +260,7 @@ fn service_main() -> Result<()> {
             }
         });
 
-        let run_result = run_edr(ShutdownMode::Service(shutdown_rx), false).await;
+        let run_result = run_edr(ShutdownMode::Service(shutdown_rx), false, None).await;
         stop_task.abort();
         let _ = stop_task.await;
         run_result
@@ -623,7 +626,11 @@ fn spawn_shutdown_handler(
     })
 }
 
-async fn run_edr(shutdown_mode: ShutdownMode, force_console: bool) -> Result<()> {
+async fn run_edr(
+    shutdown_mode: ShutdownMode,
+    force_console: bool,
+    log_level_override: Option<String>,
+) -> Result<()> {
     // 1. Load Configuration
     let mut cfg = match config::AppConfig::new() {
         Ok(cfg) => cfg,
@@ -635,6 +642,11 @@ async fn run_edr(shutdown_mode: ShutdownMode, force_console: bool) -> Result<()>
     };
     if force_console {
         cfg.logging.console_output = true;
+    }
+    if let Some(level) = log_level_override {
+        if !level.trim().is_empty() {
+            cfg.logging.level = level;
+        }
     }
 
     // 2. Initialize Logging (CRITICAL: Store guards to keep file writing alive)
@@ -724,13 +736,13 @@ async fn run_edr(shutdown_mode: ShutdownMode, force_console: bool) -> Result<()>
 
     #[cfg(not(windows))]
     {
-        warn!("Process snapshot not available on non-Windows platforms");
+        info!("Process snapshot not available on non-Windows platforms");
     }
 
     let collector = Arc::new(Collector::new());
 
     // Initialize Sigma engine
-    let mut sigma_engine = Engine::new();
+    let mut sigma_engine = Engine::new_with_logging_level(&cfg.logging.level);
 
     if cfg.scanner.sigma_enabled {
         info!(

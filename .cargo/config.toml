@@ -1,0 +1,10 @@
+[build]
+# Increase stack size for large YARA rulesets
+# Windows default is 1MB, we increase to 16MB to handle massive rule compilations
+rustflags = ["-C", "link-args=/STACK:16777216"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-args=/STACK:16777216"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-args=-Wl,--stack,16777216"]

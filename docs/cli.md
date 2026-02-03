@@ -6,6 +6,12 @@
 rustinel [COMMAND]
 ```
 
+## Global Options
+
+These flags apply to `run` only.
+
+- `--log-level <LEVEL>` - Override logging level for this run (`trace`, `debug`, `info`, `warn`, `error`)
+
 ## Commands
 
 ### run
@@ -26,6 +32,9 @@ rustinel run
 
 # With forced console output
 rustinel run --console
+
+# Override log level
+rustinel run --log-level debug
 ```
 
 ### service

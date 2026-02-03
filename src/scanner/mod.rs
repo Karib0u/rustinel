@@ -41,14 +41,14 @@ impl Scanner {
                 if let Some(ext) = path.extension() {
                     if ext == "yar" || ext == "yara" {
                         files_found += 1;
-                        info!("Found YARA rule file: {:?}", path);
+                        debug!("Found YARA rule file: {:?}", path);
                         let src = fs::read_to_string(&path)
                             .with_context(|| format!("Failed to read {:?}", path))?;
 
                         match compiler.add_source(src.as_str()) {
                             Ok(_) => {
                                 files_compiled += 1;
-                                info!("✓ Compiled YARA rule: {:?}", path);
+                                debug!("✓ Compiled YARA rule: {:?}", path);
                             }
                             Err(e) => {
                                 warn!("✗ Failed to compile {:?}: {}", path, e);

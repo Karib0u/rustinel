@@ -10,7 +10,7 @@ use crate::models::EventCategory;
 use crate::normalizer::Normalizer;
 use ferrisetw::EventRecord;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, info};
 
 /// Target name for engine operational logs
 const TARGET_ENGINE: &str = "engine";
@@ -52,7 +52,7 @@ impl EventHandler for SigmaDetectionHandler {
                 // Check against Sigma rules
                 if let Some(alert) = self.engine.check_event(&normalized_event) {
                     // 1. Operational Log (Text) - For debugging and monitoring
-                    warn!(
+                    info!(
                         target: TARGET_ENGINE,
                         rule = %alert.rule_name,
                         severity = ?alert.severity,
@@ -76,8 +76,8 @@ impl EventHandler for SigmaDetectionHandler {
                     return;
                 }
 
-                // Failed normalization is unusual - keep at WARN level
-                warn!(
+                // Failed normalization - only log in debug mode
+                debug!(
                     target: TARGET_ENGINE,
                     event_id = record.event_id(),
                     opcode = record.opcode(),

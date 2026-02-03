@@ -372,18 +372,19 @@ impl Normalizer {
 
     /// Normalize registry events
     fn normalize_registry(&self, parser: &Parser, record: &EventRecord) -> Option<EventFields> {
-        // Use registry_modify_mappings as default (most common)
-        // In production, you'd check event ID to determine which mapping to use
-        let mappings = field_maps::registry_modify_mappings();
+        let event_mappings = field_maps::registry_event_mappings();
+        let modify_mappings = field_maps::registry_modify_mappings();
 
         let mut fields = RegistryEventFields {
-            target_object: try_get_string(parser, mappings.get_etw_field("TargetObject")?),
-            details: try_get_string(parser, mappings.get_etw_field("Details")?),
-            process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
-            image: try_get_string(parser, mappings.get_etw_field("Image")?)
+            target_object: try_get_string(parser, event_mappings.get_etw_field("TargetObject")?)
+                .or_else(|| try_get_string(parser, modify_mappings.get_etw_field("TargetObject")?)),
+            details: try_get_string(parser, event_mappings.get_etw_field("Details")?)
+                .or_else(|| try_get_string(parser, modify_mappings.get_etw_field("Details")?)),
+            process_id: try_get_uint(parser, event_mappings.get_etw_field("ProcessId")?),
+            image: try_get_string(parser, event_mappings.get_etw_field("Image")?)
                 .map(|p| convert_nt_to_dos(&p)),
             event_type: try_get_string(parser, "EventType"),
-            user: try_get_string(parser, mappings.get_etw_field("User")?),
+            user: try_get_string(parser, event_mappings.get_etw_field("User")?),
             new_name: try_get_string(parser, "NewName"),
         };
 

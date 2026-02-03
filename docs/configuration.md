@@ -1,10 +1,11 @@
 # Configuration
 
-Rustinel loads configuration from three sources (in order of precedence):
+Rustinel loads configuration from four sources (in order of precedence):
 
-1. Environment variables (highest)
-2. `config.toml` file
-3. Built-in defaults (lowest)
+1. CLI flags (highest, run mode only)
+2. Environment variables
+3. `config.toml` file
+4. Built-in defaults (lowest)
 
 ## Configuration File
 
@@ -53,6 +54,8 @@ aggregation_interval_buffer_size = 50
 | `filename` | `rustinel.log` | Log filename (daily rotation applied) |
 | `console_output` | `true` | Mirror logs to stdout |
 
+Rule logic evaluation errors from Sigma are only emitted at `warn`, `debug`, or `trace` levels.
+
 ### Alerts
 
 | Option | Default | Description |
@@ -84,6 +87,16 @@ set EDR__SCANNER__SIGMA_RULES_PATH=C:\custom\sigma
 # Run
 rustinel.exe
 ```
+
+## CLI Overrides
+
+Only the log level can be overridden via CLI:
+
+```bash
+rustinel run --log-level debug
+```
+
+CLI flags apply to `run` only. Service management commands do not pass flags to the service process.
 
 ## Examples
 

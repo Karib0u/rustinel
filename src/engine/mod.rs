@@ -132,7 +132,7 @@ pub struct Detection {
 }
 
 /// Numeric comparison operator
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum NumericOp {
     /// Less than
     Lt,
@@ -161,6 +161,24 @@ pub enum PatternMatcher {
     Base64Offset,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuleLogicErrorLogLevel {
+    Off,
+    Debug,
+    Warn,
+}
+
+impl RuleLogicErrorLogLevel {
+    fn from_logging_level(level: &str) -> Self {
+        let normalized = level.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "debug" | "trace" => Self::Debug,
+            "warn" | "warning" => Self::Warn,
+            _ => Self::Off,
+        }
+    }
+}
+
 /// Compiled selection with field criteria and keywords
 #[derive(Debug, Clone)]
 pub struct Selection {
@@ -168,6 +186,8 @@ pub struct Selection {
     pub field_criteria: Vec<FieldCriterion>,
     /// Keyword-based criteria (match ANY string in ANY field)
     pub keywords: Vec<FieldPattern>,
+    /// Alternative field criteria groups (OR between groups, AND within a group)
+    pub alternative_field_criteria: Vec<Vec<FieldCriterion>>,
 }
 
 /// Field criterion with patterns and matcher
@@ -220,6 +240,7 @@ pub enum FieldPattern {
     FieldRef(String),
 
     /// Any of multiple values
+    #[allow(dead_code)]
     OneOf(Vec<String>),
 
     /// CIDR network match
@@ -245,15 +266,30 @@ pub struct Engine {
 
     /// Failed rule paths and error messages (for diagnostics)
     failed_rules: Vec<(String, String)>,
+
+    /// Controls logging for rule logic evaluation errors.
+    rule_logic_error_log_level: RuleLogicErrorLogLevel,
 }
 
 impl Engine {
     /// Creates a new engine instance
     pub fn new() -> Self {
+        Self::new_with_rule_logic_error_log_level(RuleLogicErrorLogLevel::Warn)
+    }
+
+    /// Creates a new engine instance that derives rule-logic error logging
+    /// behavior from the provided logging level string.
+    pub fn new_with_logging_level(logging_level: &str) -> Self {
+        let level = RuleLogicErrorLogLevel::from_logging_level(logging_level);
+        Self::new_with_rule_logic_error_log_level(level)
+    }
+
+    fn new_with_rule_logic_error_log_level(level: RuleLogicErrorLogLevel) -> Self {
         Self {
             rules_by_category: HashMap::new(),
             rule_count: 0,
             failed_rules: Vec::new(),
+            rule_logic_error_log_level: level,
         }
     }
 
@@ -372,13 +408,19 @@ impl Engine {
 
     /// Determine pattern matcher from modifiers
     fn get_pattern_matcher(&self, modifiers: &[&str]) -> PatternMatcher {
+        if modifiers.contains(&"all") {
+            return PatternMatcher::All;
+        }
+
+        if modifiers.contains(&"base64offset") {
+            return PatternMatcher::Base64Offset;
+        }
+
         for modifier in modifiers {
             match *modifier {
                 "contains" => return PatternMatcher::Contains,
                 "startswith" => return PatternMatcher::StartsWith,
                 "endswith" => return PatternMatcher::EndsWith,
-                "all" => return PatternMatcher::All,
-                "base64offset" => return PatternMatcher::Base64Offset,
                 _ => {}
             }
         }
@@ -540,42 +582,28 @@ impl Engine {
 
             let mut field_criteria = Vec::new();
             let mut keywords = Vec::new();
+            let mut alternative_field_criteria = Vec::new();
 
-            // Check if this is a keyword-only selection (YAML list)
+            // Check if this is a sequence selection (YAML list)
             if let Some(seq) = selection_value.as_sequence() {
-                // Keyword-only selection: list of strings to match anywhere in the event
+                // Sequence can be:
+                // - list of strings (keywords)
+                // - list of maps (OR between each map)
+                // - mixed (keywords + maps)
                 for item in seq {
                     if let Some(s) = item.as_str() {
                         keywords.push(self.parse_string_pattern(s));
+                    } else if let Some(fields) = item.as_mapping() {
+                        let criteria =
+                            self.compile_field_criteria_from_mapping(fields, &mut patterns)?;
+                        if !criteria.is_empty() {
+                            alternative_field_criteria.push(criteria);
+                        }
                     }
                 }
             } else if let Some(fields) = selection_value.as_mapping() {
                 // Field-based selection
-                for (field_key, field_value) in fields {
-                    if let Some(field_key_str) = field_key.as_str() {
-                        // Parse modifiers from the field key
-                        let (field_name, modifiers) = self.parse_field_key(field_key_str);
-
-                        // Parse the field value with modifiers
-                        let field_patterns = self.parse_field_value(field_value, &modifiers)?;
-
-                        // Determine the pattern matcher from modifiers
-                        let matcher = self.get_pattern_matcher(&modifiers);
-
-                        // Create field criterion
-                        field_criteria.push(FieldCriterion {
-                            field: field_name.to_string(),
-                            patterns: field_patterns.clone(),
-                            matcher,
-                        });
-
-                        // Also populate legacy patterns for backward compatibility
-                        patterns
-                            .entry(field_name.to_string())
-                            .or_default()
-                            .extend(field_patterns);
-                    }
-                }
+                field_criteria = self.compile_field_criteria_from_mapping(fields, &mut patterns)?;
             }
 
             // Store the compiled selection
@@ -584,6 +612,7 @@ impl Engine {
                 Selection {
                     field_criteria,
                     keywords,
+                    alternative_field_criteria,
                 },
             );
         }
@@ -594,6 +623,43 @@ impl Engine {
             selections,
             category,
         })
+    }
+
+    /// Compile a mapping of field -> value into field criteria
+    fn compile_field_criteria_from_mapping(
+        &self,
+        fields: &serde_yaml::Mapping,
+        patterns: &mut HashMap<String, Vec<FieldPattern>>,
+    ) -> Result<Vec<FieldCriterion>> {
+        let mut field_criteria = Vec::new();
+
+        for (field_key, field_value) in fields {
+            if let Some(field_key_str) = field_key.as_str() {
+                // Parse modifiers from the field key
+                let (field_name, modifiers) = self.parse_field_key(field_key_str);
+
+                // Parse the field value with modifiers
+                let field_patterns = self.parse_field_value(field_value, &modifiers)?;
+
+                // Determine the pattern matcher from modifiers
+                let matcher = self.get_pattern_matcher(&modifiers);
+
+                // Create field criterion
+                field_criteria.push(FieldCriterion {
+                    field: field_name.to_string(),
+                    patterns: field_patterns.clone(),
+                    matcher,
+                });
+
+                // Also populate legacy patterns for backward compatibility
+                patterns
+                    .entry(field_name.to_string())
+                    .or_default()
+                    .extend(field_patterns);
+            }
+        }
+
+        Ok(field_criteria)
     }
 
     /// Parse field value into patterns with modifiers
@@ -658,172 +724,128 @@ impl Engine {
             }
         }
 
-        match value {
-            serde_yaml::Value::Null => {
-                patterns.push(FieldPattern::Null);
-            }
-            serde_yaml::Value::String(s) => {
-                if s.is_empty() {
-                    // Empty string means "exists" check
-                    patterns.push(FieldPattern::NotNull);
-                } else if is_cidr {
-                    // Parse as CIDR
-                    if let Ok(network) = s.parse::<IpNetwork>() {
-                        patterns.push(FieldPattern::Cidr(network));
-                    }
-                } else if let Some(op) = numeric_op {
-                    // Parse as numeric
-                    if let Ok(num) = s.parse::<f64>() {
-                        patterns.push(FieldPattern::Numeric(num, op));
-                    }
-                } else if is_re {
-                    // 4. Handle explicit Regex with flags
-                    let mut flags = String::new();
-
-                    // Check for regex flags
-                    if modifiers.contains(&"i") {
-                        flags.push_str("(?i)");
-                    }
-                    if modifiers.contains(&"m") {
-                        flags.push_str("(?m)");
-                    }
-                    if modifiers.contains(&"s") {
-                        flags.push_str("(?s)");
-                    }
-
-                    // If no flags specified, regex is case-sensitive by default
-                    let re_str = format!("{}{}", flags, s);
-                    if let Ok(re) = Regex::new(&re_str) {
-                        patterns.push(FieldPattern::Regex(re));
-                    } else {
-                        warn!("Invalid Regex in rule: {}", s);
-                    }
-                } else if is_windash {
-                    // 5. Handle Windash (Converts to Regex)
-                    let windash_pattern = Self::apply_windash(s);
-                    let re_str = if is_cased {
-                        format!("^{}$", windash_pattern)
-                    } else {
-                        format!("(?i)^{}$", windash_pattern)
-                    };
-                    if let Ok(re) = Regex::new(&re_str) {
-                        patterns.push(FieldPattern::Regex(re));
-                    } else {
-                        warn!("Invalid Windash pattern: {}", s);
-                    }
-                } else {
-                    // 6. Standard String Matching with transformations
-                    let mut values = vec![s.clone()];
-
-                    // Apply transformations in order
-                    if has_wide {
-                        values = values.iter().map(|v| Self::to_wide(v)).collect();
-                    }
-                    if has_utf16be {
-                        values = values.iter().map(|v| Self::to_utf16be(v)).collect();
-                    }
-                    if has_base64 {
-                        values = values
-                            .iter()
-                            .map(|v| general_purpose::STANDARD.encode(v))
-                            .collect();
-                    }
-                    if has_base64offset {
-                        let mut all_permutations = Vec::new();
-                        for v in &values {
-                            all_permutations.extend(Self::to_base64_permutations(v));
+        let append_value_patterns = |value: &serde_yaml::Value,
+                                     patterns: &mut Vec<FieldPattern>|
+         -> Result<()> {
+            match value {
+                serde_yaml::Value::Null => {
+                    patterns.push(FieldPattern::Null);
+                }
+                serde_yaml::Value::String(s) => {
+                    if s.is_empty() {
+                        // Empty string means "exists" check
+                        patterns.push(FieldPattern::NotNull);
+                    } else if is_cidr {
+                        // Parse as CIDR
+                        if let Ok(network) = s.parse::<IpNetwork>() {
+                            patterns.push(FieldPattern::Cidr(network));
                         }
-                        values = all_permutations;
-                    }
+                    } else if let Some(op) = numeric_op {
+                        // Parse as numeric
+                        if let Ok(num) = s.parse::<f64>() {
+                            patterns.push(FieldPattern::Numeric(num, op));
+                        }
+                    } else if is_re {
+                        // 4. Handle explicit Regex with flags
+                        let mut flags = String::new();
 
-                    // Parse each transformed value as a pattern
-                    for v in values {
-                        patterns.push(
-                            self.parse_string_pattern_with_modifiers(&v, modifiers, is_cased),
-                        );
-                    }
-                }
-            }
-            serde_yaml::Value::Number(n) => {
-                if let Some(f) = n.as_f64() {
-                    if let Some(op) = numeric_op {
-                        patterns.push(FieldPattern::Numeric(f, op));
-                    } else {
-                        // Treat as exact match on string representation
-                        patterns.push(FieldPattern::Exact(n.to_string(), is_cased));
-                    }
-                }
-            }
-            serde_yaml::Value::Sequence(seq) => {
-                // Multiple values - check if they contain wildcards
-                let mut has_wildcards = false;
-                let mut simple_values = Vec::new();
+                        // Check for regex flags
+                        if modifiers.contains(&"i") {
+                            flags.push_str("(?i)");
+                        }
+                        if modifiers.contains(&"m") {
+                            flags.push_str("(?m)");
+                        }
+                        if modifiers.contains(&"s") {
+                            flags.push_str("(?s)");
+                        }
 
-                for item in seq {
-                    if let Some(s) = item.as_str() {
-                        if s.contains('*') || s.contains('?') {
-                            has_wildcards = true;
-                            // Parse each pattern individually with transformations
-                            let mut values = vec![s.to_string()];
-
-                            if has_wide {
-                                values = values.iter().map(|v| Self::to_wide(v)).collect();
-                            }
-                            if has_utf16be {
-                                values = values.iter().map(|v| Self::to_utf16be(v)).collect();
-                            }
-                            if has_base64 {
-                                values = values
-                                    .iter()
-                                    .map(|v| general_purpose::STANDARD.encode(v))
-                                    .collect();
-                            }
-                            if has_base64offset {
-                                let mut all_permutations = Vec::new();
-                                for v in &values {
-                                    all_permutations.extend(Self::to_base64_permutations(v));
-                                }
-                                values = all_permutations;
-                            }
-
-                            for v in values {
-                                patterns.push(
-                                    self.parse_string_pattern_with_modifiers(
-                                        &v, modifiers, is_cased,
-                                    ),
-                                );
-                            }
+                        // If no flags specified, regex is case-sensitive by default
+                        let re_str = format!("{}{}", flags, s);
+                        if let Ok(re) = Regex::new(&re_str) {
+                            patterns.push(FieldPattern::Regex(re));
                         } else {
-                            simple_values.push(s.to_string());
+                            warn!("Invalid Regex in rule: {}", s);
                         }
-                    } else if let Some(n) = item.as_i64() {
-                        simple_values.push(n.to_string());
-                    } else if let Some(n) = item.as_f64() {
-                        simple_values.push(n.to_string());
-                    }
-                }
-
-                // If we have simple values without wildcards, create OneOf unless case-sensitive
-                if !simple_values.is_empty() && !has_wildcards {
-                    if is_cased {
-                        for val in simple_values {
-                            patterns.push(FieldPattern::Exact(val, true));
+                    } else if is_windash {
+                        // 5. Handle Windash (Converts to Regex)
+                        let windash_pattern = Self::apply_windash(s);
+                        let re_str = if is_cased {
+                            format!("^{}$", windash_pattern)
+                        } else {
+                            format!("(?i)^{}$", windash_pattern)
+                        };
+                        if let Ok(re) = Regex::new(&re_str) {
+                            patterns.push(FieldPattern::Regex(re));
+                        } else {
+                            warn!("Invalid Windash pattern: {}", s);
                         }
                     } else {
-                        patterns.push(FieldPattern::OneOf(simple_values));
+                        // 6. Standard String Matching with transformations
+                        let mut values = vec![s.clone()];
+
+                        // Apply transformations in order
+                        if has_wide {
+                            values = values.iter().map(|v| Self::to_wide(v)).collect();
+                        }
+                        if has_utf16be {
+                            values = values.iter().map(|v| Self::to_utf16be(v)).collect();
+                        }
+                        if has_base64 {
+                            values = values
+                                .iter()
+                                .map(|v| general_purpose::STANDARD.encode(v))
+                                .collect();
+                        }
+                        if has_base64offset {
+                            let mut all_permutations = Vec::new();
+                            for v in &values {
+                                all_permutations.extend(Self::to_base64_permutations(v));
+                            }
+                            values = all_permutations;
+                        }
+
+                        // Parse each transformed value as a pattern
+                        for v in values {
+                            patterns.push(
+                                self.parse_string_pattern_with_modifiers(&v, modifiers, is_cased),
+                            );
+                        }
                     }
-                } else if !simple_values.is_empty() {
-                    // Mix of wildcards and simple values - add simple ones individually
-                    for val in simple_values {
-                        patterns.push(FieldPattern::Exact(val, is_cased));
+                }
+                serde_yaml::Value::Number(n) => {
+                    if let Some(f) = n.as_f64() {
+                        if let Some(op) = numeric_op {
+                            patterns.push(FieldPattern::Numeric(f, op));
+                        } else {
+                            // Treat as exact match on string representation
+                            patterns.push(FieldPattern::Exact(n.to_string(), is_cased));
+                        }
                     }
+                }
+                serde_yaml::Value::Sequence(_) => {
+                    // Nested sequences are not expected here, ignore.
+                }
+                _ => {
+                    // Try to convert to string
+                    if let Some(s) = value.as_str() {
+                        patterns
+                            .push(self.parse_string_pattern_with_modifiers(s, modifiers, is_cased));
+                    }
+                }
+            }
+
+            Ok(())
+        };
+
+        match value {
+            serde_yaml::Value::Sequence(seq) => {
+                for item in seq {
+                    append_value_patterns(item, &mut patterns)?;
                 }
             }
             _ => {
-                // Try to convert to string
-                if let Some(s) = value.as_str() {
-                    patterns.push(self.parse_string_pattern_with_modifiers(s, modifiers, is_cased));
-                }
+                append_value_patterns(value, &mut patterns)?;
             }
         }
 
@@ -897,24 +919,50 @@ impl Engine {
     /// OPTIMIZED: Takes &NormalizedEvent directly
     fn check_selection(&self, event: &NormalizedEvent, selection: &Selection) -> bool {
         // If there are keywords, check if any keyword matches anywhere in the event
-        if !selection.keywords.is_empty() {
-            if self.check_keywords(event, &selection.keywords) {
+        if !selection.keywords.is_empty() && self.check_keywords(event, &selection.keywords) {
+            return true;
+        }
+
+        let mut has_criteria = false;
+
+        if !selection.alternative_field_criteria.is_empty() {
+            has_criteria = true;
+            if selection
+                .alternative_field_criteria
+                .iter()
+                .any(|criteria| self.check_field_criteria_group(event, criteria))
+            {
                 return true;
-            }
-            // If ONLY keywords are specified and none match, return false
-            if selection.field_criteria.is_empty() {
-                return false;
             }
         }
 
-        // Check field criteria (AND logic between fields)
-        for criterion in &selection.field_criteria {
+        if !selection.field_criteria.is_empty() {
+            has_criteria = true;
+            if self.check_field_criteria_group(event, &selection.field_criteria) {
+                return true;
+            }
+        }
+
+        if has_criteria {
+            return false;
+        }
+
+        // Empty selection should not match (safety guard)
+        false
+    }
+
+    /// Check if a group of field criteria matches (AND logic between fields)
+    fn check_field_criteria_group(
+        &self,
+        event: &NormalizedEvent,
+        criteria: &[FieldCriterion],
+    ) -> bool {
+        for criterion in criteria {
             if !self.check_field_criterion(event, criterion) {
                 return false;
             }
         }
 
-        // All field criteria matched (or there were none)
         true
     }
 
@@ -1101,10 +1149,21 @@ impl Engine {
                 val
             }
             Err(e) => {
-                warn!(
-                    "Rule logic evaluation error for condition '{}': {}",
-                    eval_friendly_condition, e
-                );
+                match self.rule_logic_error_log_level {
+                    RuleLogicErrorLogLevel::Off => {}
+                    RuleLogicErrorLogLevel::Debug => {
+                        debug!(
+                            "Rule logic evaluation error for condition '{}': {}",
+                            eval_friendly_condition, e
+                        );
+                    }
+                    RuleLogicErrorLogLevel::Warn => {
+                        warn!(
+                            "Rule logic evaluation error for condition '{}': {}",
+                            eval_friendly_condition, e
+                        );
+                    }
+                }
                 false
             }
         }
@@ -1513,6 +1572,126 @@ mod tests {
             }
             _ => panic!("Expected exact pattern"),
         }
+    }
+
+    #[test]
+    fn test_sequence_endswith_modifier_respected() {
+        let engine = Engine::new();
+        let rule_yaml = r#"
+title: EndsWithList
+logsource:
+  category: process_creation
+detection:
+  selection:
+    Image|endswith:
+      - '.exe'
+      - '.com'
+  condition: selection
+"#;
+
+        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
+        let compiled = engine.compile_rule(rule).unwrap();
+
+        let mut engine = Engine::new();
+        engine
+            .rules_by_category
+            .entry(compiled.category.clone())
+            .or_default()
+            .push(compiled);
+
+        let mut event = NormalizedEvent {
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some("C:\\Windows\\System32\\cmd.exe".to_string()),
+                original_file_name: None,
+                product: None,
+                description: None,
+                target_image: None,
+                command_line: None,
+                process_id: Some("1234".to_string()),
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                logon_id: None,
+                logon_guid: None,
+            }),
+            process_context: None,
+        };
+
+        assert!(engine.check_event(&event).is_some());
+
+        if let EventFields::ProcessCreation(ref mut fields) = event.fields {
+            fields.image = Some("C:\\Windows\\System32\\cmd.exe.bak".to_string());
+        }
+
+        assert!(engine.check_event(&event).is_none());
+    }
+
+    #[test]
+    fn test_contains_all_modifier_requires_all_tokens() {
+        let engine = Engine::new();
+        let rule_yaml = r#"
+title: ContainsAllTokens
+logsource:
+  category: process_creation
+detection:
+  selection:
+    CommandLine|contains|all:
+      - 'foo'
+      - 'bar'
+  condition: selection
+"#;
+
+        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
+        let compiled = engine.compile_rule(rule).unwrap();
+
+        let mut engine = Engine::new();
+        engine
+            .rules_by_category
+            .entry(compiled.category.clone())
+            .or_default()
+            .push(compiled);
+
+        let mut event = NormalizedEvent {
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some("C:\\Windows\\System32\\cmd.exe".to_string()),
+                command_line: Some("foo baz".to_string()),
+                process_id: Some("1234".to_string()),
+                original_file_name: None,
+                product: None,
+                description: None,
+                target_image: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                logon_id: None,
+                logon_guid: None,
+            }),
+            process_context: None,
+        };
+
+        assert!(engine.check_event(&event).is_none());
+
+        if let EventFields::ProcessCreation(ref mut fields) = event.fields {
+            fields.command_line = Some("foo bar baz".to_string());
+        }
+
+        assert!(engine.check_event(&event).is_some());
     }
 
     #[test]
