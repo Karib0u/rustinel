@@ -54,6 +54,7 @@ nav = [
     { "CLI" = "cli.md" },
     { "Architecture" = "architecture.md" },
     { "Detection" = "detection.md" },
+    { "Active Response" = "active-response.md" },
     { "Output" = "output.md" },
     { "Development" = "development.md" },
     { "Roadmap" = "roadmap.md" },
