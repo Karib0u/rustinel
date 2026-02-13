@@ -95,6 +95,7 @@ jobs:
           # Create subdirectories
           New-Item -ItemType Directory -Force -Path $pkg/rules/sigma | Out-Null
           New-Item -ItemType Directory -Force -Path $pkg/rules/yara | Out-Null
+          New-Item -ItemType Directory -Force -Path $pkg/rules/ioc | Out-Null
           New-Item -ItemType Directory -Force -Path $pkg/logs | Out-Null
 
           # Copy main files
@@ -124,6 +125,16 @@ jobs:
           } else {
             Write-Output "No YARA rules found, creating .gitkeep"
             New-Item -ItemType File -Path $pkg/rules/yara/.gitkeep -Force | Out-Null
+          }
+
+          # Copy IOC template files
+          $iocFiles = Get-ChildItem -Path "rules/ioc/*" -Include *.txt -File -ErrorAction SilentlyContinue
+          if ($iocFiles) {
+            Write-Output "Copying IOC template files..."
+            Copy-Item $iocFiles $pkg/rules/ioc/ -ErrorAction SilentlyContinue
+          } else {
+            Write-Output "No IOC files found, creating .gitkeep"
+            New-Item -ItemType File -Path $pkg/rules/ioc/.gitkeep -Force | Out-Null
           }
 
           # Create .gitkeep for logs directory
@@ -159,7 +170,8 @@ jobs:
             3. Review and customize `config.toml`
             4. Add Sigma rules to `rules/sigma/`
             5. Add YARA rules to `rules/yara/`
-            6. Run as Administrator: `.\rustinel.exe run`
+            6. Populate IOC templates in `rules/ioc/` (hashes.txt, ips.txt, domains.txt, paths_regex.txt)
+            7. Run as Administrator: `.\rustinel.exe run`
 
             ## Requirements
 
