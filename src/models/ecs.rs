@@ -607,10 +607,7 @@ fn parse_bool(value: &Option<String>) -> Option<bool> {
 
 fn basename(path: &str) -> Option<String> {
     let trimmed = path.trim_matches('"');
-    let name = trimmed
-        .rsplit(['\\', '/'])
-        .next()
-        .unwrap_or("");
+    let name = trimmed.rsplit(['\\', '/']).next().unwrap_or("");
     if name.is_empty() {
         None
     } else {
