@@ -89,7 +89,6 @@ pub enum EventFields {
     WmiEvent(WmiEventFields),
     ServiceCreation(ServiceCreationFields),
     TaskCreation(TaskCreationFields),
-    PipeEvent(PipeEventFields),
     Generic(HashMap<String, String>),
 }
 
@@ -406,26 +405,6 @@ pub struct TaskCreationFields {
     pub image: Option<String>,
 }
 
-/// Named Pipe event fields (Sigma: pipe_created, Sysmon 17/18)
-/// Used for lateral movement detection (SMB beacons, PsExec)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipeEventFields {
-    #[serde(rename = "PipeName", skip_serializing_if = "Option::is_none")]
-    pub pipe_name: Option<String>,
-
-    #[serde(rename = "ProcessId", skip_serializing_if = "Option::is_none")]
-    pub process_id: Option<String>,
-
-    #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-
-    #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-
-    #[serde(rename = "EventType", skip_serializing_if = "Option::is_none")]
-    pub event_type: Option<String>,
-}
-
 impl NormalizedEvent {
     /// Zero-allocation field accessor
     /// Returns reference to string without creating HashMap or cloning
@@ -556,14 +535,6 @@ impl NormalizedEvent {
                 "User" => f.user.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
                 "Image" => f.image.as_deref(),
-                _ => None,
-            },
-            EventFields::PipeEvent(f) => match key {
-                "PipeName" => f.pipe_name.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "Image" => f.image.as_deref(),
-                "User" => f.user.as_deref(),
-                "EventType" => f.event_type.as_deref(),
                 _ => None,
             },
             EventFields::Generic(map) => map.get(key).map(|s| s.as_str()),
@@ -853,23 +824,6 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.image {
-                    values.push(v.as_str());
-                }
-            }
-            EventFields::PipeEvent(f) => {
-                if let Some(v) = &f.pipe_name {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.process_id {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.image {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.user {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.event_type {
                     values.push(v.as_str());
                 }
             }
@@ -1172,23 +1126,6 @@ impl NormalizedEvent {
                     values.push(("Image", v.as_str()));
                 }
             }
-            EventFields::PipeEvent(f) => {
-                if let Some(v) = &f.pipe_name {
-                    values.push(("PipeName", v.as_str()));
-                }
-                if let Some(v) = &f.process_id {
-                    values.push(("ProcessId", v.as_str()));
-                }
-                if let Some(v) = &f.image {
-                    values.push(("Image", v.as_str()));
-                }
-                if let Some(v) = &f.user {
-                    values.push(("User", v.as_str()));
-                }
-                if let Some(v) = &f.event_type {
-                    values.push(("EventType", v.as_str()));
-                }
-            }
             EventFields::Generic(map) => {
                 for (key, value) in map {
                     values.push((key.as_str(), value.as_str()));
@@ -1213,7 +1150,6 @@ pub enum EventCategory {
     Wmi,
     Service,
     Task,
-    PipeEvent,
 }
 
 /// Debug verbosity for match details in alerts

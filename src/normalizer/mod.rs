@@ -87,7 +87,6 @@ impl Normalizer {
             EventCategory::Wmi => self.normalize_wmi(&parser, record),
             EventCategory::Service => self.normalize_service(&parser, record),
             EventCategory::Task => self.normalize_task(&parser, record),
-            EventCategory::PipeEvent => self.normalize_pipe(&parser, record),
         };
 
         // TRACE only: normalization misses can be frequent on noisy providers.
@@ -101,12 +100,6 @@ impl Normalizer {
         }
 
         let fields = fields?;
-
-        // Pipe events are detected inside file normalization; re-tag category for Sigma routing.
-        let mut category = category;
-        if matches!(fields, EventFields::PipeEvent(_)) {
-            category = EventCategory::PipeEvent;
-        }
 
         // Map Kernel ETW OpCode/EventID to Sysmon Event ID for Sigma rule compatibility
         let sysmon_event_id =
@@ -314,46 +307,11 @@ impl Normalizer {
     }
 
     /// Normalize file events
-    /// Also detects Named Pipe events for lateral movement detection
-    fn normalize_file(&self, parser: &Parser, record: &EventRecord) -> Option<EventFields> {
+    fn normalize_file(&self, parser: &Parser, _record: &EventRecord) -> Option<EventFields> {
         // Determine which mapping to use based on event ID (if available)
         // For now, use generic file_event mappings
         let mappings = field_maps::file_event_mappings();
-
-        // Check if this is a Named Pipe event
         let raw_target_filename = try_get_string(parser, mappings.get_etw_field("TargetFilename")?);
-
-        if let Some(ref filename) = raw_target_filename {
-            // Named Pipes have the path format: \Device\NamedPipe\<pipe_name>
-            if filename.starts_with(r"\Device\NamedPipe\") {
-                tracing::trace!("Detected Named Pipe event: {}", filename);
-
-                // Extract pipe name by removing the \Device\NamedPipe\ prefix
-                let pipe_name = filename
-                    .strip_prefix(r"\Device\NamedPipe\")
-                    .map(|s| s.to_string());
-
-                let mut pipe_fields = PipeEventFields {
-                    pipe_name,
-                    process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
-                    image: try_get_string(parser, mappings.get_etw_field("Image")?)
-                        .map(|p| convert_nt_to_dos(&p)),
-                    user: try_get_string(parser, mappings.get_etw_field("User")?),
-                    event_type: Some(format!("OpCode:{}", record.opcode())),
-                };
-
-                // Enrich with cached process data if image is missing
-                if pipe_fields.image.is_none() {
-                    let pid = record.process_id();
-                    if let Some(cached_image) = self.process_cache.get_image(pid) {
-                        pipe_fields.image = Some(convert_nt_to_dos(&cached_image));
-                        tracing::trace!("Enriched pipe event with cached image for PID={}", pid);
-                    }
-                }
-
-                return Some(EventFields::PipeEvent(pipe_fields));
-            }
-        }
 
         // Regular file event - normalize target filename path
         let fields = FileEventFields {
@@ -686,32 +644,6 @@ impl Normalizer {
         Some(EventFields::TaskCreation(fields))
     }
 
-    /// Normalize named pipe events
-    /// Detects lateral movement via SMB pipes (PsExec, Cobalt Strike beacons)
-    fn normalize_pipe(&self, parser: &Parser, record: &EventRecord) -> Option<EventFields> {
-        let mappings = field_maps::pipe_event_mappings();
-
-        let mut fields = PipeEventFields {
-            pipe_name: try_get_string(parser, mappings.get_etw_field("PipeName")?),
-            process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
-            image: try_get_string(parser, mappings.get_etw_field("Image")?)
-                .map(|p| convert_nt_to_dos(&p)),
-            user: try_get_string(parser, mappings.get_etw_field("User")?),
-            event_type: try_get_string(parser, mappings.get_etw_field("EventType")?),
-        };
-
-        // Enrich with cached process data if image is missing
-        if fields.image.is_none() {
-            let pid = record.process_id();
-            if let Some(cached_image) = self.process_cache.get_image(pid) {
-                fields.image = Some(convert_nt_to_dos(&cached_image));
-                tracing::trace!("Enriched pipe event with cached image for PID={}", pid);
-            }
-        }
-
-        Some(EventFields::PipeEvent(fields))
-    }
-
     fn resolve_user_field(&self, user: &mut Option<String>) {
         let sid = match user.as_deref() {
             Some(value) if value.starts_with("S-1-") => value.to_string(),
@@ -752,7 +684,6 @@ impl Normalizer {
             EventFields::WmiEvent(f) => f.process_id.as_deref(),
             EventFields::ServiceCreation(f) => f.process_id.as_deref(),
             EventFields::TaskCreation(f) => f.process_id.as_deref(),
-            EventFields::PipeEvent(f) => f.process_id.as_deref(),
             EventFields::RemoteThread(f) => f.source_process_id.as_deref(),
             EventFields::ProcessCreation(_) | EventFields::Generic(_) => None,
         };

@@ -84,8 +84,6 @@ Converts raw ETW events to Sigma-compatible format.
 | PowerShell Script Block | 4104 |
 | Service Creation | 7045 |
 | Task Creation | 106 |
-| Pipe Created | 17 |
-| Pipe Connected | 18 |
 
 ### State Caches
 

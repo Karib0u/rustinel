@@ -30,7 +30,8 @@ Supported categories:
 - `wmi_event`
 - `service_creation`
 - `task_creation`
-- `pipe_created`
+
+Named-pipe Sigma category `pipe_created` is intentionally unsupported. A dedicated PoC confirmed that the current ETW pipeline does not reliably emit named-pipe object names (`\\.\pipe\...` / `\Device\NamedPipe\...`) in decoded output.
 
 ### Rule Format
 
@@ -130,10 +131,6 @@ Task creation events:
 
 - `TaskName`, `TaskContent`, `UserName`
 - `Image`, `ProcessId`, `User`
-
-Named pipe events:
-
-- `PipeName`, `EventType`, `Image`, `ProcessId`, `User`
 
 ## YARA Rules
 

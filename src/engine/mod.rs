@@ -507,7 +507,6 @@ impl Engine {
                 | "wmi_event"
                 | "service_creation"
                 | "task_creation"
-                | "pipe_created"
         )
     }
 
@@ -1875,9 +1874,6 @@ impl Engine {
             }
             EventCategory::Task => {
                 categories.push("task_creation");
-            }
-            EventCategory::PipeEvent => {
-                categories.push("pipe_created");
             }
         }
 

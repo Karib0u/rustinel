@@ -287,22 +287,6 @@ pub fn task_creation_mappings() -> &'static FieldMapping {
     &TASK_CREATION_MAP
 }
 
-/// Named Pipe event field mappings (pipe_created)
-/// Maps to Sysmon Event IDs 17 (Pipe Created) and 18 (Pipe Connected)
-static PIPE_EVENT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
-    FieldMapping::new(&[
-        ("PipeName", "PipeName"),
-        ("ProcessId", "ProcessID"),
-        ("Image", "ImageName"),
-        ("User", "UserName"),
-        ("EventType", "EventType"),
-    ])
-});
-
-pub fn pipe_event_mappings() -> &'static FieldMapping {
-    &PIPE_EVENT_MAP
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

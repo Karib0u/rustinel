@@ -96,7 +96,6 @@ Rustinel produces two types of output: operational logs and security alerts.
 | WMI | api | info | edr.wmi |
 | Service | configuration | creation, change | edr.service |
 | Task | configuration | creation, change | edr.task |
-| PipeEvent | process | creation, access, info | edr.pipe |
 
 ### Process Context
 
@@ -143,9 +142,8 @@ Rustinel produces two types of output: operational logs and security alerts.
 - `edr.service.executable`, `edr.service.type`, `edr.service.start_type`, `edr.service.account_name`
 - `edr.task.name`, `edr.task.content`, `edr.task.user_name`
 
-### Pipe, PowerShell, WMI, Remote Thread
+### PowerShell, WMI, Remote Thread
 
-- `edr.pipe.name`, `edr.pipe.event_type`
 - `edr.powershell.script_block_text`, `edr.powershell.script_block_id`
 - `edr.wmi.operation`, `edr.wmi.query`, `edr.wmi.namespace`, `edr.wmi.event_type`
 - `edr.remote_thread.target_pid`, `edr.remote_thread.target_image`, `edr.remote_thread.start_address`, `edr.remote_thread.start_module`, `edr.remote_thread.start_function`

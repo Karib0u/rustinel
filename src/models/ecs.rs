@@ -344,18 +344,6 @@ pub struct EcsAlert {
     pub edr_task_user_name: Option<String>,
 
     // ========================================================================
-    // Named Pipe (Lateral Movement) Fields
-    // ========================================================================
-    #[serde(rename = "edr.pipe.name", skip_serializing_if = "Option::is_none")]
-    pub edr_pipe_name: Option<String>,
-
-    #[serde(
-        rename = "edr.pipe.event_type",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub edr_pipe_event_type: Option<String>,
-
-    // ========================================================================
     // PowerShell Fields
     // ========================================================================
     #[serde(
@@ -465,7 +453,6 @@ fn ecs_event_category(category: EventCategory) -> Vec<String> {
         EventCategory::Wmi => vec!["api".to_string()],
         EventCategory::Service => vec!["configuration".to_string()],
         EventCategory::Task => vec!["configuration".to_string()],
-        EventCategory::PipeEvent => vec!["process".to_string()],
     }
 }
 
@@ -506,11 +493,6 @@ fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16) -> Vec<Str
                 vec!["change".to_string()]
             }
         }
-        EventCategory::PipeEvent => match opcode {
-            64 => vec!["creation".to_string()],
-            65 => vec!["access".to_string()],
-            _ => vec!["info".to_string()],
-        },
     }
 }
 
@@ -551,11 +533,6 @@ fn ecs_event_action(category: EventCategory, opcode: u8, event_id: u16) -> Optio
                 "task-change"
             }
         }
-        EventCategory::PipeEvent => match opcode {
-            64 => "pipe-create",
-            65 => "pipe-connect",
-            _ => "pipe-activity",
-        },
     };
     Some(action.to_string())
 }
@@ -572,7 +549,6 @@ fn event_dataset(category: EventCategory) -> String {
         EventCategory::Wmi => "wmi",
         EventCategory::Service => "service",
         EventCategory::Task => "task",
-        EventCategory::PipeEvent => "pipe",
     };
     format!("{}.{}", EVENT_MODULE, suffix)
 }
@@ -810,8 +786,6 @@ impl From<&Alert> for EcsAlert {
             edr_task_name: None,
             edr_task_content: None,
             edr_task_user_name: None,
-            edr_pipe_name: None,
-            edr_pipe_event_type: None,
             edr_powershell_script_block_text: None,
             edr_powershell_script_block_id: None,
             edr_wmi_operation: None,
@@ -955,16 +929,6 @@ impl From<&Alert> for EcsAlert {
                 ecs.process_executable = f.image.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
                 apply_user_fields(&mut ecs, f.user.as_deref());
-            }
-            EventFields::PipeEvent(f) => {
-                ecs.edr_pipe_name = f.pipe_name.clone();
-                ecs.edr_pipe_event_type = f.event_type.clone();
-                ecs.process_executable = f.image.clone();
-                ecs.process_pid = parse_u64(&f.process_id);
-                apply_user_fields(&mut ecs, f.user.as_deref());
-                if let Some(event_type) = &f.event_type {
-                    ecs.event_action = Some(event_type.clone());
-                }
             }
             EventFields::RemoteThread(f) => {
                 ecs.process_executable = f.source_image.clone();

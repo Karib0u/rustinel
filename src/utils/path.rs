@@ -105,7 +105,7 @@ pub fn convert_nt_to_dos(nt_path: &str) -> String {
     }
 
     // No match found - return original path
-    // This can happen for network paths, named pipes, etc.
+    // This can happen for network paths and other non-disk object paths.
     debug!("No DOS mapping found for NT path: {}", nt_path);
     nt_path.to_string()
 }

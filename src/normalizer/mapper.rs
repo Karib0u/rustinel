@@ -127,16 +127,6 @@ pub fn map_to_sysmon_id(category: EventCategory, opcode: u8, raw_event_id: u16) 
             // Sigma rules typically filter on Windows Event ID 106
             106
         }
-
-        // ====================================================================
-        // Named Pipe Events (Lateral Movement Detection)
-        // ====================================================================
-        EventCategory::PipeEvent => match opcode {
-            // File operations on Named Pipes map to Sysmon Pipe Events
-            64 => 17, // Pipe Created -> Sysmon ID 17
-            65 => 18, // Pipe Connected -> Sysmon ID 18
-            _ => raw_event_id,
-        },
     }
 }
 
