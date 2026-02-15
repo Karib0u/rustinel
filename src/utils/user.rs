@@ -20,7 +20,7 @@ fn to_wide(s: &str) -> Vec<u16> {
 fn free_sid(sid: PSID) {
     if !sid.0.is_null() {
         unsafe {
-            let _ = LocalFree(HLOCAL(sid.0));
+            let _ = LocalFree(Some(HLOCAL(sid.0)));
         }
     }
 }
@@ -48,9 +48,9 @@ pub fn lookup_account_sid(sid_str: &str) -> Result<String> {
         let _ = LookupAccountSidW(
             PCWSTR::null(),
             sid,
-            PWSTR::null(),
+            Some(PWSTR::null()),
             &mut name_len,
-            PWSTR::null(),
+            Some(PWSTR::null()),
             &mut domain_len,
             &mut sid_use,
         );
@@ -68,9 +68,9 @@ pub fn lookup_account_sid(sid_str: &str) -> Result<String> {
         LookupAccountSidW(
             PCWSTR::null(),
             sid,
-            PWSTR(name_buf.as_mut_ptr()),
+            Some(PWSTR(name_buf.as_mut_ptr())),
             &mut name_len,
-            PWSTR(domain_buf.as_mut_ptr()),
+            Some(PWSTR(domain_buf.as_mut_ptr())),
             &mut domain_len,
             &mut sid_use,
         )

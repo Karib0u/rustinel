@@ -1292,7 +1292,7 @@ impl Engine {
     /// Phase 3: Evaluate the transpiled condition using evalexpr
     #[allow(dead_code)] // Kept for dedicated transpiler/evaluator unit tests.
     fn check_condition(&self, condition_str: &str, results: &HashMap<String, bool>) -> bool {
-        let mut context = HashMapContext::new();
+        let mut context = HashMapContext::<DefaultNumericTypes>::new();
 
         // Load selection results into evaluation context
         for (key, value) in results {
@@ -1351,7 +1351,7 @@ impl Engine {
             return false;
         };
 
-        let mut context = HashMapContext::new();
+        let mut context = HashMapContext::<DefaultNumericTypes>::new();
         for (key, value) in results {
             if let Err(e) = context.set_value(key.clone(), (*value).into()) {
                 warn!("Failed to set context value for '{}': {}", key, e);
