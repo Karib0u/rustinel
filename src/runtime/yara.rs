@@ -175,6 +175,7 @@ pub fn build_yara_memory_alert(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_yara_file_worker(
     detectors: Arc<DetectorStore>,
     alert_sink: AlertSink,
@@ -266,6 +267,7 @@ pub fn spawn_yara_file_worker(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_yara_memory_worker(
     detectors: Arc<DetectorStore>,
     alert_sink: AlertSink,
