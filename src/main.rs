@@ -4,48 +4,36 @@
 //! loaded via Aya. Both paths feed a shared userspace pipeline for Sigma,
 //! YARA, and IOC detection, with alerts written as ECS NDJSON.
 
-mod alerts;
-mod config;
-mod engine;
-mod ioc;
-mod memory;
-mod models;
-mod normalizer;
-mod reload;
-mod response;
-mod scanner;
-mod sensor;
-mod state;
-mod utils;
-
 // ── Platform-shared imports ───────────────────────────────────────────────────
 #[cfg(any(windows, target_os = "linux"))]
-use alerts::AlertSink;
+use rustinel::engine::{Engine, SigmaDetectionHandler};
 #[cfg(any(windows, target_os = "linux"))]
-use engine::{Engine, SigmaDetectionHandler};
+use rustinel::ioc::{HashCache, HashRequirements, IocEngine};
 #[cfg(any(windows, target_os = "linux"))]
-use ioc::{HashCache, HashRequirements, IocEngine};
+use rustinel::memory::MemoryScanConfig;
 #[cfg(any(windows, target_os = "linux"))]
-use memory::MemoryScanConfig;
-#[cfg(any(windows, target_os = "linux"))]
-use models::{
+use rustinel::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, MatchDebugLevel,
     MatchDetails, NormalizedEvent, ProcessCreationFields, YaraMatchDetails, YaraRuleMatch,
 };
 #[cfg(any(windows, target_os = "linux"))]
-use normalizer::Normalizer;
+use rustinel::normalizer::Normalizer;
 #[cfg(any(windows, target_os = "linux"))]
-use reload::DetectorStore;
+use rustinel::reload::DetectorStore;
 #[cfg(any(windows, target_os = "linux"))]
-use response::ResponseEngine;
+use rustinel::response::ResponseEngine;
 #[cfg(any(windows, target_os = "linux"))]
-use scanner::{YaraEventHandler, YaraMemoryJob};
+use rustinel::runtime::logging::{init_logging, log_startup_banner};
 #[cfg(any(windows, target_os = "linux"))]
-use sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
+use rustinel::scanner::{YaraEventHandler, YaraMemoryJob};
 #[cfg(any(windows, target_os = "linux"))]
-use state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+use rustinel::sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
 #[cfg(any(windows, target_os = "linux"))]
-use std::fs;
+use rustinel::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+#[cfg(any(windows, target_os = "linux"))]
+use rustinel::utils::{self, LogRateLimiter};
+#[cfg(any(windows, target_os = "linux"))]
+use rustinel::{config, memory, reload, scanner};
 #[cfg(any(windows, target_os = "linux"))]
 use std::path::Path;
 #[cfg(any(windows, target_os = "linux"))]
@@ -54,23 +42,17 @@ use std::sync::Arc;
 use std::time::Duration;
 #[cfg(any(windows, target_os = "linux"))]
 use tracing::{debug, error, info, warn};
-#[cfg(any(windows, target_os = "linux"))]
-use tracing_appender::rolling;
-#[cfg(any(windows, target_os = "linux"))]
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
-#[cfg(any(windows, target_os = "linux"))]
-use utils::LogRateLimiter;
 
 // ── Platform-specific imports ─────────────────────────────────────────────────
 #[cfg(windows)]
-use sensor::windows::EtwSensor;
+use rustinel::sensor::windows::EtwSensor;
 #[cfg(windows)]
 use tokio::runtime::Builder;
 #[cfg(windows)]
 use tokio::sync::{mpsc, watch};
 
 #[cfg(target_os = "linux")]
-use sensor::linux::EbpfSensor;
+use rustinel::sensor::linux::EbpfSensor;
 #[cfg(target_os = "linux")]
 use tokio::sync::mpsc;
 
@@ -83,11 +65,6 @@ const SERVICE_DESCRIPTION: &str = "High-performance endpoint detection agent";
 
 #[cfg(any(windows, target_os = "linux"))]
 const WORKER_DEBUG_LOG_WINDOW_SECS: u64 = 30;
-#[cfg(any(windows, target_os = "linux"))]
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-#[cfg(any(windows, target_os = "linux"))]
-const STARTUP_BANNER_INNER_WIDTH: usize = 49;
-
 #[derive(clap::Parser)]
 #[command(name = "rustinel")]
 #[command(version)]
@@ -360,209 +337,6 @@ fn service_main() -> anyhow::Result<()> {
     result
 }
 
-// ── Shared logging helpers ────────────────────────────────────────────────────
-
-/// Build an `EnvFilter` from the logging configuration, with fallback to `info`.
-#[cfg(any(windows, target_os = "linux"))]
-fn build_log_filter(logging: &config::LogConfig) -> EnvFilter {
-    if let Some(raw_filter) = logging.filter.as_deref() {
-        let filter = raw_filter.trim();
-        if !filter.is_empty() {
-            match EnvFilter::try_new(filter) {
-                Ok(parsed) => return parsed,
-                Err(err) => {
-                    eprintln!(
-                        "Invalid logging.filter '{}': {}. Falling back to logging.level '{}'",
-                        filter, err, logging.level
-                    );
-                }
-            }
-        }
-    }
-
-    match EnvFilter::try_new(logging.level.trim()) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            eprintln!(
-                "Invalid logging.level '{}': {}. Falling back to 'info'",
-                logging.level, err
-            );
-            EnvFilter::try_new("info").expect("hardcoded 'info' filter should always parse")
-        }
-    }
-}
-
-#[cfg(any(windows, target_os = "linux"))]
-fn log_startup_banner(runtime: &str) {
-    info!(target: "rustinel", "╔═══════════════════════════════════════════════════╗");
-    info!(
-        target: "rustinel",
-        "║ {:^width$} ║",
-        format!("Rustinel v{} ({})", APP_VERSION, runtime),
-        width = STARTUP_BANNER_INNER_WIDTH
-    );
-    info!(
-        target: "rustinel",
-        "║ {:^width$} ║",
-        "High-Performance Endpoint Detection Agent",
-        width = STARTUP_BANNER_INNER_WIDTH
-    );
-    info!(target: "rustinel", "╚═══════════════════════════════════════════════════╝");
-}
-
-/// Initialize dual-pipeline logging system.
-/// Returns WorkerGuards that MUST be kept alive for the duration of the program.
-#[cfg(windows)]
-fn init_logging(
-    cfg: &config::AppConfig,
-) -> (
-    tracing_appender::non_blocking::WorkerGuard,
-    tracing_appender::non_blocking::WorkerGuard,
-    AlertSink,
-) {
-    // 1. Operational Logs (Human Readable Text)
-    let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
-    let base_filter = build_log_filter(&cfg.logging);
-
-    let app_layer = fmt::layer()
-        .with_writer(app_writer)
-        .compact()
-        .with_ansi(false)
-        .with_target(true)
-        .with_filter(base_filter.clone());
-
-    // 2. Security Alerts (ECS NDJSON)
-    let (alert_writer, alert_guard) =
-        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename);
-    let alert_sink = AlertSink::new(alert_writer);
-
-    // 3. Console (Optional, for Dev)
-    // ANSI color codes are only rendered correctly on Windows Terminal (WT_SESSION env var is set).
-    // Fall back to plain text in other terminals (cmd.exe, PowerShell host, etc.) to avoid
-    // raw escape sequences appearing in the output.
-    let ansi_supported = std::env::var("WT_SESSION").is_ok();
-    let console_layer = if cfg.logging.console_output {
-        Some(
-            fmt::layer()
-                .compact()
-                .with_ansi(ansi_supported)
-                .with_target(false) // Hide target for cleaner output
-                .with_filter(base_filter),
-        )
-    } else {
-        None
-    };
-
-    tracing_subscriber::registry()
-        .with(app_layer)
-        .with(console_layer)
-        .init();
-
-    (app_guard, alert_guard, alert_sink)
-}
-
-#[cfg(target_os = "linux")]
-fn init_logging(
-    cfg: &config::AppConfig,
-) -> (
-    tracing_appender::non_blocking::WorkerGuard,
-    tracing_appender::non_blocking::WorkerGuard,
-    AlertSink,
-) {
-    let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
-    let base_filter = build_log_filter(&cfg.logging);
-
-    let app_layer = fmt::layer()
-        .with_writer(app_writer)
-        .compact()
-        .with_ansi(false)
-        .with_target(true)
-        .with_filter(base_filter.clone());
-
-    let (alert_writer, alert_guard) =
-        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename);
-
-    if cfg.logging.console_output {
-        let console_layer = fmt::layer()
-            .compact()
-            .with_ansi(true)
-            .with_target(true)
-            .with_filter(base_filter);
-        tracing_subscriber::registry()
-            .with(app_layer)
-            .with(console_layer)
-            .init();
-    } else {
-        tracing_subscriber::registry().with(app_layer).init();
-    }
-
-    (app_guard, alert_guard, AlertSink::new(alert_writer))
-}
-
-#[cfg(any(windows, target_os = "linux"))]
-fn build_daily_writer(
-    label: &str,
-    directory: &Path,
-    filename: &str,
-) -> (
-    tracing_appender::non_blocking::NonBlocking,
-    tracing_appender::non_blocking::WorkerGuard,
-) {
-    if let Some(writer) = try_build_daily_writer(label, directory, filename) {
-        return writer;
-    }
-
-    let fallback_directory = std::env::temp_dir().join("rustinel-logs");
-    if let Some(writer) = try_build_daily_writer(label, &fallback_directory, filename) {
-        eprintln!(
-            "Falling back to {:?} for {} logs",
-            fallback_directory, label
-        );
-        return writer;
-    }
-
-    eprintln!(
-        "Unable to initialize {} file logging; using a sink writer instead",
-        label
-    );
-    tracing_appender::non_blocking(std::io::sink())
-}
-
-#[cfg(any(windows, target_os = "linux"))]
-fn try_build_daily_writer(
-    label: &str,
-    directory: &Path,
-    filename: &str,
-) -> Option<(
-    tracing_appender::non_blocking::NonBlocking,
-    tracing_appender::non_blocking::WorkerGuard,
-)> {
-    if let Err(err) = fs::create_dir_all(directory) {
-        eprintln!(
-            "Unable to create {} log directory {:?}: {}",
-            label, directory, err
-        );
-        return None;
-    }
-
-    match rolling::RollingFileAppender::builder()
-        .rotation(rolling::Rotation::DAILY)
-        .filename_prefix(filename)
-        .build(directory)
-    {
-        Ok(appender) => Some(tracing_appender::non_blocking(appender)),
-        Err(err) => {
-            eprintln!(
-                "Unable to initialize {} rolling log appender in {:?}: {}",
-                label, directory, err
-            );
-            None
-        }
-    }
-}
-
 // ── Shared YARA helpers ───────────────────────────────────────────────────────
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -733,7 +507,7 @@ fn build_yara_memory_alert(
 // Native API FFI structures for NtQuerySystemInformation
 #[cfg(windows)]
 mod native_snapshot {
-    use crate::utils::query_process_command_line_from_handle;
+    use rustinel::utils::query_process_command_line_from_handle;
     use windows::Win32::Foundation::{CloseHandle, UNICODE_STRING};
     use windows::Win32::System::ProcessStatus::K32GetProcessImageFileNameW;
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
@@ -898,7 +672,7 @@ mod native_snapshot {
 /// This provides accurate CreateTime values that match ETW events
 #[cfg(windows)]
 fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
-    use utils::{convert_nt_to_dos, parse_metadata};
+    use rustinel::utils::{convert_nt_to_dos, parse_metadata};
 
     let processes = native_snapshot::query_system_processes()
         .map_err(|e| anyhow::anyhow!("Failed to query system processes: {}", e))?;

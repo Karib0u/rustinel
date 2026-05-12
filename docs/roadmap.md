@@ -23,16 +23,18 @@ It is not a strict release commitment.
 
 ## Detection
 
-### YARA memory scanning
+### YARA memory scanning enhancements
 
-YARA memory scanning is planned to improve detection of:
+YARA memory scanning is available as an optional detector for process memory.
+Future work is focused on improving coverage and operator control:
 
-- Packed payloads
-- Obfuscated payloads
-- Runtime-unpacked malware
-- Payloads that are more visible in memory than on disk
+- Periodic process sweeps independent of process creation events
+- Better memory-region selection
+- Optional executable-only private-region scanning
+- Richer memory match metadata in alerts
 
-This is intended to complement process creation scanning and behavioral detection.
+Memory scanning remains privilege-dependent and platform behavior differs between
+Windows process-memory APIs and Linux `/proc/<pid>/mem` access.
 
 ### More Sigma examples
 

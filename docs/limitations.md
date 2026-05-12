@@ -28,7 +28,7 @@ Kernel-level threats, vulnerable driver abuse, and direct telemetry tampering ma
 
 Payloads that exist only in memory can be harder to detect if they do not create useful telemetry or leave a file that can be scanned.
 
-YARA memory scanning is planned to improve coverage against packed, obfuscated, and runtime-unpacked payloads.
+YARA memory scanning is available but optional and privilege-dependent. It can improve coverage against packed, obfuscated, and runtime-unpacked payloads, but access to another process's memory may be blocked by operating-system policy, process protection, sandboxing, or missing privileges.
 
 ### Living-off-the-land activity
 
@@ -70,7 +70,7 @@ It should not be presented as a full commercial EDR replacement today.
 
 Areas planned for improvement include:
 
-- YARA memory scanning
+- Scheduled YARA memory sweeps and richer memory match metadata
 - Expanded telemetry coverage
 - More detection examples
 - More deployment hardening options
