@@ -55,7 +55,6 @@ impl RuleLogicErrorLogLevel {
 }
 
 /// Compiled selection with field criteria and keywords
-
 impl Engine {
     pub(crate) fn transpile_sigma_condition(
         &self,
