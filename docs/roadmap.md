@@ -8,7 +8,7 @@ It is not a strict release commitment.
 
 ### Linux
 
-- **DNS domain name extraction** — `QueryName` is currently absent from Linux DNS events because BPF verifier complexity prevents in-kernel string parsing of DNS payloads. The plan is to move extraction to a userspace eBPF ring-buffer consumer or a `perf_event` uprobe on resolver libraries.
+- **DNS response enrichment** — Linux DNS query names are extracted in userspace from raw eBPF payload events. Future work should parse DNS responses for `QueryResults` and DNS answer-to-network correlation.
 - **Expanded file telemetry** — cover `chmod`, `chown`, `truncate`, and `link` syscalls to close gaps in file-integrity coverage.
 - **Container context** — enrich process events with cgroup, namespace, and container runtime metadata so rules can scope to specific workloads.
 

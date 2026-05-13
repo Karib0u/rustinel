@@ -106,7 +106,7 @@ The Linux sensor loads eBPF programs with Aya and currently covers:
 - Process execution and exit
 - Network connect activity
 - File create, delete, change, and rename flows
-- DNS queries observed from userspace sends; `QueryName` is not extracted in the eBPF program due to BPF verifier complexity limits, so Linux DNS events currently preserve `record_type` and process context but may not have the query name
+- DNS queries observed from userspace sends. The eBPF program emits a bounded raw DNS payload and userspace parses `QueryName`, keeping string parsing out of the verifier-sensitive in-kernel path. Linux DNS response answers are not parsed yet, so `QueryResults` remains unavailable on Linux.
 
 The current loader attaches a mix of tracepoints and kprobes, including:
 

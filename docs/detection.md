@@ -60,14 +60,14 @@ DNS field availability differs by platform:
 
 | Field | Windows ETW | Linux eBPF |
 | --- | --- | --- |
-| `QueryName` | Yes | No |
+| `QueryName` | Yes | Yes |
 | `QueryResults` | Yes | No |
 | `QueryStatus` | Yes | No |
 | `RecordType` | Yes | Yes |
 | `Image` | Yes | Yes |
 | `ProcessId` | Yes | Yes |
 
-On Linux, the current eBPF DNS path does not extract `QueryName` or `QueryResults`, so generic DNS rules that depend on domain names or resolved answers are much more effective on Windows today.
+On Linux, `QueryName` is extracted in userspace from the bounded raw DNS payload emitted by the eBPF `sendto` path. This covers outbound plaintext DNS queries observed on port 53. It does not cover DNS-over-HTTPS, DNS-over-TLS, cached resolver answers that do not send a packet, or DNS response answers. `QueryResults` and `QueryStatus` remain Windows-only today.
 
 After a Sigma hit, Rustinel enriches non-process alerts with `process_context` from the process cache when that context is available.
 
@@ -171,7 +171,7 @@ The IOC engine hot reloads indicator files and splits work between inline event 
 - Hash results are cached by file identity with a 10,000-entry cap and a 6-hour TTL.
 - Inline IOC matching can emit multiple alerts from a single event.
 
-Windows currently has much better IOC coverage for domains and DNS-answer IPs because its DNS events carry `QueryName` and `QueryResults`. Linux eBPF DNS events do not currently populate those fields.
+Domain IOC matching works on both Windows DNS events and Linux outbound DNS query events through `QueryName`. IOC matching on DNS answer IPs still depends on `QueryResults`, so it is effectively Windows-only today.
 
 ### IOC File Format
 

@@ -163,13 +163,22 @@ See [Detection](detection.md).
 
 ### Why are my Linux DNS or domain-based detections not matching?
 
-Because Linux DNS coverage is currently more limited than Windows.
+Linux DNS coverage is still narrower than Windows, but outbound query names are supported.
 
-The current eBPF DNS path preserves `record_type`, `Image`, and `ProcessId`, but it does not currently populate `QueryName` or `QueryResults`. That means:
+The eBPF DNS path observes userspace `sendto` calls for plaintext DNS traffic and parses the queried domain name in userspace. Linux DNS events can populate:
 
-- Sigma DNS rules that depend on the queried domain name are much more effective on Windows
-- IOC domain matching is also much stronger on Windows today
+- `QueryName`
+- `RecordType`
+- `Image`
+- `ProcessId`
+
+Linux DNS events do not currently populate `QueryResults` or `QueryStatus`. That means:
+
+- Sigma DNS rules that depend on `QueryName` can match on Linux
+- IOC domain matching from DNS `QueryName` works on Linux
 - IOC IP matching from DNS answers is effectively Windows-only right now
+
+Linux DNS query-name extraction covers outbound plaintext DNS queries observed on port 53. It does not cover DNS-over-HTTPS, DNS-over-TLS, cached resolver answers that do not send a packet, or response-answer parsing.
 
 See [Detection](detection.md).
 

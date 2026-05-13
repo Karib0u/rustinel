@@ -54,11 +54,6 @@ struct SockAddrIn6 {
 #[map]
 pub static DNS_RING: RingBuf = RingBuf::with_byte_size(256 * 1024, 0);
 
-/// Per-CPU buffer: receives the raw DNS packet bytes in a single probe read.
-#[map]
-static DNS_PAYLOAD_BUF: PerCpuArray<[u8; MAX_DNS_PAYLOAD]> =
-    PerCpuArray::with_max_entries(1, 0);
-
 /// Per-CPU buffer: staging area for the outgoing `DnsEvent`.
 #[map]
 static DNS_SCRATCH: PerCpuArray<DnsEvent> = PerCpuArray::with_max_entries(1, 0);
@@ -86,13 +81,14 @@ unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
 
     // ── Stage 1: one probe read ──────────────────────────────────────────────
 
-    let payload_buf = match DNS_PAYLOAD_BUF.get_ptr_mut(0) {
+    let scratch = match DNS_SCRATCH.get_ptr_mut(0) {
         Some(p) => p,
         None => return Ok(0),
     };
     let read_len = len.min(MAX_DNS_PAYLOAD);
+    (*scratch).payload = [0u8; MAX_DNS_PAYLOAD];
     let ret = aya_ebpf::helpers::gen::bpf_probe_read_user(
-        (*payload_buf).as_mut_ptr() as *mut core::ffi::c_void,
+        (*scratch).payload.as_mut_ptr() as *mut core::ffi::c_void,
         read_len as u32,
         buf_ptr as *const core::ffi::c_void,
     );
@@ -102,14 +98,9 @@ unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
 
     // ── Stage 2: parse (kernel memory only) ─────────────────────────────────
 
-    let scratch = match DNS_SCRATCH.get_ptr_mut(0) {
-        Some(p) => p,
-        None => return Ok(0),
-    };
-
     // Validate DNS header: must be a query (QR=0) with at least one question.
-    let flags = (((*payload_buf)[2] as u16) << 8) | ((*payload_buf)[3] as u16);
-    let qdcount = (((*payload_buf)[4] as u16) << 8) | ((*payload_buf)[5] as u16);
+    let flags = (((*scratch).payload[2] as u16) << 8) | ((*scratch).payload[3] as u16);
+    let qdcount = (((*scratch).payload[4] as u16) << 8) | ((*scratch).payload[5] as u16);
     if flags & 0x8000 != 0 || qdcount == 0 {
         return Ok(0);
     }
@@ -124,7 +115,7 @@ unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
         if pos >= read_len {
             return Ok(0);
         }
-        let b = (*payload_buf)[pos & (MAX_DNS_PAYLOAD - 1)];
+        let b = (*scratch).payload[pos & (MAX_DNS_PAYLOAD - 1)];
         if b == 0 {
             // Found end of name.
             break;
@@ -136,13 +127,15 @@ unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
     if pos + 3 > read_len {
         return Ok(0);
     }
-    let qtype = (((*payload_buf)[(pos + 1) & (MAX_DNS_PAYLOAD - 1)] as u16) << 8)
-        | ((*payload_buf)[(pos + 2) & (MAX_DNS_PAYLOAD - 1)] as u16);
+    let qtype = (((*scratch).payload[(pos + 1) & (MAX_DNS_PAYLOAD - 1)] as u16) << 8)
+        | ((*scratch).payload[(pos + 2) & (MAX_DNS_PAYLOAD - 1)] as u16);
 
     (*scratch).kind = DNS_EVENT_QUERY;
     (*scratch).pid = pid;
     (*scratch).uid = uid;
     (*scratch).fd = fd;
+    (*scratch).payload_len = read_len as u16;
+    (*scratch)._pad0 = 0;
     (*scratch).query_name = [0u8; 96];
     (*scratch).query_results = [0u8; 96];
     (*scratch).record_type = [0u8; 16];

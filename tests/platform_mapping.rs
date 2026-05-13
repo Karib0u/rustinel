@@ -88,9 +88,12 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         pid: 42,
         uid: 1000,
         fd: 3,
+        payload_len: 0,
+        _pad0: 0,
         query_name: [0; 96],
         query_results: [0; 96],
         record_type: [0; 16],
+        payload: [0; 256],
     };
     write_cstr(&mut dns.query_name, "example.test");
     write_cstr(&mut dns.query_results, "198.51.100.10");

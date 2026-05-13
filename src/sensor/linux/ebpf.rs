@@ -49,6 +49,9 @@ const EVENT_ID_DNS_QUERY: u16 = 22;
 
 const PROCESS_EVENT_EXEC: u32 = 1;
 const PROCESS_EVENT_EXIT: u32 = 2;
+const DNS_HEADER_LEN: usize = 12;
+const DNS_LABEL_POINTER_MASK: u8 = 0xc0;
+const DNS_LABEL_MAX_LEN: usize = 63;
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
@@ -532,6 +535,15 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
         return None;
     }
 
+    let query_name = parse_dns_query_name(ev).or_else(|| {
+        let value = bytes_to_string(&ev.query_name);
+        (!value.is_empty()).then_some(value)
+    });
+    let query_results = {
+        let value = bytes_to_string(&ev.query_results);
+        (!value.is_empty()).then_some(value)
+    };
+
     Some(SensorEvent {
         platform: Platform::Linux,
         provider: "ebpf",
@@ -544,16 +556,57 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
         timestamp: SystemTime::now(),
         process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
-            // Domain name is not extracted in eBPF (verifier complexity limit).
-            // Enrich in userspace via /proc/<pid>/net/ or application tracing.
-            query_name: None,
-            query_results: None,
+            query_name,
+            query_results,
             record_type: Some(record_type),
             query_status: None,
             process_id: Some(ev.pid.to_string()),
             image: None,
         }),
     })
+}
+
+fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
+    let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
+    let payload = ev.payload.get(..payload_len)?;
+    if payload.len() < DNS_HEADER_LEN {
+        return None;
+    }
+
+    let flags = u16::from_be_bytes([payload[2], payload[3]]);
+    let qdcount = u16::from_be_bytes([payload[4], payload[5]]);
+    if flags & 0x8000 != 0 || qdcount == 0 {
+        return None;
+    }
+
+    let mut pos = DNS_HEADER_LEN;
+    let mut labels: Vec<String> = Vec::new();
+    while pos < payload.len() {
+        let label_len = payload[pos];
+        pos += 1;
+
+        if label_len == 0 {
+            return if labels.is_empty() {
+                Some(".".to_string())
+            } else {
+                Some(labels.join("."))
+            };
+        }
+
+        if label_len & DNS_LABEL_POINTER_MASK != 0 {
+            return None;
+        }
+
+        let label_len = usize::from(label_len);
+        if label_len > DNS_LABEL_MAX_LEN || pos + label_len > payload.len() {
+            return None;
+        }
+
+        labels.push(String::from_utf8_lossy(&payload[pos..pos + label_len]).into_owned());
+        pos += label_len;
+    }
+
+    None
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -625,7 +678,13 @@ fn attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::IocConfig;
+    use crate::engine::Engine;
+    use crate::ioc::{IocEngine, IocKind};
     use crate::models::EventFields;
+    use crate::normalizer::Normalizer;
+    use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+    use std::sync::Arc;
 
     fn fixed<const N: usize>(value: &str) -> [u8; N] {
         let mut buf = [0u8; N];
@@ -633,6 +692,70 @@ mod tests {
         let len = bytes.len().min(N.saturating_sub(1));
         buf[..len].copy_from_slice(&bytes[..len]);
         buf
+    }
+
+    fn dns_query_payload(name: &str, qtype: u16) -> ([u8; 256], u16) {
+        let mut payload = [0u8; 256];
+        payload[4] = 0;
+        payload[5] = 1;
+
+        let mut pos = DNS_HEADER_LEN;
+        for label in name.split('.') {
+            let bytes = label.as_bytes();
+            payload[pos] = bytes.len() as u8;
+            pos += 1;
+            payload[pos..pos + bytes.len()].copy_from_slice(bytes);
+            pos += bytes.len();
+        }
+        payload[pos] = 0;
+        pos += 1;
+        payload[pos..pos + 2].copy_from_slice(&qtype.to_be_bytes());
+        pos += 2;
+        payload[pos..pos + 2].copy_from_slice(&1u16.to_be_bytes());
+        pos += 2;
+
+        (payload, pos as u16)
+    }
+
+    fn raw_dns_query(name: &str, record_type: &str) -> DnsEvent {
+        let qtype = match record_type {
+            "AAAA" => 28,
+            "CNAME" => 5,
+            "PTR" => 12,
+            "TXT" => 16,
+            _ => 1,
+        };
+        let (payload, payload_len) = dns_query_payload(name, qtype);
+        DnsEvent {
+            kind: 1,
+            pid: 4242,
+            uid: 1000,
+            fd: 5,
+            payload_len,
+            _pad0: 0,
+            query_name: [0u8; 96],
+            query_results: [0u8; 96],
+            record_type: fixed(record_type),
+            payload,
+        }
+    }
+
+    fn test_normalizer() -> Normalizer {
+        Normalizer::new(
+            Arc::new(ProcessCache::new()),
+            Arc::new(SidCache::new()),
+            Arc::new(DnsCache::new()),
+            Arc::new(ConnectionAggregator::new()),
+            false,
+        )
+    }
+
+    fn normalized_raw_dns_query(name: &str) -> crate::models::NormalizedEvent {
+        let raw = raw_dns_query(name, "A");
+        let event = build_dns_event(&raw).expect("raw dns event should build");
+        test_normalizer()
+            .normalize(&event)
+            .expect("raw dns event should normalize")
     }
 
     #[test]
@@ -870,16 +993,18 @@ mod tests {
 
     #[test]
     fn build_dns_event_maps_linux_dns_payload() {
+        let (payload, payload_len) = dns_query_payload("example.test", 1);
         let raw = DnsEvent {
             kind: 1,
             pid: 4242,
             uid: 1000,
             fd: 5,
-            // query_name is zeroed — name extraction was moved out of eBPF to
-            // avoid the BPF verifier complexity limit.
+            payload_len,
+            _pad0: 0,
             query_name: [0u8; 96],
             query_results: [0u8; 96],
             record_type: fixed("A"),
+            payload,
         };
 
         let event = build_dns_event(&raw).expect("dns event should build");
@@ -888,12 +1013,128 @@ mod tests {
 
         match event.payload {
             SensorPayload::Dns(fields) => {
-                assert_eq!(fields.query_name, None);
+                assert_eq!(fields.query_name.as_deref(), Some("example.test"));
                 assert_eq!(fields.query_results, None);
                 assert_eq!(fields.record_type.as_deref(), Some("A"));
             }
             other => panic!("unexpected payload: {:?}", other),
         }
+    }
+
+    #[test]
+    fn build_dns_event_falls_back_to_query_name_field() {
+        let raw = DnsEvent {
+            kind: 1,
+            pid: 4242,
+            uid: 1000,
+            fd: 5,
+            payload_len: 0,
+            _pad0: 0,
+            query_name: fixed("fallback.test"),
+            query_results: [0u8; 96],
+            record_type: fixed("AAAA"),
+            payload: [0u8; 256],
+        };
+
+        let event = build_dns_event(&raw).expect("dns event should build");
+
+        match event.payload {
+            SensorPayload::Dns(fields) => {
+                assert_eq!(fields.query_name.as_deref(), Some("fallback.test"));
+                assert_eq!(fields.record_type.as_deref(), Some("AAAA"));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_dns_query_name_rejects_truncated_payload() {
+        let (payload, payload_len) = dns_query_payload("example.test", 1);
+        let raw = DnsEvent {
+            kind: 1,
+            pid: 4242,
+            uid: 1000,
+            fd: 5,
+            payload_len: payload_len.min((DNS_HEADER_LEN + 4) as u16),
+            _pad0: 0,
+            query_name: [0u8; 96],
+            query_results: [0u8; 96],
+            record_type: fixed("A"),
+            payload,
+        };
+
+        assert_eq!(parse_dns_query_name(&raw), None);
+    }
+
+    #[test]
+    fn raw_dns_payload_query_name_matches_real_sigma_dns_rule() {
+        let tempdir = tempfile::tempdir().expect("create sigma tempdir");
+        let rules_dir = tempdir.path().join("sigma");
+        std::fs::create_dir_all(&rules_dir).expect("create sigma rules dir");
+        std::fs::write(
+            rules_dir.join("dns.yml"),
+            r#"title: Raw Linux DNS QueryName
+logsource:
+  product: linux
+  category: dns_query
+detection:
+  selection:
+    QueryName|endswith: ".example.test"
+    RecordType: "A"
+  condition: selection
+level: high
+"#,
+        )
+        .expect("write sigma rule");
+
+        let mut engine = Engine::new_for_platform(Platform::Linux);
+        engine.load_rules(&rules_dir).expect("load sigma rule");
+        assert_eq!(engine.stats().failed_rules, Vec::<(String, String)>::new());
+
+        let event = normalized_raw_dns_query("sub.example.test");
+        assert_eq!(event.get_field("QueryName"), Some("sub.example.test"));
+        assert_eq!(event.get_field("query"), Some("sub.example.test"));
+        assert_eq!(event.get_field("RecordType"), Some("A"));
+
+        let alert = engine
+            .check_event(&event)
+            .expect("dns Sigma rule should match raw eBPF QueryName");
+        assert_eq!(alert.rule_name, "Raw Linux DNS QueryName");
+    }
+
+    #[test]
+    fn raw_dns_payload_query_name_matches_domain_ioc() {
+        let tempdir = tempfile::tempdir().expect("create ioc tempdir");
+        let root = tempdir.path().join("ioc");
+        std::fs::create_dir_all(&root).expect("create ioc dir");
+        let hashes_path = root.join("hashes.txt");
+        let ips_path = root.join("ips.txt");
+        let domains_path = root.join("domains.txt");
+        let paths_regex_path = root.join("paths_regex.txt");
+        std::fs::write(&hashes_path, "").expect("write hashes");
+        std::fs::write(&ips_path, "").expect("write ips");
+        std::fs::write(&domains_path, ".example.test; raw dns suffix").expect("write domains");
+        std::fs::write(&paths_regex_path, "").expect("write path regexes");
+
+        let engine = IocEngine::load(&IocConfig {
+            enabled: true,
+            hashes_path,
+            ips_path,
+            domains_path,
+            paths_regex_path,
+            default_severity: "high".to_string(),
+            max_file_size_mb: 16,
+            hash_allowlist_paths: Vec::new(),
+        });
+        let event = normalized_raw_dns_query("sub.example.test");
+
+        let matches = engine.check_event(&event);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, IocKind::Domain);
+        assert_eq!(matches[0].observed, "sub.example.test");
+
+        let alert = engine.build_alert_for_match(&matches[0], &event);
+        assert_eq!(alert.rule_name, "ioc:domain:.example.test");
     }
 
     #[test]
@@ -903,9 +1144,12 @@ mod tests {
             pid: 1,
             uid: 0,
             fd: 3,
+            payload_len: 0,
+            _pad0: 0,
             query_name: [0u8; 96],
             query_results: [0u8; 96],
             record_type: [0u8; 16],
+            payload: [0u8; 256],
         };
         assert!(build_dns_event(&raw).is_none());
     }

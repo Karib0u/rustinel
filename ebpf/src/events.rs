@@ -97,10 +97,15 @@ pub struct DnsEvent {
     pub uid: u32,
     /// Socket file descriptor.
     pub fd: i32,
+    /// Number of valid bytes in `payload`.
+    pub payload_len: u16,
+    pub _pad0: u16,
     /// Null-terminated DNS query name (up to 95 chars).
     pub query_name: [u8; 96],
     /// Null-terminated DNS answer/result summary (up to 95 chars).
     pub query_results: [u8; 96],
     /// Null-terminated query type string (up to 15 chars).
     pub record_type: [u8; 16],
+    /// Raw DNS payload copied from userspace for userspace parsing.
+    pub payload: [u8; 256],
 }

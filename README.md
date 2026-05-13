@@ -106,7 +106,7 @@ Examples include:
 - Service creation
 - Scheduled task creation
 - Suspicious process execution
-- Linux process and network activity
+- Linux process, network, file, and DNS query activity
 
 Sigma support makes Rustinel practical for detection engineers because existing community rules can be reused and adapted instead of being rewritten into a proprietary format.
 
@@ -127,7 +127,7 @@ IOC matching provides fast deterministic checks against:
 - Domains
 - Path regexes
 
-IOC matching is useful for threat intelligence and incident response, but it is strongest when combined with behavioral detections and YARA scanning.
+IOC matching is useful for threat intelligence and incident response, but it is strongest when combined with behavioral detections and YARA scanning. Domain IOCs can match DNS `QueryName` on both Windows and Linux; Linux support covers outbound plaintext DNS queries observed by eBPF.
 
 ---
 
@@ -138,7 +138,7 @@ IOC matching is useful for threat intelligence and incident response, but it is 
 | Windows 10/11, Server 2016+ | ETW | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task | Foreground run or built-in Windows service commands |
 | Linux 5.8+ with BTF | eBPF | Process, network, file, DNS | Foreground run under root or your supervisor of choice |
 
-Windows telemetry coverage is broader today. Linux support currently focuses on process, network, file, and DNS telemetry through eBPF.
+Windows telemetry coverage is broader today. Linux support currently focuses on process, network, file, and DNS telemetry through eBPF. Linux DNS events include outbound plaintext DNS `QueryName`; DNS response answers (`QueryResults`) are not parsed yet.
 
 ---
 

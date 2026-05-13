@@ -133,26 +133,35 @@ The most common reasons are:
 Examples:
 
 - registry, image load, PowerShell, WMI, service, and task detections are Windows-only today
-- Linux DNS events currently do not populate `QueryName` or `QueryResults`
+- Linux DNS events populate `QueryName` for outbound plaintext DNS queries, but not `QueryResults`
 - repeated network connections may be suppressed when aggregation is enabled
 
 ### Linux DNS or IOC domain rules do not match
 
-This is a current platform limitation, not just a rule problem.
+Linux DNS query-name extraction is available, but it has narrower coverage than Windows DNS ETW.
 
-Linux eBPF DNS events currently preserve `record_type`, `Image`, and `ProcessId`, but they do not currently populate:
+Linux eBPF DNS events can populate:
 
 - `QueryName`
+- `RecordType`
+- `Image`
+- `ProcessId`
+
+Linux eBPF DNS events do not currently populate:
+
 - `QueryResults`
 - `QueryStatus`
 
-That means:
+If a DNS or domain IOC rule does not match, check these first:
 
-- Sigma DNS rules that depend on the queried domain name are much stronger on Windows
-- IOC domain matching is much stronger on Windows
-- IOC IP matching from DNS answers is effectively Windows-only right now
+- the lookup must send plaintext DNS on port 53; DNS-over-HTTPS and DNS-over-TLS are not visible to the DNS parser
+- cached resolver answers may not send a DNS packet
+- the rule should match `QueryName` or the generic `query` alias, not `QueryResults`
+- DNS answer IP IOC matching requires `QueryResults`, so it is effectively Windows-only today
 
-See [Detection](detection.md) and [Roadmap](roadmap.md).
+Sigma DNS rules that depend on queried domain names and IOC domain matching can work on Linux when the query is visible to the eBPF `sendto` path.
+
+See [Detection](detection.md).
 
 ### YARA did not scan the process I expected
 

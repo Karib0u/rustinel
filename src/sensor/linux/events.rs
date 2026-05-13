@@ -69,9 +69,12 @@ pub struct DnsEvent {
     pub pid: u32,
     pub uid: u32,
     pub fd: i32,
+    pub payload_len: u16,
+    pub _pad0: u16,
     pub query_name: [u8; 96],
     pub query_results: [u8; 96],
     pub record_type: [u8; 16],
+    pub payload: [u8; 256],
 }
 
 // ── Size assertions ──────────────────────────────────────────────────────────
@@ -90,7 +93,7 @@ const _: () = assert!(
     "FileEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
-    core::mem::size_of::<DnsEvent>() == 224,
+    core::mem::size_of::<DnsEvent>() == 484,
     "DnsEvent layout changed — update ebpf/src/events.rs to match"
 );
 
