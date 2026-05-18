@@ -3,7 +3,7 @@
 //! Handles compiling rules, listening for process events, and scanning files.
 
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
@@ -224,26 +224,33 @@ impl Scanner {
         let mut files_found = 0;
         let mut files_compiled = 0;
 
-        info!("Loading YARA rules from: {:?}", rules_dir);
+        info!("Loading YARA rules from: {:?} (recursive)", rules_dir);
 
         if rules_dir.exists() && rules_dir.is_dir() {
-            for entry in fs::read_dir(rules_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if let Some(ext) = path.extension() {
-                    if ext == "yar" || ext == "yara" {
-                        files_found += 1;
-                        debug!("Found YARA rule file: {:?}", path);
-                        let src = fs::read_to_string(&path)
-                            .with_context(|| format!("Failed to read {:?}", path))?;
+            let mut queue = VecDeque::from([rules_dir.to_path_buf()]);
+            while let Some(dir) = queue.pop_front() {
+                for entry in fs::read_dir(&dir)? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.is_dir() {
+                        queue.push_back(path);
+                        continue;
+                    }
+                    if let Some(ext) = path.extension() {
+                        if ext == "yar" || ext == "yara" {
+                            files_found += 1;
+                            debug!("Found YARA rule file: {:?}", path);
+                            let src = fs::read_to_string(&path)
+                                .with_context(|| format!("Failed to read {:?}", path))?;
 
-                        match compiler.add_source(src.as_str()) {
-                            Ok(_) => {
-                                files_compiled += 1;
-                                debug!("✓ Compiled YARA rule: {:?}", path);
-                            }
-                            Err(e) => {
-                                warn!("✗ Failed to compile {:?}: {}", path, e);
+                            match compiler.add_source(src.as_str()) {
+                                Ok(_) => {
+                                    files_compiled += 1;
+                                    debug!("✓ Compiled YARA rule: {:?}", path);
+                                }
+                                Err(e) => {
+                                    warn!("✗ Failed to compile {:?}: {}", path, e);
+                                }
                             }
                         }
                     }

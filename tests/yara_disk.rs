@@ -103,6 +103,25 @@ fn build_yara_alert(
 }
 
 #[test]
+fn yara_disk_scanner_loads_rules_from_subdirectories() {
+    let fixture = YaraFixture::new();
+    fixture.write_rule("subdir/nested.yar", "NestedSubdirRule", TEST_YARA_MARKER);
+    let scanner = Scanner::new(fixture.rules_dir()).expect("Scanner::new failed");
+    assert_eq!(
+        scanner.compiled_files(),
+        1,
+        "expected rule from subdirectory to be compiled"
+    );
+
+    let marker_sample = fixture.write_marker_sample();
+    let matches = scanner
+        .scan_file(&marker_sample.to_string_lossy(), MatchDebugLevel::Off)
+        .expect("scan failed");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].rule, "NestedSubdirRule");
+}
+
+#[test]
 fn yara_disk_scan_matches_marker_and_rejects_clean_temp_file() {
     let fixture = YaraFixture::new();
     let scanner = load_scanner(&fixture);

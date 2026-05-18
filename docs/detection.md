@@ -118,8 +118,7 @@ YARA scanning is shared across both supported platforms.
 
 ### Behavior
 
-- Rules compile from top-level `.yar` and `.yara` files in `scanner.yara_rules_path`.
-- Rule loading is not recursive.
+- Rules compile recursively from `.yar` and `.yara` files in `scanner.yara_rules_path` and all subdirectories.
 - Only process-start events queue YARA scans.
 - On Windows, raw ETW paths are normalized before scanning so the worker can open the file.
 - Trusted path prefixes are skipped before queueing and checked again in the worker.

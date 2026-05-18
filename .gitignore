@@ -42,3 +42,7 @@ tests/**/*
 
 .codex
 *.zip
+
+rules-bench/
+*.pyc
+__pycache__/
