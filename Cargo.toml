@@ -52,7 +52,7 @@ clap = { version = "4.4", features = ["derive"] }
 arc-swap = "1.7"
 
 # Configuration
-config = "0.15.19"
+config = "0.15.23"
 
 # Linux-specific
 [target.'cfg(target_os = "linux")'.dependencies]
