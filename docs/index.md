@@ -16,6 +16,7 @@ Rustinel is designed for blue teams, detection engineers, researchers, and anyon
 - [Configuration](configuration.md) — configure telemetry, rules, alerts, and response
 - [Detection](detection.md) — understand Sigma, YARA, and IOC matching
 - [Architecture](architecture.md) — understand how Rustinel works internally
+- [Benchmarking](benchmarking.md) — collect repeatable performance and latency evidence
 - [Troubleshooting](troubleshooting.md) — fix common issues
 
 ## Project background
