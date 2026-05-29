@@ -38,6 +38,8 @@ const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
 
 /// Sysmon-compatible event ID emitted for process-create events.
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
+/// Sysmon-compatible event ID emitted for process-terminate events.
+const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
 
 /// Endpoint Security event subscriptions for the macOS sensor.
 const SUBSCRIPTIONS: &[es_event_type_t] = &[
@@ -151,6 +153,7 @@ fn run_client(
 fn build_sensor_event(msg: &Message) -> Option<SensorEvent> {
     match msg.event()? {
         Event::NotifyExec(exec) => build_exec_event(msg, &exec),
+        Event::NotifyExit(_) => build_exit_event(msg),
         _ => None,
     }
 }
@@ -249,6 +252,52 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
     }
 }
 
+/// Extract the exiting process from an ESF exit event.
+///
+/// ESF reports the exiting process as the message's acting process; the exit
+/// status is not carried in the shared payload (matching the Linux sensor).
+fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
+    let token = msg.process().audit_token();
+    Some(process_stop_event(
+        token.pid() as u32,
+        resolved_user(token.ruid()),
+        msg.time(),
+    ))
+}
+
+/// Assemble a process-stop [`SensorEvent`] from FFI-free fields.
+fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorEvent {
+    SensorEvent {
+        platform: Platform::MacOS,
+        provider: "esf",
+        action: SensorAction::Stop,
+        normalization: SensorNormalization {
+            event_id: EVENT_ID_PROCESS_TERMINATE,
+            action_code: 2,
+        },
+        pid: Some(pid),
+        timestamp: event_time,
+        process_start_key: None,
+        payload: SensorPayload::Process(ProcessCreationFields {
+            image: None,
+            original_file_name: None,
+            product: None,
+            description: None,
+            target_image: None,
+            command_line: None,
+            process_id: Some(pid.to_string()),
+            parent_process_id: None,
+            parent_image: None,
+            parent_command_line: None,
+            current_directory: None,
+            integrity_level: None,
+            user: Some(user),
+            logon_id: None,
+            logon_guid: None,
+        }),
+    }
+}
+
 fn osstr_to_string(value: &OsStr) -> String {
     value.to_string_lossy().into_owned()
 }
@@ -317,6 +366,25 @@ mod tests {
                 assert_eq!(fields.current_directory.as_deref(), Some("/Users/alice"));
                 assert_eq!(fields.user.as_deref(), Some("alice"));
                 assert!(fields.parent_image.is_none());
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn process_stop_event_maps_exit() {
+        let event = process_stop_event(4242, "alice".to_string(), SystemTime::UNIX_EPOCH);
+
+        assert_eq!(event.action, SensorAction::Stop);
+        assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_TERMINATE);
+        assert_eq!(event.pid, Some(4242));
+        assert!(event.process_start_key.is_none());
+
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert_eq!(fields.process_id.as_deref(), Some("4242"));
+                assert_eq!(fields.user.as_deref(), Some("alice"));
+                assert!(fields.image.is_none());
             }
             other => panic!("unexpected payload: {other:?}"),
         }
