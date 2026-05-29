@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Result};
 use endpoint_sec::{
-    Client, Event, EventCreate, EventCreateDestinationFile, EventExec, EventRename,
+    Client, Event, EventClose, EventCreate, EventCreateDestinationFile, EventExec, EventRename,
     EventRenameDestinationFile, EventUnlink, Message,
 };
 use endpoint_sec_sys::es_event_type_t;
@@ -47,6 +47,7 @@ const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
 /// Sysmon-compatible event IDs emitted for file events.
 const EVENT_ID_FILE_CREATE: u16 = 11;
 const EVENT_ID_FILE_DELETE: u16 = 23;
+const EVENT_ID_FILE_CHANGE: u16 = 65;
 const EVENT_ID_FILE_RENAME: u16 = 71;
 
 /// Endpoint Security event subscriptions for the macOS sensor.
@@ -56,6 +57,7 @@ const SUBSCRIPTIONS: &[es_event_type_t] = &[
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_CREATE,
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_UNLINK,
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_RENAME,
+    es_event_type_t::ES_EVENT_TYPE_NOTIFY_CLOSE,
 ];
 
 /// macOS Endpoint Security sensor. Implements [`Sensor`].
@@ -168,6 +170,7 @@ fn build_sensor_event(msg: &Message) -> Option<SensorEvent> {
         Event::NotifyCreate(create) => build_create_event(msg, &create),
         Event::NotifyUnlink(unlink) => build_unlink_event(msg, &unlink),
         Event::NotifyRename(rename) => build_rename_event(msg, &rename),
+        Event::NotifyClose(close) => build_close_event(msg, &close),
         _ => None,
     }
 }
@@ -318,6 +321,7 @@ enum FileAction {
     Create,
     Delete,
     Rename,
+    Modify,
 }
 
 impl FileAction {
@@ -328,6 +332,7 @@ impl FileAction {
             FileAction::Create => (SensorAction::Create, EVENT_ID_FILE_CREATE, 64),
             FileAction::Delete => (SensorAction::Delete, EVENT_ID_FILE_DELETE, 70),
             FileAction::Rename => (SensorAction::Rename, EVENT_ID_FILE_RENAME, 71),
+            FileAction::Modify => (SensorAction::Modify, EVENT_ID_FILE_CHANGE, 65),
         }
     }
 }
@@ -394,6 +399,27 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent
         user,
         target,
         source: (!source.is_empty()).then_some(source),
+        event_time: msg.time(),
+    })
+}
+
+/// Emit a modify event when a writable file is closed after being changed.
+///
+/// Filtering on `modified` keeps the high-volume close stream down to actual
+/// content changes, the closest ESF analog to Sysmon's file-change event.
+fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
+    if !close.modified() {
+        return None;
+    }
+    let target = osstr_to_string(close.target().path());
+    let (pid, image, user) = actor(msg);
+    file_event(RawFile {
+        action: FileAction::Modify,
+        pid,
+        image,
+        user,
+        target,
+        source: None,
         event_time: msg.time(),
     })
 }
@@ -590,6 +616,14 @@ mod tests {
             }
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    #[test]
+    fn file_event_maps_modify() {
+        let event = file_event(raw_file(FileAction::Modify, "/tmp/changed.txt", None))
+            .expect("modify event should build");
+        assert_eq!(event.action, SensorAction::Modify);
+        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_CHANGE);
     }
 
     #[test]
