@@ -18,9 +18,7 @@ use mach2::port::{mach_port_t, MACH_PORT_NULL};
 use mach2::traps::{mach_task_self, task_for_pid};
 use mach2::vm::{mach_vm_read_overwrite, mach_vm_region};
 use mach2::vm_prot::{VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE};
-use mach2::vm_region::{
-    vm_region_basic_info_data_64_t, vm_region_info_t, VM_REGION_BASIC_INFO_64,
-};
+use mach2::vm_region::{vm_region_basic_info_data_64_t, vm_region_info_t, VM_REGION_BASIC_INFO_64};
 use mach2::vm_types::{mach_vm_address_t, mach_vm_size_t};
 
 /// Number of 32-bit words in `vm_region_basic_info_data_64_t`, as required by
@@ -164,7 +162,10 @@ mod tests {
     fn classify_region_by_filename_and_protection() {
         assert_eq!(classify(None, false), MemoryRegionKind::Private);
         assert_eq!(classify(None, true), MemoryRegionKind::Private);
-        assert_eq!(classify(Some("/usr/lib/dyld"), true), MemoryRegionKind::Image);
+        assert_eq!(
+            classify(Some("/usr/lib/dyld"), true),
+            MemoryRegionKind::Image
+        );
         assert_eq!(
             classify(Some("/Users/a/file.dat"), false),
             MemoryRegionKind::Mapped
