@@ -182,6 +182,7 @@ struct RawExec {
     image: String,
     command_line: Option<String>,
     parent_pid: i32,
+    parent_image: Option<String>,
     current_directory: Option<String>,
     user: String,
     /// Process start time, as nanoseconds since the Unix epoch.
@@ -215,11 +216,17 @@ fn build_exec_event(msg: &Message, exec: &EventExec) -> Option<SensorEvent> {
         .map(system_time_nanos)
         .unwrap_or_else(|| system_time_nanos(event_time));
 
+    let parent_pid = target.ppid();
+    let parent_image = (parent_pid > 0)
+        .then(|| crate::utils::process_image_path(parent_pid as u32))
+        .flatten();
+
     Some(process_start_event(RawExec {
         pid: token.pid() as u32,
         image,
         command_line,
-        parent_pid: target.ppid(),
+        parent_pid,
+        parent_image,
         current_directory,
         user: token.ruid().to_string(),
         start_time,
@@ -255,8 +262,8 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             process_id: Some(raw.pid.to_string()),
             process_start_time: Some(raw.start_time),
             parent_process_id,
-            // Enriched later via libproc; ESF exec events do not carry it.
-            parent_image: None,
+            parent_image: raw.parent_image,
+            // ESF exec events do not carry the parent's command line.
             parent_command_line: None,
             current_directory: raw.current_directory,
             // Windows-specific; absent on macOS.
@@ -523,6 +530,7 @@ mod tests {
             image: "/usr/bin/curl".to_string(),
             command_line: Some("/usr/bin/curl https://example.test".to_string()),
             parent_pid: 501,
+            parent_image: Some("/bin/zsh".to_string()),
             current_directory: Some("/Users/alice".to_string()),
             user: "alice".to_string(),
             start_time: 1_700_000_000_000_000_000,
@@ -553,7 +561,7 @@ mod tests {
                 assert_eq!(fields.parent_process_id.as_deref(), Some("501"));
                 assert_eq!(fields.current_directory.as_deref(), Some("/Users/alice"));
                 assert_eq!(fields.user.as_deref(), Some("alice"));
-                assert!(fields.parent_image.is_none());
+                assert_eq!(fields.parent_image.as_deref(), Some("/bin/zsh"));
             }
             other => panic!("unexpected payload: {other:?}"),
         }
@@ -668,6 +676,7 @@ mod tests {
             image: "/sbin/launchd".to_string(),
             command_line: None,
             parent_pid: 0,
+            parent_image: None,
             current_directory: None,
             user: "root".to_string(),
             start_time: 0,

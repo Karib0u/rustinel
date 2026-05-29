@@ -16,6 +16,8 @@ pub use log_rate_limiter::LogRateLimiter;
 pub use path::convert_nt_to_dos;
 #[cfg(windows)]
 pub use pe::parse_metadata;
+#[cfg(target_os = "macos")]
+pub use process::process_image_path;
 #[cfg(windows)]
 pub use process::query_process_command_line_from_handle;
 #[cfg(target_os = "linux")]

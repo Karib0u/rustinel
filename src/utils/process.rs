@@ -143,6 +143,20 @@ pub fn query_process_command_line(_pid: u32) -> Option<String> {
     None
 }
 
+/// Resolve a process's executable path by PID (best-effort) on macOS.
+///
+/// Used to enrich events that only carry a PID (for example a parent process
+/// referenced by an exec event, or a flow attributed via socket inspection).
+#[cfg(target_os = "macos")]
+pub fn process_image_path(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    libproc::proc_pid::pidpath(pid as i32)
+        .ok()
+        .filter(|path| !path.is_empty())
+}
+
 #[cfg(target_os = "linux")]
 pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
     if pid == 0 {
