@@ -568,7 +568,7 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
 fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
     let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
     let payload = ev.payload.get(..payload_len)?;
-    crate::sensor::dns::parse_query_name(payload)
+    crate::sensor::dns::parse_question(payload).map(|(name, _qtype)| name)
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────────

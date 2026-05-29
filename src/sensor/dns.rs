@@ -11,13 +11,14 @@ const LABEL_POINTER_MASK: u8 = 0xc0;
 /// Maximum length of a single DNS label.
 const LABEL_MAX_LEN: usize = 63;
 
-/// Parse the first question name (QNAME) from a raw DNS message payload.
+/// Parse the first question (QNAME and QTYPE) from a raw DNS query payload.
 ///
 /// Returns `None` for responses (QR bit set), empty question sections,
 /// truncated payloads, or names that use compression pointers (which do not
 /// appear in the question section of a well-formed query). The parser never
-/// follows pointers, keeping it bounded and safe against malformed input.
-pub(crate) fn parse_query_name(payload: &[u8]) -> Option<String> {
+/// follows pointers, keeping it bounded and safe against malformed input. The
+/// QTYPE is `0` when the payload is truncated right after the name.
+pub(crate) fn parse_question(payload: &[u8]) -> Option<(String, u16)> {
     if payload.len() < HEADER_LEN {
         return None;
     }
@@ -35,11 +36,16 @@ pub(crate) fn parse_query_name(payload: &[u8]) -> Option<String> {
         pos += 1;
 
         if label_len == 0 {
-            return if labels.is_empty() {
-                Some(".".to_string())
+            let name = if labels.is_empty() {
+                ".".to_string()
             } else {
-                Some(labels.join("."))
+                labels.join(".")
             };
+            let qtype = match (payload.get(pos), payload.get(pos + 1)) {
+                (Some(hi), Some(lo)) => u16::from_be_bytes([*hi, *lo]),
+                _ => 0,
+            };
+            return Some((name, qtype));
         }
 
         if label_len & LABEL_POINTER_MASK != 0 {
@@ -76,22 +82,34 @@ mod tests {
         payload
     }
 
+    fn query_name(payload: &[u8]) -> Option<String> {
+        parse_question(payload).map(|(name, _qtype)| name)
+    }
+
     #[test]
     fn parses_simple_query_name() {
         let payload = query_payload("sub.example.test");
-        assert_eq!(parse_query_name(&payload).as_deref(), Some("sub.example.test"));
+        assert_eq!(query_name(&payload).as_deref(), Some("sub.example.test"));
+    }
+
+    #[test]
+    fn parses_question_name_and_qtype() {
+        let payload = query_payload("example.test");
+        let (name, qtype) = parse_question(&payload).expect("question should parse");
+        assert_eq!(name, "example.test");
+        assert_eq!(qtype, 1); // A
     }
 
     #[test]
     fn rejects_short_payload() {
-        assert_eq!(parse_query_name(&[0u8; HEADER_LEN - 1]), None);
+        assert_eq!(parse_question(&[0u8; HEADER_LEN - 1]), None);
     }
 
     #[test]
     fn rejects_response_messages() {
         let mut payload = query_payload("example.test");
         payload[2] = 0x80; // set QR bit
-        assert_eq!(parse_query_name(&payload), None);
+        assert_eq!(parse_question(&payload), None);
     }
 
     #[test]
@@ -99,7 +117,7 @@ mod tests {
         let mut payload = query_payload("example.test");
         payload[4] = 0;
         payload[5] = 0;
-        assert_eq!(parse_query_name(&payload), None);
+        assert_eq!(parse_question(&payload), None);
     }
 
     #[test]
@@ -108,7 +126,7 @@ mod tests {
         payload[5] = 1;
         payload.push(LABEL_POINTER_MASK); // pointer instead of a label length
         payload.push(0x00);
-        assert_eq!(parse_query_name(&payload), None);
+        assert_eq!(parse_question(&payload), None);
     }
 
     #[test]
@@ -117,6 +135,6 @@ mod tests {
         payload[5] = 1;
         payload.push(10); // claims a 10-byte label
         payload.extend_from_slice(b"abc"); // but only 3 bytes follow
-        assert_eq!(parse_query_name(&payload), None);
+        assert_eq!(parse_question(&payload), None);
     }
 }

@@ -15,6 +15,7 @@ const ETHERTYPE_IPV6: u16 = 0x86dd;
 const ETHERTYPE_VLAN: u16 = 0x8100;
 
 const IPPROTO_TCP: u8 = 6;
+const IPPROTO_UDP: u8 = 17;
 
 /// TCP control-flag bits used to detect connection initiations.
 pub(super) const TCP_FLAG_SYN: u8 = 0x02;
@@ -26,7 +27,10 @@ pub(super) enum Transport<'a> {
         src_port: u16,
         dst_port: u16,
         flags: u8,
-        #[allow(dead_code)] // consumed by the DNS parser in a later commit
+        payload: &'a [u8],
+    },
+    Udp {
+        dst_port: u16,
         payload: &'a [u8],
     },
 }
@@ -133,6 +137,15 @@ fn parse_transport(protocol: u8, l4: &[u8]) -> Option<Transport<'_>> {
                 payload: l4.get(data_offset..).unwrap_or(&[]),
             })
         }
+        IPPROTO_UDP => {
+            if l4.len() < 8 {
+                return None;
+            }
+            Some(Transport::Udp {
+                dst_port: u16::from_be_bytes([l4[2], l4[3]]),
+                payload: l4.get(8..).unwrap_or(&[]),
+            })
+        }
         _ => None,
     }
 }
@@ -185,6 +198,44 @@ mod tests {
                 assert_eq!(dst_port, 443);
                 assert_eq!(flags, TCP_FLAG_SYN);
             }
+            other => panic!("unexpected transport: {}", transport_kind(&other)),
+        }
+    }
+
+    fn transport_kind(transport: &Transport) -> &'static str {
+        match transport {
+            Transport::Tcp { .. } => "tcp",
+            Transport::Udp { .. } => "udp",
+        }
+    }
+
+    /// Build an Ethernet + IPv4 + UDP frame carrying `udp_payload`.
+    fn ethernet_ipv4_udp(dst_port: u16, udp_payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0u8; 14];
+        frame[12..14].copy_from_slice(&ETHERTYPE_IPV4.to_be_bytes());
+        let mut ip = vec![0u8; 20];
+        ip[0] = 0x45;
+        ip[9] = IPPROTO_UDP;
+        ip[12..16].copy_from_slice(&[10, 0, 0, 5]);
+        ip[16..20].copy_from_slice(&[1, 1, 1, 1]);
+        let mut udp = vec![0u8; 8];
+        udp[2..4].copy_from_slice(&dst_port.to_be_bytes());
+        frame.extend(ip);
+        frame.extend(udp);
+        frame.extend_from_slice(udp_payload);
+        frame
+    }
+
+    #[test]
+    fn parses_ethernet_ipv4_udp() {
+        let frame = ethernet_ipv4_udp(53, &[0xab, 0xcd]);
+        let parsed = parse(DLT_EN10MB, &frame).expect("udp frame should parse");
+        match parsed.transport {
+            Transport::Udp { dst_port, payload } => {
+                assert_eq!(dst_port, 53);
+                assert_eq!(payload, &[0xab, 0xcd]);
+            }
+            other => panic!("unexpected transport: {}", transport_kind(&other)),
         }
     }
 

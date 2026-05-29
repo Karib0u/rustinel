@@ -22,13 +22,17 @@ use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
 use super::packet::{self, ParsedPacket, Transport, TCP_FLAG_ACK, TCP_FLAG_SYN};
-use crate::models::NetworkConnectionFields;
+use crate::models::{DnsQueryFields, NetworkConnectionFields};
 use crate::sensor::{
     Platform, Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
 };
 
 /// Sysmon-compatible event ID emitted for network-connect events.
 const EVENT_ID_NETWORK_CONNECT: u16 = 3;
+/// Sysmon-compatible event ID emitted for DNS-query events.
+const EVENT_ID_DNS_QUERY: u16 = 22;
+/// Destination port that identifies DNS query traffic.
+const DNS_PORT: u16 = 53;
 
 /// Environment variable overriding the capture interface (default `en0`).
 const INTERFACE_ENV: &str = "RUSTINEL_BPF_INTERFACE";
@@ -311,6 +315,9 @@ fn handle_packet(link_type: u32, frame: &[u8], tx: &Sender<SensorEvent>) {
     if let Some(event) = build_network_event(&parsed) {
         try_send(tx, event);
     }
+    if let Some(event) = build_dns_event(&parsed) {
+        try_send(tx, event);
+    }
 }
 
 /// Build a network-connection event from a TCP connection initiation.
@@ -324,7 +331,10 @@ fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
         dst_port,
         flags,
         ..
-    } = &packet.transport;
+    } = &packet.transport
+    else {
+        return None;
+    };
     if flags & TCP_FLAG_SYN == 0 || flags & TCP_FLAG_ACK != 0 {
         return None;
     }
@@ -352,6 +362,63 @@ fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
             protocol: Some("tcp".to_string()),
         }),
     })
+}
+
+/// Build a DNS-query event from a packet destined to port 53.
+///
+/// Handles UDP queries directly and DNS-over-TCP by skipping the 2-byte length
+/// prefix. Responses are rejected by the shared parser (QR bit).
+fn build_dns_event(packet: &ParsedPacket) -> Option<SensorEvent> {
+    let (dst_port, dns_payload) = match &packet.transport {
+        Transport::Udp { dst_port, payload } => (*dst_port, *payload),
+        Transport::Tcp {
+            dst_port, payload, ..
+        } => (*dst_port, payload.get(2..)?),
+    };
+    if dst_port != DNS_PORT {
+        return None;
+    }
+
+    let (query_name, qtype) = crate::sensor::dns::parse_question(dns_payload)?;
+
+    Some(SensorEvent {
+        platform: Platform::MacOS,
+        provider: "bpf",
+        action: SensorAction::Query,
+        normalization: SensorNormalization {
+            event_id: EVENT_ID_DNS_QUERY,
+            action_code: 0,
+        },
+        pid: None,
+        timestamp: SystemTime::now(),
+        process_start_key: None,
+        payload: SensorPayload::Dns(DnsQueryFields {
+            query_name: Some(query_name),
+            query_results: None,
+            record_type: record_type_name(qtype).map(str::to_string),
+            query_status: None,
+            process_id: None,
+            image: None,
+        }),
+    })
+}
+
+/// Map a DNS QTYPE to its record-type name, for the common types.
+fn record_type_name(qtype: u16) -> Option<&'static str> {
+    let name = match qtype {
+        1 => "A",
+        2 => "NS",
+        5 => "CNAME",
+        6 => "SOA",
+        12 => "PTR",
+        15 => "MX",
+        16 => "TXT",
+        28 => "AAAA",
+        33 => "SRV",
+        255 => "ANY",
+        _ => return None,
+    };
+    Some(name)
 }
 
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
@@ -470,5 +537,108 @@ mod tests {
     fn build_network_event_ignores_syn_ack_and_established() {
         assert!(build_network_event(&tcp_packet(TCP_FLAG_SYN | TCP_FLAG_ACK)).is_none());
         assert!(build_network_event(&tcp_packet(TCP_FLAG_ACK)).is_none());
+    }
+
+    /// Minimal single-question DNS query payload for `name` with the given qtype.
+    fn dns_query(name: &str, qtype: u16) -> Vec<u8> {
+        let mut payload = vec![0u8; 12];
+        payload[5] = 1; // qdcount = 1
+        for label in name.split('.') {
+            payload.push(label.len() as u8);
+            payload.extend_from_slice(label.as_bytes());
+        }
+        payload.push(0);
+        payload.extend_from_slice(&qtype.to_be_bytes());
+        payload.extend_from_slice(&1u16.to_be_bytes()); // qclass = IN
+        payload
+    }
+
+    fn udp_packet(dst_port: u16, payload: Vec<u8>) -> ParsedPacket<'static> {
+        ParsedPacket {
+            src_ip: "10.0.0.5".parse().unwrap(),
+            dst_ip: "1.1.1.1".parse().unwrap(),
+            transport: Transport::Udp {
+                dst_port,
+                payload: Box::leak(payload.into_boxed_slice()),
+            },
+        }
+    }
+
+    #[test]
+    fn build_dns_event_maps_udp_query() {
+        let event = build_dns_event(&udp_packet(DNS_PORT, dns_query("sub.example.test", 28)))
+            .expect("dns query should emit");
+        assert_eq!(event.provider, "bpf");
+        assert_eq!(event.action, SensorAction::Query);
+        assert_eq!(event.normalization.event_id, EVENT_ID_DNS_QUERY);
+        match event.payload {
+            SensorPayload::Dns(fields) => {
+                assert_eq!(fields.query_name.as_deref(), Some("sub.example.test"));
+                assert_eq!(fields.record_type.as_deref(), Some("AAAA"));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_dns_event_ignores_non_dns_port() {
+        assert!(build_dns_event(&udp_packet(123, dns_query("example.test", 1))).is_none());
+    }
+
+    #[test]
+    fn record_type_name_maps_known_types() {
+        assert_eq!(record_type_name(1), Some("A"));
+        assert_eq!(record_type_name(28), Some("AAAA"));
+        assert_eq!(record_type_name(64000), None);
+    }
+
+    fn test_normalizer() -> crate::normalizer::Normalizer {
+        use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+        crate::normalizer::Normalizer::new(
+            Arc::new(ProcessCache::new()),
+            Arc::new(SidCache::new()),
+            Arc::new(DnsCache::new()),
+            Arc::new(ConnectionAggregator::new()),
+            false,
+        )
+    }
+
+    #[test]
+    fn macos_dns_query_matches_product_macos_sigma_rule() {
+        use crate::engine::Engine;
+        use crate::sensor::Platform;
+
+        let tempdir = tempfile::tempdir().expect("create sigma tempdir");
+        let rules_dir = tempdir.path().join("sigma");
+        std::fs::create_dir_all(&rules_dir).expect("create sigma rules dir");
+        std::fs::write(
+            rules_dir.join("dns.yml"),
+            r#"title: macOS DNS QueryName
+logsource:
+  product: macos
+  category: dns_query
+detection:
+  selection:
+    QueryName|endswith: ".example.test"
+  condition: selection
+level: high
+"#,
+        )
+        .expect("write sigma rule");
+
+        let mut engine = Engine::new_for_platform(Platform::MacOS);
+        engine.load_rules(&rules_dir).expect("load sigma rule");
+
+        let event = build_dns_event(&udp_packet(DNS_PORT, dns_query("sub.example.test", 1)))
+            .expect("dns event should build");
+        let normalized = test_normalizer()
+            .normalize(&event)
+            .expect("dns event should normalize");
+        assert_eq!(normalized.get_field("QueryName"), Some("sub.example.test"));
+
+        let alert = engine
+            .check_event(&normalized)
+            .expect("macOS dns Sigma rule should match parsed QueryName");
+        assert_eq!(alert.rule_name, "macOS DNS QueryName");
     }
 }
