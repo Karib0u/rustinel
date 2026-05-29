@@ -238,37 +238,82 @@ jobs:
 
   # macOS builds run on the arm64 runner; the x86_64 target cross-compiles
   # there since the SDK ships both slices. The EndpointSecurity framework links
-  # at build time and only needs entitlements at runtime.
-  build-macos-arm64:
-    name: Build macOS arm64
+  # at build time and only needs entitlements at runtime. Signing and
+  # notarization happen here (on macOS) and produce the final .tar.gz.
+  build-macos:
+    name: Build macOS ${{ matrix.arch }}
     runs-on: macos-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: Swatinem/rust-cache@v2
-      - run: rustup target add aarch64-apple-darwin
-      - run: cargo build --locked --release --target aarch64-apple-darwin
-      - uses: actions/upload-artifact@v7
-        with:
-          name: rustinel-macos-arm64
-          path: target/aarch64-apple-darwin/release/rustinel
-          retention-days: 1
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --locked --release --target ${{ matrix.target }}
 
-  build-macos-x86_64:
-    name: Build macOS x86_64
-    runs-on: macos-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: Swatinem/rust-cache@v2
-      - run: rustup target add x86_64-apple-darwin
-      - run: cargo build --locked --release --target x86_64-apple-darwin
+      # Code signing and notarization run only when the maintainer's Apple
+      # Developer secrets are configured; otherwise the binary ships unsigned
+      # (runnable on hosts with SIP/AMFI relaxed). A bare Mach-O cannot be
+      # stapled, so Gatekeeper verifies the notarization ticket online.
+      - name: Sign and notarize
+        env:
+          BIN: target/${{ matrix.target }}/release/rustinel
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: |
+          if [ -z "$SIGN_IDENTITY" ] || [ -z "$CERT_P12_BASE64" ]; then
+            echo "::warning::macOS signing secrets not configured; shipping unsigned binary"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/rustinel-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          codesign --force --options runtime --timestamp \
+            --entitlements packaging/macos/rustinel.entitlements \
+            --sign "$SIGN_IDENTITY" "$BIN"
+          codesign --verify --strict --verbose=2 "$BIN"
+          if [ -n "$NOTARY_APPLE_ID" ]; then
+            ditto -c -k "$BIN" "$RUNNER_TEMP/notarize.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+              --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" \
+              --password "$NOTARY_PASSWORD" --wait
+          fi
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Package macOS ${{ matrix.arch }}
+        run: |
+          PKG="rustinel-${GITHUB_REF_NAME#v}-${{ matrix.target }}"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs"
+          cp target/${{ matrix.target }}/release/rustinel "$PKG/"
+          chmod +x "$PKG/rustinel"
+          cp config.toml README.md packaging/macos/com.rustinel.agent.plist "$PKG/"
+          [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
+          [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
+          [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
+          touch "$PKG/logs/.gitkeep"
+          tar czf "$PKG.tar.gz" "$PKG"
+
       - uses: actions/upload-artifact@v7
         with:
-          name: rustinel-macos-x86_64
-          path: target/x86_64-apple-darwin/release/rustinel
+          name: rustinel-macos-${{ matrix.arch }}
+          path: rustinel-*-${{ matrix.target }}.tar.gz
           retention-days: 1
 
   # ── Release ─────────────────────────────────────────────────────────────────
@@ -286,6 +331,7 @@ jobs:
       - build-linux-x86_64
       - build-linux-arm64
       - build-windows
+      - build-macos
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -309,6 +355,18 @@ jobs:
         with:
           name: rustinel-windows-x86_64
           path: dist/windows-x86_64/
+
+      - name: Download macOS arm64 package
+        uses: actions/download-artifact@v8
+        with:
+          name: rustinel-macos-arm64
+          path: dist/macos-arm64/
+
+      - name: Download macOS x86_64 package
+        uses: actions/download-artifact@v8
+        with:
+          name: rustinel-macos-x86_64
+          path: dist/macos-x86_64/
 
       - name: Extract version from tag
         id: version
@@ -352,12 +410,21 @@ jobs:
           touch "$PKG/logs/.gitkeep"
           zip -r "$PKG.zip" "$PKG"
 
+      # The macOS archives are signed and packaged on the macOS runner; stage
+      # them next to the other release assets.
+      - name: Stage macOS packages
+        run: |
+          cp dist/macos-arm64/*.tar.gz .
+          cp dist/macos-x86_64/*.tar.gz .
+
       - name: Generate SHA256 checksums
         run: |
           sha256sum \
             rustinel-${{ steps.version.outputs.version }}-x86_64-unknown-linux-musl.tar.gz \
             rustinel-${{ steps.version.outputs.version }}-aarch64-unknown-linux-musl.tar.gz \
             rustinel-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip \
+            rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz \
+            rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz \
             > rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt
 
       - name: Create GitHub Release
@@ -367,6 +434,8 @@ jobs:
             rustinel-${{ steps.version.outputs.version }}-x86_64-unknown-linux-musl.tar.gz
             rustinel-${{ steps.version.outputs.version }}-aarch64-unknown-linux-musl.tar.gz
             rustinel-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip
+            rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz
+            rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz
             rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt
           generate_release_notes: true
           draft: false
@@ -380,6 +449,8 @@ jobs:
             | Linux | x86_64 | `rustinel-${{ steps.version.outputs.version }}-x86_64-unknown-linux-musl.tar.gz` |
             | Linux | arm64 | `rustinel-${{ steps.version.outputs.version }}-aarch64-unknown-linux-musl.tar.gz` |
             | Windows | x86_64 | `rustinel-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip` |
+            | macOS | arm64 | `rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz` |
+            | macOS | x86_64 | `rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz` |
 
             ## Linux
 
@@ -401,3 +472,17 @@ jobs:
             3. Run as Administrator: `.\rustinel.exe run`
 
             **Requirements:** Windows 10/11 or Server 2016+ (x64), Administrator privileges.
+
+            ## macOS
+
+            ```sh
+            tar xzf rustinel-${{ steps.version.outputs.version }}-<arch>.tar.gz
+            cd rustinel-${{ steps.version.outputs.version }}-<arch>
+            # Customize config.toml, add rules to rules/
+            sudo ./rustinel run
+            ```
+
+            A `com.rustinel.agent.plist` LaunchDaemon is included for persistent deployment.
+
+            **Requirements:** macOS 11+, root, and the Endpoint Security entitlement
+            (signed and notarized builds), or SIP/AMFI relaxed for local testing.
