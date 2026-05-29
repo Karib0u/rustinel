@@ -353,6 +353,34 @@ fn related_ip_and_user_are_deduplicated() {
 }
 
 #[test]
+fn macos_file_create_alert_maps_ecs_fields() {
+    let normalizer = TestNormalizer::new(false);
+    let normalized = normalizer
+        .normalizer
+        .normalize(&file_create_event(Platform::MacOS))
+        .expect("normalize macos file event");
+    assert_eq!(normalized.platform, Platform::MacOS);
+
+    let alert = Alert {
+        severity: AlertSeverity::High,
+        rule_name: "macOS File Create".to_string(),
+        rule_description: None,
+        engine: DetectionEngine::Sigma,
+        event: normalized,
+        match_details: None,
+    };
+    let json = ecs_json(&alert);
+
+    assert_ecs_field_eq(&json, "event.dataset", "edr.file");
+    assert_ecs_field_eq(&json, "event.category", json!(["file"]));
+    assert_ecs_field_eq(&json, "event.type", json!(["creation"]));
+    assert_ecs_field_eq(&json, "event.action", "file-create");
+    assert_ecs_field_eq(&json, "file.path", "/tmp/rustinel-fixture.txt");
+    assert_ecs_field_eq(&json, "host.os.type", "macos");
+    assert_ecs_field_eq(&json, "host.os.family", "darwin");
+}
+
+#[test]
 fn dns_alert_populates_category_specific_fields() {
     let normalizer = TestNormalizer::new(false);
     let normalized = normalizer
