@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchDaemon for Rustinel, the macOS analog of rustinel.service.
+
+  Rustinel needs root for Endpoint Security and /dev/bpf, so it runs as a
+  system daemon. Install to /Library/LaunchDaemons/com.rustinel.agent.plist
+  (owned by root:wheel) and load with:
+
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.rustinel.agent.plist
+
+  Adjust the program path and working directory to match your install layout.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rustinel.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/rustinel</string>
+        <string>run</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/usr/local/var/rustinel</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/rustinel/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/rustinel/launchd.err.log</string>
+</dict>
+</plist>
