@@ -15,13 +15,20 @@ use std::os::unix::io::RawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Result};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use crate::sensor::{Sensor, SensorEvent};
+use super::packet::{self, ParsedPacket, Transport, TCP_FLAG_ACK, TCP_FLAG_SYN};
+use crate::models::NetworkConnectionFields;
+use crate::sensor::{
+    Platform, Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+};
+
+/// Sysmon-compatible event ID emitted for network-connect events.
+const EVENT_ID_NETWORK_CONNECT: u16 = 3;
 
 /// Environment variable overriding the capture interface (default `en0`).
 const INTERFACE_ENV: &str = "RUSTINEL_BPF_INTERFACE";
@@ -296,9 +303,68 @@ fn for_each_packet(buf: &[u8], mut handle: impl FnMut(&[u8])) {
     }
 }
 
-/// Dispatch a captured link-layer frame. Network and DNS translation are added
-/// in following commits; for now frames are consumed without emitting events.
-fn handle_packet(_link_type: u32, _packet: &[u8], _tx: &Sender<SensorEvent>) {}
+/// Parse a captured frame and emit any resulting [`SensorEvent`].
+fn handle_packet(link_type: u32, frame: &[u8], tx: &Sender<SensorEvent>) {
+    let Some(parsed) = packet::parse(link_type, frame) else {
+        return;
+    };
+    if let Some(event) = build_network_event(&parsed) {
+        try_send(tx, event);
+    }
+}
+
+/// Build a network-connection event from a TCP connection initiation.
+///
+/// Only SYN segments with ACK clear are treated as new connections. PID and
+/// image attribution are filled in by the libproc socket lookup in a later
+/// commit; the normalizer enriches the rest.
+fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
+    let Transport::Tcp {
+        src_port,
+        dst_port,
+        flags,
+        ..
+    } = &packet.transport;
+    if flags & TCP_FLAG_SYN == 0 || flags & TCP_FLAG_ACK != 0 {
+        return None;
+    }
+
+    Some(SensorEvent {
+        platform: Platform::MacOS,
+        provider: "bpf",
+        action: SensorAction::Connect,
+        normalization: SensorNormalization {
+            event_id: EVENT_ID_NETWORK_CONNECT,
+            action_code: 0,
+        },
+        pid: None,
+        timestamp: SystemTime::now(),
+        process_start_key: None,
+        payload: SensorPayload::Network(NetworkConnectionFields {
+            destination_ip: Some(packet.dst_ip.to_string()),
+            source_ip: Some(packet.src_ip.to_string()),
+            destination_port: Some(dst_port.to_string()),
+            source_port: Some(src_port.to_string()),
+            process_id: None,
+            image: None,
+            user: None,
+            destination_hostname: None,
+            protocol: Some("tcp".to_string()),
+        }),
+    })
+}
+
+fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
+    match tx.try_send(event) {
+        Ok(_) => {}
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            warn!("bpf sensor: event channel full, dropping event");
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            // Pipeline has shut down; stop logging.
+        }
+    }
+}
 
 fn read_u32(buf: &[u8], at: usize) -> u32 {
     u32::from_ne_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]])
@@ -368,5 +434,41 @@ mod tests {
         assert_eq!(bpf_word_align(1), 4);
         assert_eq!(bpf_word_align(18), 20);
         assert_eq!(bpf_word_align(20), 20);
+    }
+
+    fn tcp_packet(flags: u8) -> ParsedPacket<'static> {
+        ParsedPacket {
+            src_ip: "10.0.0.5".parse().unwrap(),
+            dst_ip: "93.184.216.34".parse().unwrap(),
+            transport: Transport::Tcp {
+                src_port: 51324,
+                dst_port: 443,
+                flags,
+                payload: &[],
+            },
+        }
+    }
+
+    #[test]
+    fn build_network_event_emits_on_syn() {
+        let event = build_network_event(&tcp_packet(TCP_FLAG_SYN)).expect("syn should emit");
+        assert_eq!(event.provider, "bpf");
+        assert_eq!(event.action, SensorAction::Connect);
+        assert_eq!(event.normalization.event_id, EVENT_ID_NETWORK_CONNECT);
+        match event.payload {
+            SensorPayload::Network(fields) => {
+                assert_eq!(fields.destination_ip.as_deref(), Some("93.184.216.34"));
+                assert_eq!(fields.source_ip.as_deref(), Some("10.0.0.5"));
+                assert_eq!(fields.destination_port.as_deref(), Some("443"));
+                assert_eq!(fields.protocol.as_deref(), Some("tcp"));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_network_event_ignores_syn_ack_and_established() {
+        assert!(build_network_event(&tcp_packet(TCP_FLAG_SYN | TCP_FLAG_ACK)).is_none());
+        assert!(build_network_event(&tcp_packet(TCP_FLAG_ACK)).is_none());
     }
 }
