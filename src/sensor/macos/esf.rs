@@ -23,7 +23,8 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Result};
 use endpoint_sec::{
-    Client, Event, EventCreate, EventCreateDestinationFile, EventExec, EventUnlink, Message,
+    Client, Event, EventCreate, EventCreateDestinationFile, EventExec, EventRename,
+    EventRenameDestinationFile, EventUnlink, Message,
 };
 use endpoint_sec_sys::es_event_type_t;
 use tokio::sync::mpsc::Sender;
@@ -46,6 +47,7 @@ const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
 /// Sysmon-compatible event IDs emitted for file events.
 const EVENT_ID_FILE_CREATE: u16 = 11;
 const EVENT_ID_FILE_DELETE: u16 = 23;
+const EVENT_ID_FILE_RENAME: u16 = 71;
 
 /// Endpoint Security event subscriptions for the macOS sensor.
 const SUBSCRIPTIONS: &[es_event_type_t] = &[
@@ -53,6 +55,7 @@ const SUBSCRIPTIONS: &[es_event_type_t] = &[
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_EXIT,
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_CREATE,
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_UNLINK,
+    es_event_type_t::ES_EVENT_TYPE_NOTIFY_RENAME,
 ];
 
 /// macOS Endpoint Security sensor. Implements [`Sensor`].
@@ -164,6 +167,7 @@ fn build_sensor_event(msg: &Message) -> Option<SensorEvent> {
         Event::NotifyExit(_) => build_exit_event(msg),
         Event::NotifyCreate(create) => build_create_event(msg, &create),
         Event::NotifyUnlink(unlink) => build_unlink_event(msg, &unlink),
+        Event::NotifyRename(rename) => build_rename_event(msg, &rename),
         _ => None,
     }
 }
@@ -313,6 +317,7 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
 enum FileAction {
     Create,
     Delete,
+    Rename,
 }
 
 impl FileAction {
@@ -322,6 +327,7 @@ impl FileAction {
         match self {
             FileAction::Create => (SensorAction::Create, EVENT_ID_FILE_CREATE, 64),
             FileAction::Delete => (SensorAction::Delete, EVENT_ID_FILE_DELETE, 70),
+            FileAction::Rename => (SensorAction::Rename, EVENT_ID_FILE_RENAME, 71),
         }
     }
 }
@@ -377,6 +383,21 @@ fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent
     })
 }
 
+fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent> {
+    let target = rename_destination_path(rename.destination()?)?;
+    let source = osstr_to_string(rename.source().path());
+    let (pid, image, user) = actor(msg);
+    file_event(RawFile {
+        action: FileAction::Rename,
+        pid,
+        image,
+        user,
+        target,
+        source: (!source.is_empty()).then_some(source),
+        event_time: msg.time(),
+    })
+}
+
 /// Resolve the absolute path of a create destination.
 fn create_destination_path(dest: EventCreateDestinationFile) -> Option<String> {
     let path = match dest {
@@ -385,6 +406,18 @@ fn create_destination_path(dest: EventCreateDestinationFile) -> Option<String> {
             directory,
             filename,
             ..
+        } => join_path(directory.path(), filename),
+    };
+    (!path.is_empty()).then_some(path)
+}
+
+/// Resolve the absolute path of a rename destination.
+fn rename_destination_path(dest: EventRenameDestinationFile) -> Option<String> {
+    let path = match dest {
+        EventRenameDestinationFile::ExistingFile(file) => osstr_to_string(file.path()),
+        EventRenameDestinationFile::NewPath {
+            directory,
+            filename,
         } => join_path(directory.path(), filename),
     };
     (!path.is_empty()).then_some(path)
@@ -537,6 +570,26 @@ mod tests {
             .expect("delete event should build");
         assert_eq!(event.action, SensorAction::Delete);
         assert_eq!(event.normalization.event_id, EVENT_ID_FILE_DELETE);
+    }
+
+    #[test]
+    fn file_event_maps_rename_with_source() {
+        let event = file_event(raw_file(
+            FileAction::Rename,
+            "/tmp/new.txt",
+            Some("/tmp/old.txt"),
+        ))
+        .expect("rename event should build");
+        assert_eq!(event.action, SensorAction::Rename);
+        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_RENAME);
+
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(fields.source_filename.as_deref(), Some("/tmp/old.txt"));
+                assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
     }
 
     #[test]
