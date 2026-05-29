@@ -49,9 +49,6 @@ const EVENT_ID_DNS_QUERY: u16 = 22;
 
 const PROCESS_EVENT_EXEC: u32 = 1;
 const PROCESS_EVENT_EXIT: u32 = 2;
-const DNS_HEADER_LEN: usize = 12;
-const DNS_LABEL_POINTER_MASK: u8 = 0xc0;
-const DNS_LABEL_MAX_LEN: usize = 63;
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
@@ -571,44 +568,7 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
 fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
     let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
     let payload = ev.payload.get(..payload_len)?;
-    if payload.len() < DNS_HEADER_LEN {
-        return None;
-    }
-
-    let flags = u16::from_be_bytes([payload[2], payload[3]]);
-    let qdcount = u16::from_be_bytes([payload[4], payload[5]]);
-    if flags & 0x8000 != 0 || qdcount == 0 {
-        return None;
-    }
-
-    let mut pos = DNS_HEADER_LEN;
-    let mut labels: Vec<String> = Vec::new();
-    while pos < payload.len() {
-        let label_len = payload[pos];
-        pos += 1;
-
-        if label_len == 0 {
-            return if labels.is_empty() {
-                Some(".".to_string())
-            } else {
-                Some(labels.join("."))
-            };
-        }
-
-        if label_len & DNS_LABEL_POINTER_MASK != 0 {
-            return None;
-        }
-
-        let label_len = usize::from(label_len);
-        if label_len > DNS_LABEL_MAX_LEN || pos + label_len > payload.len() {
-            return None;
-        }
-
-        labels.push(String::from_utf8_lossy(&payload[pos..pos + label_len]).into_owned());
-        pos += label_len;
-    }
-
-    None
+    crate::sensor::dns::parse_query_name(payload)
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -701,7 +661,7 @@ mod tests {
         payload[4] = 0;
         payload[5] = 1;
 
-        let mut pos = DNS_HEADER_LEN;
+        let mut pos = crate::sensor::dns::HEADER_LEN;
         for label in name.split('.') {
             let bytes = label.as_bytes();
             payload[pos] = bytes.len() as u8;
@@ -1057,7 +1017,7 @@ mod tests {
             pid: 4242,
             uid: 1000,
             fd: 5,
-            payload_len: payload_len.min((DNS_HEADER_LEN + 4) as u16),
+            payload_len: payload_len.min((crate::sensor::dns::HEADER_LEN + 4) as u16),
             _pad0: 0,
             query_name: [0u8; 96],
             query_results: [0u8; 96],
