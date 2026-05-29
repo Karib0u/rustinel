@@ -1,0 +1,13 @@
+title: Example - Whoami Execution (macOS)
+id: b2c3d4e5-f6a7-8901-bcde-f23456789012
+status: experimental
+description: Detects execution of whoami (demo rule).
+author: Rustinel
+logsource:
+  category: process_creation
+  product: macos
+detection:
+  selection:
+    Image|endswith: '/whoami'
+  condition: selection
+level: low

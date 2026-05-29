@@ -18,6 +18,13 @@ This guide gets Rustinel to first telemetry and first alert on both supported pl
 - Rust 1.92+ if building from source
 - If `ebpf/rustinel-ebpf.o` is missing, nightly Rust, `rust-src`, and `bpf-linker` are also required for the first build
 
+### macOS
+
+- macOS 11+
+- Root, plus the `com.apple.developer.endpoint-security.client` entitlement on signed and notarized builds, or SIP/AMFI relaxed for local testing
+- Access to the `/dev/bpf*` device nodes for network and DNS capture
+- Rust 1.92+ and the Xcode Command Line Tools if building from source
+
 ## Quick Start
 
 Download the package for your platform from [GitHub Releases](https://github.com/Karib0u/rustinel/releases). The release archives already include `config.toml`, the bundled demo rules, and an empty `logs/` directory.
@@ -53,6 +60,27 @@ mount -t debugfs debugfs /sys/kernel/debug
 
 Some minimal Linux environments, including some WSL 2 distros, may start without these filesystems mounted.
 
+### macOS
+
+Choose the archive that matches your Mac:
+
+- `rustinel-<version>-aarch64-apple-darwin.tar.gz`
+- `rustinel-<version>-x86_64-apple-darwin.tar.gz`
+
+Then extract and run it as root:
+
+```bash
+tar xzf rustinel-<version>-aarch64-apple-darwin.tar.gz
+cd rustinel-<version>-aarch64-apple-darwin
+sudo ./rustinel run
+```
+
+If startup fails with `NotPrivileged`, the Endpoint Security client could not be
+created. Run as root with a signed, entitled build, or relax SIP/AMFI on a test
+machine. Network and DNS capture additionally needs access to the `/dev/bpf*`
+device nodes; the agent continues with Endpoint Security only if capture cannot
+start.
+
 ## Compile From Source
 
 Use this path if you want to build the binary yourself instead of using a published release.
@@ -74,6 +102,21 @@ cd rustinel
 cargo build --release
 sudo ./target/release/rustinel run
 ```
+
+### macOS
+
+```bash
+git clone https://github.com/Karib0u/rustinel.git
+cd rustinel
+cargo build --release
+codesign --force --sign - \
+  --entitlements packaging/macos/rustinel.entitlements \
+  target/release/rustinel
+sudo ./target/release/rustinel run
+```
+
+Ad-hoc signing with the entitlement only takes effect when SIP/AMFI is relaxed.
+See the [Development](development.md) guide for signing and notarization details.
 
 Notes:
 
@@ -115,6 +158,19 @@ whoami
 3. Confirm an alert was written to `logs/alerts.json.<date>`.
 
 The bundled rule is `rules/sigma/linux_whoami.yml`.
+
+### macOS Sigma Demo
+
+1. Keep Rustinel running.
+2. Execute:
+
+```bash
+whoami
+```
+
+3. Confirm an alert was written to `logs/alerts.json.<date>`.
+
+The bundled rule is `rules/sigma/macos_whoami.yml`.
 
 ### Cross-Platform YARA Demo
 

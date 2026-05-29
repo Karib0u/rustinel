@@ -126,6 +126,27 @@ The current loader attaches a mix of tracepoints and kprobes, including:
 
 Requirements for the Linux sensor are kernel 5.8+, BTF, and eBPF privileges.
 
+### macOS
+
+macOS telemetry comes from two native sources feeding the same shared pipeline:
+
+- Endpoint Security (`EsfSensor`) for process and file events: process exec and
+  exit, and file create, delete, rename, and modify (the modify signal is a
+  close-after-write, which keeps the high-volume close stream down to real
+  content changes). Exec events carry the executable path, arguments, and
+  parent pid directly; the parent image is enriched via libproc.
+- `/dev/bpf` packet capture (`BpfSensor`) for network and DNS: outbound TCP
+  connection initiations (SYN) and DNS queries parsed from port 53 traffic,
+  reusing the shared DNS query-name parser. Connection events are attributed to
+  a process on a best-effort basis by matching the connection's ports against
+  open sockets via libproc.
+
+The Endpoint Security sensor is the primary source and is required; the bpf
+capture source is best-effort and the agent degrades to Endpoint Security only
+if it cannot start. Requirements for the macOS sensor are root, the
+`com.apple.developer.endpoint-security.client` entitlement (or SIP/AMFI relaxed
+for local testing), and access to the bpf device nodes.
+
 ## Shared Pipeline
 
 Once a platform sensor emits a raw `SensorEvent`, the rest of the runtime is shared:
@@ -194,20 +215,20 @@ On Windows, the agent also snapshots running processes during startup so `Proces
 - Optional and disabled by default
 - Alerts above the configured threshold are queued to a background worker
 - Windows uses process termination APIs
-- Linux uses `SIGKILL`
+- Linux and macOS use `SIGKILL`
 
 ## Current Cross-Platform Scope
 
-| Capability | Windows | Linux |
-| --- | --- | --- |
-| Process telemetry | Yes | Yes |
-| Network telemetry | Yes | Yes |
-| File telemetry | Yes | Yes |
-| DNS telemetry | Yes | Yes |
-| Registry telemetry | Yes | No |
-| Image load telemetry | Yes | No |
-| PowerShell telemetry | Yes | No |
-| WMI telemetry | Yes | No |
-| Service telemetry | Yes | No |
-| Task telemetry | Yes | No |
-| Built-in service management | Yes | No |
+| Capability | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| Process telemetry | Yes | Yes | Yes |
+| Network telemetry | Yes | Yes | Yes |
+| File telemetry | Yes | Yes | Yes |
+| DNS telemetry | Yes | Yes | Yes |
+| Registry telemetry | Yes | No | No |
+| Image load telemetry | Yes | No | No |
+| PowerShell telemetry | Yes | No | No |
+| WMI telemetry | Yes | No | No |
+| Service telemetry | Yes | No | No |
+| Task telemetry | Yes | No | No |
+| Built-in service management | Yes | No | No |

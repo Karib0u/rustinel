@@ -4,19 +4,20 @@
 
 # Rustinel
 
-**Open-source endpoint detection for Windows and Linux**
+**Open-source endpoint detection for Windows, Linux, and macOS**
 
 <p align="center">
   <a href="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml"><img src="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Karib0u/rustinel/releases/latest"><img src="https://img.shields.io/github/v/release/Karib0u/rustinel" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20ETW-blue?logo=windows" alt="Platform Windows ETW">
   <img src="https://img.shields.io/badge/platform-Linux%20eBPF-orange?logo=linux" alt="Platform Linux eBPF">
+  <img src="https://img.shields.io/badge/platform-macOS%20ESF-black?logo=apple" alt="Platform macOS ESF">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
 </p>
 
-Rustinel is an open-source endpoint detection project for **Windows** and **Linux**.
+Rustinel is an open-source endpoint detection project for **Windows**, **Linux**, and **macOS**.
 
-It collects native host telemetry using **ETW** on Windows and **eBPF** on Linux, normalizes events into a shared model, evaluates **Sigma**, **YARA**, and **IOC** detections, writes **ECS NDJSON** alerts, and can optionally terminate malicious processes.
+It collects native host telemetry using **ETW** on Windows, **eBPF** on Linux, and **Endpoint Security** plus **`/dev/bpf`** on macOS, normalizes events into a shared model, evaluates **Sigma**, **YARA**, and **IOC** detections, writes **ECS NDJSON** alerts, and can optionally terminate malicious processes.
 
 The goal is simple: give blue teams, researchers, and detection engineers a transparent endpoint detection engine they can inspect, run, test, and extend.
 
@@ -52,6 +53,7 @@ Rustinel currently provides:
 
 - Windows telemetry collection through ETW
 - Linux telemetry collection through eBPF
+- macOS telemetry collection through Endpoint Security and `/dev/bpf`
 - A shared event model across supported platforms
 - Sigma rule evaluation on normalized events
 - YARA scanning on process creation
@@ -61,16 +63,17 @@ Rustinel currently provides:
 - Optional active response with dry-run and allowlists
 - Windows service support
 - Linux foreground execution under root or a supervisor of your choice
+- macOS foreground execution under root, or a launchd daemon
 
 ---
 
 ## Architecture
 
 ```text
-Windows hosts                      Linux hosts
-   ETW                                eBPF
-    |                                  |
-    +---------------+------------------+
+Windows hosts        Linux hosts        macOS hosts
+   ETW                  eBPF             ESF + /dev/bpf
+    |                    |                    |
+    +--------------------+--------------------+
                     |
           Normalized event model
                     |
@@ -127,7 +130,7 @@ IOC matching provides fast deterministic checks against:
 - Domains
 - Path regexes
 
-IOC matching is useful for threat intelligence and incident response, but it is strongest when combined with behavioral detections and YARA scanning. Domain IOCs can match DNS `QueryName` on both Windows and Linux; Linux support covers outbound plaintext DNS queries observed by eBPF.
+IOC matching is useful for threat intelligence and incident response, but it is strongest when combined with behavioral detections and YARA scanning. Domain IOCs can match DNS `QueryName` on Windows, Linux, and macOS; Linux covers outbound plaintext DNS queries observed by eBPF, and macOS covers plaintext DNS queries observed via `/dev/bpf` capture.
 
 ---
 
@@ -137,8 +140,9 @@ IOC matching is useful for threat intelligence and incident response, but it is 
 | --- | --- | --- | --- |
 | Windows 10/11, Server 2016+ | ETW | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task | Foreground run or built-in Windows service commands |
 | Linux 5.8+ with BTF | eBPF | Process, network, file, DNS | Foreground run under root or your supervisor of choice |
+| macOS 11+ | Endpoint Security + `/dev/bpf` | Process, file, network, DNS | Foreground run under root (signed/entitled or SIP relaxed) or a launchd daemon |
 
-Windows telemetry coverage is broader today. Linux support currently focuses on process, network, file, and DNS telemetry through eBPF. Linux DNS events include outbound plaintext DNS `QueryName`; DNS response answers (`QueryResults`) are not parsed yet.
+Windows telemetry coverage is broader today. Linux and macOS support currently focus on process, network, file, and DNS telemetry. Linux DNS events include outbound plaintext DNS `QueryName`; DNS response answers (`QueryResults`) are not parsed yet. macOS collects process and file events through Endpoint Security and network and DNS through `/dev/bpf` capture; network events are attributed to a process on a best-effort basis.
 
 ---
 
@@ -163,6 +167,20 @@ sudo ./rustinel run
 whoami
 cat logs/alerts.json.*
 ```
+
+### macOS
+
+```bash
+cd rustinel-<version>-aarch64-apple-darwin
+sudo ./rustinel run
+whoami
+cat logs/alerts.json.*
+```
+
+Creating an Endpoint Security client requires root and the
+`com.apple.developer.endpoint-security.client` entitlement on signed,
+notarized builds. For local testing you can run with SIP/AMFI relaxed. See the
+[development docs](docs/development.md) for ad-hoc signing steps.
 
 The bundled demo rules are intended to validate that telemetry collection, rule evaluation, and alert output are working.
 
@@ -225,6 +243,28 @@ The bundled Sigma demo rule should write an alert to:
 logs/alerts.json.<date>
 ```
 
+### macOS
+
+Choose the archive that matches your architecture:
+
+```text
+rustinel-<version>-aarch64-apple-darwin.tar.gz
+rustinel-<version>-x86_64-apple-darwin.tar.gz
+```
+
+Extract and run as root:
+
+```bash
+tar xzf rustinel-<version>-aarch64-apple-darwin.tar.gz
+cd rustinel-<version>-aarch64-apple-darwin
+sudo ./rustinel run
+```
+
+If startup fails with `NotPrivileged`, the Endpoint Security client could not be
+created: run as root with a signed, entitled build, or relax SIP/AMFI for local
+testing. A `com.rustinel.agent.plist` LaunchDaemon is included for persistent
+deployment.
+
 ---
 
 ## Build from source
@@ -244,6 +284,19 @@ cargo build --release
 cargo build --release
 sudo ./target/release/rustinel run
 ```
+
+### macOS
+
+```bash
+cargo build --release
+codesign --force --sign - \
+  --entitlements packaging/macos/rustinel.entitlements \
+  target/release/rustinel
+sudo ./target/release/rustinel run
+```
+
+Ad-hoc signing with the entitlement only takes effect when SIP/AMFI is relaxed;
+distributable builds require a Developer ID and notarization.
 
 For full release setup, source-build prerequisites, and validation steps, see the [Getting Started](https://docs.rustinel.io/getting-started/) documentation.
 

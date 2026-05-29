@@ -4,9 +4,9 @@
 
 # Rustinel Documentation
 
-**Rustinel** is an open-source endpoint detection project for Windows and Linux.
+**Rustinel** is an open-source endpoint detection project for Windows, Linux, and macOS.
 
-It collects native host telemetry using **ETW** on Windows and **eBPF** on Linux, normalizes events into a shared model, evaluates **Sigma**, **YARA**, and **IOC** detections, and writes alerts as **ECS NDJSON**.
+It collects native host telemetry using **ETW** on Windows, **eBPF** on Linux, and **Endpoint Security** plus **`/dev/bpf`** on macOS, normalizes events into a shared model, evaluates **Sigma**, **YARA**, and **IOC** detections, and writes alerts as **ECS NDJSON**.
 
 Rustinel is designed for blue teams, detection engineers, researchers, and anyone who wants a transparent endpoint detection engine they can inspect, run, test, and extend.
 

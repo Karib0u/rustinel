@@ -17,6 +17,16 @@ It is not a strict release commitment.
 - **ETW integrity checks** — detect ETW session tampering and provider blinding that could suppress telemetry.
 - **Deep inspection via stack walking** — identify shellcode and "floating code" executing outside mapped image regions.
 
+### macOS
+
+macOS support collects process and file telemetry through Endpoint Security and
+network and DNS through `/dev/bpf` capture. Future work:
+
+- **NetworkExtension flow source** — replace `/dev/bpf` capture with a Network Extension that carries the owning PID per flow, removing the best-effort socket-to-PID scan and its direction ambiguity.
+- **Interface selection** — capture across all active interfaces instead of the single `RUSTINEL_BPF_INTERFACE` (default `en0`).
+- **DNS response enrichment** — parse DNS answers for `QueryResults`, matching the Linux gap.
+- **AUTH-mode prevention** — block process execution before it happens via `ES_EVENT_TYPE_AUTH_EXEC`, beyond the current kill-after-the-fact response.
+
 ### Cross-Platform
 
 - **Periodic YARA sweeps** — scheduled background scans of running processes independent of creation events.
@@ -101,7 +111,7 @@ This may include recommendations around:
 
 Useful community contributions include:
 
-- Testing on different Windows and Linux versions
+- Testing on different Windows, Linux, and macOS versions
 - Reporting telemetry gaps
 - Improving documentation
 - Adding Sigma examples

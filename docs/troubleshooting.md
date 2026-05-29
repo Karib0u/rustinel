@@ -10,9 +10,11 @@ Before changing config or rules, check these first:
 - Run in the foreground with a higher log level:
   - Windows: `.\rustinel.exe run --log-level debug`
   - Linux: `sudo ./rustinel run --log-level debug`
+  - macOS: `sudo ./rustinel run --log-level debug`
 - Trigger a known bundled demo rule:
   - Windows: `whoami /all`
   - Linux: `whoami`
+  - macOS: `whoami`
 - Confirm you are using the expected working directory and rule paths
 
 ## Quick Symptom Guide
@@ -103,6 +105,45 @@ If `ebpf/rustinel-ebpf.o` is missing, the build falls back to compiling the eBPF
 - `bpf-linker`
 
 See [Getting Started](getting-started.md) and [Development](development.md).
+
+### macOS `Endpoint Security client init failed: ... NotPrivileged`
+
+Creating an Endpoint Security client failed. The common causes are:
+
+- not running as root
+- the binary is not signed with the `com.apple.developer.endpoint-security.client` entitlement, and SIP/AMFI is not relaxed
+- the user has not approved the agent (TCC)
+
+What to do:
+
+- run with `sudo`
+- for distributable builds, sign and notarize with the Endpoint Security entitlement
+- for local testing, relax SIP/AMFI on a dedicated test machine and ad-hoc sign with the entitlement (see [Development](development.md))
+
+Typical symptom in logs:
+
+```text
+macOS Endpoint Security sensor failed to start: Endpoint Security client init failed: es_new_client failed: NotPrivileged
+```
+
+### macOS network or DNS events are missing
+
+Network and DNS telemetry on macOS comes from `/dev/bpf` capture, which is a
+separate, best-effort source. If it cannot start, the agent logs a warning and
+continues with Endpoint Security (process and file) only.
+
+Check these first:
+
+- access to the `/dev/bpf*` device nodes requires root
+- capture binds to one interface (default `en0`); set `RUSTINEL_BPF_INTERFACE` to match your active interface
+- DNS visibility requires plaintext DNS on port 53; DNS-over-HTTPS and DNS-over-TLS are not visible
+- network connection events are attributed to a process on a best-effort basis and may be unattributed
+
+Typical symptom in logs:
+
+```text
+macOS network/DNS sensor unavailable: ...; continuing with Endpoint Security only
+```
 
 ## Agent Runs But No Alerts
 
@@ -210,6 +251,13 @@ On Windows, `OpenProcess` with `PROCESS_VM_READ` may fail for:
 
 These failures are logged at `trace` and do not affect other detection paths.
 
+#### macOS memory scanning privileges
+
+On macOS, reading another process's memory uses `task_for_pid`, which is
+heavily restricted. It generally requires root and SIP/AMFI relaxation or a
+specific entitlement, and is denied for many system and protected processes.
+When access is denied the scan returns nothing, logged at `trace`.
+
 ### IOC hash matching did not fire
 
 Hash matching is more selective than inline IOC checks.
@@ -291,6 +339,7 @@ Common log lines include:
 ```text
 Sensor event channel full; dropping ETW event
 eBPF sensor: event channel full, dropping event
+bpf sensor: event channel full, dropping event
 YARA queue full; dropping scan job
 IOC hash queue full; dropping job
 Active response queue full, dropping task
@@ -370,5 +419,6 @@ Collect these first:
 - relevant operational log excerpt
 - whether the bundled `whoami` demo rule works
 - on Linux: kernel version, BTF availability, and whether an eBPF override object was used
+- on macOS: macOS version, whether running as root, and whether the build is signed/notarized or SIP/AMFI is relaxed
 
 If the problem is rule-related, include the minimal rule and the event type you expected it to match.

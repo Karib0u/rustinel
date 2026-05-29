@@ -50,6 +50,27 @@ Encrypted C2 over trusted or common infrastructure may not be detected by simple
 
 Behavioral detection is needed to identify suspicious activity around the network communication.
 
+### macOS network and DNS attribution
+
+On macOS, network and DNS telemetry comes from `/dev/bpf` packet capture rather
+than a per-process hook. This has a few consequences:
+
+- Connections are attributed to a process on a best-effort basis by matching
+  ports against open sockets, which is racy: a short-lived socket may close
+  before it can be matched, leaving the connection unattributed.
+- DNS query events are not attributed to a process.
+- Capture binds to a single interface (default `en0`, override with
+  `RUSTINEL_BPF_INTERFACE`); traffic on other interfaces is not seen.
+
+A future NetworkExtension-based source would carry the owning process with each
+flow and remove these limitations.
+
+### macOS memory scanning
+
+YARA memory scanning on macOS uses `task_for_pid`, which is heavily restricted:
+it generally requires root and SIP/AMFI relaxation or a specific entitlement.
+When access is denied, memory scanning simply returns nothing.
+
 ## How to think about Rustinel
 
 Rustinel should be viewed as a transparent open-source detection engine.
