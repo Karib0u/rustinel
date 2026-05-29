@@ -8,7 +8,9 @@ mod types;
 
 #[cfg(target_os = "linux")]
 mod linux;
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod unsupported;
 #[cfg(windows)]
 mod windows;
@@ -19,7 +21,9 @@ use anyhow::Result;
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 use unsupported as platform;
 #[cfg(windows)]
 use windows as platform;

@@ -69,6 +69,8 @@ endpoint-sec = { version = "0.5", features = ["macos_11_0_0"] }
 endpoint-sec-sys = "0.5"
 # Process/socket inspection for best-effort PID attribution of captured flows.
 libproc = "0.14"
+# Mach VM APIs for YARA process-memory scanning (task_for_pid, mach_vm_read).
+mach2 = "0.6"
 
 # Windows-specific
 [target.'cfg(windows)'.dependencies]
