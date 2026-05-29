@@ -14,21 +14,30 @@
 //! entitlement, and user approval (TCC). Dev builds can run with SIP/AMFI
 //! relaxed.
 
+use std::ffi::OsStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Result};
-use endpoint_sec::{Client, Message};
+use endpoint_sec::{Client, Event, EventExec, Message};
 use endpoint_sec_sys::es_event_type_t;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use crate::sensor::{Sensor, SensorEvent};
+use crate::models::ProcessCreationFields;
+use crate::sensor::{
+    Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
+    SensorPayload,
+};
+use crate::utils::lookup_username_by_uid;
 
 /// Poll interval for the keepalive thread to observe the shutdown flag.
 const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
+
+/// Sysmon-compatible event ID emitted for process-create events.
+const EVENT_ID_PROCESS_CREATE: u16 = 1;
 
 /// Endpoint Security event subscriptions for the macOS sensor.
 const SUBSCRIPTIONS: &[es_event_type_t] = &[
@@ -139,8 +148,119 @@ fn run_client(
 ///
 /// Returns `None` for messages that carry no detection signal or are not yet
 /// mapped. Per-event-class translation is filled in incrementally.
-fn build_sensor_event(_msg: &Message) -> Option<SensorEvent> {
-    None
+fn build_sensor_event(msg: &Message) -> Option<SensorEvent> {
+    match msg.event()? {
+        Event::NotifyExec(exec) => build_exec_event(msg, &exec),
+        _ => None,
+    }
+}
+
+/// Plain, FFI-free description of an exec, extracted from an ESF event.
+///
+/// Keeping this separate from the Endpoint Security types lets the
+/// `SensorEvent` assembly be unit-tested without a live ES client.
+struct RawExec {
+    pid: u32,
+    image: String,
+    command_line: Option<String>,
+    parent_pid: i32,
+    current_directory: Option<String>,
+    user: String,
+    /// Process start time, as nanoseconds since the Unix epoch.
+    start_time: u64,
+    event_time: SystemTime,
+}
+
+/// Extract the fields we care about from an ESF exec event.
+fn build_exec_event(msg: &Message, exec: &EventExec) -> Option<SensorEvent> {
+    let target = exec.target();
+    let token = target.audit_token();
+
+    let image = osstr_to_string(target.executable().path());
+    if image.is_empty() {
+        return None;
+    }
+
+    let command_line = {
+        let parts: Vec<String> = exec.args().map(osstr_to_string).collect();
+        (!parts.is_empty()).then(|| parts.join(" "))
+    };
+
+    let current_directory = exec
+        .cwd()
+        .map(|cwd| osstr_to_string(cwd.path()))
+        .filter(|value| !value.is_empty());
+
+    let event_time = msg.time();
+    let start_time = target
+        .start_time()
+        .map(system_time_nanos)
+        .unwrap_or_else(|| system_time_nanos(event_time));
+
+    Some(process_start_event(RawExec {
+        pid: token.pid() as u32,
+        image,
+        command_line,
+        parent_pid: target.ppid(),
+        current_directory,
+        user: resolved_user(token.ruid()),
+        start_time,
+        event_time,
+    }))
+}
+
+/// Assemble a process-start [`SensorEvent`] from FFI-free exec fields.
+fn process_start_event(raw: RawExec) -> SensorEvent {
+    let parent_process_id = (raw.parent_pid > 0).then(|| raw.parent_pid.to_string());
+
+    SensorEvent {
+        platform: Platform::MacOS,
+        provider: "esf",
+        action: SensorAction::Start,
+        normalization: SensorNormalization {
+            event_id: EVENT_ID_PROCESS_CREATE,
+            action_code: 1,
+        },
+        pid: Some(raw.pid),
+        timestamp: raw.event_time,
+        process_start_key: Some(ProcessStartKey {
+            pid: raw.pid,
+            start_time: raw.start_time,
+        }),
+        payload: SensorPayload::Process(ProcessCreationFields {
+            image: Some(raw.image),
+            original_file_name: None,
+            product: None,
+            description: None,
+            target_image: None,
+            command_line: raw.command_line,
+            process_id: Some(raw.pid.to_string()),
+            parent_process_id,
+            // Enriched later via libproc; ESF exec events do not carry it.
+            parent_image: None,
+            parent_command_line: None,
+            current_directory: raw.current_directory,
+            // Windows-specific; absent on macOS.
+            integrity_level: None,
+            user: Some(raw.user),
+            logon_id: None,
+            logon_guid: None,
+        }),
+    }
+}
+
+fn osstr_to_string(value: &OsStr) -> String {
+    value.to_string_lossy().into_owned()
+}
+
+fn system_time_nanos(time: SystemTime) -> u64 {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+fn resolved_user(uid: u32) -> String {
+    lookup_username_by_uid(uid).unwrap_or_else(|| uid.to_string())
 }
 
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
@@ -151,6 +271,77 @@ fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             // Pipeline has shut down; stop logging.
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_start_event_maps_exec_fields() {
+        let event = process_start_event(RawExec {
+            pid: 4242,
+            image: "/usr/bin/curl".to_string(),
+            command_line: Some("/usr/bin/curl https://example.test".to_string()),
+            parent_pid: 501,
+            current_directory: Some("/Users/alice".to_string()),
+            user: "alice".to_string(),
+            start_time: 1_700_000_000_000_000_000,
+            event_time: SystemTime::UNIX_EPOCH,
+        });
+
+        assert_eq!(event.platform, Platform::MacOS);
+        assert_eq!(event.provider, "esf");
+        assert_eq!(event.action, SensorAction::Start);
+        assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_CREATE);
+        assert_eq!(event.pid, Some(4242));
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 4242,
+                start_time: 1_700_000_000_000_000_000,
+            })
+        );
+
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert_eq!(fields.image.as_deref(), Some("/usr/bin/curl"));
+                assert_eq!(
+                    fields.command_line.as_deref(),
+                    Some("/usr/bin/curl https://example.test")
+                );
+                assert_eq!(fields.process_id.as_deref(), Some("4242"));
+                assert_eq!(fields.parent_process_id.as_deref(), Some("501"));
+                assert_eq!(fields.current_directory.as_deref(), Some("/Users/alice"));
+                assert_eq!(fields.user.as_deref(), Some("alice"));
+                assert!(fields.parent_image.is_none());
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn process_start_event_omits_nonpositive_parent_pid() {
+        let event = process_start_event(RawExec {
+            pid: 7,
+            image: "/sbin/launchd".to_string(),
+            command_line: None,
+            parent_pid: 0,
+            current_directory: None,
+            user: "root".to_string(),
+            start_time: 0,
+            event_time: SystemTime::UNIX_EPOCH,
+        });
+
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert!(fields.parent_process_id.is_none());
+                assert!(fields.command_line.is_none());
+                assert!(fields.current_directory.is_none());
+            }
+            other => panic!("unexpected payload: {other:?}"),
         }
     }
 }

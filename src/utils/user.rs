@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Result};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::ffi::CStr;
 
 #[cfg(windows)]
@@ -103,7 +103,7 @@ pub fn lookup_account_sid(_sid_str: &str) -> Result<String> {
     Err(anyhow!("SID resolution is only supported on Windows"))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn lookup_username_by_uid(uid: u32) -> Option<String> {
     let mut buf_len = match unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) } {
         value if value > 0 => value as usize,
@@ -141,13 +141,13 @@ pub fn lookup_username_by_uid(uid: u32) -> Option<String> {
     None
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 #[allow(dead_code)]
 pub fn lookup_username_by_uid(_uid: u32) -> Option<String> {
     None
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
 

@@ -26,5 +26,5 @@ pub use socket::query_socket_metadata;
 pub use time::now_timestamp_string;
 #[cfg(windows)]
 pub use user::lookup_account_sid;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use user::lookup_username_by_uid;
