@@ -50,7 +50,7 @@ use rustinel::sensor::linux::EbpfSensor;
 use tokio::sync::mpsc;
 
 #[cfg(target_os = "macos")]
-use rustinel::sensor::macos::PlaceholderSensor;
+use rustinel::sensor::macos::EsfSensor;
 #[cfg(target_os = "macos")]
 use tokio::sync::mpsc;
 
@@ -1543,8 +1543,8 @@ async fn run_macos_edr() -> anyhow::Result<()> {
     router_inner.register_handler(Box::new(yara_handler));
     let router = Arc::new(router_inner);
 
-    // 13. macOS sensor (placeholder until ESF/bpf sources land)
-    let sensor = Arc::new(PlaceholderSensor::new());
+    // 13. macOS Endpoint Security sensor
+    let sensor = Arc::new(EsfSensor::new());
 
     info!("Starting macOS sensor...");
     info!("Press Ctrl+C to stop gracefully");
