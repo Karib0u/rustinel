@@ -22,6 +22,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
 use super::packet::{self, ParsedPacket, Transport, TCP_FLAG_ACK, TCP_FLAG_SYN};
+use super::socket;
 use crate::models::{DnsQueryFields, NetworkConnectionFields};
 use crate::sensor::{
     Platform, Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
@@ -312,11 +313,33 @@ fn handle_packet(link_type: u32, frame: &[u8], tx: &Sender<SensorEvent>) {
     let Some(parsed) = packet::parse(link_type, frame) else {
         return;
     };
-    if let Some(event) = build_network_event(&parsed) {
+    if let Some(mut event) = build_network_event(&parsed) {
+        attribute_connection_owner(&mut event, &parsed);
         try_send(tx, event);
     }
     if let Some(event) = build_dns_event(&parsed) {
         try_send(tx, event);
+    }
+}
+
+/// Best-effort: attribute a network-connection event to the owning process by
+/// matching its ports against open sockets. Runs once per connection
+/// initiation; failures leave the event unattributed (the normalizer still
+/// enriches by destination).
+fn attribute_connection_owner(event: &mut SensorEvent, packet: &ParsedPacket) {
+    let Transport::Tcp {
+        src_port, dst_port, ..
+    } = &packet.transport
+    else {
+        return;
+    };
+    let Some(owner) = socket::find_tcp_socket_owner(*src_port, *dst_port) else {
+        return;
+    };
+    event.pid = Some(owner.pid);
+    if let SensorPayload::Network(fields) = &mut event.payload {
+        fields.process_id = Some(owner.pid.to_string());
+        fields.image = owner.image;
     }
 }
 

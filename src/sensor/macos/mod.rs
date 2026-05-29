@@ -8,6 +8,7 @@
 pub mod bpf;
 pub mod esf;
 mod packet;
+mod socket;
 
 pub use bpf::BpfSensor;
 pub use esf::EsfSensor;

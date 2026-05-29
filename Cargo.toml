@@ -67,6 +67,8 @@ libc = "0.2"
 # reference-counted message handling.
 endpoint-sec = { version = "0.5", features = ["macos_11_0_0"] }
 endpoint-sec-sys = "0.5"
+# Process/socket inspection for best-effort PID attribution of captured flows.
+libproc = "0.14"
 
 # Windows-specific
 [target.'cfg(windows)'.dependencies]
