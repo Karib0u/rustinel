@@ -7,6 +7,7 @@
 | Windows userspace build | Rust 1.92+, Visual Studio Build Tools |
 | Linux userspace build | Rust 1.92+ |
 | Linux eBPF object build | nightly Rust, `rust-src`, `bpf-linker` |
+| macOS userspace build | Rust 1.92+, Xcode Command Line Tools |
 
 ## Fastest Local Build Paths
 
@@ -61,6 +62,30 @@ Useful when iterating on `ebpf/` without rebuilding the full userspace binary:
 sudo env RUSTINEL_EBPF_OBJECT=$PWD/ebpf/rustinel-ebpf.o ./target/release/rustinel run
 ```
 
+### macOS
+
+macOS telemetry uses Apple's Endpoint Security framework. Creating an ES client
+(`es_new_client`) requires three things: running as root, the
+`com.apple.developer.endpoint-security.client` entitlement, and user approval
+(TCC). Without them the agent exits at startup with a `NotPrivileged` error.
+
+For development and lab use you can avoid a provisioning profile by relaxing
+system protections (in a VM or a dedicated test machine, never a production
+host): disable SIP from Recovery (`csrutil disable`) and, if needed, disable
+AMFI. Then ad-hoc sign the binary with the entitlement and run it as root:
+
+```bash
+cargo build --release
+codesign --force --sign - \
+  --entitlements packaging/macos/rustinel.entitlements \
+  target/release/rustinel
+sudo ./target/release/rustinel run
+```
+
+For distributable builds, request the Endpoint Security entitlement from Apple,
+then sign with your Developer ID and notarize using the same entitlements file.
+The entitlement lives in `packaging/macos/rustinel.entitlements`.
+
 ## Testing
 
 ### Unit and Integration Tests
@@ -107,7 +132,8 @@ src/
 ├── scanner/            # YARA compilation and scanning
 ├── sensor/
 │   ├── windows/        # ETW sensor implementation
-│   └── linux/          # eBPF userspace loader and event decoding
+│   ├── linux/          # eBPF userspace loader and event decoding
+│   └── macos/          # Endpoint Security sensor
 ├── state/              # Process, DNS, SID, and network aggregation state
 └── utils/              # Platform-specific helpers
 
