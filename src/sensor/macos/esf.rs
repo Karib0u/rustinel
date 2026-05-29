@@ -15,18 +15,21 @@
 //! relaxed.
 
 use std::ffi::OsStr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Result};
-use endpoint_sec::{Client, Event, EventExec, Message};
+use endpoint_sec::{
+    Client, Event, EventCreate, EventCreateDestinationFile, EventExec, EventUnlink, Message,
+};
 use endpoint_sec_sys::es_event_type_t;
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use crate::models::ProcessCreationFields;
+use crate::models::{FileEventFields, ProcessCreationFields};
 use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
@@ -40,11 +43,16 @@ const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
 /// Sysmon-compatible event ID emitted for process-terminate events.
 const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
+/// Sysmon-compatible event IDs emitted for file events.
+const EVENT_ID_FILE_CREATE: u16 = 11;
+const EVENT_ID_FILE_DELETE: u16 = 23;
 
 /// Endpoint Security event subscriptions for the macOS sensor.
 const SUBSCRIPTIONS: &[es_event_type_t] = &[
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_EXEC,
     es_event_type_t::ES_EVENT_TYPE_NOTIFY_EXIT,
+    es_event_type_t::ES_EVENT_TYPE_NOTIFY_CREATE,
+    es_event_type_t::ES_EVENT_TYPE_NOTIFY_UNLINK,
 ];
 
 /// macOS Endpoint Security sensor. Implements [`Sensor`].
@@ -154,6 +162,8 @@ fn build_sensor_event(msg: &Message) -> Option<SensorEvent> {
     match msg.event()? {
         Event::NotifyExec(exec) => build_exec_event(msg, &exec),
         Event::NotifyExit(_) => build_exit_event(msg),
+        Event::NotifyCreate(create) => build_create_event(msg, &create),
+        Event::NotifyUnlink(unlink) => build_unlink_event(msg, &unlink),
         _ => None,
     }
 }
@@ -298,6 +308,124 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
     }
 }
 
+/// File event class, mapped to Sysmon-compatible action metadata.
+#[derive(Clone, Copy)]
+enum FileAction {
+    Create,
+    Delete,
+}
+
+impl FileAction {
+    /// Return the (action, event id, action code) triple for this class,
+    /// matching the Linux sensor's Sysmon-compatible numbering.
+    fn normalization(self) -> (SensorAction, u16, u8) {
+        match self {
+            FileAction::Create => (SensorAction::Create, EVENT_ID_FILE_CREATE, 64),
+            FileAction::Delete => (SensorAction::Delete, EVENT_ID_FILE_DELETE, 70),
+        }
+    }
+}
+
+/// Plain, FFI-free description of a file event, extracted from an ESF event.
+struct RawFile {
+    action: FileAction,
+    pid: u32,
+    image: Option<String>,
+    user: String,
+    target: String,
+    source: Option<String>,
+    event_time: SystemTime,
+}
+
+/// Acting process context shared by all file events: pid, executable, user.
+fn actor(msg: &Message) -> (u32, Option<String>, String) {
+    let process = msg.process();
+    let token = process.audit_token();
+    let image = osstr_to_string(process.executable().path());
+    (
+        token.pid() as u32,
+        (!image.is_empty()).then_some(image),
+        resolved_user(token.ruid()),
+    )
+}
+
+fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent> {
+    let target = create_destination_path(create.destination()?)?;
+    let (pid, image, user) = actor(msg);
+    file_event(RawFile {
+        action: FileAction::Create,
+        pid,
+        image,
+        user,
+        target,
+        source: None,
+        event_time: msg.time(),
+    })
+}
+
+fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent> {
+    let target = osstr_to_string(unlink.target().path());
+    let (pid, image, user) = actor(msg);
+    file_event(RawFile {
+        action: FileAction::Delete,
+        pid,
+        image,
+        user,
+        target,
+        source: None,
+        event_time: msg.time(),
+    })
+}
+
+/// Resolve the absolute path of a create destination.
+fn create_destination_path(dest: EventCreateDestinationFile) -> Option<String> {
+    let path = match dest {
+        EventCreateDestinationFile::ExistingFile(file) => osstr_to_string(file.path()),
+        EventCreateDestinationFile::NewPath {
+            directory,
+            filename,
+            ..
+        } => join_path(directory.path(), filename),
+    };
+    (!path.is_empty()).then_some(path)
+}
+
+/// Assemble a file [`SensorEvent`] from FFI-free fields.
+fn file_event(raw: RawFile) -> Option<SensorEvent> {
+    if raw.target.is_empty() {
+        return None;
+    }
+    let (action, event_id, action_code) = raw.action.normalization();
+
+    Some(SensorEvent {
+        platform: Platform::MacOS,
+        provider: "esf",
+        action,
+        normalization: SensorNormalization {
+            event_id,
+            action_code,
+        },
+        pid: Some(raw.pid),
+        timestamp: raw.event_time,
+        process_start_key: None,
+        payload: SensorPayload::File(FileEventFields {
+            source_filename: raw.source,
+            target_filename: Some(raw.target),
+            process_id: Some(raw.pid.to_string()),
+            image: raw.image,
+            creation_utc_time: None,
+            previous_creation_utc_time: None,
+            user: Some(raw.user),
+        }),
+    })
+}
+
+fn join_path(directory: &OsStr, filename: &OsStr) -> String {
+    let mut path = PathBuf::from(directory);
+    path.push(filename);
+    path.to_string_lossy().into_owned()
+}
+
 fn osstr_to_string(value: &OsStr) -> String {
     value.to_string_lossy().into_owned()
 }
@@ -369,6 +497,59 @@ mod tests {
             }
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    fn raw_file(action: FileAction, target: &str, source: Option<&str>) -> RawFile {
+        RawFile {
+            action,
+            pid: 55,
+            image: Some("/usr/bin/touch".to_string()),
+            user: "alice".to_string(),
+            target: target.to_string(),
+            source: source.map(str::to_string),
+            event_time: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn file_event_maps_create() {
+        let event = file_event(raw_file(FileAction::Create, "/tmp/new.txt", None))
+            .expect("create event should build");
+        assert_eq!(event.action, SensorAction::Create);
+        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_CREATE);
+        assert_eq!(event.pid, Some(55));
+        assert!(event.process_start_key.is_none());
+
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
+                assert!(fields.source_filename.is_none());
+                assert_eq!(fields.image.as_deref(), Some("/usr/bin/touch"));
+                assert_eq!(fields.user.as_deref(), Some("alice"));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn file_event_maps_delete() {
+        let event = file_event(raw_file(FileAction::Delete, "/tmp/old.txt", None))
+            .expect("delete event should build");
+        assert_eq!(event.action, SensorAction::Delete);
+        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_DELETE);
+    }
+
+    #[test]
+    fn file_event_rejects_empty_target() {
+        assert!(file_event(raw_file(FileAction::Create, "", None)).is_none());
+    }
+
+    #[test]
+    fn join_path_combines_directory_and_filename() {
+        assert_eq!(
+            join_path(OsStr::new("/tmp/dir"), OsStr::new("file.txt")),
+            "/tmp/dir/file.txt"
+        );
     }
 
     #[test]
