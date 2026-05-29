@@ -7,7 +7,7 @@ use crate::response::ResponseEngine;
 use crate::runtime::logging::{init_logging, log_startup_banner};
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
-use crate::sensor::macos::EsfSensor;
+use crate::sensor::macos::{BpfSensor, EsfSensor};
 use crate::sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
 use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
 use crate::{config, reload, scanner};
@@ -22,10 +22,9 @@ pub fn run(console_output: bool, log_level: Option<String>) -> anyhow::Result<()
     runtime.block_on(run_macos_edr(Some(console_output), log_level))
 }
 
-/// macOS EDR main loop. Mirrors `run_linux_edr` but replaces the eBPF sensor
-/// with the macOS sensor. In Phase 0 this is a no-op placeholder sensor so the
-/// shared pipeline can be exercised end to end; the Endpoint Security and
-/// /dev/bpf sources land in later phases.
+/// macOS EDR main loop. Mirrors `run_linux_edr`, sourcing process and file
+/// events from Endpoint Security and network and DNS events from a /dev/bpf
+/// capture sensor.
 async fn run_macos_edr(
     console_output_override: Option<bool>,
     log_level_override: Option<String>,
@@ -234,10 +233,11 @@ async fn run_macos_edr(
     router_inner.register_handler(Box::new(yara_handler));
     let router = Arc::new(router_inner);
 
-    // 13. macOS Endpoint Security sensor
-    let sensor = Arc::new(EsfSensor::new());
+    // 13. macOS sensors: Endpoint Security (process/file) and bpf (network/DNS)
+    let esf_sensor = Arc::new(EsfSensor::new());
+    let bpf_sensor = Arc::new(BpfSensor::new());
 
-    info!("Starting macOS sensor...");
+    info!("Starting macOS sensors...");
     info!("Press Ctrl+C to stop gracefully");
 
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(8192);
@@ -248,10 +248,20 @@ async fn run_macos_edr(
         }
     });
 
-    let sensor_clone = Arc::clone(&sensor);
-    if let Err(e) = sensor_clone.start(sensor_tx) {
-        error!("macOS sensor failed to start: {:#}", e);
+    // Endpoint Security is the primary source; failing to start it is fatal.
+    let esf_clone = Arc::clone(&esf_sensor);
+    if let Err(e) = esf_clone.start(sensor_tx.clone()) {
+        error!("macOS Endpoint Security sensor failed to start: {:#}", e);
         return Err(e);
+    }
+
+    // Network/DNS capture is best-effort; degrade to ESF-only if it fails.
+    let bpf_clone = Arc::clone(&bpf_sensor);
+    if let Err(e) = bpf_clone.start(sensor_tx) {
+        warn!(
+            "macOS network/DNS sensor unavailable: {:#}; continuing with Endpoint Security only",
+            e
+        );
     }
 
     // 14. Wait for Ctrl+C
@@ -259,7 +269,8 @@ async fn run_macos_edr(
         Ok(()) => info!("Received Ctrl+C, shutting down"),
         Err(e) => error!("Failed to listen for Ctrl+C: {}", e),
     }
-    sensor.shutdown();
+    esf_sensor.shutdown();
+    bpf_sensor.shutdown();
 
     // Drain workers
     drop(router);
