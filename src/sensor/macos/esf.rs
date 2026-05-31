@@ -35,7 +35,6 @@ use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
 };
-use crate::utils::lookup_username_by_uid;
 
 /// Poll interval for the keepalive thread to observe the shutdown flag.
 const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
@@ -222,7 +221,7 @@ fn build_exec_event(msg: &Message, exec: &EventExec) -> Option<SensorEvent> {
         command_line,
         parent_pid: target.ppid(),
         current_directory,
-        user: resolved_user(token.ruid()),
+        user: token.ruid().to_string(),
         start_time,
         event_time,
     }))
@@ -276,7 +275,7 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
     let token = msg.process().audit_token();
     Some(process_stop_event(
         token.pid() as u32,
-        resolved_user(token.ruid()),
+        token.ruid().to_string(),
         msg.time(),
     ))
 }
@@ -349,7 +348,10 @@ struct RawFile {
     event_time: SystemTime,
 }
 
-/// Acting process context shared by all file events: pid, executable, user.
+/// Acting process context shared by all file events: pid, executable, and the
+/// raw uid as a string. Username resolution is deferred to the normalizer
+/// (like the Linux sensor) to avoid a directory-services lookup per event on
+/// the high-volume file path.
 fn actor(msg: &Message) -> (u32, Option<String>, String) {
     let process = msg.process();
     let token = process.audit_token();
@@ -357,7 +359,7 @@ fn actor(msg: &Message) -> (u32, Option<String>, String) {
     (
         token.pid() as u32,
         (!image.is_empty()).then_some(image),
-        resolved_user(token.ruid()),
+        token.ruid().to_string(),
     )
 }
 
@@ -494,10 +496,6 @@ fn system_time_nanos(time: SystemTime) -> u64 {
     time.duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
         .unwrap_or(0)
-}
-
-fn resolved_user(uid: u32) -> String {
-    lookup_username_by_uid(uid).unwrap_or_else(|| uid.to_string())
 }
 
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
