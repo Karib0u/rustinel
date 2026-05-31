@@ -98,6 +98,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                     image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                     command_line: Some("cmd.exe /c whoami".to_string()),
                     process_id: Some("111".to_string()),
+                    process_start_time: None,
                     parent_process_id: None,
                     parent_image: None,
                     parent_command_line: None,

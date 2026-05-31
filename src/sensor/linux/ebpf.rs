@@ -351,6 +351,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                         .as_ref()
                         .and_then(|value| value.command_line.clone()),
                     process_id: Some(ev.pid.to_string()),
+                    process_start_time: None,
                     parent_process_id: details
                         .as_ref()
                         .and_then(|value| value.parent_process_id.map(|pid| pid.to_string())),
@@ -390,6 +391,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 target_image: None,
                 command_line: None,
                 process_id: Some(ev.pid.to_string()),
+                process_start_time: None,
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,

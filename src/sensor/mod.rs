@@ -220,6 +220,7 @@ mod tests {
             target_image: None,
             command_line: Some("/usr/bin/bash -c id".to_string()),
             process_id: Some("42".to_string()),
+            process_start_time: None,
             parent_process_id: None,
             parent_image: None,
             parent_command_line: None,

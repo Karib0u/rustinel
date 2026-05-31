@@ -99,6 +99,9 @@ impl Normalizer {
 
         let mut fields = fields.clone();
         self.resolve_user_field(&mut fields.user);
+        if fields.process_start_time.is_none() {
+            fields.process_start_time = event.process_start_key.map(|key| key.start_time);
+        }
 
         if event.action == SensorAction::Start && fields.command_line.is_none() && pid != 0 {
             if let Some(command_line) = query_process_command_line(pid) {
@@ -373,6 +376,7 @@ impl Normalizer {
             image: Some(meta.image_name),
             command_line: meta.command_line,
             process_id: Some(pid.to_string()),
+            process_start_time: Some(meta.creation_time),
             parent_process_id: meta.parent_pid.map(|value| value.to_string()),
             parent_image: meta.parent_image,
             parent_command_line: meta.parent_command_line,
@@ -474,6 +478,7 @@ mod tests {
                 target_image: None,
                 command_line: Some("/usr/bin/curl https://example.test".to_string()),
                 process_id: Some(pid.to_string()),
+                process_start_time: None,
                 parent_process_id: Some("7".to_string()),
                 parent_image: None,
                 parent_command_line: None,
@@ -514,6 +519,7 @@ mod tests {
                 target_image: None,
                 command_line: None,
                 process_id: Some(pid.to_string()),
+                process_start_time: None,
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,
@@ -636,6 +642,7 @@ mod tests {
                 target_image: None,
                 command_line: None,
                 process_id: Some("42".to_string()),
+                process_start_time: None,
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,

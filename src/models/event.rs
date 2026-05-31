@@ -39,6 +39,9 @@ pub struct ProcessContext {
     #[serde(rename = "ProcessId", skip_serializing_if = "Option::is_none")]
     pub process_id: Option<String>,
 
+    #[serde(rename = "ProcessStartTime", skip_serializing_if = "Option::is_none")]
+    pub process_start_time: Option<u64>,
+
     #[serde(rename = "ParentProcessId", skip_serializing_if = "Option::is_none")]
     pub parent_process_id: Option<String>,
 

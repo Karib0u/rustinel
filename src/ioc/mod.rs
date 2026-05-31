@@ -225,6 +225,7 @@ impl IocEngine {
                     target_image: None,
                     command_line: None,
                     process_id: Some(pid.to_string()),
+                    process_start_time: None,
                     parent_process_id: None,
                     parent_image: None,
                     parent_command_line: None,

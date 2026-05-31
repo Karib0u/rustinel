@@ -1,5 +1,16 @@
 //! Process utilities.
 
+use digest::Digest;
+use sha2::Sha256;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    pub image: String,
+    pub start_time: Option<u64>,
+    pub command_line_hash: Option<String>,
+}
+
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProcessDetails {
@@ -155,6 +166,88 @@ pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
     } else {
         Some(details)
     }
+}
+
+#[cfg(target_os = "linux")]
+pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
+    let details = query_process_details(pid)?;
+    Some(ProcessIdentity {
+        pid,
+        image: details.image?,
+        start_time: details.start_time,
+        command_line_hash: details.command_line.as_deref().map(hash_command_line),
+    })
+}
+
+#[cfg(windows)]
+pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
+    use windows::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    if pid == 0 {
+        return None;
+    }
+
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+    if handle.is_invalid() {
+        return None;
+    }
+
+    let mut buffer = vec![0u16; 32_768];
+    let mut len = buffer.len() as u32;
+    let image = unsafe {
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_FORMAT(0),
+            windows::core::PWSTR(buffer.as_mut_ptr()),
+            &mut len,
+        )
+    }
+    .ok()
+    .and_then(|_| {
+        let value = String::from_utf16_lossy(&buffer[..len as usize]);
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    });
+
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    let start_time =
+        unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) }
+            .ok()
+            .map(|_| ((creation.dwHighDateTime as u64) << 32) | creation.dwLowDateTime as u64);
+
+    let command_line_hash = query_process_command_line_from_handle(handle)
+        .as_deref()
+        .map(hash_command_line);
+
+    let _ = unsafe { CloseHandle(handle) };
+
+    Some(ProcessIdentity {
+        pid,
+        image: image?,
+        start_time,
+        command_line_hash,
+    })
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+pub fn query_process_identity(_pid: u32) -> Option<ProcessIdentity> {
+    None
+}
+
+pub fn hash_command_line(command_line: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(command_line.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(target_os = "linux")]

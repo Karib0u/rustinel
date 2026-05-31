@@ -127,6 +127,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             target_image: None,
             command_line: Some(format!("{image} https://{TEST_DOMAIN}")),
             process_id: Some(TEST_PID.to_string()),
+            process_start_time: None,
             parent_process_id: Some(TEST_PARENT_PID.to_string()),
             parent_image: Some(parent_image_for(platform).to_string()),
             parent_command_line: Some("parent-shell".to_string()),

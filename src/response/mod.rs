@@ -5,10 +5,13 @@
 
 use crate::config::ResponseConfig;
 use crate::models::{Alert, AlertSeverity, DetectionEngine, EventFields};
+use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 const TARGET_RESPONSE: &str = "response";
+static IDENTITY_MISMATCH_SKIPS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
 struct ResponseTask {
@@ -17,6 +20,7 @@ struct ResponseTask {
     engine: DetectionEngine,
     pid: Option<u32>,
     image: Option<String>,
+    identity: Option<ProcessIdentity>,
 }
 
 #[derive(Clone)]
@@ -123,6 +127,7 @@ impl ResponseEngine {
             engine: alert.engine,
             pid,
             image,
+            identity: extract_process_identity(alert),
         };
 
         if let Err(err) = self.tx.try_send(task) {
@@ -275,31 +280,58 @@ fn handle_task(
                 "Active response would terminate process"
             );
         }
-        ResponseDecision::Terminate { pid, image } => match terminate_process(pid) {
-            Ok(()) => {
-                info!(
-                    target: TARGET_RESPONSE,
-                    pid,
-                    image = %image,
-                    rule = %task.rule_name,
-                    engine = ?task.engine,
-                    severity = ?task.severity,
-                    "Active response terminated process"
-                );
+        ResponseDecision::Terminate { pid, image } => {
+            let expected_identity = task.identity.unwrap_or_else(|| ProcessIdentity {
+                pid,
+                image: image.clone(),
+                start_time: None,
+                command_line_hash: None,
+            });
+
+            match validate_process_identity(&expected_identity) {
+                Ok(current_identity) => match terminate_process(pid) {
+                    Ok(()) => {
+                        info!(
+                            target: TARGET_RESPONSE,
+                            pid,
+                            image = %image,
+                            current_image = %current_identity.image,
+                            rule = %task.rule_name,
+                            engine = ?task.engine,
+                            severity = ?task.severity,
+                            "Active response terminated process"
+                        );
+                    }
+                    Err(err) => {
+                        error!(
+                            target: TARGET_RESPONSE,
+                            pid,
+                            image = %image,
+                            rule = %task.rule_name,
+                            engine = ?task.engine,
+                            severity = ?task.severity,
+                            error = %err,
+                            "Active response failed to terminate process"
+                        );
+                    }
+                },
+                Err(err) => {
+                    let skipped_identity_mismatch_count =
+                        IDENTITY_MISMATCH_SKIPS.fetch_add(1, Ordering::Relaxed) + 1;
+                    warn!(
+                        target: TARGET_RESPONSE,
+                        pid,
+                        image = %image,
+                        rule = %task.rule_name,
+                        engine = ?task.engine,
+                        severity = ?task.severity,
+                        skipped_identity_mismatch_count,
+                        reason = %err,
+                        "Active response skipped: process identity mismatch"
+                    );
+                }
             }
-            Err(err) => {
-                error!(
-                    target: TARGET_RESPONSE,
-                    pid,
-                    image = %image,
-                    rule = %task.rule_name,
-                    engine = ?task.engine,
-                    severity = ?task.severity,
-                    error = %err,
-                    "Active response failed to terminate process"
-                );
-            }
-        },
+        }
         ResponseDecision::Disabled | ResponseDecision::BelowSeverity { .. } => {}
     }
 }
@@ -408,6 +440,94 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
     }
 
     (pid, image)
+}
+
+fn extract_process_identity(alert: &Alert) -> Option<ProcessIdentity> {
+    let (pid, image, start_time, command_line) = match &alert.event.fields {
+        EventFields::ProcessCreation(f) => (
+            parse_pid(f.process_id.as_deref()),
+            f.image.clone(),
+            f.process_start_time,
+            f.command_line.as_deref(),
+        ),
+        _ => (
+            alert
+                .event
+                .process_context
+                .as_ref()
+                .and_then(|ctx| parse_pid(ctx.process_id.as_deref())),
+            alert
+                .event
+                .process_context
+                .as_ref()
+                .and_then(|ctx| ctx.image.clone()),
+            alert
+                .event
+                .process_context
+                .as_ref()
+                .and_then(|ctx| ctx.process_start_time),
+            alert
+                .event
+                .process_context
+                .as_ref()
+                .and_then(|ctx| ctx.command_line.as_deref()),
+        ),
+    };
+
+    Some(ProcessIdentity {
+        pid: pid?,
+        image: image?,
+        start_time,
+        command_line_hash: command_line.map(hash_command_line),
+    })
+}
+
+fn validate_process_identity(expected: &ProcessIdentity) -> Result<ProcessIdentity, String> {
+    let current = query_process_identity(expected.pid)
+        .ok_or_else(|| "process no longer exists or identity could not be queried".to_string())?;
+
+    if !same_process_image(&expected.image, &current.image) {
+        return Err(format!(
+            "image changed from '{}' to '{}'",
+            expected.image, current.image
+        ));
+    }
+
+    if let (Some(expected_start), Some(current_start)) = (expected.start_time, current.start_time) {
+        if expected_start != current_start {
+            return Err(format!(
+                "start time changed from {} to {}",
+                expected_start, current_start
+            ));
+        }
+    }
+
+    if let (Some(expected_hash), Some(current_hash)) = (
+        expected.command_line_hash.as_deref(),
+        current.command_line_hash.as_deref(),
+    ) {
+        if expected_hash != current_hash {
+            return Err("command line hash changed".to_string());
+        }
+    }
+
+    Ok(current)
+}
+
+fn same_process_image(expected: &str, current: &str) -> bool {
+    if normalize_path(expected) == normalize_path(current) {
+        return true;
+    }
+
+    let expected = std::fs::canonicalize(expected).ok();
+    let current = std::fs::canonicalize(current).ok();
+    match (expected, current) {
+        (Some(expected), Some(current)) => {
+            normalize_path(&expected.to_string_lossy())
+                == normalize_path(&current.to_string_lossy())
+        }
+        _ => false,
+    }
 }
 
 fn parse_pid(value: Option<&str>) -> Option<u32> {
@@ -582,6 +702,41 @@ mod tests {
         }
     }
 
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn validate_process_identity_accepts_current_process() {
+        let pid = std::process::id();
+        let identity = query_process_identity(pid).expect("current process identity");
+        assert!(validate_process_identity(&identity).is_ok());
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn validate_process_identity_rejects_image_mismatch() {
+        let pid = std::process::id();
+        let mut identity = query_process_identity(pid).expect("current process identity");
+        identity.image = if cfg!(windows) {
+            r"C:\definitely-not-rustinel.exe".to_string()
+        } else {
+            "/definitely/not/rustinel".to_string()
+        };
+
+        assert!(validate_process_identity(&identity).is_err());
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn validate_process_identity_rejects_start_time_mismatch_when_available() {
+        let pid = std::process::id();
+        let mut identity = query_process_identity(pid).expect("current process identity");
+        let Some(start_time) = identity.start_time else {
+            return;
+        };
+        identity.start_time = Some(start_time.saturating_add(1));
+
+        assert!(validate_process_identity(&identity).is_err());
+    }
+
     #[test]
     fn test_extract_process_info() {
         let alert = Alert {
@@ -600,6 +755,7 @@ mod tests {
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
                     image: Some("C:\\Temp\\evil.exe".to_string()),
                     process_id: Some("4242".to_string()),
+                    process_start_time: None,
                     command_line: None,
                     original_file_name: None,
                     product: None,
