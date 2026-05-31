@@ -47,7 +47,6 @@ const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
 /// Sysmon-compatible event IDs emitted for file events.
 const EVENT_ID_FILE_CREATE: u16 = 11;
 const EVENT_ID_FILE_DELETE: u16 = 23;
-const EVENT_ID_FILE_CHANGE: u16 = 65;
 const EVENT_ID_FILE_RENAME: u16 = 71;
 
 /// Endpoint Security event subscriptions for the macOS sensor.
@@ -332,7 +331,9 @@ impl FileAction {
             FileAction::Create => (SensorAction::Create, EVENT_ID_FILE_CREATE, 64),
             FileAction::Delete => (SensorAction::Delete, EVENT_ID_FILE_DELETE, 70),
             FileAction::Rename => (SensorAction::Rename, EVENT_ID_FILE_RENAME, 71),
-            FileAction::Modify => (SensorAction::Modify, EVENT_ID_FILE_CHANGE, 65),
+            // Sysmon has no file-modify event, so report modify under
+            // FileCreate (11) like the Linux sensor; the action code stays 65.
+            FileAction::Modify => (SensorAction::Modify, EVENT_ID_FILE_CREATE, 65),
         }
     }
 }
@@ -623,7 +624,9 @@ mod tests {
         let event = file_event(raw_file(FileAction::Modify, "/tmp/changed.txt", None))
             .expect("modify event should build");
         assert_eq!(event.action, SensorAction::Modify);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_CHANGE);
+        // Matches the Linux sensor: modify reports under FileCreate (11).
+        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_CREATE);
+        assert_eq!(event.normalization.event_id, 11);
     }
 
     #[test]
