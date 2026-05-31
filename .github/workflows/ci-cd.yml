@@ -26,8 +26,9 @@ jobs:
         run: cargo fmt --all -- --check
 
   # ── Clippy ──────────────────────────────────────────────────────────────────
-  # Run on both platforms so Linux-specific code (aya, libc) and
-  # Windows-specific code (ferrisetw, windows-rs) are each linted natively.
+  # Run on all platforms so Linux-specific code (aya, libc), Windows-specific
+  # code (ferrisetw, windows-rs), and macOS-specific code are each linted
+  # natively.
   clippy-linux:
     name: Clippy (Linux)
     runs-on: ubuntu-latest
@@ -48,6 +49,17 @@ jobs:
   clippy-windows:
     name: Clippy (Windows)
     runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --locked --all-targets -- -D clippy::all
+
+  clippy-macos:
+    name: Clippy (macOS)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -118,6 +130,15 @@ jobs:
   test-windows:
     name: Tests (Windows)
     runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked --verbose
+
+  test-macos:
+    name: Tests (macOS)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -223,8 +244,10 @@ jobs:
       - fmt
       - clippy-linux
       - clippy-windows
+      - clippy-macos
       - test-linux
       - test-windows
+      - test-macos
       - build-linux-x86_64
       - build-linux-arm64
       - build-windows
