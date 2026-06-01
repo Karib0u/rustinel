@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Required to create an Endpoint Security client (es_new_client).
+      Apple grants this entitlement on request to your Developer ID account;
+      distributable builds must be signed and notarized with it. Dev and lab
+      builds can run with SIP/AMFI relaxed instead.
+    -->
+    <key>com.apple.developer.endpoint-security.client</key>
+    <true/>
+</dict>
+</plist>

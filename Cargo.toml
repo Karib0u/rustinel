@@ -62,6 +62,11 @@ libc = "0.2"
 # macOS-specific
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+# Endpoint Security framework bindings (process and file telemetry).
+# macos_11_0_0 sets the minimum supported macOS to Big Sur and enables
+# reference-counted message handling.
+endpoint-sec = { version = "0.5", features = ["macos_11_0_0"] }
+endpoint-sec-sys = "0.5"
 
 # Windows-specific
 [target.'cfg(windows)'.dependencies]
