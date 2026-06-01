@@ -32,7 +32,7 @@ Before changing config or rules, check these first:
 
 This usually means one of these:
 
-- `config.toml` is not in the current working directory
+- `config.toml` is not in the current working directory or next to the executable
 - the TOML syntax is invalid
 - an `EDR__...` environment override has the wrong shape or type
 - a relative path assumes a different working directory than the one Rustinel is using

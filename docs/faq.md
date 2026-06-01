@@ -71,7 +71,11 @@ Configuration precedence is:
 1. CLI flags where supported
 2. `EDR__...` environment variables
 3. `config.toml` in the current working directory
-4. Built-in defaults
+4. `config.toml` in the directory containing the executable
+5. Built-in defaults
+
+This means you can keep `config.toml` next to the `rustinel` executable even when
+the working directory differs (such as `C:\Windows\System32` for a Windows service).
 
 See [Configuration](configuration.md).
 

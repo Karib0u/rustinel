@@ -34,9 +34,11 @@ Use absolute paths in `config.toml` once you move beyond the default repo layout
 
 ## Working Directory Rules
 
-- `config.toml` is loaded from the current working directory.
-- Relative rule and log paths resolve from that same directory.
-- Windows services often start in `C:\Windows\System32`; use absolute paths there.
+- `config.toml` is loaded from the current working directory, falling back to the
+  directory containing the executable (the working-directory copy wins on conflicts).
+- Relative rule and log paths resolve from the current working directory.
+- Windows services often start in `C:\Windows\System32`; keep `config.toml` next to
+  `rustinel.exe` (it will still be found) and use absolute paths for rules and logs.
 - Linux supervisors should also use absolute paths for predictable upgrades and restarts.
 
 ## Windows Service Lifecycle

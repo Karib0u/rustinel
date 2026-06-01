@@ -3,7 +3,9 @@
 //! Provides structured configuration for the Rustinel agent.
 //! Configuration can be loaded from:
 //! 1. Default values (hardcoded)
-//! 2. config.toml file (optional)
+//! 2. `config` file (optional) — searched first in the directory of the
+//!    running executable, then in the current working directory (the latter
+//!    takes precedence on conflicting keys)
 //! 3. Environment variables with EDR__ prefix
 //!
 //! Example environment variable override:
@@ -14,6 +16,29 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::models::MatchDebugLevel;
+
+/// Build an optional config-file source rooted at the directory containing the
+/// running executable.
+///
+/// Windows services start with `C:\Windows\System32` as their working
+/// directory, so a `config.toml` placed next to `rustinel.exe` (e.g. in
+/// `C:\Rustinel`) is otherwise never found. This lets operators keep all
+/// Rustinel files in one directory. The current working directory is still
+/// searched and takes precedence, preserving the previous behavior.
+fn exe_dir_config_source() -> Option<config::File<config::FileSourceFile, config::FileFormat>> {
+    let config_base = exe_dir_config_base()?;
+    let config_base = config_base.to_str()?;
+    Some(config::File::with_name(config_base).required(false))
+}
+
+/// Compute the extension-less config file base path next to the running
+/// executable (e.g. `C:\Rustinel\config`). The `config` crate appends the
+/// supported extensions (`.toml`, `.yaml`, ...) when searching.
+fn exe_dir_config_base() -> Option<PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+    Some(exe_dir.join("config"))
+}
 
 /// Default trusted paths for the allowlist, chosen per platform.
 /// These prevent YARA, IOC hash scanning, and active response from acting
@@ -159,7 +184,7 @@ pub struct ReloadConfig {
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
-        let s = config::Config::builder()
+        let builder = config::Config::builder()
             // --- Defaults ---
             // Scanner
             .set_default("scanner.sigma_enabled", true)?
@@ -210,8 +235,19 @@ impl AppConfig {
             .set_default("ioc.hash_allowlist_paths", Vec::<String>::new())?
             // Hot Reload
             .set_default("reload.enabled", true)?
-            .set_default("reload.debounce_ms", 2000)?
-            // --- Sources ---
+            .set_default("reload.debounce_ms", 2000)?;
+
+        // --- Sources ---
+        // Config files are searched in two locations, lowest priority first.
+        // The executable's directory is the fallback; the current working
+        // directory overrides it on conflicting keys, preserving the historical
+        // behavior where `config.toml` is read from the launch directory
+        // (e.g. `C:\Windows\System32` for a service).
+        let builder = match exe_dir_config_source() {
+            Some(source) => builder.add_source(source),
+            None => builder,
+        };
+        let s = builder
             .add_source(config::File::with_name("config").required(false))
             .add_source(config::Environment::with_prefix("EDR").separator("__"))
             .build()?;
@@ -306,6 +342,17 @@ impl Default for AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_exe_dir_config_base_is_next_to_executable() {
+        let exe = std::env::current_exe().expect("current exe path");
+        let base = exe_dir_config_base().expect("exe dir config base");
+
+        // The base lives in the same directory as the executable and is named
+        // `config` (extension-less; the config crate appends .toml/.yaml/...).
+        assert_eq!(base.parent(), exe.parent());
+        assert_eq!(base.file_name().and_then(|n| n.to_str()), Some("config"));
+    }
 
     #[test]
     fn test_config_loads_defaults() {

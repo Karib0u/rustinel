@@ -1,19 +1,25 @@
 # Configuration
 
-Rustinel loads configuration from four sources in this order:
+Rustinel loads configuration from these sources, highest priority first:
 
 1. CLI flags where supported
 2. Environment variables using the `EDR__` prefix
 3. `config.toml` in the current working directory
-4. Built-in defaults
+4. `config.toml` in the directory containing the executable
+5. Built-in defaults
 
 ## Configuration File
 
-Place `config.toml` in the directory you launch Rustinel from, or use absolute paths throughout.
+Place `config.toml` in the directory you launch Rustinel from, alongside the
+`rustinel` executable, or use absolute paths throughout. When both a working-directory
+and an executable-directory config exist, the working-directory file takes precedence
+on conflicting keys.
 
 Production note:
 
 - Windows services often run with `C:\Windows\System32` as the working directory.
+  Because the executable directory is also searched, you can keep `config.toml` next
+  to `rustinel.exe` (for example in `C:\Rustinel`) without copying it into `System32`.
 - Linux service managers can also start in a directory that is not your install root.
 - For production, prefer absolute paths for rules, logs, and alerts.
 
