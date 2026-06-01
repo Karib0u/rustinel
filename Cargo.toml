@@ -31,7 +31,7 @@ sha1 = "0.11"
 sha2 = "0.11"
 
 # Yara scanning
-yara-x = "1.16"
+yara-x = "1.17"
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "time", "net"] }
