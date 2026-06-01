@@ -93,41 +93,54 @@ struct BpfProgram {
 }
 
 /// Coarse in-kernel pre-filter for Ethernet links: accept TCP connection
-/// initiations (SYN set, ACK clear) and any port-53 traffic, and drop the rest
-/// so the kernel never copies the ~99% of frames userspace would discard. This
-/// is the macOS analogue of attaching the Linux probe to `sys_enter_connect`
-/// rather than tapping every packet; [`packet`] stays the precise tier, so the
-/// filter only has to be a volume reducer and over-matching is harmless.
+/// initiations (SYN set, ACK clear) over IPv4 and IPv6, plus any port-53
+/// traffic, and drop the rest so the kernel never copies the ~99% of frames
+/// userspace would discard. This is the macOS analogue of attaching the Linux
+/// probe to `sys_enter_connect` rather than tapping every packet; [`packet`]
+/// stays the precise tier, so over-matching here is harmless. It must not
+/// *under*-match relative to the parser, which is why the IPv6 SYN term is
+/// spelled out explicitly rather than relying on `tcp[tcpflags]`.
 ///
 /// Generated with libpcap against a dead `DLT_EN10MB` handle, equivalent to:
-///   `tcpdump -dd -y EN10MB 'tcp[tcpflags] & (tcp-syn|tcp-ack) = tcp-syn or port 53'`
-/// Regenerate if the expression or link type changes; the offsets are
-/// Ethernet-specific, so it is only installed when `BIOCGDLT` reports
-/// `DLT_EN10MB`.
+///   `(tcp[tcpflags] & (tcp-syn|tcp-ack) = tcp-syn)`
+///   `  or (ip6 and ip6[6] = 6 and (ip6[53] & 0x12) = 2)`
+///   `  or port 53`
+/// The `tcp[tcpflags]` primitive only compiles to IPv4 code, so the IPv6 SYN
+/// term is written by hand: `ip6[6]` is the next header and `ip6[53]` the TCP
+/// flags byte (the IPv6 header is a fixed 40 bytes plus the TCP flags at offset
+/// 13). It assumes no IPv6 extension headers, matching `parse_ipv6`'s own
+/// first-next-header-only behavior, so the two tiers stay consistent.
+/// Regenerate if the expression changes; the offsets are Ethernet-specific, so
+/// it is only installed when `BIOCGDLT` reports `DLT_EN10MB`.
 #[rustfmt::skip]
-const BPF_FILTER_EN10MB: [BpfInsn; 32] = [
+const BPF_FILTER_EN10MB: [BpfInsn; 37] = [
     BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x0000000c },
     BpfInsn { code: 0x0015, jt: 0,  jf: 19, k: 0x00000800 },
     BpfInsn { code: 0x0030, jt: 0,  jf: 0,  k: 0x00000017 },
     BpfInsn { code: 0x0015, jt: 0,  jf: 8,  k: 0x00000006 },
     BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x00000014 },
-    BpfInsn { code: 0x0045, jt: 25, jf: 0,  k: 0x00001fff },
+    BpfInsn { code: 0x0045, jt: 30, jf: 0,  k: 0x00001fff },
     BpfInsn { code: 0x00b1, jt: 0,  jf: 0,  k: 0x0000000e },
     BpfInsn { code: 0x0050, jt: 0,  jf: 0,  k: 0x0000001b },
     BpfInsn { code: 0x0054, jt: 0,  jf: 0,  k: 0x00000012 },
-    BpfInsn { code: 0x0015, jt: 20, jf: 0,  k: 0x00000002 },
+    BpfInsn { code: 0x0015, jt: 25, jf: 0,  k: 0x00000002 },
     BpfInsn { code: 0x0048, jt: 0,  jf: 0,  k: 0x0000000e },
-    BpfInsn { code: 0x0015, jt: 18, jf: 7,  k: 0x00000035 },
+    BpfInsn { code: 0x0015, jt: 23, jf: 7,  k: 0x00000035 },
     BpfInsn { code: 0x0015, jt: 1,  jf: 0,  k: 0x00000084 },
-    BpfInsn { code: 0x0015, jt: 0,  jf: 17, k: 0x00000011 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 22, k: 0x00000011 },
     BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x00000014 },
-    BpfInsn { code: 0x0045, jt: 15, jf: 0,  k: 0x00001fff },
+    BpfInsn { code: 0x0045, jt: 20, jf: 0,  k: 0x00001fff },
     BpfInsn { code: 0x00b1, jt: 0,  jf: 0,  k: 0x0000000e },
     BpfInsn { code: 0x0048, jt: 0,  jf: 0,  k: 0x0000000e },
-    BpfInsn { code: 0x0015, jt: 11, jf: 0,  k: 0x00000035 },
+    BpfInsn { code: 0x0015, jt: 16, jf: 0,  k: 0x00000035 },
     BpfInsn { code: 0x0048, jt: 0,  jf: 0,  k: 0x00000010 },
-    BpfInsn { code: 0x0015, jt: 9,  jf: 10, k: 0x00000035 },
-    BpfInsn { code: 0x0015, jt: 0,  jf: 9,  k: 0x000086dd },
+    BpfInsn { code: 0x0015, jt: 14, jf: 15, k: 0x00000035 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 14, k: 0x000086dd },
+    BpfInsn { code: 0x0030, jt: 0,  jf: 0,  k: 0x00000014 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 3,  k: 0x00000006 },
+    BpfInsn { code: 0x0030, jt: 0,  jf: 0,  k: 0x00000043 },
+    BpfInsn { code: 0x0054, jt: 0,  jf: 0,  k: 0x00000012 },
+    BpfInsn { code: 0x0015, jt: 8,  jf: 0,  k: 0x00000002 },
     BpfInsn { code: 0x0030, jt: 0,  jf: 0,  k: 0x00000014 },
     BpfInsn { code: 0x0015, jt: 2,  jf: 0,  k: 0x00000084 },
     BpfInsn { code: 0x0015, jt: 1,  jf: 0,  k: 0x00000006 },
