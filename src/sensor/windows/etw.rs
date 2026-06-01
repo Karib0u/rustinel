@@ -465,6 +465,7 @@ fn decode_process(
         command_line: try_get_string(parser, mappings.get_etw_field("CommandLine")?),
         process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
             .or_else(|| Some(record.process_id().to_string())),
+        process_start_time: creation_time_with_fallback,
         parent_process_id: try_get_uint(parser, mappings.get_etw_field("ParentProcessId")?),
         parent_image,
         parent_command_line: try_get_string(parser, mappings.get_etw_field("ParentCommandLine")?),
