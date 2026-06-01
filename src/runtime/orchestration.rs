@@ -14,10 +14,10 @@ pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse_args();
 
     match cli.command {
-        Some(Commands::Run { console }) => {
-            crate::runtime::windows::run_console(console, cli.log_level)
+        Some(Commands::Run { no_console, .. }) => {
+            crate::runtime::windows::run_console(!no_console, cli.log_level)
         }
-        None => crate::runtime::windows::run_console(false, cli.log_level),
+        None => crate::runtime::windows::run_console(true, cli.log_level),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
     }
 }
@@ -28,7 +28,10 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
-        Some(Commands::Run { .. }) | None => crate::runtime::linux::run(),
+        Some(Commands::Run { no_console, .. }) => {
+            crate::runtime::linux::run(!no_console, cli.log_level)
+        }
+        None => crate::runtime::linux::run(true, cli.log_level),
     }
 }
 
@@ -38,7 +41,10 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
-        Some(Commands::Run { .. }) | None => crate::runtime::macos::run(),
+        Some(Commands::Run { no_console, .. }) => {
+            crate::runtime::macos::run(!no_console, cli.log_level)
+        }
+        None => crate::runtime::macos::run(true, cli.log_level),
     }
 }
 

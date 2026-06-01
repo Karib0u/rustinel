@@ -45,7 +45,7 @@ cd ..
 ### Windows
 
 ```powershell
-cargo run -- run --console
+cargo run -- run
 ```
 
 ### Linux

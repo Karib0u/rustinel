@@ -17,22 +17,33 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-pub fn run() -> anyhow::Result<()> {
+pub fn run(console_output: bool, log_level: Option<String>) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(run_linux_edr())
+    runtime.block_on(run_linux_edr(Some(console_output), log_level))
 }
 
 /// Linux eBPF EDR main loop. Mirrors `run_edr` but replaces ETW with the
 /// eBPF sensor and omits Windows-only subsystems.
-async fn run_linux_edr() -> anyhow::Result<()> {
+async fn run_linux_edr(
+    console_output_override: Option<bool>,
+    log_level_override: Option<String>,
+) -> anyhow::Result<()> {
     // 1. Configuration
-    let cfg = match config::AppConfig::new() {
+    let mut cfg = match config::AppConfig::new() {
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed to load configuration: {}", err);
             return Err(anyhow::anyhow!("configuration error: {}", err));
         }
     };
+    if let Some(console_output) = console_output_override {
+        cfg.logging.console_output = console_output;
+    }
+    if let Some(level) = log_level_override {
+        if !level.trim().is_empty() {
+            cfg.logging.level = level;
+        }
+    }
 
     // 2. Logging
     let (app_guard, alert_guard, alert_sink) = init_logging(&cfg);

@@ -204,7 +204,7 @@ impl AppConfig {
             .set_default("logging.level", "info")?
             .set_default("logging.directory", "logs")?
             .set_default("logging.filename", "rustinel.log")?
-            .set_default("logging.console_output", true)?
+            .set_default("logging.console_output", false)?
             // Alerts
             .set_default("alerts.directory", "logs")?
             .set_default("alerts.filename", "alerts.json")?
@@ -295,7 +295,7 @@ impl Default for AppConfig {
                 filter: None,
                 directory: PathBuf::from("logs"),
                 filename: "rustinel.log".to_string(),
-                console_output: true,
+                console_output: false,
             },
             alerts: AlertConfig {
                 directory: PathBuf::from("logs"),
@@ -360,7 +360,7 @@ mod tests {
         assert!(cfg.scanner.sigma_enabled);
         assert_eq!(cfg.logging.level, "info");
         assert!(cfg.logging.filter.is_none());
-        assert!(cfg.logging.console_output);
+        assert!(!cfg.logging.console_output);
         assert!(!cfg.response.enabled);
         assert!(!cfg.response.prevention_enabled);
         assert_eq!(cfg.response.min_severity, "critical");

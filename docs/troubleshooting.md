@@ -8,7 +8,7 @@ Before changing config or rules, check these first:
 
 - Read the current operational log: `logs/rustinel.log.<date>`
 - Run in the foreground with a higher log level:
-  - Windows: `.\rustinel.exe run --console --log-level debug`
+  - Windows: `.\rustinel.exe run --log-level debug`
   - Linux: `sudo ./rustinel run --log-level debug`
 - Trigger a known bundled demo rule:
   - Windows: `whoami /all`

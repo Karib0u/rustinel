@@ -27,7 +27,7 @@ Download the package for your platform from [GitHub Releases](https://github.com
 1. Download `rustinel-<version>-x86_64-pc-windows-msvc.zip`.
 2. Extract it.
 3. Open an elevated PowerShell in the extracted directory.
-4. Run `.\rustinel.exe run --console`.
+4. Run `.\rustinel.exe run`.
 
 ### Linux
 
@@ -63,7 +63,7 @@ Use this path if you want to build the binary yourself instead of using a publis
 git clone https://github.com/Karib0u/rustinel.git
 cd rustinel
 cargo build --release
-.\target\release\rustinel.exe run --console
+.\target\release\rustinel.exe run
 ```
 
 ### Linux

@@ -40,7 +40,7 @@ level = "info"              # trace, debug, info, warn, error
 # filter = "info,engine=info,scanner=info,ioc=info,rustinel::normalizer=info"
 directory = "logs"
 filename = "rustinel.log"
-console_output = true       # If true, duplicate logs to stdout (dev mode)
+console_output = false      # Default outside interactive `run`; use `run --no-console` to suppress console logs
 
 # 3. Security Alerts (The Detection Output)
 #    Writes to: {directory}/{filename}.<date>

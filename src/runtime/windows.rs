@@ -22,9 +22,13 @@ enum ShutdownMode {
     Service(watch::Receiver<bool>),
 }
 
-pub fn run_console(force_console: bool, log_level: Option<String>) -> anyhow::Result<()> {
+pub fn run_console(console_output: bool, log_level: Option<String>) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(run_edr(ShutdownMode::Console, force_console, log_level))
+    runtime.block_on(run_edr(
+        ShutdownMode::Console,
+        Some(console_output),
+        log_level,
+    ))
 }
 
 pub extern "system" fn ffi_service_main(_args: u32, _raw_args: *mut *mut u16) {
@@ -99,7 +103,7 @@ fn service_main() -> anyhow::Result<()> {
             }
         });
 
-        let run_result = run_edr(ShutdownMode::Service(shutdown_rx), false, None).await;
+        let run_result = run_edr(ShutdownMode::Service(shutdown_rx), None, None).await;
         stop_task.abort();
         let _ = stop_task.await;
         run_result
@@ -153,7 +157,7 @@ fn spawn_shutdown_handler(
 
 async fn run_edr(
     shutdown_mode: ShutdownMode,
-    force_console: bool,
+    console_output_override: Option<bool>,
     log_level_override: Option<String>,
 ) -> anyhow::Result<()> {
     // 1. Load Configuration
@@ -165,8 +169,8 @@ async fn run_edr(
             return Err(anyhow::anyhow!("Failed to load configuration: {}", err));
         }
     };
-    if force_console {
-        cfg.logging.console_output = true;
+    if let Some(console_output) = console_output_override {
+        cfg.logging.console_output = console_output;
     }
     if let Some(level) = log_level_override {
         if !level.trim().is_empty() {

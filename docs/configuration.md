@@ -49,7 +49,7 @@ debounce_ms = 2000
 level = "info"
 directory = "logs"
 filename = "rustinel.log"
-console_output = true
+console_output = false
 
 [alerts]
 directory = "logs"
@@ -95,7 +95,7 @@ Use Windows path prefixes on Windows and Unix path prefixes on Linux.
 | `logging.level` | `info` |
 | `logging.directory` | `logs` |
 | `logging.filename` | `rustinel.log` |
-| `logging.console_output` | `true` |
+| `logging.console_output` | `false` |
 | `alerts.directory` | `logs` |
 | `alerts.filename` | `alerts.json` |
 | `alerts.match_debug` | `off` |
@@ -180,7 +180,7 @@ Propagation behavior:
 | `filter` | `null` | Optional `tracing_subscriber` filter expression; overrides `level` when valid |
 | `directory` | `logs` | Operational log directory |
 | `filename` | `rustinel.log` | Operational log filename with daily rotation |
-| `console_output` | `true` | Mirror logs to stdout. On Windows, colored output requires [Windows Terminal](https://aka.ms/terminal) — other terminals (cmd.exe, PowerShell host) will display plain text automatically. |
+| `console_output` | `false` | Default console mirroring when the runtime does not override console behavior. Interactive `rustinel run` enables console output by default; use `rustinel run --no-console` to suppress it. On Windows, colored output requires [Windows Terminal](https://aka.ms/terminal) — other terminals (cmd.exe, PowerShell host) will display plain text automatically. |
 
 ### Alerts
 
@@ -234,7 +234,7 @@ The environment prefix is `EDR__`. Nested keys use double underscores.
 $env:EDR__LOGGING__LEVEL="debug"
 $env:EDR__SCANNER__SIGMA_RULES_PATH="C:\\Rustinel\\rules\\sigma"
 $env:EDR__ALLOWLIST__PATHS='["C:\\Windows\\","C:\\Program Files\\"]'
-.\rustinel.exe run --console
+.\rustinel.exe run
 ```
 
 ### Bash
@@ -248,10 +248,11 @@ sudo /opt/rustinel/rustinel run
 
 ## CLI Overrides
 
-The only CLI override today is log level on interactive `run` usage. For repeatable cross-platform deployments, prefer `config.toml` and `EDR__...` environment variables.
+Interactive `run` accepts CLI overrides for log level and console output. For repeatable cross-platform deployments, prefer `config.toml` and `EDR__...` environment variables.
 
 ```powershell
 rustinel run --log-level debug
+rustinel run --no-console
 ```
 
 ## Practical Examples

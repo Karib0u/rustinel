@@ -21,14 +21,14 @@ Running `rustinel` without a subcommand is equivalent to `rustinel run`.
 Run Rustinel in the foreground.
 
 ```text
-rustinel run [--console] [--log-level <LEVEL>]
+rustinel run [--no-console] [--console] [--log-level <LEVEL>]
 ```
 
 Examples:
 
 ```powershell
 rustinel run
-rustinel run --console
+rustinel run --no-console
 rustinel run --log-level debug
 ```
 
@@ -38,7 +38,9 @@ sudo ./rustinel run
 
 Notes:
 
-- `--console` is primarily relevant on Windows console runs.
+- `rustinel run` enables console output by default on every platform.
+- `--no-console` suppresses console output, for example when redirecting logs.
+- `--console` is kept as a compatibility alias and has the same effect as the default.
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
 ### `service`

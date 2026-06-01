@@ -2,7 +2,7 @@ param(
     [ValidateSet("baseline", "with-agent")]
     [string]$Mode = "with-agent",
     [string]$AgentPath = ".\target\release\rustinel.exe",
-    [string]$AgentArgs = "run --console",
+    [string]$AgentArgs = "run",
     [string]$ProcessName = "rustinel",
     [string]$OutputDir = ".\target\rustinel-bench",
     [int]$IdleSeconds = 60,

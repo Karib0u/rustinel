@@ -150,7 +150,7 @@ Download Rustinel, start the agent, trigger a test command, and inspect the gene
 
 ```powershell
 cd .\rustinel-<version>-x86_64-pc-windows-msvc
-.\rustinel.exe run --console
+.\rustinel.exe run
 whoami /all
 type .\logs\alerts.json.*
 ```
@@ -184,7 +184,7 @@ Extract it, then run:
 
 ```powershell
 cd .\rustinel-<version>-x86_64-pc-windows-msvc
-.\rustinel.exe run --console
+.\rustinel.exe run
 whoami /all
 ```
 
@@ -235,7 +235,7 @@ If you prefer to build locally instead of using a published release, use `cargo 
 
 ```powershell
 cargo build --release
-.\target\release\rustinel.exe run --console
+.\target\release\rustinel.exe run
 ```
 
 ### Linux

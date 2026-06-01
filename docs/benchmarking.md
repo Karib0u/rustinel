@@ -165,7 +165,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bench\windows.ps1 `
 ```
 
 If Rustinel is not already running, the script starts
-`.\target\release\rustinel.exe run --console` and stops that process when the
+`.\target\release\rustinel.exe run` and stops that process when the
 benchmark ends. When the script starts the agent, it creates a benchmark Sigma
 trigger rule and passes matching `EDR__` environment overrides so the agent uses
 the requested corpus.
