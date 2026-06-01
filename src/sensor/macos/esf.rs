@@ -253,6 +253,7 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             target_image: None,
             command_line: raw.command_line,
             process_id: Some(raw.pid.to_string()),
+            process_start_time: Some(raw.start_time),
             parent_process_id,
             // Enriched later via libproc; ESF exec events do not carry it.
             parent_image: None,
@@ -301,6 +302,7 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
             target_image: None,
             command_line: None,
             process_id: Some(pid.to_string()),
+            process_start_time: None,
             parent_process_id: None,
             parent_image: None,
             parent_command_line: None,
