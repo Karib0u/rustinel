@@ -8,7 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// Link-layer header types reported by `BIOCGDLT`.
 const DLT_NULL: u32 = 0;
-const DLT_EN10MB: u32 = 1;
+pub(super) const DLT_EN10MB: u32 = 1;
 
 const ETHERTYPE_IPV4: u16 = 0x0800;
 const ETHERTYPE_IPV6: u16 = 0x86dd;

@@ -21,7 +21,7 @@ use anyhow::{anyhow, Result};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use super::packet::{self, ParsedPacket, Transport, TCP_FLAG_ACK, TCP_FLAG_SYN};
+use super::packet::{self, ParsedPacket, Transport, DLT_EN10MB, TCP_FLAG_ACK, TCP_FLAG_SYN};
 use super::socket;
 use crate::models::{DnsQueryFields, NetworkConnectionFields};
 use crate::sensor::{
@@ -49,6 +49,7 @@ const READ_TIMEOUT: Duration = Duration::from_millis(200);
 // BPF ioctl request codes for 64-bit macOS, from <net/bpf.h>. Encoded with the
 // _IOW/_IOR/_IOWR macros; verified against the SDK headers.
 const BIOCSBLEN: libc::c_ulong = 0xc004_4266; // _IOWR('B', 102, u_int)
+const BIOCSETF: libc::c_ulong = 0x8010_4267; // _IOW('B', 103, struct bpf_program)
 const BIOCGDLT: libc::c_ulong = 0x4004_426a; // _IOR('B', 106, u_int)
 const BIOCSETIF: libc::c_ulong = 0x8020_426c; // _IOW('B', 108, struct ifreq)
 const BIOCSRTIMEOUT: libc::c_ulong = 0x8010_426d; // _IOW('B', 109, struct timeval)
@@ -67,6 +68,71 @@ struct IfReq {
     ifr_name: [libc::c_char; 16],
     ifr_ifru: [u8; 16],
 }
+
+/// A classic-BPF instruction (`struct bpf_insn`): opcode, two jump offsets, and
+/// a generic operand. Eight bytes, matching the kernel layout.
+#[repr(C)]
+struct BpfInsn {
+    code: u16,
+    jt: u8,
+    jf: u8,
+    k: u32,
+}
+
+/// A classic-BPF filter program (`struct bpf_program`) passed to `BIOCSETF`.
+#[repr(C)]
+struct BpfProgram {
+    bf_len: u32,
+    bf_insns: *const BpfInsn,
+}
+
+/// Coarse in-kernel pre-filter for Ethernet links: accept TCP connection
+/// initiations (SYN set, ACK clear) and any port-53 traffic, and drop the rest
+/// so the kernel never copies the ~99% of frames userspace would discard. This
+/// is the macOS analogue of attaching the Linux probe to `sys_enter_connect`
+/// rather than tapping every packet; [`packet`] stays the precise tier, so the
+/// filter only has to be a volume reducer and over-matching is harmless.
+///
+/// Generated with libpcap against a dead `DLT_EN10MB` handle, equivalent to:
+///   `tcpdump -dd -y EN10MB 'tcp[tcpflags] & (tcp-syn|tcp-ack) = tcp-syn or port 53'`
+/// Regenerate if the expression or link type changes; the offsets are
+/// Ethernet-specific, so it is only installed when `BIOCGDLT` reports
+/// `DLT_EN10MB`.
+#[rustfmt::skip]
+const BPF_FILTER_EN10MB: [BpfInsn; 32] = [
+    BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x0000000c },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 19, k: 0x00000800 },
+    BpfInsn { code: 0x0030, jt: 0,  jf: 0,  k: 0x00000017 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 8,  k: 0x00000006 },
+    BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x00000014 },
+    BpfInsn { code: 0x0045, jt: 25, jf: 0,  k: 0x00001fff },
+    BpfInsn { code: 0x00b1, jt: 0,  jf: 0,  k: 0x0000000e },
+    BpfInsn { code: 0x0050, jt: 0,  jf: 0,  k: 0x0000001b },
+    BpfInsn { code: 0x0054, jt: 0,  jf: 0,  k: 0x00000012 },
+    BpfInsn { code: 0x0015, jt: 20, jf: 0,  k: 0x00000002 },
+    BpfInsn { code: 0x0048, jt: 0,  jf: 0,  k: 0x0000000e },
+    BpfInsn { code: 0x0015, jt: 18, jf: 7,  k: 0x00000035 },
+    BpfInsn { code: 0x0015, jt: 1,  jf: 0,  k: 0x00000084 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 17, k: 0x00000011 },
+    BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x00000014 },
+    BpfInsn { code: 0x0045, jt: 15, jf: 0,  k: 0x00001fff },
+    BpfInsn { code: 0x00b1, jt: 0,  jf: 0,  k: 0x0000000e },
+    BpfInsn { code: 0x0048, jt: 0,  jf: 0,  k: 0x0000000e },
+    BpfInsn { code: 0x0015, jt: 11, jf: 0,  k: 0x00000035 },
+    BpfInsn { code: 0x0048, jt: 0,  jf: 0,  k: 0x00000010 },
+    BpfInsn { code: 0x0015, jt: 9,  jf: 10, k: 0x00000035 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 9,  k: 0x000086dd },
+    BpfInsn { code: 0x0030, jt: 0,  jf: 0,  k: 0x00000014 },
+    BpfInsn { code: 0x0015, jt: 2,  jf: 0,  k: 0x00000084 },
+    BpfInsn { code: 0x0015, jt: 1,  jf: 0,  k: 0x00000006 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 5,  k: 0x00000011 },
+    BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x00000036 },
+    BpfInsn { code: 0x0015, jt: 2,  jf: 0,  k: 0x00000035 },
+    BpfInsn { code: 0x0028, jt: 0,  jf: 0,  k: 0x00000038 },
+    BpfInsn { code: 0x0015, jt: 0,  jf: 1,  k: 0x00000035 },
+    BpfInsn { code: 0x0006, jt: 0,  jf: 0,  k: 0x00040000 },
+    BpfInsn { code: 0x0006, jt: 0,  jf: 0,  k: 0x00000000 },
+];
 
 /// macOS `/dev/bpf` network/DNS sensor. Implements [`Sensor`].
 pub struct BpfSensor {
@@ -149,9 +215,18 @@ impl BpfDevice {
         };
         let configure = || -> io::Result<u32> {
             bind_interface(fd, interface)?;
+            let link_type = get_u32(fd, BIOCGDLT)?;
+            // Install a coarse kernel filter right after binding so the kernel
+            // drops everything but SYNs and port-53 traffic before it reaches
+            // userspace. The program uses Ethernet offsets, so it is only
+            // applied when the link type matches; other link types fall back to
+            // capturing everything and filtering in userspace.
+            if link_type == DLT_EN10MB {
+                set_filter(fd, &BPF_FILTER_EN10MB)?;
+            }
             set_u32(fd, BIOCIMMEDIATE, 1)?;
             set_read_timeout(fd, READ_TIMEOUT)?;
-            get_u32(fd, BIOCGDLT)
+            Ok(link_type)
         };
         match configure() {
             Ok(link_type) => Ok(Self {
@@ -206,6 +281,19 @@ fn bind_interface(fd: RawFd, interface: &str) -> io::Result<()> {
         *slot = *byte as libc::c_char;
     }
     let rc = unsafe { libc::ioctl(fd, BIOCSETIF, &req as *const IfReq) };
+    if rc < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Install a classic-BPF filter program on the device via `BIOCSETF`.
+fn set_filter(fd: RawFd, program: &[BpfInsn]) -> io::Result<()> {
+    let prog = BpfProgram {
+        bf_len: program.len() as u32,
+        bf_insns: program.as_ptr(),
+    };
+    let rc = unsafe { libc::ioctl(fd, BIOCSETF, &prog as *const BpfProgram) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -485,6 +573,22 @@ mod tests {
         record.extend_from_slice(payload);
         record.resize(bpf_word_align(hdrlen as usize + payload.len()), 0);
         record
+    }
+
+    #[test]
+    fn bpf_filter_accepts_and_ends_with_a_drop() {
+        // BPF_RET | BPF_K: a terminating return with an immediate operand.
+        const BPF_RET_K: u16 = 0x0006;
+        let last = BPF_FILTER_EN10MB
+            .last()
+            .expect("filter program is not empty");
+        // The program must end by dropping non-matching frames (return 0)...
+        assert_eq!(last.code, BPF_RET_K);
+        assert_eq!(last.k, 0);
+        // ...and must contain at least one accepting return (non-zero length).
+        assert!(BPF_FILTER_EN10MB
+            .iter()
+            .any(|insn| insn.code == BPF_RET_K && insn.k > 0));
     }
 
     #[test]
