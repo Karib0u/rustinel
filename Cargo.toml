@@ -59,6 +59,15 @@ config = "0.15.23"
 aya = { version = "0.13", default-features = false }
 libc = "0.2"
 
+# macOS-specific
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+# Endpoint Security framework bindings (process and file telemetry).
+# macos_11_0_0 sets the minimum supported macOS to Big Sur and enables
+# reference-counted message handling.
+endpoint-sec = { version = "0.5", features = ["macos_11_0_0"] }
+endpoint-sec-sys = "0.5"
+
 # Windows-specific
 [target.'cfg(windows)'.dependencies]
 # PE parsing and memory-mapped I/O (Windows-only; PE metadata is not used on Linux)

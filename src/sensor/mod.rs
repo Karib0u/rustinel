@@ -6,6 +6,8 @@
 
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "macos")]
+pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
@@ -41,6 +43,7 @@ pub trait SensorEventHandler: Send + Sync {
 pub enum Platform {
     Windows,
     Linux,
+    MacOS,
 }
 
 /// High-level action emitted by a sensor event.

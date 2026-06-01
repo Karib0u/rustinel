@@ -101,7 +101,7 @@ pub fn init_logging(
     (app_guard, alert_guard, alert_sink)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn init_logging(
     cfg: &config::AppConfig,
 ) -> (

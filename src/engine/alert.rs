@@ -520,6 +520,13 @@ impl Engine {
                             Some("dns_query"),
                         ));
                     }
+                    Platform::MacOS => {
+                        aliases.push(LogSourceKey::from_parts(
+                            Some("macos"),
+                            Some("sysmon"),
+                            Some("dns_query"),
+                        ));
+                    }
                 }
 
                 aliases.push(LogSourceKey::from_parts(None, None, Some("dns")));

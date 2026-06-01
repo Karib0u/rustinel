@@ -137,6 +137,7 @@ pub(super) fn host_os_type(platform: Platform) -> String {
     match platform {
         Platform::Windows => "windows".to_string(),
         Platform::Linux => "linux".to_string(),
+        Platform::MacOS => "macos".to_string(),
     }
 }
 
@@ -144,6 +145,8 @@ pub(super) fn host_os_family(platform: Platform) -> String {
     match platform {
         Platform::Windows => "windows".to_string(),
         Platform::Linux => "linux".to_string(),
+        // ECS uses the "darwin" OS family for macOS.
+        Platform::MacOS => "darwin".to_string(),
     }
 }
 
@@ -151,5 +154,17 @@ pub(super) fn network_direction_from_category(category: EventCategory) -> Option
     match category {
         EventCategory::Network | EventCategory::Dns => Some("egress".to_string()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{host_os_family, host_os_type};
+    use crate::sensor::Platform;
+
+    #[test]
+    fn host_os_maps_macos_to_darwin_family() {
+        assert_eq!(host_os_type(Platform::MacOS), "macos");
+        assert_eq!(host_os_family(Platform::MacOS), "darwin");
     }
 }

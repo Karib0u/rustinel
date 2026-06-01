@@ -543,20 +543,20 @@ fn parse_pid(value: Option<&str>) -> Option<u32> {
 }
 
 fn normalize_path(value: &str) -> String {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         value.trim().to_ascii_lowercase()
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         value.trim().replace('/', "\\").to_ascii_lowercase()
     }
 }
 
 fn normalize_allowlist_paths(values: &[String]) -> Vec<String> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     const SEP: char = '/';
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     const SEP: char = '\\';
 
     values
@@ -632,7 +632,7 @@ fn terminate_process(pid: u32) -> Result<(), String> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn terminate_process(pid: u32) -> Result<(), String> {
     let ret = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
     if ret == 0 {
@@ -643,7 +643,7 @@ fn terminate_process(pid: u32) -> Result<(), String> {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn terminate_process(_pid: u32) -> Result<(), String> {
     Err("Active response termination is not supported on this platform".to_string())
 }

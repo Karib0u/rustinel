@@ -34,7 +34,7 @@ fn assert_sigma_alert(alert: &rustinel::models::Alert, expected_rule: &str) {
 
 #[test]
 fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
-    for platform in [Platform::Windows, Platform::Linux] {
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
         let fixture = SigmaFixture::new();
         fixture.write_process_rule(platform);
         let engine = load_engine(platform, &fixture);
@@ -72,7 +72,7 @@ fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
 
 #[test]
 fn sigma_network_detection_pipeline_enriches_aggregates_and_maps_to_ecs() {
-    for platform in [Platform::Windows, Platform::Linux] {
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
         let fixture = SigmaFixture::new();
         fixture.write_network_rule(platform);
         let engine = load_engine(platform, &fixture);
@@ -122,11 +122,12 @@ fn sigma_network_detection_pipeline_enriches_aggregates_and_maps_to_ecs() {
 
 #[test]
 fn sigma_file_detection_pipeline_maps_create_delete_rename_and_ecs() {
-    for platform in [Platform::Windows, Platform::Linux] {
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
         let fixture = SigmaFixture::new();
         let product = match platform {
             Platform::Windows => "windows",
             Platform::Linux => "linux",
+            Platform::MacOS => "macos",
         };
         fixture.write_rule(
             "file_create.yml",

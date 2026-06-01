@@ -18,6 +18,8 @@ use tokio::sync::mpsc;
 fn host_platform() -> Platform {
     if cfg!(windows) {
         Platform::Windows
+    } else if cfg!(target_os = "macos") {
+        Platform::MacOS
     } else {
         Platform::Linux
     }
@@ -74,10 +76,10 @@ detection:
   condition: selection
 level: high
         "#,
-            product = if platform == Platform::Windows {
-                "windows"
-            } else {
-                "linux"
+            product = match platform {
+                Platform::Windows => "windows",
+                Platform::Linux => "linux",
+                Platform::MacOS => "macos",
             }
         ),
     );

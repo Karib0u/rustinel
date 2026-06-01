@@ -132,7 +132,12 @@ pub(crate) fn current_platform() -> Platform {
         Platform::Linux
     }
 
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        Platform::MacOS
+    }
+
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Platform::Windows
     }
@@ -142,6 +147,7 @@ pub(crate) fn platform_product(platform: Platform) -> &'static str {
     match platform {
         Platform::Windows => "windows",
         Platform::Linux => "linux",
+        Platform::MacOS => "macos",
     }
 }
 
@@ -220,6 +226,18 @@ impl Engine {
                 LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_rename")),
                 LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("dns_query")),
             ],
+            // macOS telemetry comes from ESF (process, file) and /dev/bpf
+            // (network, DNS); mirror the Linux collector coverage.
+            Platform::MacOS => vec![
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("process_creation")),
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("network_connection")),
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_event")),
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_create")),
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_delete")),
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_change")),
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_rename")),
+                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("dns_query")),
+            ],
             Platform::Windows => vec![
                 LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("process_creation")),
                 LogSourceKey::from_parts(
@@ -287,13 +305,15 @@ impl Engine {
         let service = logsource.service.as_deref();
 
         match self.platform {
-            Platform::Linux => {
+            // macOS shares the Linux collector model: only the generic DNS
+            // network logsource is known-but-inactive.
+            Platform::Linux | Platform::MacOS => {
                 matches!(service, Some("dns"))
                     && matches!(category, None | Some("network"))
                     && logsource
                         .product
                         .as_deref()
-                        .map(|product| product == "linux")
+                        .map(|product| product == platform_product(self.platform))
                         .unwrap_or(true)
             }
             Platform::Windows => {
@@ -416,5 +436,18 @@ impl Engine {
                 collector_active: true,
             } => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::platform_product;
+    use crate::sensor::Platform;
+
+    #[test]
+    fn platform_product_maps_macos() {
+        assert_eq!(platform_product(Platform::MacOS), "macos");
+        assert_eq!(platform_product(Platform::Linux), "linux");
+        assert_eq!(platform_product(Platform::Windows), "windows");
     }
 }

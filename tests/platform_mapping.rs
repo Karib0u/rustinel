@@ -183,7 +183,7 @@ level: medium
 "#,
     );
 
-    for platform in [Platform::Windows, Platform::Linux] {
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
         let mut engine = Engine::new_for_platform(platform);
         engine
             .load_rules(fixture.rules_dir())
