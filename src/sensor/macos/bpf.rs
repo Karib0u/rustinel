@@ -13,6 +13,7 @@ use std::ffi::CString;
 use std::io;
 use std::os::unix::io::RawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
@@ -45,6 +46,11 @@ const BPF_BUFFER_LEN: u32 = 1 << 18; // 256 KiB
 
 /// Read timeout so the capture loop wakes periodically to observe shutdown.
 const READ_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// Bound on connection-attribution jobs queued for the worker thread. When the
+/// worker falls behind (a burst of new connections), the capture thread emits
+/// the event unattributed rather than blocking the read loop.
+const ATTRIBUTION_QUEUE_CAP: usize = 1024;
 
 // BPF ioctl request codes for 64-bit macOS, from <net/bpf.h>. Encoded with the
 // _IOW/_IOR/_IOWR macros; verified against the SDK headers.
@@ -345,8 +351,27 @@ fn close_fd(fd: RawFd) {
     }
 }
 
+/// A network-connection event awaiting best-effort process attribution.
+struct AttributionJob {
+    event: SensorEvent,
+    local_port: u16,
+    remote_port: u16,
+}
+
 /// Capture loop: read batches of bpf records and dispatch each packet.
+///
+/// Socket-to-process attribution is offloaded to a dedicated worker so the
+/// `O(processes x descriptors)` scan never blocks draining the bpf device,
+/// which is exactly when the kernel would otherwise drop packets.
 fn run_capture(device: BpfDevice, tx: Sender<SensorEvent>, shutdown: Arc<AtomicBool>) {
+    let (attribution_tx, attribution_rx) = std::sync::mpsc::sync_channel(ATTRIBUTION_QUEUE_CAP);
+    let worker_tx = tx.clone();
+    let attribution_worker = std::thread::Builder::new()
+        .name("rustinel-bpf-attr".to_string())
+        .spawn(move || run_attribution_worker(attribution_rx, worker_tx))
+        .map_err(|e| warn!("failed to spawn bpf attribution worker: {e}"))
+        .ok();
+
     let mut buf = vec![0u8; device.buffer_len as usize];
     while !shutdown.load(Ordering::Relaxed) {
         let n = unsafe { libc::read(device.fd, buf.as_mut_ptr().cast(), buf.len()) };
@@ -369,9 +394,29 @@ fn run_capture(device: BpfDevice, tx: Sender<SensorEvent>, shutdown: Arc<AtomicB
             continue;
         }
         let data = &buf[..n as usize];
-        for_each_packet(data, |packet| handle_packet(device.link_type, packet, &tx));
+        for_each_packet(data, |packet| {
+            handle_packet(device.link_type, packet, &tx, &attribution_tx)
+        });
+    }
+
+    // Drop our sender so the worker observes the channel closing and exits,
+    // then wait for it to finish any in-flight lookup.
+    drop(attribution_tx);
+    if let Some(handle) = attribution_worker {
+        let _ = handle.join();
     }
     info!("bpf sensor shutting down");
+}
+
+/// Attribution worker: receive connection events that still need an owning
+/// process, perform the libproc socket lookup off the capture thread, and
+/// forward the (now best-effort attributed) event to the pipeline. Exits when
+/// the capture thread drops its sender.
+fn run_attribution_worker(rx: Receiver<AttributionJob>, tx: Sender<SensorEvent>) {
+    while let Ok(mut job) = rx.recv() {
+        apply_socket_owner(&mut job.event, job.local_port, job.remote_port);
+        try_send(&tx, job.event);
+    }
 }
 
 /// Iterate the packets in a bpf read buffer, calling `handle` with each
@@ -399,31 +444,60 @@ fn for_each_packet(buf: &[u8], mut handle: impl FnMut(&[u8])) {
 }
 
 /// Parse a captured frame and emit any resulting [`SensorEvent`].
-fn handle_packet(link_type: u32, frame: &[u8], tx: &Sender<SensorEvent>) {
+///
+/// Network-connection events are queued for off-thread attribution; DNS events
+/// need no PID lookup and go straight to the pipeline.
+fn handle_packet(
+    link_type: u32,
+    frame: &[u8],
+    tx: &Sender<SensorEvent>,
+    attribution_tx: &SyncSender<AttributionJob>,
+) {
     let Some(parsed) = packet::parse(link_type, frame) else {
         return;
     };
-    if let Some(mut event) = build_network_event(&parsed) {
-        attribute_connection_owner(&mut event, &parsed);
-        try_send(tx, event);
+    if let Some(event) = build_network_event(&parsed) {
+        match connection_ports(&parsed) {
+            Some((local_port, remote_port)) => {
+                enqueue_attribution(attribution_tx, tx, event, local_port, remote_port)
+            }
+            None => try_send(tx, event),
+        }
     }
     if let Some(event) = build_dns_event(&parsed) {
         try_send(tx, event);
     }
 }
 
-/// Best-effort: attribute a network-connection event to the owning process by
-/// matching its ports against open sockets. Runs once per connection
-/// initiation; failures leave the event unattributed (the normalizer still
-/// enriches by destination).
-fn attribute_connection_owner(event: &mut SensorEvent, packet: &ParsedPacket) {
-    let Transport::Tcp {
-        src_port, dst_port, ..
-    } = &packet.transport
-    else {
-        return;
+/// Hand a connection event to the attribution worker, falling back to emitting
+/// it unattributed if the worker is saturated or gone. The capture thread never
+/// blocks and the event is never lost; only its attribution is best-effort.
+fn enqueue_attribution(
+    attribution_tx: &SyncSender<AttributionJob>,
+    tx: &Sender<SensorEvent>,
+    event: SensorEvent,
+    local_port: u16,
+    remote_port: u16,
+) {
+    let job = AttributionJob {
+        event,
+        local_port,
+        remote_port,
     };
-    let Some(owner) = socket::find_tcp_socket_owner(*src_port, *dst_port) else {
+    match attribution_tx.try_send(job) {
+        Ok(()) => {}
+        Err(TrySendError::Full(job)) | Err(TrySendError::Disconnected(job)) => {
+            try_send(tx, job.event)
+        }
+    }
+}
+
+/// Best-effort: attribute a connection event to its owning process by matching
+/// the connection's ports against open sockets. Failures leave the event
+/// unattributed (the normalizer still enriches by destination). Runs on the
+/// attribution worker, never on the capture thread.
+fn apply_socket_owner(event: &mut SensorEvent, local_port: u16, remote_port: u16) {
+    let Some(owner) = socket::find_tcp_socket_owner(local_port, remote_port) else {
         return;
     };
     event.pid = Some(owner.pid);
@@ -433,11 +507,21 @@ fn attribute_connection_owner(event: &mut SensorEvent, packet: &ParsedPacket) {
     }
 }
 
+/// The local and remote ports of a TCP packet, used to key socket attribution.
+fn connection_ports(packet: &ParsedPacket) -> Option<(u16, u16)> {
+    match &packet.transport {
+        Transport::Tcp {
+            src_port, dst_port, ..
+        } => Some((*src_port, *dst_port)),
+        Transport::Udp { .. } => None,
+    }
+}
+
 /// Build a network-connection event from a TCP connection initiation.
 ///
 /// Only SYN segments with ACK clear are treated as new connections. PID and
-/// image attribution are filled in by the libproc socket lookup in a later
-/// commit; the normalizer enriches the rest.
+/// image attribution are filled in best-effort by the attribution worker; the
+/// normalizer enriches the rest.
 fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
     let Transport::Tcp {
         src_port,
@@ -666,6 +750,36 @@ mod tests {
     fn build_network_event_ignores_syn_ack_and_established() {
         assert!(build_network_event(&tcp_packet(TCP_FLAG_SYN | TCP_FLAG_ACK)).is_none());
         assert!(build_network_event(&tcp_packet(TCP_FLAG_ACK)).is_none());
+    }
+
+    #[test]
+    fn enqueue_attribution_emits_unattributed_when_worker_saturated() {
+        // A rendezvous channel with no worker receiving: try_send always reports
+        // the queue full, so the capture thread must emit the event itself
+        // rather than block or drop it.
+        let (attribution_tx, _attribution_rx) = std::sync::mpsc::sync_channel::<AttributionJob>(0);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<SensorEvent>(8);
+
+        let event = build_network_event(&tcp_packet(TCP_FLAG_SYN)).expect("syn should emit");
+        enqueue_attribution(&attribution_tx, &tx, event, 51324, 443);
+
+        let received = rx
+            .try_recv()
+            .expect("event should still reach the pipeline");
+        assert!(received.pid.is_none(), "event should be unattributed");
+        match received.payload {
+            SensorPayload::Network(fields) => assert!(fields.process_id.is_none()),
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn connection_ports_reads_tcp_only() {
+        assert_eq!(
+            connection_ports(&tcp_packet(TCP_FLAG_SYN)),
+            Some((51324, 443))
+        );
+        assert_eq!(connection_ports(&udp_packet(DNS_PORT, vec![])), None);
     }
 
     /// Minimal single-question DNS query payload for `name` with the given qtype.
