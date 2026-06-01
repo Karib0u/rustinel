@@ -161,7 +161,9 @@ impl BpfDevice {
             }),
             Err(e) => {
                 close_fd(fd);
-                Err(anyhow!("failed to configure bpf device for {interface}: {e}"))
+                Err(anyhow!(
+                    "failed to configure bpf device for {interface}: {e}"
+                ))
             }
         }
     }
