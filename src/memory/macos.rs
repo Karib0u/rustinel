@@ -71,6 +71,15 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
                 &mut object_name,
             )
         };
+        // mach_vm_region hands back a send right to the region's named memory
+        // object, which we don't use. Release it so the loop does not leak a
+        // Mach port per region (this can run over many regions and repeatedly
+        // when memory scanning is enabled). On failure it stays MACH_PORT_NULL.
+        if object_name != MACH_PORT_NULL {
+            unsafe {
+                let _ = mach_port_deallocate(mach_task_self(), object_name);
+            }
+        }
         // A non-success return marks the end of the address space.
         if kr != KERN_SUCCESS || size == 0 {
             break;
