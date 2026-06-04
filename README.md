@@ -15,6 +15,8 @@
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
 </p>
 
+[Official site](https://rustinel.io/) · [Documentation](https://docs.rustinel.io/) · [GitHub Releases](https://github.com/Karib0u/rustinel/releases)
+
 Rustinel is an open-source endpoint detection project for **Windows**, **Linux**, and **macOS**.
 
 It collects native host telemetry using **ETW** on Windows, **eBPF** on Linux, and **Endpoint Security** plus **`/dev/bpf`** on macOS, normalizes events into a shared model, evaluates **Sigma**, **YARA**, and **IOC** detections, writes **ECS NDJSON** alerts, and can optionally terminate malicious processes.
@@ -140,9 +142,11 @@ IOC matching is useful for threat intelligence and incident response, but it is 
 | --- | --- | --- | --- |
 | Windows 10/11, Server 2016+ | ETW | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task | Foreground run or built-in Windows service commands |
 | Linux 5.8+ with BTF | eBPF | Process, network, file, DNS | Foreground run under root or your supervisor of choice |
-| macOS 11+ | Endpoint Security + `/dev/bpf` | Process, file, network, DNS | Foreground run under root (signed/entitled or SIP relaxed) or a launchd daemon |
+| macOS 11+ | Endpoint Security + `/dev/bpf` | Process, file, network, DNS | Experimental; foreground run under root (signed/entitled or SIP relaxed) or a launchd daemon |
 
 Windows telemetry coverage is broader today. Linux and macOS support currently focus on process, network, file, and DNS telemetry. Linux DNS events include outbound plaintext DNS `QueryName`; DNS response answers (`QueryResults`) are not parsed yet. macOS collects process and file events through Endpoint Security and network and DNS through `/dev/bpf` capture; network events are attributed to a process on a best-effort basis.
+
+macOS support is experimental while the project waits for the required Endpoint Security Framework entitlement.
 
 ---
 
@@ -357,6 +361,7 @@ See the [full roadmap](docs/roadmap.md) for details.
 
 ## Documentation
 
+- [Official Site](https://rustinel.io/)
 - [Documentation Home](https://docs.rustinel.io/)
 - [Getting Started](https://docs.rustinel.io/getting-started/)
 - [Configuration](https://docs.rustinel.io/configuration/)

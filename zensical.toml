@@ -32,6 +32,10 @@ site_url = "https://docs.rustinel.io/"
 # The repo_url is the URL of your project's repository.
 repo_url = "https://github.com/Karib0u/rustinel"
 
+# Zensical derives source/edit links from repo_url. Pin them to the repository's
+# main branch and docs directory instead of the default master branch.
+edit_uri = "edit/main/docs/"
+
 # The copyright notice appears in the page footer and can contain an HTML
 # fragment.
 #
@@ -327,6 +331,9 @@ toggle.name = "Switch to light mode"
 # The "extra" section contains miscellaneous settings.
 # ----------------------------------------------------------------------------
 [[project.extra.social]]
+icon = "lucide/globe"
+link = "https://rustinel.io/"
+
+[[project.extra.social]]
 icon = "fontawesome/brands/github"
 link = "https://github.com/Karib0u/rustinel"
-

@@ -25,6 +25,8 @@ This guide gets Rustinel to first telemetry and first alert on both supported pl
 - Access to the `/dev/bpf*` device nodes for network and DNS capture
 - Rust 1.92+ and the Xcode Command Line Tools if building from source
 
+macOS support is experimental while the project waits for the required Endpoint Security Framework entitlement.
+
 ## Quick Start
 
 Download the package for your platform from [GitHub Releases](https://github.com/Karib0u/rustinel/releases). The release archives already include `config.toml`, the bundled demo rules, and an empty `logs/` directory.

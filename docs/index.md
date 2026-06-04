@@ -10,6 +10,8 @@ It collects native host telemetry using **ETW** on Windows, **eBPF** on Linux, a
 
 Rustinel is designed for blue teams, detection engineers, researchers, and anyone who wants a transparent endpoint detection engine they can inspect, run, test, and extend.
 
+Visit the [official Rustinel site](https://rustinel.io/) for the main project home.
+
 ## Start here
 
 - [Getting Started](getting-started.md) — install and run Rustinel
@@ -38,6 +40,8 @@ Rustinel currently provides:
 - ECS NDJSON alert output
 - Hot reload for rules and indicator files
 - Optional active response with dry-run and allowlists
+
+macOS support is experimental while the project waits for the required Endpoint Security Framework entitlement.
 
 ## What Rustinel is not
 
