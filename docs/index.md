@@ -33,6 +33,7 @@ Rustinel currently provides:
 
 - Windows telemetry collection through ETW
 - Linux telemetry collection through eBPF
+- macOS telemetry collection through Endpoint Security and `/dev/bpf`
 - A shared event model across supported platforms
 - Sigma rule evaluation on normalized events
 - YARA scanning on process creation
