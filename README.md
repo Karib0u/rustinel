@@ -7,12 +7,16 @@
 **Open-source endpoint detection for Windows, Linux, and macOS**
 
 <p align="center">
-  <a href="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml"><img src="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/Karib0u/rustinel/releases/latest"><img src="https://img.shields.io/github/v/release/Karib0u/rustinel" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows%20ETW-blue?logo=windows" alt="Platform Windows ETW">
-  <img src="https://img.shields.io/badge/platform-Linux%20eBPF-orange?logo=linux" alt="Platform Linux eBPF">
-  <img src="https://img.shields.io/badge/platform-macOS%20ESF-black?logo=apple" alt="Platform macOS ESF">
-  <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License">
+  <a href="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml"><img src="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml/badge.svg?style=flat-square" alt="CI"></a>
+  <a href="https://github.com/Karib0u/rustinel/releases/latest"><img src="https://img.shields.io/github/v/release/Karib0u/rustinel?style=flat-square&color=ff8a3d" alt="Latest release"></a>
+  <a href="https://github.com/Karib0u/rustinel/releases"><img src="https://img.shields.io/github/downloads/Karib0u/rustinel/total?style=flat-square&color=ff8a3d" alt="Downloads"></a>
+  <a href="https://github.com/Karib0u/rustinel/stargazers"><img src="https://img.shields.io/github/stars/Karib0u/rustinel?style=flat-square&color=ff8a3d" alt="Stars"></a>
+  <br>
+  <img src="https://img.shields.io/badge/platform-Windows%20ETW-blue?style=flat-square&logo=windows" alt="Platform Windows ETW">
+  <img src="https://img.shields.io/badge/platform-Linux%20eBPF-orange?style=flat-square&logo=linux" alt="Platform Linux eBPF">
+  <img src="https://img.shields.io/badge/platform-macOS%20ESF-black?style=flat-square&logo=apple" alt="Platform macOS ESF">
+  <a href="https://docs.rustinel.io/"><img src="https://img.shields.io/badge/docs-rustinel.io-d97835?style=flat-square" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/license-Apache%202.0-ff8a3d?style=flat-square" alt="License">
 </p>
 
 [Official site](https://rustinel.io/) · [Documentation](https://docs.rustinel.io/) · [GitHub Releases](https://github.com/Karib0u/rustinel/releases)
