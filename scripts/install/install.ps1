@@ -30,21 +30,22 @@ $checksums = "rustinel-$Version-checksums-sha256.txt"
 $baseUrl = "https://github.com/$Repo/releases/download/v$Version"
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "rustinel-install-$([System.Guid]::NewGuid())"
 
-try {
-    Invoke-WebRequest -Uri "$baseUrl/$asset" -Method Head | Out-Null
-} catch {
-    Show-InstallScope
-    throw "No published release asset found for this host: $asset. Release page: https://github.com/$Repo/releases/tag/v$Version"
-}
-
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
 try {
     $assetPath = Join-Path $tmp $asset
     $checksumsPath = Join-Path $tmp $checksums
 
+    # GitHub redirects release assets to a presigned CDN URL signed for GET, so a
+    # HEAD probe is rejected and Invoke-WebRequest throws a false "not found".
+    # Let the actual GET download be the existence check instead.
     Write-Host "Downloading $asset"
-    Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile $assetPath
+    try {
+        Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile $assetPath
+    } catch {
+        Show-InstallScope
+        throw "No published release asset found for this host: $asset. Release page: https://github.com/$Repo/releases/tag/v$Version"
+    }
     Invoke-WebRequest -Uri "$baseUrl/$checksums" -OutFile $checksumsPath
 
     $expected = Get-Content $checksumsPath |
