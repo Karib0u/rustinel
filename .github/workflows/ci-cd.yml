@@ -463,68 +463,19 @@ jobs:
             | macOS | arm64 | `rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz` |
             | macOS | x86_64 | `rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz` |
 
-            ## Fast install
+            ## Install
 
-            Linux and macOS:
+            **Linux / macOS**
 
             ```sh
             curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --version ${{ steps.version.outputs.version }} --run
             ```
 
-            To inspect the script first:
-
-            ```sh
-            curl -fsSLO https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh
-            less install.sh
-            sh install.sh --version ${{ steps.version.outputs.version }} --run
-            ```
-
-            Windows PowerShell:
+            **Windows (PowerShell)**
 
             ```powershell
-            Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
-            powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Version ${{ steps.version.outputs.version }} -Run
+            iwr https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1; powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Version ${{ steps.version.outputs.version }} -Run
             ```
 
-            The install scripts only install published release binaries. They do
-            not install Rust, Cargo, or build from source.
-
-            ## Linux
-
-            ```sh
-            tar xzf rustinel-${{ steps.version.outputs.version }}-<arch>.tar.gz
-            cd rustinel-${{ steps.version.outputs.version }}-<arch>
-            # Customize config.toml, add rules to rules/
-            sudo ./rustinel run
-            ```
-
-            A `rustinel.service` systemd unit file is included in the archive for persistent deployment.
-
-            **Requirements:** Linux 5.8+ with BTF enabled, `CAP_BPF` or root.
-
-            ## Windows
-
-            1. Extract the ZIP
-            2. Customize `config.toml`, add rules to `rules/`
-            3. Run as Administrator: `.\rustinel.exe run`
-
-            **Requirements:** Windows 10/11 or Server 2016+ (x64), Administrator privileges.
-
-            ## macOS
-
-            ```sh
-            tar xzf rustinel-${{ steps.version.outputs.version }}-<arch>.tar.gz
-            cd rustinel-${{ steps.version.outputs.version }}-<arch>
-            # Customize config.toml, add rules to rules/
-            sudo ./rustinel run
-            ```
-
-            A `com.rustinel.agent.plist` LaunchDaemon is included for persistent deployment.
-
-            **Requirements:** macOS 11+, root, and the Endpoint Security entitlement
-            (signed and notarized builds), or SIP/AMFI relaxed for local testing.
-
-            ## SIEM demos
-
-            Release archives include `examples/siem/elastic` and
-            `examples/siem/splunk` for local Elastic and Splunk ingestion tests.
+            📖 Full install, configuration & SIEM ingestion guides → https://docs.rustinel.io/getting-started/
+            🔒 Scripts install published release binaries only (no build from source). Verify downloads with `rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt`.
