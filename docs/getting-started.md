@@ -1,6 +1,68 @@
 # Getting Started
 
-This guide gets Rustinel to first telemetry and first alert on both supported platforms.
+This guide gets Rustinel to first telemetry and first alert on supported
+platforms.
+
+## Fastest Path
+
+Use the install scripts when you want a release binary, bundled demo rules, and
+the default `logs/` layout without choosing an asset by hand.
+
+### Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --run
+```
+
+If you prefer to inspect the script first:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh
+less install.sh
+sh install.sh --run
+```
+
+### Windows
+
+Run from an elevated PowerShell:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
+powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
+```
+
+After the agent starts, trigger the bundled rule:
+
+=== "Linux"
+
+    ```bash
+    whoami
+    cat logs/alerts.json.*
+    ```
+
+=== "Windows"
+
+    ```powershell
+    whoami /all
+    Get-Content .\logs\alerts.json.*
+    ```
+
+Install script options:
+
+```bash
+scripts/install/install.sh --dir /opt/rustinel --version 1.1.0
+```
+
+```powershell
+.\scripts\install\install.ps1 -InstallDir C:\Rustinel -Version 1.1.0
+```
+
+macOS support is experimental. Use the macOS release archive when it is present
+on the release page, or follow the source build path below.
+
+The install scripts only install published release binaries. They do not install
+Rust, Cargo, or build Rustinel from source. If no release asset exists for your
+OS or architecture, the script exits before changing the install directory.
 
 ## Minimum Requirements
 
@@ -214,5 +276,6 @@ printf '\n# hot reload smoke test\n' >> rules/sigma/linux_whoami.yml
 ## Next Steps
 
 - Use [Configuration](configuration.md) to move rule paths, logs, and allowlists out of the default repo layout.
+- Use [SIEM Demos](siem-demos.md) to ship first alerts to Elastic or Splunk.
 - Use [Operations and Upgrade Guide](operations.md) for installation layout and update workflows.
 - Use [CLI Reference](cli.md) for service commands and runtime examples.

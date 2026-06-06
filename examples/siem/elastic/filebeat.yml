@@ -1,0 +1,23 @@
+filebeat.inputs:
+  - type: filestream
+    id: rustinel-alerts
+    paths:
+      - /rustinel-logs/alerts.json.*
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+
+processors:
+  - add_fields:
+      target: labels
+      fields:
+        rustinel.demo: elastic
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: "rustinel-alerts-%{+yyyy.MM.dd}"
+
+setup.ilm.enabled: false
+setup.template.name: "rustinel-alerts"
+setup.template.pattern: "rustinel-alerts-*"

@@ -1,0 +1,16 @@
+services:
+  splunk:
+    image: splunk/splunk:${SPLUNK_VERSION:-latest}
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD:-ChangeMe123!}
+      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN:-rustinel-demo-token}
+      - SPLUNK_HEC_SSL=false
+    ports:
+      - "8000:8000"
+      - "8088:8088"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40

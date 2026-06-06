@@ -15,6 +15,7 @@ Visit the [official Rustinel site](https://rustinel.io/) for the main project ho
 ## Start here
 
 - [Getting Started](getting-started.md) — install and run Rustinel
+- [SIEM Demos](siem-demos.md) — ship first alerts to Elastic or Splunk
 - [Configuration](configuration.md) — configure telemetry, rules, alerts, and response
 - [Detection](detection.md) — understand Sigma, YARA, and IOC matching
 - [Architecture](architecture.md) — understand how Rustinel works internally

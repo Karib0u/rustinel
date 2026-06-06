@@ -140,3 +140,5 @@ filebeat.inputs:
     - ndjson:
         target: ""
 ```
+
+For a runnable local Elastic or Splunk trial, see [SIEM Demos](siem-demos.md).

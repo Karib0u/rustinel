@@ -300,10 +300,13 @@ jobs:
       - name: Package macOS ${{ matrix.arch }}
         run: |
           PKG="rustinel-${GITHUB_REF_NAME#v}-${{ matrix.target }}"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
           cp target/${{ matrix.target }}/release/rustinel "$PKG/"
           chmod +x "$PKG/rustinel"
           cp config.toml README.md packaging/macos/com.rustinel.agent.plist "$PKG/"
+          cp scripts/install/install.sh scripts/install/install.ps1 "$PKG/scripts/install/"
+          cp -r examples/siem "$PKG/examples/"
+          chmod +x "$PKG/scripts/install/install.sh" "$PKG/examples/siem/splunk/send-alerts.py"
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
@@ -375,10 +378,13 @@ jobs:
       - name: Package Linux x86_64
         run: |
           PKG="rustinel-${{ steps.version.outputs.version }}-x86_64-unknown-linux-musl"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
           cp dist/linux-x86_64/rustinel "$PKG/"
           chmod +x "$PKG/rustinel"
           cp config.toml README.md rustinel.service "$PKG/"
+          cp scripts/install/install.sh scripts/install/install.ps1 "$PKG/scripts/install/"
+          cp -r examples/siem "$PKG/examples/"
+          chmod +x "$PKG/scripts/install/install.sh" "$PKG/examples/siem/splunk/send-alerts.py"
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
@@ -388,10 +394,13 @@ jobs:
       - name: Package Linux arm64
         run: |
           PKG="rustinel-${{ steps.version.outputs.version }}-aarch64-unknown-linux-musl"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
           cp dist/linux-arm64/rustinel "$PKG/"
           chmod +x "$PKG/rustinel"
           cp config.toml README.md rustinel.service "$PKG/"
+          cp scripts/install/install.sh scripts/install/install.ps1 "$PKG/scripts/install/"
+          cp -r examples/siem "$PKG/examples/"
+          chmod +x "$PKG/scripts/install/install.sh" "$PKG/examples/siem/splunk/send-alerts.py"
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
@@ -401,9 +410,11 @@ jobs:
       - name: Package Windows x86_64
         run: |
           PKG="rustinel-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
           cp dist/windows-x86_64/rustinel.exe "$PKG/"
           cp config.toml README.md "$PKG/"
+          cp scripts/install/install.sh scripts/install/install.ps1 "$PKG/scripts/install/"
+          cp -r examples/siem "$PKG/examples/"
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
@@ -452,6 +463,32 @@ jobs:
             | macOS | arm64 | `rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz` |
             | macOS | x86_64 | `rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz` |
 
+            ## Fast install
+
+            Linux and macOS:
+
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --version ${{ steps.version.outputs.version }} --run
+            ```
+
+            To inspect the script first:
+
+            ```sh
+            curl -fsSLO https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh
+            less install.sh
+            sh install.sh --version ${{ steps.version.outputs.version }} --run
+            ```
+
+            Windows PowerShell:
+
+            ```powershell
+            Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
+            powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Version ${{ steps.version.outputs.version }} -Run
+            ```
+
+            The install scripts only install published release binaries. They do
+            not install Rust, Cargo, or build from source.
+
             ## Linux
 
             ```sh
@@ -486,3 +523,8 @@ jobs:
 
             **Requirements:** macOS 11+, root, and the Endpoint Security entitlement
             (signed and notarized builds), or SIP/AMFI relaxed for local testing.
+
+            ## SIEM demos
+
+            Release archives include `examples/siem/elastic` and
+            `examples/siem/splunk` for local Elastic and Splunk ingestion tests.

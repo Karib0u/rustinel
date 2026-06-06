@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/license-Apache%202.0-ff8a3d?style=flat-square" alt="License">
 </p>
 
-[Official site](https://rustinel.io/) · [Documentation](https://docs.rustinel.io/) · [GitHub Releases](https://github.com/Karib0u/rustinel/releases)
+[Official site](https://rustinel.io/) · [Documentation](https://docs.rustinel.io/) · [Latest Release](https://github.com/Karib0u/rustinel/releases/latest) · [SIEM demos](docs/siem-demos.md)
 
 Rustinel is an open-source endpoint detection project for **Windows**, **Linux**, and **macOS**.
 
@@ -30,6 +30,53 @@ The goal is simple: give blue teams, researchers, and detection engineers a tran
 <p align="center">
   <img src="docs/images/demo.gif" alt="Rustinel Demo" width="900">
 </p>
+
+---
+
+## Try the latest release
+
+Use this path if you want to see a first alert quickly. The release archives
+include `config.toml`, bundled demo rules, IOC files, and an empty `logs/`
+directory.
+
+### Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --run
+```
+
+Prefer to inspect first:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh
+less install.sh
+sh install.sh --run
+```
+
+### Windows
+
+Run from an elevated PowerShell:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
+powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
+```
+
+Then trigger the bundled demo rule:
+
+```text
+Linux:   whoami
+Windows: whoami /all
+```
+
+Alerts are written to `logs/alerts.json.<date>`. To ingest them locally, use the
+[Elastic and Splunk demos](docs/siem-demos.md).
+
+The install scripts only install published release binaries. They do not install
+Rust, Cargo, or build from source. If your OS or architecture has no release
+asset, they exit with a link to the [source build path](docs/getting-started.md#compile-from-source).
+
+Prefer manual downloads? Use the [latest GitHub Release](https://github.com/Karib0u/rustinel/releases/latest).
 
 ---
 

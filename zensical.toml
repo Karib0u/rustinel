@@ -56,6 +56,7 @@ nav = [
 
     { "Start Here" = [
         { "Getting Started" = "getting-started.md" },
+        { "SIEM Demos" = "siem-demos.md" },
         { "Troubleshooting" = "troubleshooting.md" },
     ] },
 
