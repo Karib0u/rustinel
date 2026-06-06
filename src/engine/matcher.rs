@@ -385,12 +385,24 @@ impl Engine {
                             warn!("Invalid Regex in rule: {}", s);
                         }
                     } else if is_windash {
-                        // 5. Handle Windash (Converts to Regex)
+                        // 5. Handle Windash (Converts to Regex), honoring the
+                        // string operator. windash is almost always paired with
+                        // `contains` (command-line flag detection), so anchoring
+                        // with ^...$ unconditionally made those rules unmatchable.
                         let windash_pattern = Self::apply_windash(s);
-                        let re_str = if is_cased {
-                            format!("^{}$", windash_pattern)
+                        let body = if modifiers.contains(&"contains") {
+                            windash_pattern
+                        } else if modifiers.contains(&"startswith") {
+                            format!("^{}", windash_pattern)
+                        } else if modifiers.contains(&"endswith") {
+                            format!("{}$", windash_pattern)
                         } else {
-                            format!("(?i)^{}$", windash_pattern)
+                            format!("^{}$", windash_pattern)
+                        };
+                        let re_str = if is_cased {
+                            body
+                        } else {
+                            format!("(?i){}", body)
                         };
                         if let Ok(re) = Regex::new(&re_str) {
                             patterns.push(FieldPattern::Regex(re));

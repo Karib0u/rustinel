@@ -420,6 +420,81 @@ detection:
     }
 
     #[test]
+    fn test_windash_contains_matches_substring() {
+        // Regression: `contains|windash` must match a substring, not require the
+        // whole field to equal the pattern (the encoded-PowerShell case).
+        let engine = Engine::new();
+        let rule_yaml = r#"
+title: WindashContains
+logsource:
+  category: process_creation
+detection:
+  selection:
+    CommandLine|contains|windash:
+      - ' -encodedcommand '
+  condition: selection
+"#;
+
+        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
+        let compiled = engine.compile_rule(rule).unwrap();
+
+        let mut engine = Engine::new();
+        engine
+            .rules_by_logsource
+            .entry(compiled.logsource.clone())
+            .or_default()
+            .push(compiled);
+
+        let make_event = |cmd: &str| NormalizedEvent {
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+            platform: Platform::Windows,
+            provider: "etw".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some(
+                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe".to_string(),
+                ),
+                original_file_name: None,
+                product: None,
+                description: None,
+                target_image: None,
+                command_line: Some(cmd.to_string()),
+                process_id: Some("1234".to_string()),
+                process_start_time: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                logon_id: None,
+                logon_guid: None,
+            }),
+            process_context: None,
+        };
+
+        // Real-world casing, as a substring (this used to NOT match).
+        assert!(engine
+            .check_event(&make_event(
+                "powershell.exe -NoProfile -EncodedCommand SQBFAFgA"
+            ))
+            .is_some());
+
+        // windash dash/slash variant also matches.
+        assert!(engine
+            .check_event(&make_event("powershell.exe /EncodedCommand SQBFAFgA"))
+            .is_some());
+
+        // Negative: no encoded-command flag present.
+        assert!(engine
+            .check_event(&make_event("powershell.exe -NoProfile -File script.ps1"))
+            .is_none());
+    }
+
+    #[test]
     fn test_rule_loading() {
         let mut engine = Engine::new();
 
