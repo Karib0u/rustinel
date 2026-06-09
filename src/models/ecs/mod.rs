@@ -23,7 +23,7 @@ use network::{extract_ips, network_transport_from_opcode, network_type_from_ip};
 use registry::split_registry_path;
 use user::apply_user_fields;
 
-const ECS_VERSION: &str = "9.3.0";
+const ECS_VERSION: &str = "9.4.0";
 const EVENT_MODULE: &str = "edr";
 
 impl From<&Alert> for EcsAlert {

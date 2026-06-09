@@ -66,7 +66,7 @@ A transparent endpoint detection engine you can read, run, test, and extend — 
 - **Native telemetry** — ETW on Windows, eBPF on Linux, Endpoint Security + `/dev/bpf` on macOS, normalized into one shared event model.
 - **Three detection layers** — Sigma for behavior, YARA for files and memory, IOC matching for hashes, IPs, domains, and path regexes.
 - **Reuse community rules** — bring existing Sigma and YARA rules instead of rewriting them into a proprietary format.
-- **SIEM-ready output** — ECS 9.3.0 NDJSON alerts that drop into Elastic, Splunk, and friends.
+- **SIEM-ready output** — ECS 9.4.0 NDJSON alerts that drop into Elastic, Splunk, and friends.
 - **Operational basics** — hot-reload for rules and IOCs, optional active response with dry-run + allowlists, Windows service and launchd support.
 
 ---
