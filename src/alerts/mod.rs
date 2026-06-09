@@ -23,7 +23,10 @@ pub struct AlertSink {
 
 impl AlertSink {
     pub fn new(writer: NonBlocking) -> Self {
-        Self { writer, dedup: None }
+        Self {
+            writer,
+            dedup: None,
+        }
     }
 
     /// Attach a deduplicator.  Call before handing the sink to any handler.

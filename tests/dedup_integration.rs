@@ -129,7 +129,10 @@ fn repeated_alerts_suppressed_and_rollup_emitted_on_flush() {
     );
 
     // Line 0: the live alert (no event.count)
-    assert!(lines[0].get("event.count").is_none(), "live alert must not carry event.count");
+    assert!(
+        lines[0].get("event.count").is_none(),
+        "live alert must not carry event.count"
+    );
 
     // Line 1: the rollup
     assert_eq!(
@@ -161,7 +164,10 @@ fn distinct_rules_tracked_and_flushed_independently() {
     let lines = read_json_lines(&out);
     // 2 live alerts + 2 rollups
     assert_eq!(lines.len(), 4, "2 live + 2 rollup lines");
-    let rollups: Vec<&Value> = lines.iter().filter(|l| l.get("event.count").is_some()).collect();
+    let rollups: Vec<&Value> = lines
+        .iter()
+        .filter(|l| l.get("event.count").is_some())
+        .collect();
     assert_eq!(rollups.len(), 2, "two rollup lines (one per rule)");
     for rollup in rollups {
         assert_eq!(rollup["event.count"], 2, "each rollup has count=2");
@@ -207,6 +213,10 @@ fn dedup_disabled_sink_passes_all_alerts_through() {
     drop(guard);
 
     let lines = read_json_lines(&out);
-    assert_eq!(lines.len(), 3, "with dedup off, all 3 alerts must be written");
+    assert_eq!(
+        lines.len(),
+        3,
+        "with dedup off, all 3 alerts must be written"
+    );
     assert!(lines.iter().all(|l| l.get("event.count").is_none()));
 }

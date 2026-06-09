@@ -35,14 +35,8 @@ impl DedupKey {
         Self {
             engine: ecs.edr_rule_engine.clone(),
             rule_name: ecs.rule_name.clone(),
-            executable: ecs
-                .process_executable
-                .clone()
-                .unwrap_or_default(),
-            parent_executable: ecs
-                .process_parent_executable
-                .clone()
-                .unwrap_or_default(),
+            executable: ecs.process_executable.clone().unwrap_or_default(),
+            parent_executable: ecs.process_parent_executable.clone().unwrap_or_default(),
             user_name: ecs.user_name.clone().unwrap_or_default(),
         }
     }
@@ -64,7 +58,6 @@ struct Counters {
     /// Total aggregate rollup alerts written at window close.
     aggregated_total: AtomicU64,
 }
-
 
 pub struct Deduplicator {
     window: Duration,
@@ -94,7 +87,9 @@ impl Deduplicator {
 
         if let Some(entry) = table.get_mut(&key) {
             entry.count += 1;
-            self.counters.suppressed_total.fetch_add(1, Ordering::Relaxed);
+            self.counters
+                .suppressed_total
+                .fetch_add(1, Ordering::Relaxed);
             return false;
         }
 
@@ -156,7 +151,9 @@ impl Deduplicator {
             }
             let mut ecs = EcsAlert::from(&entry.sample);
             ecs.event_count = Some(entry.count);
-            self.counters.aggregated_total.fetch_add(1, Ordering::Relaxed);
+            self.counters
+                .aggregated_total
+                .fetch_add(1, Ordering::Relaxed);
             sink.write_ecs(&ecs);
         }
     }
@@ -204,7 +201,6 @@ mod tests {
         ProcessCreationFields,
     };
     use crate::sensor::Platform;
-    use std::collections::HashMap;
 
     fn make_alert(rule: &str, image: &str) -> Alert {
         Alert {
@@ -258,7 +254,10 @@ mod tests {
         let dedup = Deduplicator::new(60, 1000);
         let alert = make_alert("Rule A", "/usr/bin/curl");
         let ecs = EcsAlert::from(&alert);
-        assert!(dedup.record(&ecs, &alert), "first hit must return true (emit)");
+        assert!(
+            dedup.record(&ecs, &alert),
+            "first hit must return true (emit)"
+        );
     }
 
     #[test]
@@ -267,12 +266,15 @@ mod tests {
         let alert = make_alert("Rule A", "/usr/bin/curl");
         let ecs = EcsAlert::from(&alert);
         dedup.record(&ecs, &alert);
-        assert!(!dedup.record(&ecs, &alert), "second hit must return false (suppress)");
-        assert!(!dedup.record(&ecs, &alert), "third hit must return false (suppress)");
-        assert_eq!(
-            dedup.counters.suppressed_total.load(Ordering::Relaxed),
-            2
+        assert!(
+            !dedup.record(&ecs, &alert),
+            "second hit must return false (suppress)"
         );
+        assert!(
+            !dedup.record(&ecs, &alert),
+            "third hit must return false (suppress)"
+        );
+        assert_eq!(dedup.counters.suppressed_total.load(Ordering::Relaxed), 2);
     }
 
     #[test]
@@ -283,7 +285,10 @@ mod tests {
         let ecs_a = EcsAlert::from(&a);
         let ecs_b = EcsAlert::from(&b);
         assert!(dedup.record(&ecs_a, &a));
-        assert!(dedup.record(&ecs_b, &b), "different rule must be a separate key");
+        assert!(
+            dedup.record(&ecs_b, &b),
+            "different rule must be a separate key"
+        );
     }
 
     #[test]
@@ -324,7 +329,11 @@ mod tests {
         let sink = null_sink();
         dedup.flush_all(&sink);
 
-        assert_eq!(dedup.table.lock().unwrap().len(), 0, "table must be empty after flush_all");
+        assert_eq!(
+            dedup.table.lock().unwrap().len(),
+            0,
+            "table must be empty after flush_all"
+        );
         // Rule A had count=2 → rollup emitted; Rule B had count=1 → no rollup
         assert_eq!(dedup.counters.aggregated_total.load(Ordering::Relaxed), 1);
     }
