@@ -60,6 +60,7 @@ Format:
 | `rule.name` | Detection rule title |
 | `edr.rule.severity` | Low, Medium, High, or Critical |
 | `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
+| `event.count` | *(rollup only)* Total occurrences of this alert within the dedup window (present only on aggregate rollup alerts, not on the first live emission) |
 
 ### Linux Process Alert Example
 

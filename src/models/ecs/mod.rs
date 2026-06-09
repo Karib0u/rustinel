@@ -42,6 +42,7 @@ impl From<&Alert> for EcsAlert {
         let mut ecs = EcsAlert {
             timestamp: alert.event.timestamp.clone(),
             ecs_version: ECS_VERSION.to_string(),
+            event_count: None,
             event_kind: "alert".to_string(),
             event_category,
             event_type,

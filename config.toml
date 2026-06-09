@@ -49,6 +49,17 @@ directory = "logs"
 filename = "alerts.json"    # Will contain newline-delimited JSON (NDJSON)
 match_debug = "off"         # off | summary | full (attach match details to alerts.json)
 
+# 3a. Alert Deduplication
+#   Collapses repeated identical alerts within a sliding window into a single
+#   rollup alert carrying event.count.  The first occurrence always emits
+#   immediately — there is no detection latency penalty.
+#
+#   Disable for high-fidelity environments where every individual event matters.
+[dedup]
+enabled = true
+window_secs = 60    # window length; repeats within this period are aggregated
+max_entries = 10000 # memory cap on distinct alert keys tracked simultaneously
+
 # 4. Active Response (Optional Prevention)
 [response]
 enabled = false

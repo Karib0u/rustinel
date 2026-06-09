@@ -1,3 +1,4 @@
+use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
 use crate::engine::{Engine, SigmaDetectionHandler};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
@@ -179,8 +180,19 @@ async fn run_edr(
     }
 
     // 2. Initialize Logging (CRITICAL: Store guards to keep file writing alive)
-    let (app_guard, alert_guard, alert_sink) = init_logging(&cfg);
+    let (app_guard, alert_guard, mut alert_sink) = init_logging(&cfg);
     let _guards = (app_guard, alert_guard);
+
+    // 2a. Alert deduplication
+    let dedup_worker_handle = if cfg.dedup.enabled {
+        let dedup = Arc::new(Deduplicator::new(cfg.dedup.window_secs, cfg.dedup.max_entries));
+        let tick = std::time::Duration::from_secs(cfg.dedup.window_secs.max(1));
+        let handle = spawn_flush_worker(Arc::clone(&dedup), alert_sink.clone(), tick);
+        alert_sink = alert_sink.with_deduplicator(dedup);
+        Some(handle)
+    } else {
+        None
+    };
 
     log_startup_banner("Windows ETW");
 
@@ -627,6 +639,16 @@ async fn run_edr(
     match response_worker_handle.await {
         Ok(_) => info!("Response worker thread finished"),
         Err(e) => error!("Failed to join response worker thread: {}", e),
+    }
+
+    // Flush any pending dedup rollups before the alert file is closed.
+    if let Some(handle) = dedup_worker_handle {
+        handle.abort();
+        let _ = handle.await;
+    }
+    if let Some(dedup) = alert_sink.dedup() {
+        dedup.flush_all(&alert_sink);
+        dedup.log_metrics();
     }
 
     info!("");

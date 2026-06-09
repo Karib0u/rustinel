@@ -93,6 +93,7 @@ pub struct AppConfig {
     pub network: NetworkConfig,
     pub ioc: IocConfig,
     pub reload: ReloadConfig,
+    pub dedup: DedupConfig,
 }
 
 /// Scanner configuration (Sigma and YARA rules)
@@ -181,6 +182,17 @@ pub struct ReloadConfig {
     pub debounce_ms: u64,
 }
 
+/// Alert deduplication / aggregation configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct DedupConfig {
+    /// Enable sliding-window alert deduplication
+    pub enabled: bool,
+    /// Window length in seconds; repeated identical alerts are collapsed within this window
+    pub window_secs: u64,
+    /// Maximum number of distinct alert keys to track simultaneously
+    pub max_entries: usize,
+}
+
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
@@ -235,7 +247,11 @@ impl AppConfig {
             .set_default("ioc.hash_allowlist_paths", Vec::<String>::new())?
             // Hot Reload
             .set_default("reload.enabled", true)?
-            .set_default("reload.debounce_ms", 2000)?;
+            .set_default("reload.debounce_ms", 2000)?
+            // Alert deduplication
+            .set_default("dedup.enabled", true)?
+            .set_default("dedup.window_secs", 60i64)?
+            .set_default("dedup.max_entries", 10000i64)?;
 
         // --- Sources ---
         // Config files are searched in two locations, lowest priority first.
@@ -332,6 +348,11 @@ impl Default for AppConfig {
                 enabled: true,
                 debounce_ms: 2000,
             },
+            dedup: DedupConfig {
+                enabled: true,
+                window_secs: 60,
+                max_entries: 10_000,
+            },
         };
 
         cfg.apply_allowlist_fallbacks();
@@ -390,6 +411,14 @@ mod tests {
         assert_eq!(cfg.response.allowlist_paths, cfg.allowlist.paths);
         assert_eq!(cfg.ioc.hash_allowlist_paths, cfg.allowlist.paths);
         assert_eq!(cfg.scanner.yara_allowlist_paths, cfg.allowlist.paths);
+    }
+
+    #[test]
+    fn test_dedup_defaults() {
+        let cfg = AppConfig::default();
+        assert!(cfg.dedup.enabled);
+        assert_eq!(cfg.dedup.window_secs, 60);
+        assert_eq!(cfg.dedup.max_entries, 10_000);
     }
 
     #[test]

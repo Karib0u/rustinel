@@ -56,6 +56,11 @@ directory = "logs"
 filename = "alerts.json"
 match_debug = "off"
 
+[dedup]
+enabled = true
+window_secs = 60
+max_entries = 10000
+
 [response]
 enabled = false
 prevention_enabled = false
@@ -99,6 +104,9 @@ Use Windows path prefixes on Windows and Unix path prefixes on Linux.
 | `alerts.directory` | `logs` |
 | `alerts.filename` | `alerts.json` |
 | `alerts.match_debug` | `off` |
+| `dedup.enabled` | `true` |
+| `dedup.window_secs` | `60` |
+| `dedup.max_entries` | `10000` |
 | `response.enabled` | `false` |
 | `response.prevention_enabled` | `false` |
 | `response.min_severity` | `critical` |
@@ -200,6 +208,28 @@ Propagation behavior:
 | `directory` | `logs` | Alert directory |
 | `filename` | `alerts.json` | ECS NDJSON filename with daily rotation |
 | `match_debug` | `off` | `off`, `summary`, or `full` match metadata in alerts |
+
+### Deduplication
+
+Alert deduplication collapses repeated identical alerts within a sliding window into a single rollup alert. The **first occurrence always emits immediately** — there is no added detection latency for novel alerts. Only repeats of the same alert within the window are suppressed.
+
+A rollup alert is written at window close carrying `event.count` with the total number of occurrences (including the first).
+
+The dedup key is `(engine, rule_name, process.executable, process.parent.executable, user.name)`.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Enable alert deduplication |
+| `window_secs` | `60` | Window length in seconds; identical alerts within this window are aggregated |
+| `max_entries` | `10000` | Maximum distinct alert keys tracked simultaneously (memory cap) |
+
+Set `enabled = false` for high-fidelity environments where every individual alert event matters.
+
+**Dedup metrics** are written to the operational log at shutdown:
+
+```
+dedup: suppressed_total=1420 aggregated_rollup_alerts=38 pending_keys=0
+```
 
 ### Active Response
 

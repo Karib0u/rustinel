@@ -20,6 +20,10 @@ pub struct EcsAlert {
     #[serde(rename = "ecs.version")]
     pub ecs_version: String,
 
+    /// Aggregated repeat count (only present on rollup alerts emitted at window close)
+    #[serde(rename = "event.count", skip_serializing_if = "Option::is_none")]
+    pub event_count: Option<u64>,
+
     /// Event kind (always "alert" for detections)
     #[serde(rename = "event.kind")]
     pub event_kind: String,
