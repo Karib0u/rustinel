@@ -58,6 +58,7 @@ nav = [
         { "Getting Started" = "getting-started.md" },
         { "SIEM Demos" = "siem-demos.md" },
         { "Troubleshooting" = "troubleshooting.md" },
+        { "FAQ" = "faq.md" },
     ] },
 
     { "Using Rustinel" = [
@@ -71,6 +72,7 @@ nav = [
     { "How It Works" = [
         { "Architecture" = "architecture.md" },
         { "Detection" = "detection.md" },
+        { "Benchmarking" = "benchmarking.md" },
         { "Limitations" = "limitations.md" },
     ] },
 
@@ -188,7 +190,6 @@ features = [
     # https://zensical.org/docs/authoring/content-tabs/#linked-content-tabs
     "content.tabs.link",
 
-    # TODO: not sure I understand this one? Is there a demo of this in the docs?
     # https://zensical.org/docs/authoring/tooltips/#improved-tooltips
     # "content.tooltips",
 

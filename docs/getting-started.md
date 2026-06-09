@@ -50,11 +50,11 @@ After the agent starts, trigger the bundled rule:
 Install script options:
 
 ```bash
-scripts/install/install.sh --dir /opt/rustinel --version 1.1.0
+scripts/install/install.sh --dir /opt/rustinel --version 1.1.1
 ```
 
 ```powershell
-.\scripts\install\install.ps1 -InstallDir C:\Rustinel -Version 1.1.0
+.\scripts\install\install.ps1 -InstallDir C:\Rustinel -Version 1.1.1
 ```
 
 macOS support is experimental. Use the macOS release archive when it is present

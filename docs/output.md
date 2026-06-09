@@ -25,7 +25,7 @@ Example:
 Field rendering varies by logger, but the message text is representative:
 
 ```text
-9:00 PM INFO  rustinel: Rustinel v1.0.0 (Linux eBPF)
+9:00 PM INFO  rustinel: Rustinel v1.1.1 (Linux eBPF)
 9:00 PM INFO  rustinel: Loading Sigma rules
 9:00:01 PM INFO  rustinel: YARA scanner initialized
 9:00:05 PM INFO  engine: Sigma detection triggered
@@ -56,7 +56,7 @@ Format:
 | `event.code` | Sysmon-style or native event ID string |
 | `event.module` | Always `edr` |
 | `event.dataset` | `edr.<category>` |
-| `event.provider` | `etw` on Windows, `ebpf` on Linux |
+| `event.provider` | `etw` (Windows), `ebpf` (Linux), `esf` / `bpf` (macOS), or `yara-memory` for memory-scan hits |
 | `rule.name` | Detection rule title |
 | `edr.rule.severity` | Low, Medium, High, or Critical |
 | `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
@@ -125,7 +125,7 @@ Format:
 | Service | `edr.service` |
 | Task | `edr.task` |
 
-The full field set depends on event type and platform. Windows alerts can include PE metadata, registry details, PowerShell content, and service or task context. Linux alerts currently focus on process, network, file, and DNS fields.
+The full field set depends on event type and platform. Windows alerts can include PE metadata, registry details, PowerShell content, and service or task context. Linux and macOS alerts currently focus on process, network, file, and DNS fields.
 
 ## SIEM Shipping
 

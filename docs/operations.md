@@ -30,6 +30,21 @@ C:\Rustinel\
 └── logs/
 ```
 
+### macOS
+
+```text
+/opt/rustinel/
+├── rustinel
+├── config.toml
+├── rules/
+│   ├── sigma/
+│   ├── yara/
+│   └── ioc/
+└── logs/
+```
+
+macOS support is experimental. The binary must be signed with the Endpoint Security entitlement, or run with SIP/AMFI relaxed on a dedicated test machine — see [Getting Started](getting-started.md) and [Development](development.md).
+
 Use absolute paths in `config.toml` once you move beyond the default repo layout.
 
 ## Working Directory Rules
@@ -79,7 +94,7 @@ Save as `/etc/systemd/system/rustinel.service`:
 
 ```ini
 [Unit]
-Description=Rustinel EDR Agent
+Description=Rustinel endpoint detection agent
 After=network.target
 
 [Service]
@@ -104,6 +119,16 @@ sudo systemctl status rustinel
 ```
 
 Because `config.toml` is loaded from `WorkingDirectory`, use absolute paths for all rules and log directories in that file when running under `systemd`.
+
+## macOS Runtime Model
+
+macOS support is experimental and detection-only (no active response). Rustinel does not ship macOS service-management commands; run it in the foreground as root, or wrap it in a `launchd` job for background execution:
+
+```bash
+sudo /opt/rustinel/rustinel run
+```
+
+The binary must be signed with the `com.apple.developer.endpoint-security.client` entitlement, or run with SIP/AMFI relaxed on a dedicated test machine. See [Development](development.md) for signing and notarization details.
 
 ## Upgrade Examples
 

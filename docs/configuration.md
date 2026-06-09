@@ -128,6 +128,17 @@ These defaults feed `allowlist.paths`, which then propagate to active response, 
 - `/lib/`
 - `/lib64/`
 
+#### macOS
+
+- `/usr/bin/`
+- `/usr/sbin/`
+- `/usr/libexec/`
+- `/bin/`
+- `/sbin/`
+- `/System/`
+
+`/Applications` is intentionally **not** allowlisted: it holds user-installed software and is a common location for macOS malware, so allowlisting it would blind scanning and response there.
+
 ## Options
 
 ### Scanner
