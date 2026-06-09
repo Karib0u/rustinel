@@ -41,14 +41,14 @@ Location:
 Format:
 
 - One ECS JSON document per line
-- ECS version `9.3.0`
+- ECS version `9.4.0`
 
 ### Important Fields
 
 | Field | Meaning |
 | --- | --- |
 | `@timestamp` | Event time in UTC |
-| `ecs.version` | Always `9.3.0` |
+| `ecs.version` | Always `9.4.0` |
 | `event.kind` | Always `alert` |
 | `event.category` | ECS category array |
 | `event.type` | ECS type array |
@@ -66,7 +66,7 @@ Format:
 ```json
 {
   "@timestamp": "<date>T21:00:05Z",
-  "ecs.version": "9.3.0",
+  "ecs.version": "9.4.0",
   "event.kind": "alert",
   "event.category": ["process"],
   "event.type": ["start"],
@@ -91,7 +91,7 @@ Format:
 ```json
 {
   "@timestamp": "<date>T21:00:05Z",
-  "ecs.version": "9.3.0",
+  "ecs.version": "9.4.0",
   "event.kind": "alert",
   "event.category": ["process"],
   "event.type": ["start"],

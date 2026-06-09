@@ -400,3 +400,31 @@ fn dns_alert_populates_category_specific_fields() {
     assert_ecs_field_eq(&json, "dns.resolved_ip", json!([TEST_DESTINATION_IP]));
     assert_ecs_field_eq(&json, "network.protocol", "dns");
 }
+
+#[test]
+fn ecs_version_field_is_9_4_0() {
+    let json = ecs_json(&alert(
+        EventCategory::Process,
+        1,
+        1,
+        EventFields::ProcessCreation(ProcessCreationFields {
+            image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+            command_line: None,
+            process_id: None,
+            process_start_time: None,
+            parent_image: None,
+            parent_process_id: None,
+            parent_command_line: None,
+            current_directory: None,
+            integrity_level: None,
+            user: None,
+            original_file_name: None,
+            product: None,
+            description: None,
+            target_image: None,
+            logon_id: None,
+            logon_guid: None,
+        }),
+    ));
+    assert_ecs_field_eq(&json, "ecs.version", "9.4.0");
+}
