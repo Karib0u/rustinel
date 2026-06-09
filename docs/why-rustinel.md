@@ -26,11 +26,13 @@ On Windows, Rustinel uses ETW.
 
 On Linux, Rustinel uses eBPF.
 
+On macOS, Rustinel uses Apple's Endpoint Security framework plus `/dev/bpf` capture (experimental).
+
 The goal is to collect useful host telemetry without maintaining a traditional custom Windows kernel driver.
 
 ### Cross-platform detection
 
-Windows and Linux are different, but many detection engineering concepts are shared.
+Windows, Linux, and macOS are different, but many detection engineering concepts are shared.
 
 Rustinel normalizes events into a shared model so detection logic can be reused where possible.
 

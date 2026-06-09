@@ -1,6 +1,6 @@
 # Active Response
 
-Rustinel includes an optional response engine that can terminate processes when an alert reaches the configured minimum severity. It is disabled by default and should be tested in dry-run mode first.
+Rustinel includes an optional response engine that can terminate processes when an alert reaches the configured minimum severity. It is disabled by default and should be tested in dry-run mode first. Active response runs on **Windows and Linux only** — macOS is detection-only.
 
 ## Modes
 
@@ -14,6 +14,7 @@ Rustinel includes an optional response engine that can terminate processes when 
 | --- | --- |
 | Windows | Uses process termination APIs |
 | Linux | Sends `SIGKILL` |
+| macOS | Not supported — detection only |
 
 ## Severity Handling
 
@@ -30,27 +31,7 @@ Rustinel will not act on processes that match either of these:
 - `allowlist_images`: image basenames or full paths
 - `allowlist_paths`: trusted path prefixes
 
-By default, `response.allowlist_paths` inherits `allowlist.paths`.
-
-### Default Trusted Prefixes
-
-#### Windows
-
-- `C:\Windows\`
-- `C:\Program Files\`
-- `C:\Program Files (x86)\`
-
-#### Linux
-
-- `/usr/bin/`
-- `/usr/sbin/`
-- `/usr/lib/`
-- `/usr/lib64/`
-- `/usr/libexec/`
-- `/bin/`
-- `/sbin/`
-- `/lib/`
-- `/lib64/`
+By default, `response.allowlist_paths` inherits `allowlist.paths`, whose per-platform defaults are listed once in [Configuration → Default Trusted Paths](configuration.md#default-trusted-paths).
 
 ## Example Configuration
 

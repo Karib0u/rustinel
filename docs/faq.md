@@ -6,7 +6,7 @@ This page answers the questions that come up most often when running, deploying,
 
 ### What does Rustinel do?
 
-Rustinel is a cross-platform EDR agent. It collects telemetry from ETW on Windows and eBPF on Linux, normalizes events into a shared model, evaluates Sigma, YARA, and IOC detections, writes ECS NDJSON alerts, and can optionally terminate offending processes.
+Rustinel is a cross-platform endpoint detection engine. It collects telemetry from ETW on Windows, eBPF on Linux, and Endpoint Security plus `/dev/bpf` on macOS, normalizes events into a shared model, evaluates Sigma, YARA, and IOC detections, writes ECS NDJSON alerts, and can optionally terminate offending processes (Windows and Linux only).
 
 See [Architecture](architecture.md) and [Detection](detection.md) for the detailed runtime flow.
 
@@ -14,8 +14,9 @@ See [Architecture](architecture.md) and [Detection](detection.md) for the detail
 
 - Windows 10/11 and Server 2016+
 - Linux with kernel 5.8+, BTF, and the required eBPF privileges
+- macOS 11+ (experimental) using Endpoint Security plus `/dev/bpf` capture
 
-Current telemetry coverage is broader on Windows than Linux. Windows includes process, image load, network, file, registry, DNS, PowerShell, WMI, service, and task telemetry. Linux currently covers process, network, file, and DNS.
+Current telemetry coverage is broadest on Windows, which includes process, image load, network, file, registry, DNS, PowerShell, WMI, service, and task telemetry. Linux and macOS currently cover process, network, file, and DNS. macOS support is experimental while the project waits for the required Endpoint Security entitlement.
 
 ### Do I need Administrator or root?
 
@@ -23,6 +24,7 @@ Yes.
 
 - Windows ETW collection requires Administrator privileges.
 - Linux eBPF collection requires root or equivalent capabilities such as `CAP_BPF` or `CAP_SYS_ADMIN`, depending on your setup.
+- macOS Endpoint Security collection requires root, plus the `com.apple.developer.endpoint-security.client` entitlement (or SIP/AMFI relaxed for local testing).
 
 ## Running And Deployment
 
