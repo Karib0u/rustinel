@@ -25,7 +25,7 @@ Example:
 Field rendering varies by logger, but the message text is representative:
 
 ```text
-9:00 PM INFO  rustinel: Rustinel v1.1.1 (Linux eBPF)
+9:00 PM INFO  rustinel: Rustinel v1.1.2 (Linux eBPF)
 9:00 PM INFO  rustinel: Loading Sigma rules
 9:00:01 PM INFO  rustinel: YARA scanner initialized
 9:00:05 PM INFO  engine: Sigma detection triggered
