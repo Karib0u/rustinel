@@ -42,6 +42,7 @@ mod tests {
             severity: AlertSeverity::High,
             rule_name: "test_rule".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event,
             match_details: None,

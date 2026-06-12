@@ -186,10 +186,13 @@ impl IocEngine {
     }
 
     pub fn build_alert_for_match(&self, m: &IocMatch, event: &NormalizedEvent) -> Alert {
+        let name = ioc_rule_name(m);
+        let ioc_id = format!("ioc::{}::{}", m.kind.as_str(), m.indicator);
         Alert {
             severity: self.severity,
-            rule_name: ioc_rule_name(m),
+            rule_name: name,
             rule_description: ioc_rule_description(m),
+            rule_id: Some(ioc_id),
             engine: DetectionEngine::Ioc,
             event: event.clone(),
             match_details: None,
@@ -204,10 +207,13 @@ impl IocEngine {
         platform: Platform,
         provider: &str,
     ) -> Alert {
+        let name = ioc_rule_name(m);
+        let ioc_id = format!("ioc::{}::{}", m.kind.as_str(), m.indicator);
         Alert {
             severity: self.severity,
-            rule_name: ioc_rule_name(m),
+            rule_name: name,
             rule_description: ioc_rule_description(m),
+            rule_id: Some(ioc_id),
             engine: DetectionEngine::Ioc,
             event: NormalizedEvent {
                 timestamp: crate::utils::now_timestamp_string(),

@@ -420,10 +420,16 @@ impl Engine {
                         _ => AlertSeverity::Low,
                     };
 
+                    let rule_id = compiled_rule
+                        .rule
+                        .id
+                        .as_ref()
+                        .map(|id| format!("sigma::{}", id));
                     return Some(Alert {
                         severity,
                         rule_name: compiled_rule.rule.title.clone(),
                         rule_description: compiled_rule.rule.description.clone(),
+                        rule_id,
                         engine: DetectionEngine::Sigma,
                         event: event.clone(),
                         match_details: self.build_sigma_match_details(

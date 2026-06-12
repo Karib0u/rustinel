@@ -56,6 +56,7 @@ impl From<&Alert> for EcsAlert {
             host_os_family: host_os_family(alert.event.platform),
             rule_name: alert.rule_name.clone(),
             rule_description: alert.rule_description.clone(),
+            rule_id: alert.rule_id.clone(),
             edr_rule_severity: format!("{:?}", alert.severity),
             edr_rule_engine: format!("{:?}", alert.engine),
             process_executable: None,
@@ -356,6 +357,7 @@ mod tests {
             severity: AlertSeverity::High,
             rule_name: "Test Rule".to_string(),
             rule_description: None,
+            rule_id: Some("sigma::test-rule-id".to_string()),
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -402,6 +404,7 @@ mod tests {
         assert_eq!(ecs.event_code.as_deref(), Some("1"));
         assert_eq!(ecs.event_severity, Some(75));
         assert_eq!(ecs.rule_name, "Test Rule");
+        assert_eq!(ecs.rule_id.as_deref(), Some("sigma::test-rule-id"));
         assert_eq!(ecs.edr_rule_severity, "High");
         assert_eq!(ecs.edr_rule_engine, "Sigma");
         assert_eq!(
@@ -419,6 +422,7 @@ mod tests {
             severity: AlertSeverity::Critical,
             rule_name: "Suspicious Service".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -461,6 +465,7 @@ mod tests {
             severity: AlertSeverity::High,
             rule_name: "Context Test".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -526,6 +531,7 @@ mod tests {
             severity: AlertSeverity::Medium,
             rule_name: "Registry Test".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -566,6 +572,7 @@ mod tests {
             severity: AlertSeverity::Low,
             rule_name: "DNS Test".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -611,6 +618,7 @@ mod tests {
             severity: AlertSeverity::Low,
             rule_name: "File Test".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -647,6 +655,7 @@ mod tests {
             severity: AlertSeverity::Low,
             rule_name: "Match Details".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-02-04T00:00:00Z".to_string(),

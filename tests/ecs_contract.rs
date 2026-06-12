@@ -21,6 +21,7 @@ fn alert(category: EventCategory, event_id: u16, opcode: u8, fields: EventFields
         severity: AlertSeverity::High,
         rule_name: format!("{category:?} Test"),
         rule_description: None,
+        rule_id: None,
         engine: DetectionEngine::Sigma,
         event: NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -366,6 +367,7 @@ fn macos_file_create_alert_maps_ecs_fields() {
         severity: AlertSeverity::High,
         rule_name: "macOS File Create".to_string(),
         rule_description: None,
+        rule_id: None,
         engine: DetectionEngine::Sigma,
         event: normalized,
         match_details: None,
@@ -427,4 +429,105 @@ fn ecs_version_field_is_9_4_0() {
         }),
     ));
     assert_ecs_field_eq(&json, "ecs.version", "9.4.0");
+}
+
+#[test]
+fn test_rule_id_mapping_and_omit_behavior() {
+    // 1. Sigma with ID
+    let alert_sigma_with_id = Alert {
+        severity: AlertSeverity::High,
+        rule_name: "Test Rule".to_string(),
+        rule_description: None,
+        rule_id: Some("sigma::abc-123".to_string()),
+        engine: DetectionEngine::Sigma,
+        event: NormalizedEvent {
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            platform: Platform::Windows,
+            provider: "test".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+                command_line: None,
+                process_id: None,
+                process_start_time: None,
+                parent_image: None,
+                parent_process_id: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                target_image: None,
+                logon_id: None,
+                logon_guid: None,
+            }),
+            process_context: None,
+        },
+        match_details: None,
+    };
+    let json_sigma_with_id = ecs_json(&alert_sigma_with_id);
+    assert_ecs_field_eq(&json_sigma_with_id, "rule.id", "sigma::abc-123");
+
+    // 2. Sigma without ID (omitted)
+    let alert_sigma_no_id = Alert {
+        severity: AlertSeverity::High,
+        rule_name: "Test Rule".to_string(),
+        rule_description: None,
+        rule_id: None,
+        engine: DetectionEngine::Sigma,
+        event: alert_sigma_with_id.event.clone(),
+        match_details: None,
+    };
+    let json_sigma_no_id = ecs_json(&alert_sigma_no_id);
+    assert!(json_sigma_no_id
+        .get("rule")
+        .and_then(|r| r.get("id"))
+        .is_none());
+
+    // 3. YARA with ID
+    let alert_yara_with_id = Alert {
+        severity: AlertSeverity::Critical,
+        rule_name: "YaraRule".to_string(),
+        rule_description: None,
+        rule_id: Some("yara::yara-rule-uuid".to_string()),
+        engine: DetectionEngine::Yara,
+        event: alert_sigma_with_id.event.clone(),
+        match_details: None,
+    };
+    let json_yara_with_id = ecs_json(&alert_yara_with_id);
+    assert_ecs_field_eq(&json_yara_with_id, "rule.id", "yara::yara-rule-uuid");
+
+    // 4. YARA without ID (omitted)
+    let alert_yara_no_id = Alert {
+        severity: AlertSeverity::Critical,
+        rule_name: "YaraRule".to_string(),
+        rule_description: None,
+        rule_id: None,
+        engine: DetectionEngine::Yara,
+        event: alert_sigma_with_id.event.clone(),
+        match_details: None,
+    };
+    let json_yara_no_id = ecs_json(&alert_yara_no_id);
+    assert!(json_yara_no_id
+        .get("rule")
+        .and_then(|r| r.get("id"))
+        .is_none());
+
+    // 5. IOC (always present, formatted as ioc::kind::indicator)
+    let alert_ioc = Alert {
+        severity: AlertSeverity::Medium,
+        rule_name: "ioc:domain:example.com".to_string(),
+        rule_description: None,
+        rule_id: Some("ioc::domain::example.com".to_string()),
+        engine: DetectionEngine::Ioc,
+        event: alert_sigma_with_id.event.clone(),
+        match_details: None,
+    };
+    let json_ioc = ecs_json(&alert_ioc);
+    assert_ecs_field_eq(&json_ioc, "rule.id", "ioc::domain::example.com");
 }

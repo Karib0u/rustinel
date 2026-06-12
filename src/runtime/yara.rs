@@ -58,16 +58,19 @@ pub fn build_yara_match_details(
 
 pub fn build_yara_alert(
     rule_name: &str,
+    metadata_id: Option<String>,
     path: &str,
     pid: u32,
     match_details: Option<MatchDetails>,
     platform: Platform,
     provider: &str,
 ) -> Alert {
+    let rule_id = metadata_id.map(|id| format!("yara::{}", id));
     Alert {
         severity: AlertSeverity::Critical,
         rule_name: rule_name.to_string(),
         rule_description: None,
+        rule_id,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: utils::now_timestamp_string(),
@@ -134,16 +137,19 @@ pub fn build_yara_memory_match_details(
 
 pub fn build_yara_memory_alert(
     rule_name: &str,
+    metadata_id: Option<String>,
     image: &str,
     pid: u32,
     match_details: Option<MatchDetails>,
     platform: Platform,
     provider: &str,
 ) -> Alert {
+    let rule_id = metadata_id.map(|id| format!("yara::{}", id));
     Alert {
         severity: AlertSeverity::Critical,
         rule_name: rule_name.to_string(),
         rule_description: None,
+        rule_id,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: utils::now_timestamp_string(),
@@ -231,6 +237,7 @@ pub fn spawn_yara_file_worker(
                             let match_details = build_yara_match_details(match_debug, rule_match);
                             let alert = build_yara_alert(
                                 &rule_match.rule,
+                                rule_match.metadata_id.clone(),
                                 &path,
                                 pid,
                                 match_details,
@@ -328,6 +335,7 @@ pub fn spawn_yara_memory_worker(
                             build_yara_memory_match_details(match_debug, rule_match, chunk);
                         let alert = build_yara_memory_alert(
                             &rule_match.rule,
+                            rule_match.metadata_id.clone(),
                             &job.image,
                             job.pid,
                             details,

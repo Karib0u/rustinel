@@ -743,6 +743,7 @@ mod tests {
             severity: AlertSeverity::High,
             rule_name: "Test".to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-02-03T00:00:00Z".to_string(),

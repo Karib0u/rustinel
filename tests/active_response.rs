@@ -35,6 +35,7 @@ fn build_yara_alert(pid: u32, image: &str) -> Alert {
         severity: AlertSeverity::Critical,
         rule_name: "ExampleMarkerString".to_string(),
         rule_description: None,
+        rule_id: None,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".to_string(),

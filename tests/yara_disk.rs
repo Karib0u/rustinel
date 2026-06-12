@@ -70,6 +70,7 @@ fn build_yara_alert(
         severity: AlertSeverity::Critical,
         rule_name: rule_match.rule.clone(),
         rule_description: None,
+        rule_id: None,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: chrono::DateTime::<chrono::Utc>::from(test_time()).to_rfc3339(),
