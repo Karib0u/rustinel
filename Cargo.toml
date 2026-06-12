@@ -3,7 +3,7 @@ name = "rustinel"
 version = "1.1.2"
 edition = "2021"
 authors = []
-description = "Open-source EDR for Windows (ETW) and Linux (eBPF) with Sigma, YARA, and IOC detection"
+description = "Open-source EDR for Windows, Linux, and macOS with Sigma, YARA, and IOC detection"
 license = "Apache-2.0"
 rust-version = "1.92"
 default-run = "rustinel"
@@ -29,9 +29,6 @@ hex = "0.4"
 md-5 = "0.11"
 sha1 = "0.11"
 sha2 = "0.11"
-
-# Yara scanning
-yara-x = "1.17"
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "time", "net"] }
@@ -59,9 +56,16 @@ config = "0.15.23"
 aya = { version = "0.13", default-features = false }
 libc = "0.2"
 
+# YARA-X uses its native JIT outside macOS.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+yara-x = "1.17"
+
 # macOS-specific
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+# Endpoint Security clients cannot use hardened runtime relaxation
+# entitlements, so use the Pulley interpreter instead of YARA-X's native JIT.
+yara-x = { version = "1.17", features = ["pulley"] }
 # Endpoint Security framework bindings (process and file telemetry).
 # macos_11_0_0 sets the minimum supported macOS to Big Sur and enables
 # reference-counted message handling.

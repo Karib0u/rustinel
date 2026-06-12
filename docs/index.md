@@ -43,7 +43,8 @@ Rustinel currently provides:
 - Hot reload for rules and indicator files
 - Optional active response with dry-run and allowlists
 
-macOS support is experimental while the project waits for the required Endpoint Security Framework entitlement.
+macOS support is experimental while signed release packaging is validated
+across supported macOS versions.
 
 ## What Rustinel is not
 

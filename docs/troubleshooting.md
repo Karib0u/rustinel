@@ -111,14 +111,17 @@ See [Getting Started](getting-started.md) and [Development](development.md).
 Creating an Endpoint Security client failed. The common causes are:
 
 - not running as root
-- the binary is not signed with the `com.apple.developer.endpoint-security.client` entitlement, and SIP/AMFI is not relaxed
-- the user has not approved the agent (TCC)
+- the app is not signed with the `com.apple.developer.endpoint-security.client` entitlement
+- `Contents/embedded.provisionprofile` is missing or does not authorize the entitlement
+- the user has not granted the app Full Disk Access
 
 What to do:
 
 - run with `sudo`
-- for distributable builds, sign and notarize with the Endpoint Security entitlement
-- for local testing, relax SIP/AMFI on a dedicated test machine and ad-hoc sign with the entitlement (see [Development](development.md))
+- inspect the signature with `codesign --display --entitlements - Rustinel.app`
+- decode the profile with `security cms -D -i Rustinel.app/Contents/embedded.provisionprofile`
+- grant `Rustinel.app` Full Disk Access
+- rebuild with the supported packaging script described in [Development](development.md)
 
 Typical symptom in logs:
 

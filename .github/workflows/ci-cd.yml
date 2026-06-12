@@ -237,9 +237,9 @@ jobs:
           retention-days: 1
 
   # macOS builds run on the arm64 runner; the x86_64 target cross-compiles
-  # there since the SDK ships both slices. The EndpointSecurity framework links
-  # at build time and only needs entitlements at runtime. Signing and
-  # notarization happen here (on macOS) and produce the final .tar.gz.
+  # there since the SDK ships both slices. Endpoint Security uses a restricted
+  # entitlement, so the daemon is packaged in an app-like bundle with its
+  # provisioning profile before signing and notarization.
   build-macos:
     name: Build macOS ${{ matrix.arch }}
     runs-on: macos-latest
@@ -258,24 +258,15 @@ jobs:
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --locked --release --target ${{ matrix.target }}
 
-      # Code signing and notarization run only when the maintainer's Apple
-      # Developer secrets are configured; otherwise the binary ships unsigned
-      # (runnable on hosts with SIP/AMFI relaxed). A bare Mach-O cannot be
-      # stapled, so Gatekeeper verifies the notarization ticket online.
-      - name: Sign and notarize
+      - name: Import signing identity
         env:
-          BIN: target/${{ matrix.target }}/release/rustinel
           SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
           CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
-          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
-          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
         run: |
-          if [ -z "$SIGN_IDENTITY" ] || [ -z "$CERT_P12_BASE64" ]; then
-            echo "::warning::macOS signing secrets not configured; shipping unsigned binary"
-            exit 0
-          fi
+          : "${SIGN_IDENTITY:?MACOS_SIGN_IDENTITY is required}"
+          : "${CERT_P12_BASE64:?MACOS_CERT_P12_BASE64 is required}"
+          : "${CERT_PASSWORD:?MACOS_CERT_PASSWORD is required}"
           KEYCHAIN="$RUNNER_TEMP/rustinel-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(uuidgen)"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
@@ -285,24 +276,47 @@ jobs:
           security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          codesign --force --options runtime --timestamp \
-            --entitlements packaging/macos/rustinel.entitlements \
-            --sign "$SIGN_IDENTITY" "$BIN"
-          codesign --verify --strict --verbose=2 "$BIN"
-          if [ -n "$NOTARY_APPLE_ID" ]; then
-            ditto -c -k "$BIN" "$RUNNER_TEMP/notarize.zip"
-            xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-              --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" \
-              --password "$NOTARY_PASSWORD" --wait
-          fi
           rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Build signed app bundle
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          PROVISION_PROFILE_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          : "${PROVISION_PROFILE_BASE64:?MACOS_PROVISIONING_PROFILE_BASE64 is required}"
+          echo "$PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/rustinel.provisionprofile"
+          scripts/macos/package-app.sh \
+            --binary "target/${{ matrix.target }}/release/rustinel" \
+            --output "$RUNNER_TEMP/Rustinel.app" \
+            --profile "$RUNNER_TEMP/rustinel.provisionprofile" \
+            --identity "$SIGN_IDENTITY" \
+            --version "${GITHUB_REF_NAME#v}"
+
+      - name: Notarize and staple
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: |
+          : "${NOTARY_APPLE_ID:?MACOS_NOTARY_APPLE_ID is required}"
+          : "${NOTARY_TEAM_ID:?MACOS_NOTARY_TEAM_ID is required}"
+          : "${NOTARY_PASSWORD:?MACOS_NOTARY_PASSWORD is required}"
+          ditto -c -k --keepParent "$RUNNER_TEMP/Rustinel.app" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --wait
+          xcrun stapler staple "$RUNNER_TEMP/Rustinel.app"
+          xcrun stapler validate "$RUNNER_TEMP/Rustinel.app"
+          spctl --assess --type execute --verbose=4 "$RUNNER_TEMP/Rustinel.app"
 
       - name: Package macOS ${{ matrix.arch }}
         run: |
           PKG="rustinel-${GITHUB_REF_NAME#v}-${{ matrix.target }}"
           mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
-          cp target/${{ matrix.target }}/release/rustinel "$PKG/"
-          chmod +x "$PKG/rustinel"
+          ditto "$RUNNER_TEMP/Rustinel.app" "$PKG/Rustinel.app"
+          ln -s "Rustinel.app/Contents/MacOS/rustinel" "$PKG/rustinel"
           cp config.toml README.md packaging/macos/com.rustinel.agent.plist "$PKG/"
           cp scripts/install/install.sh scripts/install/install.ps1 "$PKG/scripts/install/"
           cp -r examples/siem "$PKG/examples/"

@@ -15,6 +15,7 @@
 //! relaxed.
 
 use std::ffi::OsStr;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -129,11 +130,19 @@ fn run_client(
     shutdown: Arc<AtomicBool>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
 ) {
-    let handler = move |_client: &mut Client<'_>, msg: Message| {
-        if let Some(event) = build_sensor_event(&msg) {
-            try_send(&tx, event);
-        }
-    };
+    let handler =
+        move |_client: &mut Client<'_>, msg: Message| match catch_unwind(AssertUnwindSafe(|| {
+            build_sensor_event(&msg)
+        })) {
+            Ok(Some(event)) => try_send(&tx, event),
+            Ok(None) => {}
+            Err(_) => {
+                warn!(
+                    event_type = ?msg.event_type(),
+                    "Endpoint Security event conversion panicked; dropping event"
+                );
+            }
+        };
 
     let mut client = match Client::new(handler) {
         Ok(client) => client,

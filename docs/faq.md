@@ -16,7 +16,7 @@ See [Architecture](architecture.md) and [Detection](detection.md) for the detail
 - Linux with kernel 5.8+, BTF, and the required eBPF privileges
 - macOS 11+ (experimental) using Endpoint Security plus `/dev/bpf` capture
 
-Current telemetry coverage is broadest on Windows, which includes process, image load, network, file, registry, DNS, PowerShell, WMI, service, and task telemetry. Linux and macOS currently cover process, network, file, and DNS. macOS support is experimental while the project waits for the required Endpoint Security entitlement.
+Current telemetry coverage is broadest on Windows, which includes process, image load, network, file, registry, DNS, PowerShell, WMI, service, and task telemetry. Linux and macOS currently cover process, network, file, and DNS. macOS support remains experimental while signed release packaging is validated across supported versions.
 
 ### Do I need Administrator or root?
 
@@ -24,7 +24,7 @@ Yes.
 
 - Windows ETW collection requires Administrator privileges.
 - Linux eBPF collection requires root or equivalent capabilities such as `CAP_BPF` or `CAP_SYS_ADMIN`, depending on your setup.
-- macOS Endpoint Security collection requires root, plus the `com.apple.developer.endpoint-security.client` entitlement (or SIP/AMFI relaxed for local testing).
+- macOS Endpoint Security collection requires root, Full Disk Access, and a signed app bundle whose embedded provisioning profile authorizes `com.apple.developer.endpoint-security.client`.
 
 ## Running And Deployment
 

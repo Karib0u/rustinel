@@ -55,7 +55,7 @@ whoami
 
 Your alert lands in `logs/alerts.json.<date>` as ECS NDJSON — ready to ship straight to a SIEM.
 
-> **Prefer to read before you run?** Download the [install script](scripts/install/install.sh) and inspect it, or grab a binary from the [latest release](https://github.com/Karib0u/rustinel/releases/latest). The installer only pulls published release binaries — it never builds from source. macOS support is experimental and needs root plus an Endpoint Security entitlement; see [Getting Started](https://docs.rustinel.io/getting-started/).
+> **Prefer to read before you run?** Download the [install script](scripts/install/install.sh) and inspect it, or grab a binary from the [latest release](https://github.com/Karib0u/rustinel/releases/latest). The installer only pulls published release binaries. macOS support is experimental and needs root plus user approval for the signed Endpoint Security client; see [Getting Started](https://docs.rustinel.io/getting-started/).
 
 ---
 
@@ -79,7 +79,7 @@ A transparent endpoint detection engine you can read, run, test, and extend — 
 | Linux 5.8+ (BTF) | eBPF | Process, network, file, DNS | Stable |
 | macOS 11+ | Endpoint Security + `/dev/bpf` | Process, file, network, DNS | Experimental |
 
-Windows coverage is the broadest today; Linux and macOS focus on process, network, file, and DNS. macOS is experimental while the project awaits the Endpoint Security entitlement. Full notes in the [platform docs](https://docs.rustinel.io/architecture/).
+Windows coverage is the broadest today; Linux and macOS focus on process, network, file, and DNS. macOS remains experimental while signed and notarized release packaging is validated across supported versions. Full notes are in the [platform docs](https://docs.rustinel.io/architecture/).
 
 ---
 
@@ -130,10 +130,10 @@ Each pack materializes into folders you point `config.toml` straight at. Browse 
 
 ```bash
 cargo build --release
-sudo ./target/release/rustinel run   # macOS also needs codesigning with the ESF entitlement — see docs
+sudo ./target/release/rustinel run
 ```
 
-Full prerequisites, macOS signing steps, and validation: [Getting Started](https://docs.rustinel.io/getting-started/).
+macOS requires the app-like signed bundle described in [Getting Started](https://docs.rustinel.io/getting-started/).
 
 ---
 

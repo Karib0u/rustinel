@@ -83,11 +83,12 @@ OS or architecture, the script exits before changing the install directory.
 ### macOS
 
 - macOS 11+
-- Root, plus the `com.apple.developer.endpoint-security.client` entitlement on signed and notarized builds, or SIP/AMFI relaxed for local testing
+- Root and Full Disk Access for the signed Endpoint Security client
 - Access to the `/dev/bpf*` device nodes for network and DNS capture
 - Rust 1.92+ and the Xcode Command Line Tools if building from source
 
-macOS support is experimental while the project waits for the required Endpoint Security Framework entitlement.
+macOS support remains experimental while release packaging and runtime behavior
+are validated across supported versions.
 
 ## Quick Start
 
@@ -140,8 +141,9 @@ sudo ./rustinel run
 ```
 
 If startup fails with `NotPrivileged`, the Endpoint Security client could not be
-created. Run as root with a signed, entitled build, or relax SIP/AMFI on a test
-machine. Network and DNS capture additionally needs access to the `/dev/bpf*`
+created. Confirm that the app is signed, its embedded provisioning profile
+authorizes Endpoint Security, it has Full Disk Access, and it is running as
+root. Network and DNS capture additionally needs access to the `/dev/bpf*`
 device nodes; the agent continues with Endpoint Security only if capture cannot
 start.
 
@@ -173,14 +175,21 @@ sudo ./target/release/rustinel run
 git clone https://github.com/Karib0u/rustinel.git
 cd rustinel
 cargo build --release
-codesign --force --sign - \
-  --entitlements packaging/macos/rustinel.entitlements \
-  target/release/rustinel
-sudo ./target/release/rustinel run
+
+scripts/macos/package-app.sh \
+  --binary target/release/rustinel \
+  --output target/release/Rustinel.app \
+  --profile "$HOME/Downloads/rustinel.provisionprofile" \
+  --identity "Developer ID Application: Example (TEAMID)"
+
+sudo ./target/release/Rustinel.app/Contents/MacOS/rustinel run
 ```
 
-Ad-hoc signing with the entitlement only takes effect when SIP/AMFI is relaxed.
-See the [Development](development.md) guide for signing and notarization details.
+The profile must belong to the explicit App ID approved for the project and
+authorize `com.apple.developer.endpoint-security.client`. The packaging script
+derives the bundle identifier from that profile. Grant the resulting app bundle
+Full Disk Access before starting it. See [Development](development.md) for
+profile validation, ad-hoc lab builds, and release secrets.
 
 Notes:
 

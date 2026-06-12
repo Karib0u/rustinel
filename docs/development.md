@@ -69,22 +69,65 @@ macOS telemetry uses Apple's Endpoint Security framework. Creating an ES client
 `com.apple.developer.endpoint-security.client` entitlement, and user approval
 (TCC). Without them the agent exits at startup with a `NotPrivileged` error.
 
-For development and lab use you can avoid a provisioning profile by relaxing
-system protections (in a VM or a dedicated test machine, never a production
-host): disable SIP from Recovery (`csrutil disable`) and, if needed, disable
-AMFI. Then ad-hoc sign the binary with the entitlement and run it as root:
+After Apple approves the managed capability, enable Endpoint Security on the
+explicit App ID used for the request and download a matching macOS provisioning
+profile. Install the profile's signing certificate and private key in the login
+keychain. Confirm that macOS can see the identity:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+Build the binary, then create the app-like daemon bundle required for a
+restricted entitlement:
 
 ```bash
 cargo build --release
-codesign --force --sign - \
-  --entitlements packaging/macos/rustinel.entitlements \
-  target/release/rustinel
-sudo ./target/release/rustinel run
+
+scripts/macos/package-app.sh \
+  --binary target/release/rustinel \
+  --output target/release/Rustinel.app \
+  --profile "$HOME/Downloads/rustinel.provisionprofile" \
+  --identity "Developer ID Application: Example (TEAMID)"
 ```
 
-For distributable builds, request the Endpoint Security entitlement from Apple,
-then sign with your Developer ID and notarize using the same entitlements file.
-The entitlement lives in `packaging/macos/rustinel.entitlements`.
+The script derives the bundle identifier from the profile, validates that the
+profile authorizes Endpoint Security, embeds it at
+`Contents/embedded.provisionprofile`, adds the profile App ID and Team ID to the
+signed entitlements, enables the hardened runtime, and verifies the bundle.
+On macOS, YARA-X uses Wasmtime's Pulley interpreter because Endpoint Security
+clients cannot use hardened runtime relaxation entitlements for JIT executable
+memory.
+
+Grant `Rustinel.app` Full Disk Access in System Settings, then run:
+
+```bash
+sudo ./target/release/Rustinel.app/Contents/MacOS/rustinel run
+```
+
+In another terminal, trigger and inspect the bundled demo:
+
+```bash
+whoami
+cat logs/alerts.json.*
+```
+
+For a SIP-disabled VM or dedicated test Mac, an ad-hoc bundle can still be
+created without a profile:
+
+```bash
+scripts/macos/package-app.sh \
+  --binary target/release/rustinel \
+  --output target/release/Rustinel.app \
+  --adhoc
+```
+
+Do not use the ad-hoc path on a normal SIP-enabled Mac. Release builds require
+the Developer ID identity, the Endpoint Security provisioning profile, and a
+successful notarization. CI expects `MACOS_SIGN_IDENTITY`,
+`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`,
+`MACOS_PROVISIONING_PROFILE_BASE64`, `MACOS_NOTARY_APPLE_ID`,
+`MACOS_NOTARY_TEAM_ID`, and `MACOS_NOTARY_PASSWORD`.
 
 ## Testing
 
