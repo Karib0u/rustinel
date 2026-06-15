@@ -71,16 +71,34 @@ Confirm that an alert was written:
     Get-Content .\logs\alerts.json.*
     ```
 
+    Or use the end-to-end demo helper:
+
+    ```powershell
+    .\examples\demo\run-local-demo.ps1
+    ```
+
 === "Linux"
 
     ```bash
     cat logs/alerts.json.*
     ```
 
+    Or use the end-to-end demo helper:
+
+    ```bash
+    ./examples/demo/run-local-demo.sh
+    ```
+
 === "macOS"
 
     ```bash
     cat logs/alerts.json.*
+    ```
+
+    Or use the end-to-end demo helper:
+
+    ```bash
+    ./examples/demo/run-local-demo.sh
     ```
 
 Bundled demo rules:
