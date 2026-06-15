@@ -1025,7 +1025,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5cf926f62142f03513a96f5f9052801b7ed6a7633fa3c2f9a47a11c1c6efee9f"
 dependencies = [
- "endpoint-sec-sys",
+ "endpoint-sec-sys 0.5.1",
  "libc",
  "mach2 0.5.0",
  "static_assertions",
@@ -1041,6 +1041,17 @@ dependencies = [
  "libc",
  "mach2 0.5.0",
  "objc2",
+]
+
+[[package]]
+name = "endpoint-sec-sys"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62affe30ea9e777d4148d7b910d62cbda65b602fb3b9a9ce58ce4079f39bc8b1"
+dependencies = [
+ "block2",
+ "libc",
+ "mach2 0.6.0",
 ]
 
 [[package]]
@@ -2414,7 +2425,7 @@ dependencies = [
  "config",
  "digest 0.11.3",
  "endpoint-sec",
- "endpoint-sec-sys",
+ "endpoint-sec-sys 0.6.0",
  "evalexpr",
  "ferrisetw",
  "hex",
