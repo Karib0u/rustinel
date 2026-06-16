@@ -106,27 +106,30 @@ If `ebpf/rustinel-ebpf.o` is missing, the build falls back to compiling the eBPF
 
 See [Getting Started](getting-started.md) and [Development](development.md).
 
-### macOS `Endpoint Security client init failed: ... NotPrivileged`
+### macOS `Endpoint Security client init failed`
 
-Creating an Endpoint Security client failed. The common causes are:
+Creating the Endpoint Security client failed at startup. The result code at the
+end of the error tells you exactly which requirement is missing:
 
-- not running as root
-- the app is not signed with the `com.apple.developer.endpoint-security.client` entitlement
-- `Contents/embedded.provisionprofile` is missing or does not authorize the entitlement
-- the user has not granted the app Full Disk Access
+| Result code | Cause | Fix |
+| --- | --- | --- |
+| `NotPrivileged` | Not running as root. | Re-run with `sudo`. |
+| `NotPermitted` | Running as root with the entitlement, but macOS has not granted the client Endpoint Security access (TCC). | Grant `Rustinel.app` **Full Disk Access** in System Settings → Privacy & Security → Full Disk Access, then re-run. If you launched it from a terminal, that terminal app may also need Full Disk Access. |
+| `NotEntitled` | The binary is not signed with `com.apple.developer.endpoint-security.client`, or its provisioning profile does not authorize the entitlement. | Run a signed `Rustinel.app` from a release, or repackage with `scripts/macos/package-app.sh` (see [Development](development.md)). |
 
-What to do:
+On a fresh machine the first run typically reports `NotPermitted`: signing and
+notarization are correct, and the only thing left is the one-time Full Disk
+Access approval that macOS requires for every Endpoint Security client.
 
-- run with `sudo`
-- inspect the signature with `codesign --display --entitlements - Rustinel.app`
-- decode the profile with `security cms -D -i Rustinel.app/Contents/embedded.provisionprofile`
-- grant `Rustinel.app` Full Disk Access
-- rebuild with the supported packaging script described in [Development](development.md)
+To inspect the bundle:
+
+- check the signature and entitlements: `codesign --display --entitlements - Rustinel.app`
+- decode the embedded profile: `security cms -D -i Rustinel.app/Contents/embedded.provisionprofile`
 
 Typical symptom in logs:
 
 ```text
-macOS Endpoint Security sensor failed to start: Endpoint Security client init failed: es_new_client failed: NotPrivileged
+macOS Endpoint Security sensor failed to start: Endpoint Security client init failed: es_new_client failed: NotPermitted: macOS has not granted Endpoint Security access. Grant Rustinel.app Full Disk Access ...
 ```
 
 ### macOS network or DNS events are missing

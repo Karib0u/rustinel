@@ -15,6 +15,7 @@
 //! relaxed.
 
 use std::ffi::OsStr;
+use std::io::IsTerminal;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,7 +28,7 @@ use endpoint_sec::{
     Client, Event, EventClose, EventCreate, EventCreateDestinationFile, EventExec, EventRename,
     EventRenameDestinationFile, EventUnlink, Message,
 };
-use endpoint_sec_sys::es_event_type_t;
+use endpoint_sec_sys::{es_event_type_t, NewClientError};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
@@ -120,6 +121,57 @@ impl Sensor for EsfSensor {
     }
 }
 
+/// Translate an `es_new_client` failure into an actionable message.
+///
+/// These failures are almost always environmental — missing TCC approval, not
+/// root, or an unsigned binary — rather than bugs, so we point at the concrete
+/// step that unblocks each one instead of surfacing a bare result code.
+fn new_client_error_hint(err: &NewClientError) -> String {
+    let remedy = match err {
+        NewClientError::NotPermitted => {
+            "macOS has not granted Endpoint Security access. Grant Rustinel.app Full Disk \
+             Access in System Settings > Privacy & Security > Full Disk Access, then re-run. \
+             If you launched it from a terminal, that terminal app may also need Full Disk \
+             Access."
+        }
+        NewClientError::NotPrivileged => "Endpoint Security requires root. Re-run with sudo.",
+        NewClientError::NotEntitled => {
+            "The binary lacks the com.apple.developer.endpoint-security.client entitlement. \
+             Run a signed Rustinel.app from a release, or repackage it with \
+             scripts/macos/package-app.sh."
+        }
+        NewClientError::TooManyClients => {
+            "The system reached its Endpoint Security client limit. Stop another Endpoint \
+             Security agent and retry."
+        }
+        _ => "Could not create the Endpoint Security client.",
+    };
+    format!("es_new_client failed: {err:?}: {remedy}")
+}
+
+/// Best-effort deep-link to the Full Disk Access settings pane.
+///
+/// `NotPermitted` means the user still has to grant Full Disk Access by hand, so
+/// for an interactive `sudo ./rustinel run` we open the right pane for them.
+/// Started with sudo the process is root, which has no GUI session, so we reopen
+/// in the invoking user's session via `launchctl asuser`. A LaunchDaemon has no
+/// controlling terminal and is skipped; any failure is ignored — this is a
+/// convenience, not a step the pipeline depends on.
+fn try_open_full_disk_access_settings() {
+    if !std::io::stderr().is_terminal() {
+        return;
+    }
+    const PANE: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+    info!("Opening System Settings → Privacy & Security → Full Disk Access");
+    let status = match std::env::var("SUDO_UID") {
+        Ok(uid) => std::process::Command::new("launchctl")
+            .args(["asuser", &uid, "open", PANE])
+            .status(),
+        Err(_) => std::process::Command::new("open").arg(PANE).status(),
+    };
+    let _ = status;
+}
+
 /// Body of the Endpoint Security client thread.
 ///
 /// Creates the client, subscribes, signals readiness, then keeps the client
@@ -147,7 +199,10 @@ fn run_client(
     let mut client = match Client::new(handler) {
         Ok(client) => client,
         Err(e) => {
-            let _ = ready_tx.send(Err(format!("es_new_client failed: {e:?}")));
+            if matches!(e, NewClientError::NotPermitted) {
+                try_open_full_disk_access_settings();
+            }
+            let _ = ready_tx.send(Err(new_client_error_hint(&e)));
             return;
         }
     };
@@ -531,6 +586,19 @@ fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn not_permitted_hint_points_at_full_disk_access() {
+        let msg = new_client_error_hint(&NewClientError::NotPermitted);
+        assert!(msg.contains("NotPermitted"));
+        assert!(msg.contains("Full Disk Access"));
+    }
+
+    #[test]
+    fn not_privileged_hint_points_at_sudo() {
+        let msg = new_client_error_hint(&NewClientError::NotPrivileged);
+        assert!(msg.contains("sudo"));
+    }
 
     #[test]
     fn process_start_event_maps_exec_fields() {

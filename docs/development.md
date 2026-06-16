@@ -65,9 +65,11 @@ sudo env RUSTINEL_EBPF_OBJECT=$PWD/ebpf/rustinel-ebpf.o ./target/release/rustine
 ### macOS
 
 macOS telemetry uses Apple's Endpoint Security framework. Creating an ES client
-(`es_new_client`) requires three things: running as root, the
-`com.apple.developer.endpoint-security.client` entitlement, and user approval
-(TCC). Without them the agent exits at startup with a `NotPrivileged` error.
+(`es_new_client`) requires three things, and each missing piece surfaces a
+distinct startup error: running as root (`NotPrivileged` if not), the
+`com.apple.developer.endpoint-security.client` entitlement (`NotEntitled` if
+missing), and user approval via Full Disk Access / TCC (`NotPermitted` if not
+granted).
 
 After Apple approves the managed capability, enable Endpoint Security on the
 explicit App ID used for the request and download a matching macOS provisioning

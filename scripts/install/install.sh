@@ -157,7 +157,25 @@ mkdir -p "$(dirname "$install_dir")"
 mkdir -p "$install_dir"
 cp -R "$package_dir/." "$install_dir/"
 
-cat <<EOF
+if [ "$os" = "Darwin" ]; then
+  cat <<EOF
+
+Rustinel $version installed to:
+  $install_dir
+
+macOS requires a one-time approval before Endpoint Security can start:
+  1. Grant Full Disk Access to:  $install_dir/Rustinel.app
+     (System Settings > Privacy & Security > Full Disk Access)
+  2. cd "$install_dir" && sudo ./rustinel run
+  3. Trigger the demo in another terminal:  whoami
+  4. Read the alert:  cat logs/alerts.json.*
+
+Before approval the agent exits with a NotPermitted error and opens the Full
+Disk Access pane for you; grant access, then run it again.
+
+EOF
+else
+  cat <<EOF
 
 Rustinel $version installed to:
   $install_dir
@@ -169,9 +187,15 @@ Try the bundled demo rule:
   cat logs/alerts.json.*
 
 EOF
+fi
 
 if [ "$run_after_install" -eq 1 ]; then
   cd "$install_dir"
+  if [ "$os" = "Darwin" ]; then
+    echo "Starting Rustinel. On macOS the first run needs Full Disk Access for" >&2
+    echo "$install_dir/Rustinel.app; if it exits with NotPermitted, grant access" >&2
+    echo "in System Settings > Privacy & Security > Full Disk Access, then re-run." >&2
+  fi
   if [ "$(id -u)" -eq 0 ]; then
     exec ./rustinel run
   else

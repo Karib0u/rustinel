@@ -140,12 +140,17 @@ cd rustinel-<version>-aarch64-apple-darwin
 sudo ./rustinel run
 ```
 
-If startup fails with `NotPrivileged`, the Endpoint Security client could not be
-created. Confirm that the app is signed, its embedded provisioning profile
-authorizes Endpoint Security, it has Full Disk Access, and it is running as
-root. Network and DNS capture additionally needs access to the `/dev/bpf*`
-device nodes; the agent continues with Endpoint Security only if capture cannot
-start.
+macOS requires a one-time approval before any Endpoint Security client can run,
+so on a fresh machine the first run usually exits with `NotPermitted`. Grant
+`Rustinel.app` **Full Disk Access** in System Settings → Privacy & Security →
+Full Disk Access, then re-run `sudo ./rustinel run`. (If you launched it from a
+terminal, that terminal app may also need Full Disk Access.) A `NotPrivileged`
+error instead means it is not running as root — re-run with `sudo`. See
+[Troubleshooting](troubleshooting.md#macos-endpoint-security-client-init-failed)
+for the full result-code table.
+
+Network and DNS capture additionally needs access to the `/dev/bpf*` device
+nodes; the agent continues with Endpoint Security only if capture cannot start.
 
 ## Compile From Source
 
