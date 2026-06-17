@@ -1021,25 +1021,25 @@ dependencies = [
 
 [[package]]
 name = "endpoint-sec"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cf926f62142f03513a96f5f9052801b7ed6a7633fa3c2f9a47a11c1c6efee9f"
+checksum = "a37bc1280abfdd574108258b46e0c043d455537ba6192ce9a6a087535c1d9edf"
 dependencies = [
  "endpoint-sec-sys",
  "libc",
- "mach2 0.5.0",
+ "mach2 0.6.0",
  "static_assertions",
 ]
 
 [[package]]
 name = "endpoint-sec-sys"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b0482467bde1c4ffbe95538dd7c6bfee009e21dd36d5c848436454aeccd4f46"
+checksum = "62affe30ea9e777d4148d7b910d62cbda65b602fb3b9a9ce58ce4079f39bc8b1"
 dependencies = [
  "block2",
  "libc",
- "mach2 0.5.0",
+ "mach2 0.6.0",
  "objc2",
 ]
 
@@ -1602,15 +1602,6 @@ name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "mach2"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a1b95cd5421ec55b445b5ae102f5ea0e768de1f82bd3001e11f426c269c3aea"
 dependencies = [
  "libc",
 ]

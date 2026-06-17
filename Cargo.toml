@@ -69,8 +69,8 @@ yara-x = { version = "1.17", features = ["pulley"] }
 # Endpoint Security framework bindings (process and file telemetry).
 # macos_11_0_0 sets the minimum supported macOS to Big Sur and enables
 # reference-counted message handling.
-endpoint-sec = { version = "0.5", features = ["macos_11_0_0"] }
-endpoint-sec-sys = "0.5"
+endpoint-sec = { version = "0.6", features = ["macos_11_0_0"] }
+endpoint-sec-sys = "0.6"
 # Process/socket inspection for best-effort PID attribution of captured flows.
 libproc = "0.14"
 # Mach VM APIs for YARA process-memory scanning (task_for_pid, mach_vm_read).
