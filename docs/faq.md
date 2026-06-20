@@ -53,6 +53,12 @@ Yes, but Rustinel does not include built-in Linux service-management commands. R
 
 See [Operations and Upgrade Guide](operations.md) for the example `systemd` unit.
 
+### Can I run Rustinel as a macOS service?
+
+Yes, but like Linux it has no built-in service-management commands (those are Windows-only today). Run it in the foreground as root, or load the bundled `com.rustinel.agent.plist` as a `launchd` LaunchDaemon for background execution. Either way, the signed app bundle needs Full Disk Access.
+
+See [Operations and Upgrade Guide](operations.md) for the launchd layout.
+
 ### Why does Rustinel look in the wrong directory for rules or logs?
 
 Because relative paths resolve from the current working directory.
