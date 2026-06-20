@@ -41,7 +41,7 @@ Rustinel currently provides:
 - IOC matching for file hashes, IPs, domains, and path regexes
 - ECS NDJSON alert output
 - Hot reload for rules and indicator files
-- Optional active response with dry-run and allowlists on Windows and Linux
+- Optional active response with dry-run and allowlists on Windows and Linux only; macOS is detection-only today
 
 macOS support is experimental while signed release packaging is validated
 across supported macOS versions.

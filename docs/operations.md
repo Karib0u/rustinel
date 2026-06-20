@@ -127,7 +127,7 @@ Because `config.toml` is loaded from `WorkingDirectory`, use absolute paths for 
 
 ## macOS Runtime Model
 
-macOS support is experimental and detection-only. Active response is not
+macOS support is experimental and detection-only today. Active response is not
 supported on macOS. Rustinel does not ship macOS service-management commands
 yet; run it in the foreground as root:
 

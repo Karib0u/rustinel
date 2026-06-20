@@ -6,7 +6,7 @@ This page answers the questions that come up most often when running, deploying,
 
 ### What does Rustinel do?
 
-Rustinel is a cross-platform endpoint detection engine. It collects telemetry from ETW on Windows, eBPF on Linux, and Endpoint Security plus `/dev/bpf` on macOS, normalizes events into a shared model, evaluates Sigma, YARA, and IOC detections, writes ECS NDJSON alerts, and can optionally terminate offending processes (Windows and Linux only).
+Rustinel is a cross-platform endpoint detection engine. It collects telemetry from ETW on Windows, eBPF on Linux, and Endpoint Security plus `/dev/bpf` on macOS, normalizes events into a shared model, evaluates Sigma, YARA, and IOC detections, writes ECS NDJSON alerts, and can optionally terminate offending processes on Windows and Linux only; macOS is detection-only today.
 
 See [Architecture](architecture.md) and [Detection](detection.md) for the detailed runtime flow.
 
