@@ -68,9 +68,12 @@ curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/insta
 
 Then, before the first start:
 
-1. Grant **Full Disk Access** to `Rustinel.app` — and, for an interactive `sudo`
-   run, to your terminal app — in System Settings → Privacy & Security → Full
-   Disk Access.
+1. Grant **Full Disk Access** to your **terminal app** (Terminal, iTerm, Ghostty,
+   …) in System Settings → Privacy & Security → Full Disk Access, then fully quit
+   and reopen it. Launched with `sudo` from a terminal, macOS attributes the
+   permission to the terminal — so Rustinel itself will not appear in the list,
+   and that is expected. (Grant `Rustinel.app` directly only when running it as a
+   background LaunchDaemon.)
 2. Start it and trigger the demo:
 
    ```bash
@@ -168,9 +171,11 @@ client can start, so the order matters:
    cd rustinel-<version>-aarch64-apple-darwin
    ```
 
-2. Grant **Full Disk Access** to `Rustinel.app` — and, if you start it from a
-   terminal, to that terminal app — in System Settings → Privacy & Security →
-   Full Disk Access.
+2. Grant **Full Disk Access** to your **terminal app** (Terminal, iTerm, …) in
+   System Settings → Privacy & Security → Full Disk Access, then quit and reopen
+   it. Launched with `sudo` from a terminal, the permission is attributed to the
+   terminal, so `Rustinel.app` will not show up in the list itself — that is
+   normal. (You grant `Rustinel.app` directly only for a background LaunchDaemon.)
 
 3. Run it as root:
 
