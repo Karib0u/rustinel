@@ -64,6 +64,10 @@ sudo env RUSTINEL_EBPF_OBJECT=$PWD/ebpf/rustinel-ebpf.o ./target/release/rustine
 
 ### macOS
 
+For normal contributor work, start with `cargo check`, `cargo build`, and the
+regular test suite. The signed app-bundle path below is only required when you
+need live Endpoint Security telemetry on macOS or when preparing a release.
+
 macOS telemetry uses Apple's Endpoint Security framework. Creating an ES client
 (`es_new_client`) requires three things, and each missing piece surfaces a
 distinct startup error: running as root (`NotPrivileged` if not), the
@@ -71,10 +75,11 @@ distinct startup error: running as root (`NotPrivileged` if not), the
 missing), and user approval via Full Disk Access / TCC (`NotPermitted` if not
 granted).
 
-After Apple approves the managed capability, enable Endpoint Security on the
-explicit App ID used for the request and download a matching macOS provisioning
-profile. Install the profile's signing certificate and private key in the login
-keychain. Confirm that macOS can see the identity:
+Maintainer release builds require Apple to approve the managed Endpoint Security
+capability. After approval, enable Endpoint Security on the explicit App ID used
+for the request and download a matching macOS provisioning profile. Install the
+profile's signing certificate and private key in the login keychain. Confirm
+that macOS can see the identity:
 
 ```bash
 security find-identity -v -p codesigning

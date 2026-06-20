@@ -107,7 +107,7 @@ Format:
   "host.os.type": "windows",
   "host.os.family": "windows",
   "process.executable": "C:\\Windows\\System32\\whoami.exe",
-  "process.command_line": "whoami /all"
+  "process.command_line": "whoami"
 }
 ```
 

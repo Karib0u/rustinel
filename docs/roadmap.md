@@ -8,28 +8,29 @@ It is not a strict release commitment.
 
 ### Linux
 
-- **DNS response enrichment** — Linux DNS query names are extracted in userspace from raw eBPF payload events. Future work should parse DNS responses for `QueryResults` and DNS answer-to-network correlation.
-- **Expanded file telemetry** — cover `chmod`, `chown`, `truncate`, and `link` syscalls to close gaps in file-integrity coverage.
-- **Container context** — enrich process events with cgroup, namespace, and container runtime metadata so rules can scope to specific workloads.
+- **DNS response enrichment:** Linux DNS query names are extracted in userspace from raw eBPF payload events. Future work should parse DNS responses for `QueryResults` and DNS answer-to-network correlation.
+- **Expanded file telemetry:** cover `chmod`, `chown`, `truncate`, and `link` syscalls to close gaps in file-integrity coverage.
+- **Container context:** enrich process events with cgroup, namespace, and container runtime metadata so rules can scope to specific workloads.
 
 ### Windows
 
-- **ETW integrity checks** — detect ETW session tampering and provider blinding that could suppress telemetry.
-- **Deep inspection via stack walking** — identify shellcode and "floating code" executing outside mapped image regions.
+- **ETW integrity checks:** detect ETW session tampering and provider blinding that could suppress telemetry.
+- **Deep inspection via stack walking:** identify shellcode and "floating code" executing outside mapped image regions.
 
 ### macOS
 
 macOS support collects process and file telemetry through Endpoint Security and
-network and DNS through `/dev/bpf` capture. Future work:
+network and DNS through `/dev/bpf` capture. Active response is not supported on
+macOS today. Future work:
 
-- **NetworkExtension flow source** — replace `/dev/bpf` capture with a Network Extension that carries the owning PID per flow, removing the best-effort socket-to-PID scan and its direction ambiguity.
-- **Interface selection** — capture across all active interfaces instead of the single `RUSTINEL_BPF_INTERFACE` (default `en0`).
-- **DNS response enrichment** — parse DNS answers for `QueryResults`, matching the Linux gap.
-- **AUTH-mode prevention** — block process execution before it happens via `ES_EVENT_TYPE_AUTH_EXEC`, beyond the current kill-after-the-fact response.
+- **NetworkExtension flow source:** replace `/dev/bpf` capture with a Network Extension that carries the owning PID per flow, removing the best-effort socket-to-PID scan and its direction ambiguity.
+- **Interface selection:** capture across all active interfaces instead of the single `RUSTINEL_BPF_INTERFACE` default of `en0`.
+- **DNS response enrichment:** parse DNS answers for `QueryResults`, matching the Linux gap.
+- **AUTH-mode prevention:** explore macOS prevention by blocking process execution with `ES_EVENT_TYPE_AUTH_EXEC`.
 
 ### Cross-Platform
 
-- **Periodic YARA sweeps** — scheduled background scans of running processes independent of creation events.
+- **Periodic YARA sweeps:** scheduled background scans of running processes independent of creation events.
 
 ## Detection
 

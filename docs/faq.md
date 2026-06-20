@@ -26,7 +26,7 @@ Yes.
 - Linux eBPF collection requires root or equivalent capabilities such as `CAP_BPF` or `CAP_SYS_ADMIN`, depending on your setup.
 - macOS Endpoint Security collection requires root, Full Disk Access, and a signed app bundle whose embedded provisioning profile authorizes `com.apple.developer.endpoint-security.client`.
 
-## Running And Deployment
+## Running and Deployment
 
 ### What happens if I run `rustinel` without a subcommand?
 
@@ -99,7 +99,7 @@ sudo env RUSTINEL_EBPF_OBJECT=/opt/rustinel/ebpf/rustinel-ebpf.o ./rustinel run
 
 See [CLI Reference](cli.md).
 
-## Alerts, Logs, And Validation
+## Alerts, Logs, and Validation
 
 ### Where do logs and alerts go?
 
@@ -116,8 +116,9 @@ See [Output Format](output.md) and [Configuration](configuration.md).
 
 Use the bundled demo Sigma rules:
 
-- Windows: run `whoami /all`
+- Windows: run `whoami`
 - Linux: run `whoami`
+- macOS: run `whoami`
 
 Then confirm:
 
@@ -226,7 +227,7 @@ It controls how much match metadata is attached to alerts.
 
 See [Detection](detection.md) and [Output Format](output.md).
 
-## Active Response And Allowlists
+## Active Response and Allowlists
 
 ### Why didn’t active response kill the process?
 
@@ -268,7 +269,7 @@ prevention_enabled = false
 
 Then trigger a known benign bundled rule such as:
 
-- `whoami /all` on Windows
+- `whoami` on Windows
 - `whoami` on Linux
 
 After you confirm the log output looks correct, enable prevention mode.

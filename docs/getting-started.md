@@ -1,12 +1,11 @@
 # Getting Started
 
-This guide gets Rustinel to first telemetry and first alert on supported
-platforms.
+This guide gets Rustinel installed, running, and producing its first alert.
 
-## Fastest Path
+## Install From A Release
 
-Use the install scripts when you want a release binary, bundled demo rules, and
-the default `logs/` layout without choosing an asset by hand.
+Use the install scripts when you want a published binary, bundled demo rules,
+`config.toml`, and the default `logs/` layout.
 
 ### Linux
 
@@ -14,7 +13,7 @@ the default `logs/` layout without choosing an asset by hand.
 curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --run
 ```
 
-If you prefer to inspect the script first:
+To inspect the script first:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh
@@ -31,23 +30,70 @@ Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/script
 powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
 ```
 
-After the agent starts, trigger the bundled rule:
+### macOS
+
+macOS support is experimental. Install without `--run` so you can grant the
+required Full Disk Access approval before the first real start:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh
+cd rustinel
+```
+
+If the first run exits with `NotPermitted`, grant Full Disk Access and run it
+again. For an interactive `sudo` run from Terminal, iTerm, Ghostty, or another
+terminal, grant Full Disk Access to that terminal app, then fully quit and
+reopen it. For a background LaunchDaemon, grant Full Disk Access to
+`Rustinel.app` directly or deploy a PPPC profile.
+
+Install macOS packages in a stable location. macOS does not retain the approval
+reliably for an app launched from a temporary path such as `/tmp`.
+
+After approval, start Rustinel:
+
+```bash
+sudo ./rustinel run
+```
+
+## Verify The Demo Rule
+
+Keep Rustinel running, then execute:
+
+```bash
+whoami
+```
+
+Confirm that an alert was written:
 
 === "Linux"
 
     ```bash
-    whoami
     cat logs/alerts.json.*
     ```
 
 === "Windows"
 
     ```powershell
-    whoami /all
     Get-Content .\logs\alerts.json.*
     ```
 
-Install script options:
+=== "macOS"
+
+    ```bash
+    cat logs/alerts.json.*
+    ```
+
+Bundled demo rules:
+
+| Platform | Rule |
+| --- | --- |
+| Windows | `rules/sigma/windows_whoami.yml` |
+| Linux | `rules/sigma/linux_whoami.yml` |
+| macOS | `rules/sigma/macos_whoami.yml` |
+
+## Install Options
+
+Install to a specific directory:
 
 ```bash
 scripts/install/install.sh --dir /opt/rustinel
@@ -57,86 +103,47 @@ scripts/install/install.sh --dir /opt/rustinel
 .\scripts\install\install.ps1 -InstallDir C:\Rustinel
 ```
 
-### macOS (experimental)
-
-The same installer works on macOS, but Endpoint Security needs a one-time Full
-Disk Access approval, so install **without** `--run`:
+Install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh
+scripts/install/install.sh --version 1.0.2
 ```
 
-Then, before the first start:
+```powershell
+.\scripts\install\install.ps1 -Version 1.0.2
+```
 
-1. Grant **Full Disk Access** to your **terminal app** (Terminal, iTerm, Ghostty,
-   …) in System Settings → Privacy & Security → Full Disk Access, then fully quit
-   and reopen it. Launched with `sudo` from a terminal, macOS attributes the
-   permission to the terminal — so Rustinel itself will not appear in the list,
-   and that is expected. (Grant `Rustinel.app` directly only when running it as a
-   background LaunchDaemon.)
-2. Start it and trigger the demo:
-
-   ```bash
-   cd rustinel && sudo ./rustinel run
-   # in another terminal:
-   whoami
-   cat logs/alerts.json.*
-   ```
-
-Install to a stable location — macOS does not retain a Full Disk Access grant for
-an app under a temporary path such as `/tmp`. If the first run exits with
-`NotPermitted`, Full Disk Access is not attached yet; the agent opens the right
-Settings pane for you, so grant access and re-run.
-
-The install scripts only install published release binaries. They do not install
-Rust, Cargo, or build Rustinel from source. If no release asset exists for your
+The install scripts only download published release binaries. They do not
+install Rust, Cargo, or build from source. If no release asset exists for your
 OS or architecture, the script exits before changing the install directory.
 
-## Minimum Requirements
+## Manual Package Install
+
+Download the package for your platform from
+[GitHub Releases](https://github.com/Karib0u/rustinel/releases).
+
+| Platform | Package |
+| --- | --- |
+| Windows x86_64 | `rustinel-<version>-x86_64-pc-windows-msvc.zip` |
+| Linux x86_64 | `rustinel-<version>-x86_64-unknown-linux-musl.tar.gz` |
+| Linux arm64 | `rustinel-<version>-aarch64-unknown-linux-musl.tar.gz` |
+| macOS Apple Silicon | `rustinel-<version>-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `rustinel-<version>-x86_64-apple-darwin.tar.gz` |
+
+Release packages already include `config.toml`, bundled demo rules, install
+scripts, examples, and an empty `logs/` directory.
 
 ### Windows
 
-- Windows 10/11 or Server 2016+
-- Administrator privileges
-- Rust 1.92+ and Visual Studio Build Tools if building from source
+1. Extract the zip archive.
+2. Open an elevated PowerShell in the extracted directory.
+3. Run:
+
+```powershell
+.\rustinel.exe run
+```
 
 ### Linux
-
-- Linux kernel 5.8+ with BTF
-- Root, or eBPF capabilities such as `CAP_BPF` or `CAP_SYS_ADMIN`
-- `tracefs` available at `/sys/kernel/tracing` and `debugfs` available at `/sys/kernel/debug`
-- Rust 1.92+ if building from source
-- If `ebpf/rustinel-ebpf.o` is missing, nightly Rust, `rust-src`, and `bpf-linker` are also required for the first build
-
-### macOS
-
-- macOS 11+
-- Root and Full Disk Access for the signed Endpoint Security client
-- Access to the `/dev/bpf*` device nodes for network and DNS capture
-- Rust 1.92+ and the Xcode Command Line Tools if building from source
-
-macOS support remains experimental while release packaging and runtime behavior
-are validated across supported versions.
-
-## Quick Start
-
-Download the package for your platform from [GitHub Releases](https://github.com/Karib0u/rustinel/releases). The release archives already include `config.toml`, the bundled demo rules, and an empty `logs/` directory.
-
-### Windows
-
-1. Download `rustinel-<version>-x86_64-pc-windows-msvc.zip`.
-2. Extract it.
-3. Open an elevated PowerShell in the extracted directory.
-4. Run `.\rustinel.exe run`.
-
-### Linux
-
-Choose the archive that matches your target system:
-
-- `rustinel-<version>-x86_64-unknown-linux-musl.tar.gz`
-- `rustinel-<version>-aarch64-unknown-linux-musl.tar.gz`
-
-Then extract and run it:
 
 ```bash
 tar xzf rustinel-<version>-x86_64-unknown-linux-musl.tar.gz
@@ -144,57 +151,41 @@ cd rustinel-<version>-x86_64-unknown-linux-musl
 sudo ./rustinel run
 ```
 
-If startup fails with `tracefs not found`, mount the tracing filesystems and retry:
-
-```bash
-mount -t tracefs tracefs /sys/kernel/tracing
-mount -t debugfs debugfs /sys/kernel/debug
-```
-
-Some minimal Linux environments, including some WSL 2 distros, may start without these filesystems mounted.
+If startup fails with `tracefs not found`, see
+[Troubleshooting](troubleshooting.md#linux-ebpf-sensor-failed-to-start).
 
 ### macOS
 
-Choose the archive that matches your Mac:
+```bash
+tar xzf rustinel-<version>-aarch64-apple-darwin.tar.gz
+cd rustinel-<version>-aarch64-apple-darwin
+sudo ./rustinel run
+```
 
-- `rustinel-<version>-aarch64-apple-darwin.tar.gz`
-- `rustinel-<version>-x86_64-apple-darwin.tar.gz`
+If startup exits with `NotPermitted`, grant Full Disk Access as described in the
+macOS install notes above. If it exits with `NotPrivileged`, re-run with `sudo`.
+See [Troubleshooting](troubleshooting.md#macos-endpoint-security-client-init-failed)
+for the macOS result-code table.
 
-macOS requires a one-time Full Disk Access approval before any Endpoint Security
-client can start, so the order matters:
+Network and DNS capture also needs access to `/dev/bpf*`. If packet capture
+cannot start, Rustinel continues with Endpoint Security process and file telemetry.
 
-1. Extract it to a stable location (not `/tmp` — macOS will not keep a Full Disk
-   Access grant for an app there):
+## Minimum Requirements
 
-   ```bash
-   tar xzf rustinel-<version>-aarch64-apple-darwin.tar.gz
-   cd rustinel-<version>-aarch64-apple-darwin
-   ```
+| Platform | Requirements |
+| --- | --- |
+| Windows | Windows 10/11 or Server 2016+, Administrator privileges |
+| Linux | Kernel 5.8+ with BTF, root or eBPF capabilities such as `CAP_BPF` or `CAP_SYS_ADMIN`, `tracefs`, and `debugfs` |
+| macOS | macOS 11+, root, signed Endpoint Security client, Full Disk Access, and `/dev/bpf*` access for network and DNS capture |
 
-2. Grant **Full Disk Access** to your **terminal app** (Terminal, iTerm, …) in
-   System Settings → Privacy & Security → Full Disk Access, then quit and reopen
-   it. Launched with `sudo` from a terminal, the permission is attributed to the
-   terminal, so `Rustinel.app` will not show up in the list itself — that is
-   normal. (You grant `Rustinel.app` directly only for a background LaunchDaemon.)
+Building from source also requires Rust 1.92+. Windows needs Visual Studio Build
+Tools, Linux eBPF rebuilds need nightly Rust plus `rust-src` and `bpf-linker`,
+and macOS needs the Xcode Command Line Tools.
 
-3. Run it as root:
+## Build From Source
 
-   ```bash
-   sudo ./rustinel run
-   ```
-
-If startup exits with `NotPermitted`, Full Disk Access is not attached yet; the
-agent opens the right Settings pane, so grant access and re-run. A
-`NotPrivileged` error means it is not running as root — re-run with `sudo`. See
-[Troubleshooting](troubleshooting.md#macos-endpoint-security-client-init-failed)
-for the full result-code table.
-
-Network and DNS capture additionally needs access to the `/dev/bpf*` device
-nodes; the agent continues with Endpoint Security only if capture cannot start.
-
-## Compile From Source
-
-Use this path if you want to build the binary yourself instead of using a published release.
+Use this path if you want to build the binary yourself instead of using a
+published release.
 
 ### Windows
 
@@ -214,6 +205,10 @@ cargo build --release
 sudo ./target/release/rustinel run
 ```
 
+On Linux, `build.rs` embeds `ebpf/rustinel-ebpf.o` when it already exists. If it
+does not exist, the build falls back to compiling the eBPF crate with nightly
+Rust.
+
 ### macOS
 
 ```bash
@@ -230,98 +225,45 @@ scripts/macos/package-app.sh \
 sudo ./target/release/Rustinel.app/Contents/MacOS/rustinel run
 ```
 
-The profile must belong to the explicit App ID approved for the project and
-authorize `com.apple.developer.endpoint-security.client`. The packaging script
-derives the bundle identifier from that profile. Grant the resulting app bundle
-Full Disk Access before starting it. See [Development](development.md) for
-profile validation, ad-hoc lab builds, and release secrets.
+The profile must belong to the explicit App ID approved for Endpoint Security
+and authorize `com.apple.developer.endpoint-security.client`. The packaging
+script derives the bundle identifier from that profile. Grant the resulting app
+bundle Full Disk Access before starting it. See [Development](development.md)
+for maintainer release-signing details and ad-hoc lab builds.
 
-Notes:
+## Optional Checks
 
-- Running `rustinel` with no subcommand is equivalent to `rustinel run`.
-- On Linux, `build.rs` embeds `ebpf/rustinel-ebpf.o` when it already exists. If it does not exist, the build falls back to compiling the eBPF crate with nightly Rust.
-- If startup fails with `tracefs not found`, mount the tracing filesystems and retry:
+### YARA Demo
 
-```bash
-mount -t tracefs tracefs /sys/kernel/tracing
-mount -t debugfs debugfs /sys/kernel/debug
-```
-
-Some minimal Linux environments, including some WSL 2 distros, may start without these filesystems mounted.
-
-## Verify First Alert
-
-### Windows Sigma Demo
-
-1. Keep Rustinel running.
-2. Execute:
-
-```powershell
-whoami /all
-```
-
-3. Confirm an alert was written to `logs\alerts.json.<date>`.
-
-The bundled rule is `rules/sigma/windows_whoami.yml`.
-
-### Linux Sigma Demo
-
-1. Keep Rustinel running.
-2. Execute:
-
-```bash
-whoami
-```
-
-3. Confirm an alert was written to `logs/alerts.json.<date>`.
-
-The bundled rule is `rules/sigma/linux_whoami.yml`.
-
-### macOS Sigma Demo
-
-1. Keep Rustinel running.
-2. Execute:
-
-```bash
-whoami
-```
-
-3. Confirm an alert was written to `logs/alerts.json.<date>`.
-
-The bundled rule is `rules/sigma/macos_whoami.yml`.
-
-### Cross-Platform YARA Demo
-
-1. Keep Rustinel running.
-2. Build the demo binary:
+Keep Rustinel running, build the demo binary, and run it:
 
 ```bash
 rustc ./examples/yara_demo.rs -o ./examples/yara_demo
+./examples/yara_demo
 ```
 
 On Windows:
 
 ```powershell
 rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
+.\examples\yara_demo.exe
 ```
 
-3. Run the demo binary.
-4. Confirm an alert references `ExampleMarkerString` in `logs/alerts.json.<date>`.
+Confirm that an alert references `ExampleMarkerString` in
+`logs/alerts.json.<date>`.
 
-## Verify Hot Reload
+### Hot Reload
 
-1. Keep Rustinel running.
-2. Edit a Sigma, YARA, or IOC file.
-3. Wait a few seconds.
-4. Confirm the operational log reports a reload event.
+Keep Rustinel running, edit a Sigma, YARA, or IOC file, and wait a few seconds.
+The operational log should report a reload event.
 
-Example on Windows:
+Windows example:
 
 ```powershell
 Add-Content rules\sigma\windows_whoami.yml "`n# hot reload smoke test"
 ```
 
-Example on Linux:
+Linux example:
 
 ```bash
 printf '\n# hot reload smoke test\n' >> rules/sigma/linux_whoami.yml
@@ -329,7 +271,8 @@ printf '\n# hot reload smoke test\n' >> rules/sigma/linux_whoami.yml
 
 ## Next Steps
 
-- Use [Configuration](configuration.md) to move rule paths, logs, and allowlists out of the default repo layout.
-- Use [SIEM Demos](siem-demos.md) to ship first alerts to Elastic or Splunk.
-- Use [Operations and Upgrade Guide](operations.md) for installation layout and update workflows.
-- Use [CLI Reference](cli.md) for service commands and runtime examples.
+- [Configuration](configuration.md): move rule paths, logs, and allowlists out of the default layout.
+- [SIEM Demos](siem-demos.md): ship first alerts to Elastic or Splunk.
+- [Operations and Upgrade Guide](operations.md): install layouts, services, and upgrades.
+- [CLI Reference](cli.md): service commands and runtime examples.
+- [Limitations](limitations.md): current platform and detection gaps.

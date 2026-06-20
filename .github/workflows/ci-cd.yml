@@ -477,12 +477,25 @@ jobs:
             | macOS | arm64 | `rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz` |
             | macOS | x86_64 | `rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz` |
 
-            ## Install
+            ## Installer
 
-            **Linux / macOS**
+            **Linux**
 
             ```sh
             curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --version ${{ steps.version.outputs.version }} --run
+            ```
+
+            **macOS**
+
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --version ${{ steps.version.outputs.version }}
+            cd rustinel
+            ```
+
+            macOS support is experimental. Endpoint Security requires root and a one-time Full Disk Access approval before the first successful start. See the install guide for the interactive terminal and LaunchDaemon approval paths, then run:
+
+            ```sh
+            sudo ./rustinel run
             ```
 
             **Windows (PowerShell)**
@@ -491,5 +504,6 @@ jobs:
             iwr https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1; powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Version ${{ steps.version.outputs.version }} -Run
             ```
 
-            📖 Full install, configuration & SIEM ingestion guides → https://docs.rustinel.io/getting-started/
-            🔒 Scripts install published release binaries only (no build from source). Verify downloads with `rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt`.
+            Full install, configuration, and SIEM ingestion guides: https://docs.rustinel.io/getting-started/
+
+            Scripts install published release binaries only. Verify downloads with `rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt`.

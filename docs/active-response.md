@@ -1,6 +1,11 @@
 # Active Response
 
-Rustinel includes an optional response engine that can terminate processes when an alert reaches the configured minimum severity. It is disabled by default and should be tested in dry-run mode first. Active response runs on **Windows and Linux only** — macOS is detection-only.
+Rustinel includes an optional response engine that can terminate processes when
+an alert reaches the configured minimum severity. It is disabled by default and
+should be tested in dry-run mode first.
+
+Active response currently runs on **Windows and Linux only**. macOS support is
+detection-only.
 
 ## Modes
 
@@ -14,7 +19,7 @@ Rustinel includes an optional response engine that can terminate processes when 
 | --- | --- |
 | Windows | Uses process termination APIs |
 | Linux | Sends `SIGKILL` |
-| macOS | Not supported — detection only |
+| macOS | Not supported; detection only |
 
 ## Severity Handling
 
@@ -31,7 +36,7 @@ Rustinel will not act on processes that match either of these:
 - `allowlist_images`: image basenames or full paths
 - `allowlist_paths`: trusted path prefixes
 
-By default, `response.allowlist_paths` inherits `allowlist.paths`, whose per-platform defaults are listed once in [Configuration → Default Trusted Paths](configuration.md#default-trusted-paths).
+By default, `response.allowlist_paths` inherits `allowlist.paths`, whose per-platform defaults are listed once in [Configuration -> Default Trusted Paths](configuration.md#default-trusted-paths).
 
 ## Example Configuration
 
@@ -83,7 +88,7 @@ response: Active response skipped: allowlisted pid=4321 image="/usr/bin/bash"
 The response engine skips termination when:
 
 - PID is missing
-- PID is in the protected low system range (PIDs 0–4 on both platforms)
+- PID is in the protected low system range (PIDs 0-4 on both platforms)
 - The target is the Rustinel process itself
 - The process image path is not known
 - The image or path is allowlisted
@@ -123,7 +128,7 @@ rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
 Windows:
 
 ```powershell
-whoami /all
+whoami
 ```
 
 Linux:

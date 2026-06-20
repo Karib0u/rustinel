@@ -20,7 +20,7 @@ Start Rustinel from an extracted release package:
 
     ```powershell
     .\rustinel.exe run
-    whoami /all
+    whoami
     Get-Content .\logs\alerts.json.*
     ```
 

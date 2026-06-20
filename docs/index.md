@@ -12,15 +12,15 @@ Rustinel is designed for blue teams, detection engineers, researchers, and anyon
 
 Visit the [official Rustinel site](https://rustinel.io/) for the main project home.
 
-## Start here
+## Start Here
 
-- [Getting Started](getting-started.md) — install and run Rustinel
-- [SIEM Demos](siem-demos.md) — ship first alerts to Elastic or Splunk
-- [Configuration](configuration.md) — configure telemetry, rules, alerts, and response
-- [Detection](detection.md) — understand Sigma, YARA, and IOC matching
-- [Architecture](architecture.md) — understand how Rustinel works internally
-- [Benchmarking](benchmarking.md) — collect repeatable performance and latency evidence
-- [Troubleshooting](troubleshooting.md) — fix common issues
+- [Getting Started](getting-started.md): install and run Rustinel
+- [SIEM Demos](siem-demos.md): ship first alerts to Elastic or Splunk
+- [Configuration](configuration.md): configure telemetry, rules, alerts, and response
+- [Detection](detection.md): understand Sigma, YARA, and IOC matching
+- [Architecture](architecture.md): understand how Rustinel works internally
+- [Benchmarking](benchmarking.md): collect repeatable performance and latency evidence
+- [Troubleshooting](troubleshooting.md): fix common issues
 
 ## Project background
 
@@ -28,7 +28,7 @@ Visit the [official Rustinel site](https://rustinel.io/) for the main project ho
 - [Limitations](limitations.md)
 - [Roadmap](roadmap.md)
 
-## What Rustinel does today
+## What Rustinel Does Today
 
 Rustinel currently provides:
 
@@ -41,7 +41,7 @@ Rustinel currently provides:
 - IOC matching for file hashes, IPs, domains, and path regexes
 - ECS NDJSON alert output
 - Hot reload for rules and indicator files
-- Optional active response with dry-run and allowlists
+- Optional active response with dry-run and allowlists on Windows and Linux
 
 macOS support is experimental while signed release packaging is validated
 across supported macOS versions.

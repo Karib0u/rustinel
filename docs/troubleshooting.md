@@ -12,7 +12,7 @@ Before changing config or rules, check these first:
   - Linux: `sudo ./rustinel run --log-level debug`
   - macOS: `sudo ./rustinel run --log-level debug`
 - Trigger a known bundled demo rule:
-  - Windows: `whoami /all`
+  - Windows: `whoami`
   - Linux: `whoami`
   - macOS: `whoami`
 - Confirm you are using the expected working directory and rule paths
@@ -93,7 +93,7 @@ mount -t debugfs debugfs /sys/kernel/debug
 Typical symptom in logs:
 
 ```text
-eBPF object load failed — ensure BTF is available and kernel is 5.8+
+eBPF object load failed - ensure BTF is available and kernel is 5.8+
 ```
 
 ### Linux source build fails on the first build
@@ -114,7 +114,7 @@ end of the error tells you exactly which requirement is missing:
 | Result code | Cause | Fix |
 | --- | --- | --- |
 | `NotPrivileged` | Not running as root. | Re-run with `sudo`. |
-| `NotPermitted` | Running as root with the entitlement, but macOS has not granted the client Endpoint Security access (TCC). | For an interactive `sudo` run from a terminal, grant **Full Disk Access to that terminal app** (Terminal/iTerm/…) and reopen it — macOS attributes the permission to the terminal, so Rustinel itself will not appear in the list. For a background LaunchDaemon, grant `Rustinel.app` directly (or use an MDM PPPC profile). |
+| `NotPermitted` | Running as root with the entitlement, but macOS has not granted the client Endpoint Security access (TCC). | For an interactive `sudo` run from a terminal, grant **Full Disk Access to that terminal app** (Terminal, iTerm, Ghostty, or similar) and reopen it. macOS attributes the permission to the terminal, so Rustinel itself will not appear in the list. For a background LaunchDaemon, grant `Rustinel.app` directly, or use an MDM PPPC profile. |
 | `NotEntitled` | The binary is not signed with `com.apple.developer.endpoint-security.client`, or its provisioning profile does not authorize the entitlement. | Run a signed `Rustinel.app` from a release, or repackage with `scripts/macos/package-app.sh` (see [Development](development.md)). |
 
 On a fresh machine the first run typically reports `NotPermitted`: signing and
