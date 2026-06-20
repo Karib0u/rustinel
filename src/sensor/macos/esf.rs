@@ -503,12 +503,13 @@ fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
 /// Resolve the absolute path of a create destination.
 fn create_destination_path(dest: EventCreateDestinationFile) -> Option<String> {
     let path = match dest {
-        EventCreateDestinationFile::ExistingFile(file) => osstr_to_string(file.path()),
+        EventCreateDestinationFile::ExistingFile { file, .. } => osstr_to_string(file.path()),
         EventCreateDestinationFile::NewPath {
             directory,
             filename,
             ..
         } => join_path(directory.path(), filename),
+        _ => return None,
     };
     (!path.is_empty()).then_some(path)
 }
@@ -516,11 +517,13 @@ fn create_destination_path(dest: EventCreateDestinationFile) -> Option<String> {
 /// Resolve the absolute path of a rename destination.
 fn rename_destination_path(dest: EventRenameDestinationFile) -> Option<String> {
     let path = match dest {
-        EventRenameDestinationFile::ExistingFile(file) => osstr_to_string(file.path()),
+        EventRenameDestinationFile::ExistingFile { file, .. } => osstr_to_string(file.path()),
         EventRenameDestinationFile::NewPath {
             directory,
             filename,
+            ..
         } => join_path(directory.path(), filename),
+        _ => return None,
     };
     (!path.is_empty()).then_some(path)
 }
