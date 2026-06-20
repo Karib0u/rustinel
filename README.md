@@ -34,7 +34,7 @@
 
 Rustinel ships as a single binary with bundled demo rules. Install it, trigger a test command, and read the alert.
 
-**Linux & macOS**
+**Linux**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --run
@@ -46,6 +46,8 @@ curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/insta
 Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
 powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
 ```
+
+**macOS** (experimental) — install the same way (drop `--run`), then grant Full Disk Access to your terminal app before the first start: Endpoint Security needs a one-time macOS approval, so the agent exits with `NotPermitted` and opens the right Settings pane until you grant it. Full walkthrough in [Getting Started](https://docs.rustinel.io/getting-started/).
 
 With the agent running, fire the bundled demo rule — same command on every platform:
 

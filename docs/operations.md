@@ -21,8 +21,7 @@ C:\Rustinel\
 
 ```text
 /opt/rustinel/
-├── Rustinel.app/
-├── rustinel -> Rustinel.app/Contents/MacOS/rustinel
+├── rustinel
 ├── config.toml
 ├── rules/
 │   ├── sigma/
@@ -34,8 +33,9 @@ C:\Rustinel\
 ### macOS
 
 ```text
-/opt/rustinel/
-├── rustinel
+/usr/local/var/rustinel/
+├── Rustinel.app/
+├── rustinel -> Rustinel.app/Contents/MacOS/rustinel
 ├── config.toml
 ├── rules/
 │   ├── sigma/
@@ -45,8 +45,9 @@ C:\Rustinel\
 ```
 
 macOS support is experimental. Release archives contain a signed and notarized
-app-like daemon bundle with the Endpoint Security provisioning profile. See
-[Getting Started](getting-started.md) and [Development](development.md).
+app-like daemon bundle (`Rustinel.app`) plus a `rustinel` symlink into it. The
+bundled `com.rustinel.agent.plist` LaunchDaemon expects this `/usr/local/var/rustinel`
+layout. See [Getting Started](getting-started.md) and [Development](development.md).
 
 Use absolute paths in `config.toml` once you move beyond the default repo layout.
 
@@ -125,15 +126,18 @@ Because `config.toml` is loaded from `WorkingDirectory`, use absolute paths for 
 
 ## macOS Runtime Model
 
-macOS support is experimental and detection-only (no active response). Rustinel does not ship macOS service-management commands; run it in the foreground as root, or wrap it in a `launchd` job for background execution:
+macOS support is experimental and detection-only (no active response). Rustinel does not ship macOS service-management commands yet (those are Windows-only); run it in the foreground as root:
 
 ```bash
-sudo /opt/rustinel/Rustinel.app/Contents/MacOS/rustinel run
+sudo /usr/local/var/rustinel/rustinel run
 ```
+
+For background execution, install the release package under `/usr/local/var/rustinel` and load the bundled `com.rustinel.agent.plist` as a `launchd` LaunchDaemon — the plist contains the exact `launchctl bootstrap` command and expects that path.
 
 The app bundle must be signed with the
 `com.apple.developer.endpoint-security.client` entitlement, contain the
-authorizing provisioning profile, and have Full Disk Access. See
+authorizing provisioning profile, and have Full Disk Access (a LaunchDaemon needs
+it granted to `Rustinel.app`, or provisioned via an MDM PPPC profile). See
 [Development](development.md) for signing and notarization details.
 
 ## Upgrade Examples

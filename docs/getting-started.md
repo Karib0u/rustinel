@@ -57,8 +57,36 @@ scripts/install/install.sh --dir /opt/rustinel
 .\scripts\install\install.ps1 -InstallDir C:\Rustinel
 ```
 
-macOS support is experimental. Use the macOS release archive when it is present
-on the release page, or follow the source build path below.
+### macOS (experimental)
+
+The same installer works on macOS, but Endpoint Security needs a one-time Full
+Disk Access approval, so install **without** `--run`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh
+```
+
+Then, before the first start:
+
+1. Grant **Full Disk Access** to your **terminal app** (Terminal, iTerm, Ghostty,
+   …) in System Settings → Privacy & Security → Full Disk Access, then fully quit
+   and reopen it. Launched with `sudo` from a terminal, macOS attributes the
+   permission to the terminal — so Rustinel itself will not appear in the list,
+   and that is expected. (Grant `Rustinel.app` directly only when running it as a
+   background LaunchDaemon.)
+2. Start it and trigger the demo:
+
+   ```bash
+   cd rustinel && sudo ./rustinel run
+   # in another terminal:
+   whoami
+   cat logs/alerts.json.*
+   ```
+
+Install to a stable location — macOS does not retain a Full Disk Access grant for
+an app under a temporary path such as `/tmp`. If the first run exits with
+`NotPermitted`, Full Disk Access is not attached yet; the agent opens the right
+Settings pane for you, so grant access and re-run.
 
 The install scripts only install published release binaries. They do not install
 Rust, Cargo, or build Rustinel from source. If no release asset exists for your
@@ -132,20 +160,32 @@ Choose the archive that matches your Mac:
 - `rustinel-<version>-aarch64-apple-darwin.tar.gz`
 - `rustinel-<version>-x86_64-apple-darwin.tar.gz`
 
-Then extract and run it as root:
+macOS requires a one-time Full Disk Access approval before any Endpoint Security
+client can start, so the order matters:
 
-```bash
-tar xzf rustinel-<version>-aarch64-apple-darwin.tar.gz
-cd rustinel-<version>-aarch64-apple-darwin
-sudo ./rustinel run
-```
+1. Extract it to a stable location (not `/tmp` — macOS will not keep a Full Disk
+   Access grant for an app there):
 
-macOS requires a one-time approval before any Endpoint Security client can run,
-so on a fresh machine the first run usually exits with `NotPermitted`. Grant
-`Rustinel.app` **Full Disk Access** in System Settings → Privacy & Security →
-Full Disk Access, then re-run `sudo ./rustinel run`. (If you launched it from a
-terminal, that terminal app may also need Full Disk Access.) A `NotPrivileged`
-error instead means it is not running as root — re-run with `sudo`. See
+   ```bash
+   tar xzf rustinel-<version>-aarch64-apple-darwin.tar.gz
+   cd rustinel-<version>-aarch64-apple-darwin
+   ```
+
+2. Grant **Full Disk Access** to your **terminal app** (Terminal, iTerm, …) in
+   System Settings → Privacy & Security → Full Disk Access, then quit and reopen
+   it. Launched with `sudo` from a terminal, the permission is attributed to the
+   terminal, so `Rustinel.app` will not show up in the list itself — that is
+   normal. (You grant `Rustinel.app` directly only for a background LaunchDaemon.)
+
+3. Run it as root:
+
+   ```bash
+   sudo ./rustinel run
+   ```
+
+If startup exits with `NotPermitted`, Full Disk Access is not attached yet; the
+agent opens the right Settings pane, so grant access and re-run. A
+`NotPrivileged` error means it is not running as root — re-run with `sudo`. See
 [Troubleshooting](troubleshooting.md#macos-endpoint-security-client-init-failed)
 for the full result-code table.
 
