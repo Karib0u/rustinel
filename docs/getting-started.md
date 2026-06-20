@@ -7,6 +7,15 @@ This guide gets Rustinel installed, running, and producing its first alert.
 Use the install scripts when you want a published binary, bundled demo rules,
 `config.toml`, and the default `logs/` layout.
 
+### Windows
+
+Run from an elevated PowerShell:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
+powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
+```
+
 ### Linux
 
 ```bash
@@ -19,15 +28,6 @@ To inspect the script first:
 curl -fsSLO https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh
 less install.sh
 sh install.sh --run
-```
-
-### Windows
-
-Run from an elevated PowerShell:
-
-```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
-powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
 ```
 
 ### macOS
@@ -65,16 +65,16 @@ whoami
 
 Confirm that an alert was written:
 
-=== "Linux"
-
-    ```bash
-    cat logs/alerts.json.*
-    ```
-
 === "Windows"
 
     ```powershell
     Get-Content .\logs\alerts.json.*
+    ```
+
+=== "Linux"
+
+    ```bash
+    cat logs/alerts.json.*
     ```
 
 === "macOS"

@@ -62,6 +62,30 @@ Format:
 | `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
 | `event.count` | *(rollup only)* Total occurrences of this alert within the dedup window (present only on aggregate rollup alerts, not on the first live emission) |
 
+### Windows Process Alert Example
+
+```json
+{
+  "@timestamp": "<date>T21:00:05Z",
+  "ecs.version": "9.4.0",
+  "event.kind": "alert",
+  "event.category": ["process"],
+  "event.type": ["start"],
+  "event.action": "process-start",
+  "event.code": "1",
+  "event.module": "edr",
+  "event.dataset": "edr.process",
+  "event.provider": "etw",
+  "rule.name": "Example - Whoami Execution (CommandLine + Image)",
+  "edr.rule.severity": "Low",
+  "edr.rule.engine": "Sigma",
+  "host.os.type": "windows",
+  "host.os.family": "windows",
+  "process.executable": "C:\\Windows\\System32\\whoami.exe",
+  "process.command_line": "whoami"
+}
+```
+
 ### Linux Process Alert Example
 
 ```json
@@ -84,30 +108,6 @@ Format:
   "process.executable": "/usr/bin/whoami",
   "process.name": "whoami",
   "user.name": "root"
-}
-```
-
-### Windows Process Alert Example
-
-```json
-{
-  "@timestamp": "<date>T21:00:05Z",
-  "ecs.version": "9.4.0",
-  "event.kind": "alert",
-  "event.category": ["process"],
-  "event.type": ["start"],
-  "event.action": "process-start",
-  "event.code": "1",
-  "event.module": "edr",
-  "event.dataset": "edr.process",
-  "event.provider": "etw",
-  "rule.name": "Example - Whoami Execution (CommandLine + Image)",
-  "edr.rule.severity": "Low",
-  "edr.rule.engine": "Sigma",
-  "host.os.type": "windows",
-  "host.os.family": "windows",
-  "process.executable": "C:\\Windows\\System32\\whoami.exe",
-  "process.command_line": "whoami"
 }
 ```
 

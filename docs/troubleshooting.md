@@ -237,16 +237,6 @@ Check these first:
 - per-region or per-process byte caps may have prevented reading the region containing the match
 - insufficient privileges may prevent reading process memory (see below)
 
-#### Linux memory scanning privileges
-
-On Linux, reading `/proc/<pid>/mem` typically requires root or the `CAP_SYS_PTRACE` capability. You may also need to set a permissive ptrace scope:
-
-```bash
-echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-```
-
-Without adequate privileges, region reads will fail silently (logged at `trace`).
-
 #### Windows memory scanning privileges
 
 On Windows, `OpenProcess` with `PROCESS_VM_READ` may fail for:
@@ -256,6 +246,16 @@ On Windows, `OpenProcess` with `PROCESS_VM_READ` may fail for:
 - some anti-tamper or security software
 
 These failures are logged at `trace` and do not affect other detection paths.
+
+#### Linux memory scanning privileges
+
+On Linux, reading `/proc/<pid>/mem` typically requires root or the `CAP_SYS_PTRACE` capability. You may also need to set a permissive ptrace scope:
+
+```bash
+echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+```
+
+Without adequate privileges, region reads will fail silently (logged at `trace`).
 
 #### macOS memory scanning privileges
 

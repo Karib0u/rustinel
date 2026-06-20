@@ -6,16 +6,16 @@ It is not a strict release commitment.
 
 ## Sensor
 
+### Windows
+
+- **ETW integrity checks:** detect ETW session tampering and provider blinding that could suppress telemetry.
+- **Deep inspection via stack walking:** identify shellcode and "floating code" executing outside mapped image regions.
+
 ### Linux
 
 - **DNS response enrichment:** Linux DNS query names are extracted in userspace from raw eBPF payload events. Future work should parse DNS responses for `QueryResults` and DNS answer-to-network correlation.
 - **Expanded file telemetry:** cover `chmod`, `chown`, `truncate`, and `link` syscalls to close gaps in file-integrity coverage.
 - **Container context:** enrich process events with cgroup, namespace, and container runtime metadata so rules can scope to specific workloads.
-
-### Windows
-
-- **ETW integrity checks:** detect ETW session tampering and provider blinding that could suppress telemetry.
-- **Deep inspection via stack walking:** identify shellcode and "floating code" executing outside mapped image regions.
 
 ### macOS
 
