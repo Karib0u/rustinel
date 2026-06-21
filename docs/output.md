@@ -63,32 +63,6 @@ Format:
 | `edr.rule.engine`   | `Sigma`, `Yara`, or `Ioc`                                                                                                                                                                             |
 | `event.count`       | *(rollup only)* Total occurrences of this alert within the dedup window (present only on aggregate rollup alerts, not on the first live emission)                                                     |
 
-### Linux Process Alert Example
-
-```json
-{
-  "@timestamp": "<date>T21:00:05Z",
-  "ecs.version": "9.4.0",
-  "event.kind": "alert",
-  "event.category": ["process"],
-  "event.type": ["start"],
-  "event.action": "process-start",
-  "event.code": "1",
-  "event.module": "edr",
-  "event.dataset": "edr.process",
-  "event.provider": "ebpf",
-  "rule.name": "Example - Whoami Execution (Linux)",
-  "rule.id": "sigma::9b92f7e7-ee12-4fb3-b4d2-f674514a3821",
-  "edr.rule.severity": "Low",
-  "edr.rule.engine": "Sigma",
-  "host.os.type": "linux",
-  "host.os.family": "linux",
-  "process.executable": "/usr/bin/whoami",
-  "process.name": "whoami",
-  "user.name": "root"
-}
-```
-
 ### Windows Process Alert Example
 
 ```json
@@ -104,13 +78,39 @@ Format:
   "event.dataset": "edr.process",
   "event.provider": "etw",
   "rule.name": "Example - Whoami Execution (CommandLine + Image)",
-  "rule.id": "sigma::d3b073c6-e265-4f40-a1c1-42e8f17a9c67",
+  "rule.id": "sigma::9b92f7e7-ee12-4fb3-b4d2-f674514a3821",
   "edr.rule.severity": "Low",
   "edr.rule.engine": "Sigma",
   "host.os.type": "windows",
   "host.os.family": "windows",
   "process.executable": "C:\\Windows\\System32\\whoami.exe",
-  "process.command_line": "whoami /all"
+  "process.command_line": "whoami"
+}
+```
+
+### Linux Process Alert Example
+
+```json
+{
+  "@timestamp": "<date>T21:00:05Z",
+  "ecs.version": "9.4.0",
+  "event.kind": "alert",
+  "event.category": ["process"],
+  "event.type": ["start"],
+  "event.action": "process-start",
+  "event.code": "1",
+  "event.module": "edr",
+  "event.dataset": "edr.process",
+  "event.provider": "ebpf",
+  "rule.name": "Example - Whoami Execution (Linux)",
+  "rule.id": "sigma::d3b073c6-e265-4f40-a1c1-42e8f17a9c67",
+  "edr.rule.severity": "Low",
+  "edr.rule.engine": "Sigma",
+  "host.os.type": "linux",
+  "host.os.family": "linux",
+  "process.executable": "/usr/bin/whoami",
+  "process.name": "whoami",
+  "user.name": "root"
 }
 ```
 

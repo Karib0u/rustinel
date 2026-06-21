@@ -3,12 +3,12 @@
 
 ## Type of change
 <!-- Add the matching label to this PR before merging -->
-- [ ] `feat` / `enhancement` — new feature
-- [ ] `bug` — bug fix
-- [ ] `refactor` — refactoring, no behaviour change
-- [ ] `documentation` — docs only
-- [ ] `ci` — CI/CD changes
-- [ ] `dependencies` — dependency update
+- [ ] `feat` / `enhancement` - new feature
+- [ ] `bug` - bug fix
+- [ ] `refactor` - refactoring, no behaviour change
+- [ ] `documentation` - docs only
+- [ ] `ci` - CI/CD changes
+- [ ] `dependencies` - dependency update
 
 ## Test plan
 - [ ] Tested on Windows

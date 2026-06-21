@@ -4,9 +4,9 @@
 <dict>
     <!--
       Required to create an Endpoint Security client (es_new_client).
-      Apple grants this entitlement on request to your Developer ID account;
-      distributable builds must be signed and notarized with it. Dev and lab
-      builds can run with SIP/AMFI relaxed instead.
+      Apple grants this restricted entitlement on request. A normal macOS
+      build must embed an authorizing provisioning profile in an app-like
+      bundle, use a matching signing identity, and be notarized for release.
     -->
     <key>com.apple.developer.endpoint-security.client</key>
     <true/>

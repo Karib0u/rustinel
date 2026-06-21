@@ -199,7 +199,7 @@ Propagation behavior:
 | `filter` | `null` | Optional `tracing_subscriber` filter expression; overrides `level` when valid |
 | `directory` | `logs` | Operational log directory |
 | `filename` | `rustinel.log` | Operational log filename with daily rotation |
-| `console_output` | `false` | Default console mirroring when the runtime does not override console behavior. Interactive `rustinel run` enables console output by default; use `rustinel run --no-console` to suppress it. On Windows, colored output requires [Windows Terminal](https://aka.ms/terminal) — other terminals (cmd.exe, PowerShell host) will display plain text automatically. |
+| `console_output` | `false` | Default console mirroring when the runtime does not override console behavior. Interactive `rustinel run` enables console output by default; use `rustinel run --no-console` to suppress it. On Windows, colored output requires [Windows Terminal](https://aka.ms/terminal) - other terminals (cmd.exe, PowerShell host) will display plain text automatically. |
 
 ### Alerts
 
@@ -211,7 +211,7 @@ Propagation behavior:
 
 ### Deduplication
 
-Alert deduplication collapses repeated identical alerts within a sliding window into a single rollup alert. The **first occurrence always emits immediately** — there is no added detection latency for novel alerts. Only repeats of the same alert within the window are suppressed.
+Alert deduplication collapses repeated identical alerts within a sliding window into a single rollup alert. The **first occurrence always emits immediately** - there is no added detection latency for novel alerts. Only repeats of the same alert within the window are suppressed.
 
 A rollup alert is written at window close carrying `event.count` with the total number of occurrences (including the first).
 

@@ -17,7 +17,7 @@ site_name = "Rustinel"
 # meaningful description of the site content for use by search engines.
 #
 # Read more: https://zensical.org/docs/setup/basics/#site_description
-site_description = "Open-source endpoint detection for Windows and Linux using ETW, eBPF, Sigma, YARA, IOCs, and Rust"
+site_description = "Open-source endpoint detection for Windows, Linux, and macOS using ETW, eBPF, Endpoint Security, Sigma, YARA, IOCs, and Rust"
 
 # The site_author attribute. This is used in the HTML head element.
 #
