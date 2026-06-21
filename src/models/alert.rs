@@ -11,6 +11,9 @@ pub struct Alert {
     /// Optional rule description / context (e.g., IOC comment)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_description: Option<String>,
+    /// Rule ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
     /// Detection engine type
     pub engine: DetectionEngine,
     /// Associated event data

@@ -5,7 +5,7 @@
 //! occurrence always emits immediately — there is zero added latency for novel alerts.
 //!
 //! # Key
-//! `(engine, rule_name, process_executable, process_parent_executable, user_name)`
+//! `(engine, rule_id_or_name, process_executable, process_parent_executable, user_name)`
 //!
 //! # Window semantics
 //! Each key starts a *tumbling* window anchored to the first emission.  Once
@@ -24,7 +24,7 @@ use tracing::info;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DedupKey {
     engine: String,
-    rule_name: String,
+    rule_id_or_name: String,
     executable: String,
     parent_executable: String,
     user_name: String,
@@ -34,7 +34,10 @@ impl DedupKey {
     fn from_ecs(ecs: &EcsAlert) -> Self {
         Self {
             engine: ecs.edr_rule_engine.clone(),
-            rule_name: ecs.rule_name.clone(),
+            rule_id_or_name: ecs
+                .rule_id
+                .clone()
+                .unwrap_or_else(|| format!("name::{}", ecs.rule_name)),
             executable: ecs.process_executable.clone().unwrap_or_default(),
             parent_executable: ecs.process_parent_executable.clone().unwrap_or_default(),
             user_name: ecs.user_name.clone().unwrap_or_default(),
@@ -207,6 +210,7 @@ mod tests {
             severity: AlertSeverity::High,
             rule_name: rule.to_string(),
             rule_description: None,
+            rule_id: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-06-09T00:00:00Z".to_string(),
@@ -366,5 +370,46 @@ mod tests {
         dedup.flush_expired(&sink);
 
         assert_eq!(dedup.counters.aggregated_total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn equal_names_with_different_ids_tracked_separately() {
+        let dedup = Deduplicator::new(60, 1000);
+
+        let mut alert_a = make_alert("Rule A", "/usr/bin/curl");
+        alert_a.rule_id = Some("id-123".to_string());
+
+        let mut alert_b = make_alert("Rule A", "/usr/bin/curl");
+        alert_b.rule_id = Some("id-456".to_string());
+
+        let mut alert_c = make_alert("Rule A", "/usr/bin/curl");
+        alert_c.rule_id = None;
+
+        // An alert where the ID matches the raw name of alert_c.
+        // The prefixing of fallback names prevents collision with this alert's ID.
+        let mut alert_d = make_alert("Other Name", "/usr/bin/curl");
+        alert_d.rule_id = Some("Rule A".to_string());
+
+        let ecs_a = EcsAlert::from(&alert_a);
+        let ecs_b = EcsAlert::from(&alert_b);
+        let ecs_c = EcsAlert::from(&alert_c);
+        let ecs_d = EcsAlert::from(&alert_d);
+
+        assert!(
+            dedup.record(&ecs_a, &alert_a),
+            "first alert with id-123 must emit"
+        );
+        assert!(
+            dedup.record(&ecs_b, &alert_b),
+            "different alert with same name but id-456 must also emit"
+        );
+        assert!(
+            dedup.record(&ecs_c, &alert_c),
+            "alert with same name but no id must also emit"
+        );
+        assert!(
+            dedup.record(&ecs_d, &alert_d),
+            "alert with id matching another rule's name must not collide and must emit"
+        );
     }
 }

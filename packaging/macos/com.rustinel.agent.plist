@@ -9,7 +9,8 @@
 
     sudo launchctl bootstrap system /Library/LaunchDaemons/com.rustinel.agent.plist
 
-  Adjust the program path and working directory to match your install layout.
+  This template expects the release package to be installed under
+  /usr/local/var/rustinel.
 -->
 <plist version="1.0">
 <dict>
@@ -17,7 +18,7 @@
     <string>com.rustinel.agent</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/rustinel</string>
+        <string>/usr/local/var/rustinel/Rustinel.app/Contents/MacOS/rustinel</string>
         <string>run</string>
     </array>
     <key>WorkingDirectory</key>

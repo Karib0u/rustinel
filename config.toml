@@ -17,13 +17,13 @@ debounce_ms = 2000          # poll cadence is max(debounce_ms, 2000)
 # - ioc.hash_allowlist_paths
 # - scanner.yara_allowlist_paths
 #
-# Platform defaults are compiled in — only set this to override them.
+# Platform defaults are compiled in - only set this to override them.
 #
+# Windows defaults:
+#   C:\Windows\, C:\Program Files\, C:\Program Files (x86)\
 # Linux defaults:
 #   /usr/bin/, /usr/sbin/, /usr/lib/, /usr/lib64/, /usr/libexec/,
 #   /bin/, /sbin/, /lib/, /lib64/
-# Windows defaults:
-#   C:\Windows\, C:\Program Files\, C:\Program Files (x86)\
 #
 # [allowlist]
 # paths = [
@@ -52,7 +52,7 @@ match_debug = "off"         # off | summary | full (attach match details to aler
 # 3a. Alert Deduplication
 #   Collapses repeated identical alerts within a sliding window into a single
 #   rollup alert carrying event.count.  The first occurrence always emits
-#   immediately — there is no detection latency penalty.
+#   immediately - there is no detection latency penalty.
 #
 #   Disable for high-fidelity environments where every individual event matters.
 [dedup]
@@ -69,8 +69,8 @@ channel_capacity = 128
 # Processes that will never be terminated, matched by image basename or full path.
 # Complement the compiled-in path allowlist above for named system processes.
 #
-# Linux examples:  systemd, systemd-journald, sshd, dbus-daemon, auditd
 # Windows examples: smss.exe, csrss.exe, wininit.exe, lsass.exe, svchost.exe
+# Linux examples:  systemd, systemd-journald, sshd, dbus-daemon, auditd
 #
 # allowlist_images = []
 

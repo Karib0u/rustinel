@@ -12,7 +12,7 @@ Before changing config or rules, check these first:
   - Linux: `sudo ./rustinel run --log-level debug`
   - macOS: `sudo ./rustinel run --log-level debug`
 - Trigger a known bundled demo rule:
-  - Windows: `whoami /all`
+  - Windows: `whoami`
   - Linux: `whoami`
   - macOS: `whoami`
 - Confirm you are using the expected working directory and rule paths
@@ -93,7 +93,7 @@ mount -t debugfs debugfs /sys/kernel/debug
 Typical symptom in logs:
 
 ```text
-eBPF object load failed — ensure BTF is available and kernel is 5.8+
+eBPF object load failed - ensure BTF is available and kernel is 5.8+
 ```
 
 ### Linux source build fails on the first build
@@ -106,24 +106,30 @@ If `ebpf/rustinel-ebpf.o` is missing, the build falls back to compiling the eBPF
 
 See [Getting Started](getting-started.md) and [Development](development.md).
 
-### macOS `Endpoint Security client init failed: ... NotPrivileged`
+### macOS `Endpoint Security client init failed`
 
-Creating an Endpoint Security client failed. The common causes are:
+Creating the Endpoint Security client failed at startup. The result code at the
+end of the error tells you exactly which requirement is missing:
 
-- not running as root
-- the binary is not signed with the `com.apple.developer.endpoint-security.client` entitlement, and SIP/AMFI is not relaxed
-- the user has not approved the agent (TCC)
+| Result code | Cause | Fix |
+| --- | --- | --- |
+| `NotPrivileged` | Not running as root. | Re-run with `sudo`. |
+| `NotPermitted` | Running as root with the entitlement, but macOS has not granted the client Endpoint Security access (TCC). | For an interactive `sudo` run from a terminal, grant **Full Disk Access to that terminal app** (Terminal, iTerm, Ghostty, or similar) and reopen it. macOS attributes the permission to the terminal, so Rustinel itself will not appear in the list. For a background LaunchDaemon, grant `Rustinel.app` directly, or use an MDM PPPC profile. |
+| `NotEntitled` | The binary is not signed with `com.apple.developer.endpoint-security.client`, or its provisioning profile does not authorize the entitlement. | Run a signed `Rustinel.app` from a release, or repackage with `scripts/macos/package-app.sh` (see [Development](development.md)). |
 
-What to do:
+On a fresh machine the first run typically reports `NotPermitted`: signing and
+notarization are correct, and the only thing left is the one-time Full Disk
+Access approval that macOS requires for every Endpoint Security client.
 
-- run with `sudo`
-- for distributable builds, sign and notarize with the Endpoint Security entitlement
-- for local testing, relax SIP/AMFI on a dedicated test machine and ad-hoc sign with the entitlement (see [Development](development.md))
+To inspect the bundle:
+
+- check the signature and entitlements: `codesign --display --entitlements - Rustinel.app`
+- decode the embedded profile: `security cms -D -i Rustinel.app/Contents/embedded.provisionprofile`
 
 Typical symptom in logs:
 
 ```text
-macOS Endpoint Security sensor failed to start: Endpoint Security client init failed: es_new_client failed: NotPrivileged
+macOS Endpoint Security sensor failed to start: Endpoint Security client init failed: es_new_client failed: NotPermitted: macOS has not granted Endpoint Security access. Grant Rustinel.app Full Disk Access ...
 ```
 
 ### macOS network or DNS events are missing
@@ -231,16 +237,6 @@ Check these first:
 - per-region or per-process byte caps may have prevented reading the region containing the match
 - insufficient privileges may prevent reading process memory (see below)
 
-#### Linux memory scanning privileges
-
-On Linux, reading `/proc/<pid>/mem` typically requires root or the `CAP_SYS_PTRACE` capability. You may also need to set a permissive ptrace scope:
-
-```bash
-echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-```
-
-Without adequate privileges, region reads will fail silently (logged at `trace`).
-
 #### Windows memory scanning privileges
 
 On Windows, `OpenProcess` with `PROCESS_VM_READ` may fail for:
@@ -250,6 +246,16 @@ On Windows, `OpenProcess` with `PROCESS_VM_READ` may fail for:
 - some anti-tamper or security software
 
 These failures are logged at `trace` and do not affect other detection paths.
+
+#### Linux memory scanning privileges
+
+On Linux, reading `/proc/<pid>/mem` typically requires root or the `CAP_SYS_PTRACE` capability. You may also need to set a permissive ptrace scope:
+
+```bash
+echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+```
+
+Without adequate privileges, region reads will fail silently (logged at `trace`).
 
 #### macOS memory scanning privileges
 

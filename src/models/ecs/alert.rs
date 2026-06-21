@@ -76,6 +76,10 @@ pub struct EcsAlert {
     #[serde(rename = "rule.description", skip_serializing_if = "Option::is_none")]
     pub rule_description: Option<String>,
 
+    /// Detection rule ID
+    #[serde(rename = "rule.id", skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
+
     /// Detection severity (critical, high, medium, low)
     #[serde(rename = "edr.rule.severity")]
     pub edr_rule_severity: String,

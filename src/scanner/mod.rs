@@ -404,8 +404,18 @@ fn collect_yara_matches(
             }
         }
 
+        let mut metadata_id = None;
+        for (identifier, value) in rule.metadata() {
+            if identifier == "id" {
+                if let yara_x::MetaValue::String(s) = value {
+                    metadata_id = Some(s.to_string());
+                }
+            }
+        }
+
         matches.push(YaraRuleMatch {
             rule: rule_name,
+            metadata_id,
             tags,
             namespace,
             strings,
@@ -578,6 +588,7 @@ mod tests {
         };
         let expected = vec![YaraRuleMatch {
             rule: "TestRule".to_string(),
+            metadata_id: None,
             tags: Vec::new(),
             namespace: None,
             strings: Vec::new(),

@@ -88,7 +88,7 @@ try {
     Write-Host "Try the bundled demo rule from an elevated PowerShell:"
     Write-Host "  Set-Location `"$InstallDir`""
     Write-Host "  .\rustinel.exe run"
-    Write-Host "  whoami /all"
+    Write-Host "  whoami"
     Write-Host "  Get-Content .\logs\alerts.json.*"
     Write-Host ""
 

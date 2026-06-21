@@ -66,6 +66,8 @@ pub struct YaraMatchDetails {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YaraRuleMatch {
     pub rule: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_id: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
