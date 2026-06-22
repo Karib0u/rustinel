@@ -285,6 +285,10 @@ impl Scanner {
         path: &str,
         match_debug: MatchDebugLevel,
     ) -> Result<Vec<YaraRuleMatch>> {
+        if self.compiled_files == 0 {
+            return Ok(Vec::new());
+        }
+
         let path = normalize_yara_path(path);
         let path = path.as_str();
         let identity = yara_file_identity(path, match_debug);
@@ -339,6 +343,10 @@ impl Scanner {
         data: &[u8],
         match_debug: MatchDebugLevel,
     ) -> Result<Vec<YaraRuleMatch>> {
+        if self.compiled_files == 0 {
+            return Ok(Vec::new());
+        }
+
         let mut scanner = XScanner::new(&self.rules);
         match scanner.scan(data) {
             Ok(scan_results) => Ok(collect_yara_matches(scan_results, match_debug)),

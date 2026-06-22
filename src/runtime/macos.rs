@@ -159,7 +159,22 @@ async fn run_macos_edr(
     }
 
     // 9. YARA background worker
-    let (yara_tx, yara_rx) = mpsc::channel::<(String, u32)>(1000);
+    let (yara_tx, yara_worker_handle) = if cfg.scanner.yara_enabled {
+        let (tx, rx) = mpsc::channel::<(String, u32)>(1000);
+        let handle = runtime_yara::spawn_yara_file_worker(
+            Arc::clone(&detectors),
+            alert_sink.clone(),
+            response_engine.clone(),
+            cfg.alerts.match_debug,
+            rx,
+            yara_allowlist_paths.clone(),
+            Platform::MacOS,
+            "esf",
+        );
+        (Some(tx), Some(handle))
+    } else {
+        (None, None)
+    };
 
     let (yara_memory_tx, yara_memory_rx) =
         if cfg.scanner.yara_enabled && cfg.scanner.yara_memory_enabled {
@@ -169,16 +184,6 @@ async fn run_macos_edr(
         } else {
             (None, None)
         };
-    let yara_worker_handle = runtime_yara::spawn_yara_file_worker(
-        Arc::clone(&detectors),
-        alert_sink.clone(),
-        response_engine.clone(),
-        cfg.alerts.match_debug,
-        yara_rx,
-        yara_allowlist_paths.clone(),
-        Platform::MacOS,
-        "esf",
-    );
 
     // Spawn optional YARA memory scanning worker (macOS).
     let yara_memory_worker_handle = if let Some(mem_rx) = yara_memory_rx {
@@ -237,14 +242,23 @@ async fn run_macos_edr(
         alert_sink: alert_sink.clone(),
         response_engine: response_engine.clone(),
     };
-    let yara_handler = YaraEventHandler {
-        tx: yara_tx,
-        memory_tx: yara_memory_tx,
-        allowlist_paths: yara_allowlist_paths,
+
+    let yara_handler = if cfg.scanner.yara_enabled {
+        let yara_handler = YaraEventHandler {
+            tx: yara_tx.expect("yara_tx exists when enabled"),
+            memory_tx: yara_memory_tx,
+            allowlist_paths: yara_allowlist_paths,
+        };
+        Some(yara_handler)
+    } else {
+        None
     };
+
     let mut router_inner = SensorEventRouter::new();
     router_inner.register_handler(Box::new(sigma_handler));
-    router_inner.register_handler(Box::new(yara_handler));
+    if let Some(yh) = yara_handler {
+        router_inner.register_handler(Box::new(yh));
+    }
     let router = Arc::new(router_inner);
 
     // 13. macOS sensors: Endpoint Security (process/file) and bpf (network/DNS)
@@ -290,7 +304,9 @@ async fn run_macos_edr(
     drop(router);
     drop(response_engine);
     let _ = sensor_worker_handle.await;
-    let _ = yara_worker_handle.await;
+    if let Some(h) = yara_worker_handle {
+        let _ = h.await;
+    }
     if let Some(h) = yara_memory_worker_handle {
         let _ = h.await;
     }

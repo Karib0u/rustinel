@@ -360,7 +360,22 @@ async fn run_edr(
 
     // Create background worker channel for YARA scanning
     // Buffer = 1000 items. If 1000 processes start instantly, we drop events rather than blocking.
-    let (tx, rx) = mpsc::channel::<(String, u32)>(1000);
+    let (yara_tx, yara_worker_handle) = if cfg.scanner.yara_enabled {
+        let (tx, rx) = mpsc::channel::<(String, u32)>(1000);
+        let handle = runtime_yara::spawn_yara_file_worker(
+            Arc::clone(&detectors),
+            alert_sink.clone(),
+            response_engine.clone(),
+            cfg.alerts.match_debug,
+            rx,
+            yara_allowlist_paths.clone(),
+            Platform::Windows,
+            "etw",
+        );
+        (Some(tx), Some(handle))
+    } else {
+        (None, None)
+    };
 
     // Create optional YARA memory scanning channel.
     let (yara_memory_tx, yara_memory_rx) =
@@ -424,17 +439,6 @@ async fn run_edr(
     } else {
         info!(target: "reload", "Hot-reload disabled by configuration");
     }
-
-    let yara_worker_handle = runtime_yara::spawn_yara_file_worker(
-        Arc::clone(&detectors),
-        alert_sink.clone(),
-        response_engine.clone(),
-        cfg.alerts.match_debug,
-        rx,
-        yara_allowlist_paths.clone(),
-        Platform::Windows,
-        "etw",
-    );
 
     // Spawn optional YARA memory scanning worker.
     let yara_memory_worker_handle = if let Some(mem_rx) = yara_memory_rx {
@@ -501,16 +505,23 @@ async fn run_edr(
     };
 
     // Create YARA event handler
-    let yara_handler = YaraEventHandler {
-        tx,
-        memory_tx: yara_memory_tx,
-        allowlist_paths: yara_allowlist_paths,
+    let yara_handler = if cfg.scanner.yara_enabled {
+        let yara_handler = YaraEventHandler {
+            tx: yara_tx.expect("yara_tx exists when enabled"),
+            memory_tx: yara_memory_tx,
+            allowlist_paths: yara_allowlist_paths,
+        };
+        Some(yara_handler)
+    } else {
+        None
     };
 
     // Setup shared SensorEventRouter (mutable)
     let mut router_inner = SensorEventRouter::new();
     router_inner.register_handler(Box::new(sigma_handler));
-    router_inner.register_handler(Box::new(yara_handler));
+    if let Some(yh) = yara_handler {
+        router_inner.register_handler(Box::new(yh));
+    }
 
     // Freeze router (immutable/shared)
     let router = Arc::new(router_inner);
@@ -601,11 +612,12 @@ async fn run_edr(
 
     drop(router);
     drop(response_engine);
-    info!("Signaling YARA worker to shut down...");
-
-    match yara_worker_handle.await {
-        Ok(_) => info!("YARA worker thread finished"),
-        Err(e) => error!("Failed to join YARA worker thread: {}", e),
+    if let Some(handle) = yara_worker_handle {
+        info!("Signaling YARA worker to shut down...");
+        match handle.await {
+            Ok(_) => info!("YARA worker thread finished"),
+            Err(e) => error!("Failed to join YARA worker thread: {}", e),
+        }
     }
 
     if let Some(handle) = yara_memory_worker_handle {
