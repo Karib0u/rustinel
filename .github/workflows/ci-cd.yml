@@ -25,6 +25,14 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  demo-validate:
+    name: Demo script validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate local demo helpers
+        run: ./examples/demo/validate.sh
+
   # ── Clippy ──────────────────────────────────────────────────────────────────
   # Run on all platforms so Linux-specific code (aya, libc), Windows-specific
   # code (ferrisetw, windows-rs), and macOS-specific code are each linted
