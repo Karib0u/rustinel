@@ -165,13 +165,11 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
     std::fs::remove_file(yara.rules_dir().join("b.yar")).expect("remove rule B");
     tx.send(ReloadTarget::Yara).expect("send empty reload");
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    assert!(
-        store
-            .yara()
-            .scan_bytes(b"BBB_RELOAD_MARKER", MatchDebugLevel::Off)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(store
+        .yara()
+        .scan_bytes(b"BBB_RELOAD_MARKER", MatchDebugLevel::Off)
+        .unwrap()
+        .is_empty());
     drop(tx);
     handle.abort();
 }
