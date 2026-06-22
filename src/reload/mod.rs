@@ -141,15 +141,6 @@ pub fn spawn_reload_worker(
                         match engine.load_rules(&scanner_cfg.sigma_rules_path) {
                             Ok(()) => {
                                 let stats = engine.stats();
-                                if stats.total_rules == 0 {
-                                    warn!(
-                                        target: "reload",
-                                        path = ?scanner_cfg.sigma_rules_path,
-                                        "Rejected Sigma reload: compiled ruleset is empty"
-                                    );
-                                    continue;
-                                }
-
                                 store.swap_sigma(Arc::new(engine));
                                 info!(
                                     target: "reload",
@@ -179,15 +170,6 @@ pub fn spawn_reload_worker(
                         match scanner::Scanner::new(&scanner_cfg.yara_rules_path) {
                             Ok(compiled) => {
                                 let compiled_files = compiled.compiled_files();
-                                if compiled_files == 0 {
-                                    warn!(
-                                        target: "reload",
-                                        path = ?scanner_cfg.yara_rules_path,
-                                        "Rejected YARA reload: compiled file count is zero"
-                                    );
-                                    continue;
-                                }
-
                                 store.swap_yara(Arc::new(compiled));
                                 info!(
                                     target: "reload",

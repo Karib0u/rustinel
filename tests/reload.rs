@@ -44,7 +44,7 @@ fn scanner_cfg(sigma: &SigmaFixture, yara: &YaraFixture) -> ScannerConfig {
 }
 
 #[tokio::test]
-async fn sigma_reload_swaps_valid_rules_and_rejects_empty_rules() {
+async fn sigma_reload_swaps_valid_rules_and_allows_empty_rules() {
     let sigma = SigmaFixture::new();
     let platform = host_platform();
     sigma.write_process_rule(platform);
@@ -115,13 +115,13 @@ level: high
     std::fs::remove_file(sigma.rules_dir().join("network.yml")).expect("remove rule B");
     tx.send(ReloadTarget::Sigma).expect("send empty reload");
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    assert!(store.sigma().check_event(&network).is_some());
+    assert!(store.sigma().check_event(&network).is_none());
     drop(tx);
     handle.abort();
 }
 
 #[tokio::test]
-async fn yara_reload_swaps_valid_rules_and_rejects_empty_rules() {
+async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
     let sigma = SigmaFixture::new();
     let platform = host_platform();
     sigma.write_process_rule(platform);
@@ -170,8 +170,7 @@ async fn yara_reload_swaps_valid_rules_and_rejects_empty_rules() {
             .yara()
             .scan_bytes(b"BBB_RELOAD_MARKER", MatchDebugLevel::Off)
             .unwrap()
-            .len()
-            == 1
+            .is_empty()
     );
     drop(tx);
     handle.abort();
