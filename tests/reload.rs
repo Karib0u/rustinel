@@ -224,3 +224,83 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
     drop(tx);
     handle.abort();
 }
+
+#[tokio::test]
+async fn test_reload_poller_fallback_polling() {
+    use rustinel::config::IocConfig;
+    use rustinel::reload::spawn_reload_poller;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    let tempdir = tempfile::tempdir().expect("create tempdir");
+    let non_existent_dir = tempdir.path().join("non_existent_sigma_rules");
+
+    let scanner_cfg = ScannerConfig {
+        sigma_enabled: true,
+        sigma_rules_path: non_existent_dir.clone(),
+        yara_enabled: false,
+        yara_rules_path: PathBuf::from(""),
+        yara_allowlist_paths: Vec::new(),
+        yara_memory_enabled: false,
+        yara_memory_queue_capacity: 0,
+        yara_memory_delay_ms: 0,
+        yara_memory_max_process_mb: 0,
+        yara_memory_max_region_mb: 0,
+        yara_memory_include_private: false,
+        yara_memory_include_image: false,
+        yara_memory_include_mapped: false,
+    };
+
+    let ioc_cfg = IocConfig {
+        enabled: false,
+        hashes_path: PathBuf::from(""),
+        ips_path: PathBuf::from(""),
+        domains_path: PathBuf::from(""),
+        paths_regex_path: PathBuf::from(""),
+        default_severity: "high".to_string(),
+        max_file_size_mb: 0,
+        hash_allowlist_paths: Vec::new(),
+    };
+
+    let reload_cfg = ReloadConfig {
+        enabled: true,
+        debounce_ms: 10,
+    };
+
+    let (reload_tx, mut reload_rx) = mpsc::unbounded_channel();
+
+    // Spawning the poller with a non-existent path will trigger the watcher failure
+    // and cause it to fall back to the 100ms polling loop (in test configuration)
+    let handle = spawn_reload_poller(scanner_cfg, ioc_cfg, reload_cfg, reload_tx);
+
+    // Give it a moment to initialize and fail watcher setup
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Now, create the directory and add a rules file to trigger a fingerprint change
+    std::fs::create_dir_all(&non_existent_dir).expect("create dir");
+    std::fs::write(
+        non_existent_dir.join("rule.yml"),
+        r#"title: Test Rule
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image: "test.exe"
+  condition: selection
+level: high
+"#,
+    )
+    .expect("write rule");
+
+    // The polling loop (running at 100ms interval in test mode) should pick this up
+    // and send a ReloadTarget::Sigma event to the channel.
+    let event = tokio::time::timeout(Duration::from_millis(1500), reload_rx.recv())
+        .await
+        .expect("Timeout waiting for reload event")
+        .expect("Channel closed unexpectedly");
+
+    assert_eq!(event, ReloadTarget::Sigma);
+
+    handle.abort();
+}

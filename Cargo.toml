@@ -50,6 +50,7 @@ arc-swap = "1.7"
 
 # Configuration
 config = "0.15.23"
+notify = "8.2.0"
 
 # Linux-specific
 [target.'cfg(target_os = "linux")'.dependencies]

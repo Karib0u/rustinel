@@ -358,6 +358,32 @@ async fn run_edr(
         );
     }
 
+    // Initialize IOC engine
+    let ioc_engine = Arc::new(IocEngine::load(&cfg.ioc));
+    if ioc_engine.is_enabled() {
+        let stats = ioc_engine.stats();
+        info!(
+            target: "rustinel",
+            md5 = stats.md5,
+            sha1 = stats.sha1,
+            sha256 = stats.sha256,
+            ip = stats.ip,
+            cidr = stats.cidr,
+            domain_exact = stats.domain_exact,
+            domain_suffix = stats.domain_suffix,
+            path_regex = stats.path_regex,
+            "IOC engine initialized"
+        );
+    } else {
+        info!(target: "rustinel", "IOC detection disabled by configuration");
+    }
+
+    let detectors = DetectorStore::new(
+        Arc::clone(&sigma_engine),
+        Arc::clone(&yara_scanner),
+        Arc::clone(&ioc_engine),
+    );
+
     // Create background worker channel for YARA scanning
     // Buffer = 1000 items. If 1000 processes start instantly, we drop events rather than blocking.
     let (yara_tx, yara_worker_handle) = if cfg.scanner.yara_enabled {
@@ -386,32 +412,6 @@ async fn run_edr(
         } else {
             (None, None)
         };
-
-    // Initialize IOC engine
-    let ioc_engine = Arc::new(IocEngine::load(&cfg.ioc));
-    if ioc_engine.is_enabled() {
-        let stats = ioc_engine.stats();
-        info!(
-            target: "rustinel",
-            md5 = stats.md5,
-            sha1 = stats.sha1,
-            sha256 = stats.sha256,
-            ip = stats.ip,
-            cidr = stats.cidr,
-            domain_exact = stats.domain_exact,
-            domain_suffix = stats.domain_suffix,
-            path_regex = stats.path_regex,
-            "IOC engine initialized"
-        );
-    } else {
-        info!(target: "rustinel", "IOC detection disabled by configuration");
-    }
-
-    let detectors = DetectorStore::new(
-        Arc::clone(&sigma_engine),
-        Arc::clone(&yara_scanner),
-        Arc::clone(&ioc_engine),
-    );
 
     let mut reload_poller_handle = None;
     let mut reload_worker_handle = None;
