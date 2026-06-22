@@ -29,6 +29,72 @@ Options:
 "@
 }
 
+function Get-TomlValue {
+    param(
+        [string]$Section,
+        [string]$Key,
+        [string]$Path
+    )
+
+    $inSection = $false
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $trim = $line.Trim()
+        if ($trim -eq "[$Section]") {
+            $inSection = $true
+            continue
+        }
+        if ($trim -match '^\[') {
+            $inSection = $false
+            continue
+        }
+        if ($inSection -and $trim -match "^$([regex]::Escape($Key))\s*=") {
+            $value = ($trim -split '=', 2)[1].Trim()
+            $value = ($value -replace '#.*$', '').Trim()
+            return $value.Trim('"').Trim("'")
+        }
+    }
+
+    return $null
+}
+
+function Get-AlertsConfig {
+    param([string]$InstallRoot)
+
+    $configPath = Join-Path $InstallRoot "config.toml"
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        throw "Missing config.toml in $InstallRoot"
+    }
+
+    $alertsDir = Get-TomlValue -Section "alerts" -Key "directory" -Path $configPath
+    $alertsFilename = Get-TomlValue -Section "alerts" -Key "filename" -Path $configPath
+
+    if ([string]::IsNullOrWhiteSpace($alertsDir)) {
+        $alertsDir = "logs"
+    }
+    if ([string]::IsNullOrWhiteSpace($alertsFilename)) {
+        $alertsFilename = "alerts.json"
+    }
+
+    if (-not [System.IO.Path]::IsPathRooted($alertsDir)) {
+        $alertsDir = Join-Path $InstallRoot $alertsDir
+    }
+
+    return [PSCustomObject]@{
+        Directory = $alertsDir
+        Filename  = $alertsFilename
+    }
+}
+
+function Get-TodayAlertFile {
+    param(
+        [string]$AlertsDirectory,
+        [string]$AlertsFilename
+    )
+
+    $date = Get-Date -Format "yyyy-MM-dd"
+    return Join-Path $AlertsDirectory "$AlertsFilename.$date"
+}
+
 function Detect-Root {
     $dir = (Get-Location).Path
     while ($dir) {
@@ -66,27 +132,29 @@ function Find-Binary {
     return $null
 }
 
-function Get-AlertFiles {
-    param([string]$InstallRoot)
+function Get-AlertFileLineCount {
+    param([string]$AlertFile)
 
-    $pattern = Join-Path $InstallRoot "logs\alerts.json*"
-    return @(Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue)
-}
-
-function Get-AlertLineCount {
-    param([string]$InstallRoot)
-
-    $total = 0
-    foreach ($file in Get-AlertFiles -InstallRoot $InstallRoot) {
-        $total += (Get-Content -LiteralPath $file.FullName | Measure-Object -Line).Lines
+    if (-not (Test-Path -LiteralPath $AlertFile)) {
+        return 0
     }
-    return $total
+
+    return (Get-Content -LiteralPath $AlertFile | Measure-Object -Line).Lines
 }
 
 function Get-LatestAlertLine {
-    param([string]$InstallRoot)
+    param(
+        [string]$AlertsDirectory,
+        [string]$AlertsFilename
+    )
 
-    $files = Get-AlertFiles -InstallRoot $InstallRoot
+    $todayFile = Get-TodayAlertFile -AlertsDirectory $AlertsDirectory -AlertsFilename $AlertsFilename
+    if (Test-Path -LiteralPath $todayFile) {
+        return (Get-Content -LiteralPath $todayFile -Tail 1)
+    }
+
+    $pattern = Join-Path $AlertsDirectory "$AlertsFilename.*"
+    $files = @(Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue)
     if (-not $files -or $files.Count -eq 0) {
         return $null
     }
@@ -108,7 +176,8 @@ function Write-AlertJson {
 
 function Show-SiemHint {
     param(
-        [string]$InstallRoot,
+        [string]$AlertsDirectory,
+        [string]$TodayAlertFile,
         [string]$Name
     )
 
@@ -119,20 +188,19 @@ function Show-SiemHint {
 Next — Elastic SIEM demo:
   cd examples\siem\elastic
   docker compose up -d elasticsearch kibana
-  `$env:RUSTINEL_ALERTS_DIR = "$InstallRoot\logs"
+  `$env:RUSTINEL_ALERTS_DIR = "$AlertsDirectory"
   docker compose up filebeat
 
 Kibana: http://localhost:5601 — search: event.kind : "alert"
 "@
         }
         "splunk" {
-            $date = Get-Date -Format "yyyy-MM-dd"
             @"
 
 Next — Splunk SIEM demo:
   cd examples\siem\splunk
   docker compose up -d
-  python3 send-alerts.py $InstallRoot\logs\alerts.json.$date
+  python3 send-alerts.py $TodayAlertFile
 
 Splunk Web: http://localhost:8000 — search: index=main source=rustinel event.kind=alert
 "@
@@ -177,7 +245,11 @@ Start it in another terminal:
     Write-Host "Agent: running"
 }
 
-$before = Get-AlertLineCount -InstallRoot $Root
+$alertsConfig = Get-AlertsConfig -InstallRoot $Root
+$todayFile = Get-TodayAlertFile -AlertsDirectory $alertsConfig.Directory -AlertsFilename $alertsConfig.Filename
+
+$before = Get-AlertFileLineCount -AlertFile $todayFile
+Write-Host "Watching alert file: $todayFile"
 Write-Host "Firing bundled demo trigger (whoami /all)..."
 whoami /all | Out-Null
 
@@ -185,7 +257,7 @@ $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $found = $false
 
 while ((Get-Date) -lt $deadline) {
-    $after = Get-AlertLineCount -InstallRoot $Root
+    $after = Get-AlertFileLineCount -AlertFile $todayFile
     if ($after -gt $before) {
         $found = $true
         break
@@ -194,10 +266,10 @@ while ((Get-Date) -lt $deadline) {
 }
 
 if (-not $found) {
-    Write-Error "No new alert within ${TimeoutSeconds}s. Check logs under $Root\logs\ and confirm Sigma rules are loaded."
+    Write-Error "No new alert within ${TimeoutSeconds}s. Check $todayFile and confirm Sigma rules are loaded."
 }
 
-$line = Get-LatestAlertLine -InstallRoot $Root
+$line = Get-LatestAlertLine -AlertsDirectory $alertsConfig.Directory -AlertsFilename $alertsConfig.Filename
 if (-not $line) {
     Write-Error "Alert count increased but no alert line could be read."
 }
@@ -206,7 +278,7 @@ Write-Host "Latest alert:"
 Write-AlertJson -Line $line
 
 if ($Siem) {
-    Show-SiemHint -InstallRoot $Root -Name $Siem
+    Show-SiemHint -AlertsDirectory $alertsConfig.Directory -TodayAlertFile $todayFile -Name $Siem
 }
 
 Write-Host "Demo succeeded."
