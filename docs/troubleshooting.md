@@ -298,9 +298,9 @@ Rejected IOC reload: indicator set is empty
 
 Remember:
 
-- reload polling is local file based
-- the poll cadence is effectively `max(reload.debounce_ms, 2000ms)`
-- empty rebuild results are rejected on purpose
+- reload watching is local filesystem event-based (falling back to a 60-second poll cadence on setup failure)
+- changes are debounced using `reload.debounce_ms` (defaults to 2000ms) to coalesce multiple rapid writes
+- empty IOC rebuild results are rejected on purpose (keeping the last known good IOCs active), while empty Sigma/YARA rulesets are allowed and will clear the active rules.
 
 If in doubt, make a tiny valid change to a known-good file and watch the operational log.
 

@@ -172,12 +172,14 @@ These defaults feed `allowlist.paths`, which then propagate to active response, 
 | Option | Default | Description |
 | --- | --- | --- |
 | `enabled` | `true` | Enable local file-based hot reload for Sigma, YARA, and IOC files |
-| `debounce_ms` | `2000` | Debounce window before rebuilding detectors |
+| `debounce_ms` | `2000` | Coalescing/debounce delay in milliseconds before rebuilding detectors |
 
 Reload notes:
 
-- Poll cadence is `max(reload.debounce_ms, 2000ms)`.
-- Empty rebuild results are rejected to keep the last good detector set live.
+- The reload mechanism uses event-based filesystem watching (such as `inotify` on Linux) to monitor directories/files and trigger reloads near-instantly when changes occur.
+- `reload.debounce_ms` is the coalescing window used to group multiple rapid write operations into a single reload event.
+- If the event-based watcher cannot be initialized, the agent automatically falls back to a 60-second polling cycle (logging the warning `"inotify is not available for the rules directory"`).
+- For Sigma and YARA, empty rulesets/scanners are allowed and will be swapped in (effectively disabling detections if no rules exist). For IOCs, empty indicator sets are rejected to keep the last known good set live.
 
 ### Global Allowlist
 

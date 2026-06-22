@@ -167,8 +167,8 @@ Live detector instances sit behind `DetectorStore`:
 
 If hot reload is enabled:
 
-- The poller fingerprints Sigma, YARA, and IOC files on disk
-- The worker debounces changes and rebuilds only the affected detector set
+- The watcher monitors filesystem events on Sigma, YARA, and IOC folders (falling back to a 60-second polling cadence if watcher setup fails)
+- The worker debounces/coalesces changes and rebuilds only the affected detector set
 - Successful rebuilds are swapped in atomically
 - Failed rebuilds keep the previous live detector instances
 
