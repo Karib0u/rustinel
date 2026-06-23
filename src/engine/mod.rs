@@ -53,6 +53,9 @@ pub struct Engine {
     /// Total number of loaded rules
     rule_count: usize,
 
+    /// Total number of rule files found
+    rule_files_found: usize,
+
     /// Failed rule paths and error messages (for diagnostics)
     failed_rules: Vec<(String, String)>,
 
@@ -143,6 +146,7 @@ impl Engine {
             platform,
             rules_by_logsource: HashMap::new(),
             rule_count: 0,
+            rule_files_found: 0,
             failed_rules: Vec::new(),
             skipped_product_rules: 0,
             skipped_deferred_rules: 0,

@@ -292,6 +292,8 @@ Typical reload failure messages:
 Sigma reload failed; keeping previous engine
 YARA reload failed; keeping previous scanner
 Rejected IOC reload: indicator set is empty
+Rejected Sigma reload: one or more rules failed to compile
+Rejected YARA reload: one or more rules failed to compile
 ```
 
 ### I changed a file but nothing reloaded
@@ -300,7 +302,8 @@ Remember:
 
 - reload watching is local filesystem event-based (falling back to a 60-second poll cadence on setup failure)
 - changes are debounced using `reload.debounce_ms` (defaults to 2000ms) to coalesce multiple rapid writes
-- empty IOC rebuild results are rejected on purpose (keeping the last known good IOCs active), while empty Sigma/YARA rulesets are allowed and will clear the active rules.
+- empty IOC rebuild results are rejected on purpose (keeping the last known good IOCs active)
+- empty Sigma/YARA rulesets are allowed (clearing the active rules) ONLY if no rule files were found. If any rule files are found but they are broken (syntax/compile errors), the reload is rejected entirely, keeping the previous valid configuration active.
 
 If in doubt, make a tiny valid change to a known-good file and watch the operational log.
 

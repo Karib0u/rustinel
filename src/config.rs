@@ -180,6 +180,7 @@ pub struct IocConfig {
 pub struct ReloadConfig {
     pub enabled: bool,
     pub debounce_ms: u64,
+    pub fallback_poll_interval_ms: u64,
 }
 
 /// Alert deduplication / aggregation configuration
@@ -248,6 +249,7 @@ impl AppConfig {
             // Hot Reload
             .set_default("reload.enabled", true)?
             .set_default("reload.debounce_ms", 2000)?
+            .set_default("reload.fallback_poll_interval_ms", 60000i64)?
             // Alert deduplication
             .set_default("dedup.enabled", true)?
             .set_default("dedup.window_secs", 60i64)?
@@ -347,6 +349,7 @@ impl Default for AppConfig {
             reload: ReloadConfig {
                 enabled: true,
                 debounce_ms: 2000,
+                fallback_poll_interval_ms: 60000,
             },
             dedup: DedupConfig {
                 enabled: true,

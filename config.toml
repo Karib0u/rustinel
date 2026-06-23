@@ -10,7 +10,7 @@ yara_rules_path = "rules/yara"
 
 [reload]
 enabled = true
-debounce_ms = 2000          # poll cadence is max(debounce_ms, 2000)
+debounce_ms = 2000          # debounces real-time filesystem events; fallback polling is 60s
 
 # Shared allowlist applied to:
 # - response.allowlist_paths

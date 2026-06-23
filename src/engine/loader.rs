@@ -30,6 +30,10 @@ impl Engine {
             self.inactive_collector_rules
         );
 
+        if self.rule_files_found > 0 && self.rule_count == 0 {
+            warn!("Sigma rules found but none compiled successfully");
+        }
+
         Ok(())
     }
 
@@ -49,6 +53,7 @@ impl Engine {
             } else if let Some(ext) = path.extension() {
                 // Only process .yml and .yaml files
                 if ext == "yml" || ext == "yaml" {
+                    self.rule_files_found += 1;
                     match self.load_rule(&path) {
                         Ok(()) => {
                             debug!("Loaded rule: {:?}", path);

@@ -213,6 +213,8 @@ pub struct YaraMemoryJob {
 pub struct Scanner {
     rules: Rules,
     compiled_files: usize,
+    files_found: usize,
+    failed_files: usize,
     cache: Mutex<YaraScanCache>,
 }
 
@@ -223,6 +225,7 @@ impl Scanner {
         let mut compiler = Compiler::new();
         let mut files_found = 0;
         let mut files_compiled = 0;
+        let mut files_failed = 0;
 
         info!("Loading YARA rules from: {:?} (recursive)", rules_dir);
 
@@ -249,6 +252,7 @@ impl Scanner {
                                     debug!("✓ Compiled YARA rule: {:?}", path);
                                 }
                                 Err(e) => {
+                                    files_failed += 1;
                                     warn!("✗ Failed to compile {:?}: {}", path, e);
                                 }
                             }
@@ -263,6 +267,10 @@ impl Scanner {
             );
         }
 
+        if files_found > 0 && files_compiled == 0 {
+            warn!("YARA rules found but none compiled successfully");
+        }
+
         let rules = compiler.build();
         info!(
             "YARA Scanner: Found {} rule files, compiled {} successfully",
@@ -271,12 +279,22 @@ impl Scanner {
         Ok(Self {
             rules,
             compiled_files: files_compiled,
+            files_found,
+            failed_files: files_failed,
             cache: Mutex::new(YaraScanCache::new()),
         })
     }
 
     pub fn compiled_files(&self) -> usize {
         self.compiled_files
+    }
+
+    pub fn files_found(&self) -> usize {
+        self.files_found
+    }
+
+    pub fn failed_files(&self) -> usize {
+        self.failed_files
     }
 
     /// Scan a file path and return matching rule details

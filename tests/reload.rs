@@ -92,6 +92,7 @@ level: high
         ReloadConfig {
             enabled: true,
             debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
         },
         "info".to_string(),
         MatchDebugLevel::Off,
@@ -146,6 +147,7 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
         ReloadConfig {
             enabled: true,
             debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
         },
         "info".to_string(),
         MatchDebugLevel::Off,
@@ -201,6 +203,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
         ReloadConfig {
             enabled: true,
             debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
         },
         "info".to_string(),
         MatchDebugLevel::Off,
@@ -262,6 +265,7 @@ async fn test_reload_poller_fallback_polling() {
     let reload_cfg = ReloadConfig {
         enabled: true,
         debounce_ms: 10,
+        fallback_poll_interval_ms: 100,
     };
 
     let (reload_tx, mut reload_rx) = mpsc::unbounded_channel();
@@ -299,5 +303,146 @@ level: high
 
     assert_eq!(event, ReloadTarget::Sigma);
 
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
+    let sigma = SigmaFixture::new();
+    let platform = host_platform();
+    sigma.write_process_rule(platform);
+    let yara = YaraFixture::new();
+    yara.write_default_rule();
+    let ioc = common::IocFixture::new();
+
+    let mut engine = Engine::new_for_platform(platform);
+    engine
+        .load_rules(sigma.rules_dir())
+        .expect("load initial sigma");
+    let store = DetectorStore::new(
+        Arc::new(engine),
+        Arc::new(Scanner::new(yara.rules_dir()).expect("load yara")),
+        Arc::new(IocEngine::load(&ioc.config())),
+    );
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handle = spawn_reload_worker(
+        Arc::clone(&store),
+        scanner_cfg(&sigma, &yara),
+        ioc.config(),
+        ReloadConfig {
+            enabled: true,
+            debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
+        },
+        "info".to_string(),
+        MatchDebugLevel::Off,
+        rx,
+    );
+
+    // Delete the original valid Sigma rule file and write a completely invalid rule file
+    std::fs::remove_file(sigma.rules_dir().join("process.yml")).expect("remove valid sigma rule");
+    sigma.write_rule("invalid_rule.yml", "invalid: yaml: syntax: [error");
+
+    tx.send(ReloadTarget::Sigma).expect("send reload");
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // The reload should have been rejected (keeping the previous rules active in memory).
+    // Let's verify that the original process rules (no longer on disk) are still working.
+    let proc_event = TestNormalizer::new(false)
+        .normalizer
+        .normalize(&process_start_event(platform))
+        .unwrap();
+    assert!(store.sigma().check_event(&proc_event).is_some());
+
+    // Delete the original valid YARA rule file and write an invalid YARA rule
+    std::fs::remove_file(yara.rules_dir().join("marker.yar")).expect("remove valid yara rule");
+    std::fs::write(
+        yara.rules_dir().join("invalid_rule.yar"),
+        "rule invalid { syntax_error }",
+    )
+    .unwrap();
+    tx.send(ReloadTarget::Yara).expect("send reload");
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // YARA reload should also be rejected, keeping the default YARA rule (no longer on disk) active
+    assert_eq!(
+        store
+            .yara()
+            .scan_bytes(b"RUSTINEL_TEST_MARKER", MatchDebugLevel::Off)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    drop(tx);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_reload_accepts_partially_invalid_rules() {
+    let sigma = SigmaFixture::new();
+    let platform = host_platform();
+    let yara = YaraFixture::new();
+    let ioc = common::IocFixture::new();
+
+    let engine = Engine::new_for_platform(platform);
+    // Start with empty rules
+    let store = DetectorStore::new(
+        Arc::new(engine),
+        Arc::new(Scanner::new(yara.rules_dir()).expect("load yara")),
+        Arc::new(IocEngine::load(&ioc.config())),
+    );
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handle = spawn_reload_worker(
+        Arc::clone(&store),
+        scanner_cfg(&sigma, &yara),
+        ioc.config(),
+        ReloadConfig {
+            enabled: true,
+            debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
+        },
+        "info".to_string(),
+        MatchDebugLevel::Off,
+        rx,
+    );
+
+    // Write one valid and one invalid Sigma rule file
+    sigma.write_process_rule(platform);
+    sigma.write_rule("invalid_rule.yml", "invalid: yaml: syntax: [error");
+
+    tx.send(ReloadTarget::Sigma).expect("send reload");
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // The reload should have succeeded (loading the valid rule)
+    let proc_event = TestNormalizer::new(false)
+        .normalizer
+        .normalize(&process_start_event(platform))
+        .unwrap();
+    assert!(store.sigma().check_event(&proc_event).is_some());
+
+    // Write one valid and one invalid YARA rule file
+    yara.write_default_rule();
+    std::fs::write(
+        yara.rules_dir().join("invalid_rule.yar"),
+        "rule invalid { syntax_error }",
+    )
+    .unwrap();
+    tx.send(ReloadTarget::Yara).expect("send reload");
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // The reload should have succeeded (loading the valid rule)
+    assert_eq!(
+        store
+            .yara()
+            .scan_bytes(b"RUSTINEL_TEST_MARKER", MatchDebugLevel::Off)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    drop(tx);
     handle.abort();
 }

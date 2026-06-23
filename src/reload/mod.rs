@@ -141,6 +141,23 @@ pub fn spawn_reload_worker(
                         match engine.load_rules(&scanner_cfg.sigma_rules_path) {
                             Ok(()) => {
                                 let stats = engine.stats();
+                                if stats.rule_files_found > 0 && stats.total_rules == 0 {
+                                    warn!(
+                                        target: "reload",
+                                        path = ?scanner_cfg.sigma_rules_path,
+                                        errors = ?stats.failed_rules,
+                                        "Rejected Sigma reload: all found rule files are broken"
+                                    );
+                                    continue;
+                                }
+                                if !stats.failed_rules.is_empty() {
+                                    warn!(
+                                        target: "reload",
+                                        path = ?scanner_cfg.sigma_rules_path,
+                                        errors = ?stats.failed_rules,
+                                        "Some Sigma rules failed to compile, but loading the working rules"
+                                    );
+                                }
                                 store.swap_sigma(Arc::new(engine));
                                 info!(
                                     target: "reload",
@@ -170,6 +187,22 @@ pub fn spawn_reload_worker(
                         match scanner::Scanner::new(&scanner_cfg.yara_rules_path) {
                             Ok(compiled) => {
                                 let compiled_files = compiled.compiled_files();
+                                if compiled.files_found() > 0 && compiled_files == 0 {
+                                    warn!(
+                                        target: "reload",
+                                        path = ?scanner_cfg.yara_rules_path,
+                                        "Rejected YARA reload: all found rule files are broken"
+                                    );
+                                    continue;
+                                }
+                                if compiled.failed_files() > 0 {
+                                    warn!(
+                                        target: "reload",
+                                        path = ?scanner_cfg.yara_rules_path,
+                                        failed = compiled.failed_files(),
+                                        "Some YARA rules failed to compile, but loading the working rules"
+                                    );
+                                }
                                 store.swap_yara(Arc::new(compiled));
                                 info!(
                                     target: "reload",
@@ -273,29 +306,36 @@ pub fn spawn_reload_poller(
                 let mut watch_targets = Vec::new();
                 if scanner_cfg.sigma_enabled {
                     watch_targets.push((
-                        &scanner_cfg.sigma_rules_path,
+                        scanner_cfg.sigma_rules_path.clone(),
                         notify::RecursiveMode::Recursive,
                     ));
                 }
                 if scanner_cfg.yara_enabled {
                     watch_targets.push((
-                        &scanner_cfg.yara_rules_path,
+                        scanner_cfg.yara_rules_path.clone(),
                         notify::RecursiveMode::Recursive,
                     ));
                 }
                 if ioc_cfg.enabled {
-                    watch_targets.push((&ioc_cfg.hashes_path, notify::RecursiveMode::NonRecursive));
-                    watch_targets.push((&ioc_cfg.ips_path, notify::RecursiveMode::NonRecursive));
-                    watch_targets
-                        .push((&ioc_cfg.domains_path, notify::RecursiveMode::NonRecursive));
-                    watch_targets.push((
+                    let mut parents = HashSet::new();
+                    for path in [
+                        &ioc_cfg.hashes_path,
+                        &ioc_cfg.ips_path,
+                        &ioc_cfg.domains_path,
                         &ioc_cfg.paths_regex_path,
-                        notify::RecursiveMode::NonRecursive,
-                    ));
+                    ] {
+                        let normalized = normalize_path(path);
+                        if let Some(parent) = normalized.parent() {
+                            parents.insert(parent.to_path_buf());
+                        }
+                    }
+                    for parent in parents {
+                        watch_targets.push((parent, notify::RecursiveMode::NonRecursive));
+                    }
                 }
 
-                for (path, mode) in watch_targets {
-                    if let Err(e) = w.watch(path, mode) {
+                for (path, mode) in &watch_targets {
+                    if let Err(e) = w.watch(path, *mode) {
                         warn!(
                             target: "reload",
                             path = ?path,
@@ -325,11 +365,7 @@ pub fn spawn_reload_poller(
         }
 
         let debounce_interval = Duration::from_millis(reload_cfg.debounce_ms);
-        let poll_interval = if reload_cfg.debounce_ms < 2000 {
-            Duration::from_millis(reload_cfg.debounce_ms.max(50))
-        } else {
-            Duration::from_secs(60)
-        };
+        let poll_interval = Duration::from_millis(reload_cfg.fallback_poll_interval_ms);
 
         info!(
             target: "reload",

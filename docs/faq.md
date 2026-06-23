@@ -163,7 +163,7 @@ A restart is still useful when you change deployment layout, supervisor configur
 - top-level YARA rule files under `scanner.yara_rules_path`
 - IOC files configured in `ioc.hashes_path`, `ioc.ips_path`, `ioc.domains_path`, and `ioc.paths_regex_path`
 
-If a rebuild produces an empty detector set, Sigma and YARA will swap in the empty set (effectively disabling those detectors), whereas IOCs will reject the empty reload and keep the last known good indicator set active.
+If a rebuild produces an empty detector set (i.e. no rule files are present in the directory), Sigma and YARA will swap in the empty set (effectively disabling those detectors). However, if there are files found but any of them are broken (failed to compile/parse), the reload will be refused (with a warning logged) and the previous valid rules will remain active. IOCs will reject an empty reload and keep the last known good indicator set active.
 
 ### Do Sigma and YARA load subdirectories the same way?
 

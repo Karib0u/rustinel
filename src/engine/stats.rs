@@ -13,6 +13,7 @@ impl Engine {
 
         EngineStats {
             total_rules: self.rule_count,
+            rule_files_found: self.rule_files_found,
             rules_by_category,
             rules_by_logsource: self
                 .rules_by_logsource
@@ -40,6 +41,7 @@ impl Engine {
 
 pub struct EngineStats {
     pub total_rules: usize,
+    pub rule_files_found: usize,
     #[allow(dead_code)] // Used by companion binaries outside the library crate.
     pub rules_by_category: HashMap<String, usize>,
     pub rules_by_logsource: HashMap<String, usize>,
