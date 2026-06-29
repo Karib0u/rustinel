@@ -89,7 +89,7 @@ jobs:
 
       - name: Cache bpf-linker binary
         id: cache-bpf-linker
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/bpf-linker
           key: bpf-linker-${{ runner.os }}-${{ hashFiles('ebpf/Cargo.toml') }}
