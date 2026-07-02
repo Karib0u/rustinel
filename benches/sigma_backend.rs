@@ -88,6 +88,62 @@ level: medium
     }
 }
 
+/// Number of synthetic, non-matching rules written per logsource family for the
+/// large-ruleset benchmark. With four families this yields ~4x this many rules,
+/// so each candidate bucket holds a few hundred rules, the regime where an
+/// inverted rule index matters.
+const SYNTHETIC_RULES_PER_FAMILY: usize = 500;
+
+/// Writes the matching ruleset plus a large set of synthetic rules that never
+/// match the sample events, so `check_event` pays the cost of scanning a
+/// realistically sized bucket before its one hit (or miss).
+fn write_scaled_rules(dir: &std::path::Path, per_family: usize) {
+    write_rules(dir);
+    for i in 0..per_family {
+        std::fs::write(
+            dir.join(format!("synth_process_{i}.yml")),
+            format!(
+                "title: Synth Process {i}\n\
+                 logsource:\n  product: linux\n  category: process_creation\n\
+                 detection:\n  selection:\n    Image|endswith: /synthbin{i}\n\
+                 \x20   CommandLine|contains: synthtoken{i}\n  condition: selection\nlevel: low\n"
+            ),
+        )
+        .expect("write synthetic process rule");
+        std::fs::write(
+            dir.join(format!("synth_network_{i}.yml")),
+            format!(
+                "title: Synth Network {i}\n\
+                 logsource:\n  product: linux\n  category: network_connection\n\
+                 detection:\n  selection:\n    DestinationIp|cidr: 203.0.113.{octet}/32\n\
+                 \x20 condition: selection\nlevel: low\n",
+                octet = i % 256
+            ),
+        )
+        .expect("write synthetic network rule");
+        std::fs::write(
+            dir.join(format!("synth_file_{i}.yml")),
+            format!(
+                "title: Synth File {i}\n\
+                 logsource:\n  product: linux\n  category: file_event\n\
+                 detection:\n  selection:\n    TargetFilename|endswith: .synth{i}\n\
+                 \x20 condition: selection\nlevel: low\n"
+            ),
+        )
+        .expect("write synthetic file rule");
+        std::fs::write(
+            dir.join(format!("synth_dns_{i}.yml")),
+            format!(
+                "title: Synth Dns {i}\n\
+                 logsource:\n  product: linux\n  category: dns_query\n\
+                 detection:\n  selection:\n    QueryName|contains: synth{i}.invalid\n\
+                 \x20 condition: selection\nlevel: low\n"
+            ),
+        )
+        .expect("write synthetic dns rule");
+    }
+}
+
 fn event(category: EventCategory, event_id: u16, fields: &[(&str, &str)]) -> NormalizedEvent {
     let mut map = HashMap::new();
     for (key, value) in fields {
@@ -169,5 +225,23 @@ fn bench_check_event(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_check_event);
+fn bench_check_event_large(c: &mut Criterion) {
+    let tempdir = TempDir::new().expect("bench tempdir");
+    write_scaled_rules(tempdir.path(), SYNTHETIC_RULES_PER_FAMILY);
+    let mut engine = Engine::new_for_platform(Platform::Linux);
+    engine
+        .load_rules(tempdir.path())
+        .expect("bench rules should load");
+    let events = sample_events();
+
+    c.bench_function(&format!("check_event/{BACKEND}/large"), |b| {
+        b.iter(|| {
+            for ev in &events {
+                black_box(engine.check_event(black_box(ev)));
+            }
+        });
+    });
+}
+
+criterion_group!(benches, bench_check_event, bench_check_event_large);
 criterion_main!(benches);
