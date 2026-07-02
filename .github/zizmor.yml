@@ -1,0 +1,10 @@
+# Zizmor configuration. Audits inherit zizmor's default behaviour;
+# add rule-level ignores here when a workflow has a deliberate
+# exception that needs justifying.
+rules:
+  # The release job intentionally uses softprops/action-gh-release for its
+  # multi-asset upload and generated release notes; the `gh release` rewrite the
+  # audit suggests is not worth the churn on the working release pipeline.
+  superfluous-actions:
+    ignore:
+      - ci-cd.yml
