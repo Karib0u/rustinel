@@ -19,6 +19,55 @@ All detection hits are written as ECS NDJSON alerts. The same alerts can also fe
 
 ## Sigma
 
+### Detection Engine
+
+Rustinel ships two interchangeable Sigma matchers, selectable at runtime:
+
+- Built-in (default): Rustinel's own matcher with an `evalexpr` condition evaluator. Always available.
+- RSigma: the `rsigma-parser` and `rsigma-eval` libraries. Available only in binaries built with the `rsigma-engine` Cargo feature, which the official release binaries include.
+
+Both backends reuse Rustinel's normalization, logsource classification, ECS alert output, hot reload, and IOC and YARA paths, so switching between them changes only the Sigma matching internals.
+
+The RSigma engine is an opt-in, experimental backend. It is a newer detection path that may differ in behavior from the built-in matcher (see [Engine Conformance](#engine-conformance) for the known differences). The built-in matcher remains the default and the supported path; the official release binaries include RSigma so you can try it without rebuilding.
+
+Select the engine with the `run` flag or the config file, with the flag taking precedence:
+
+```sh
+rustinel run --sigma-engine rsigma   # or: --sigma-engine builtin (default)
+```
+
+```toml
+[scanner]
+sigma_engine = "rsigma"  # or "builtin" (default)
+```
+
+The `EDR__SCANNER__SIGMA_ENGINE` environment variable works as well. Requesting `rsigma` from a binary built without the `rsigma-engine` feature fails fast at startup with a clear message rather than silently falling back. To compile the engine into your own build:
+
+```sh
+cargo build --release --features rsigma-engine
+```
+
+### Engine Conformance
+
+The built-in engine implements the stateless subset of the Sigma specification that covers typical field-matching rules. The RSigma engine implements the full specification plus experimental features. Both agree on the common surface: the modifiers listed under [Supported Modifiers](#supported-modifiers), wildcards, keyword search, list-as-OR and map-as-AND selections, and `1 of` and `all of` conditions.
+
+The built-in engine does not implement the following, whereas RSigma does. Run such rulesets under `--sigma-engine rsigma`:
+
+| Sigma feature | Built-in | RSigma |
+| --- | --- | --- |
+| `N of` condition quantifiers such as `2 of selection*` | No (only `1 of` and `all of`) | Yes |
+| Array-scope quantifiers `field[any]` and `field[all]`, and element-scope blocks ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212)) | No | Yes |
+| Correlations (`event_count`, `value_count`, `temporal`, `temporal_ordered`, `value_sum`, `value_avg`, `value_percentile`, `value_median`) | No | Yes |
+| Filter rules | No | Yes |
+| Collection actions `reset` and `repeat` (`global` is supported by both) | No | Yes |
+| `expand` modifier and `%placeholder%` expansion | No | Yes |
+| `sigma-version` aware evaluation ([SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) | No | Yes |
+| Full rule-object metadata (status, date, author, references, falsepositives, related, fields, custom attributes) | Dropped | Preserved |
+
+On an unsupported construct the built-in engine may skip the rule at load, fail to match, or mis-evaluate a complex condition, so rulesets that rely on these features should run under the RSigma engine.
+
+Array matching and `sigma-version` are proposed Sigma Enhancement Proposals ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212) and [SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) targeting the next major Sigma release; RSigma is their reference implementation and supports them ahead of standardization.
+
 ### Rule Loading and Classification
 
 - Rules load recursively from `scanner.sigma_rules_path`.

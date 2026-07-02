@@ -21,7 +21,7 @@ Running `rustinel` without a subcommand is equivalent to `rustinel run`.
 Run Rustinel in the foreground.
 
 ```text
-rustinel run [--no-console] [--console] [--log-level <LEVEL>]
+rustinel run [--no-console] [--console] [--log-level <LEVEL>] [--sigma-engine <ENGINE>]
 ```
 
 Examples:
@@ -41,6 +41,7 @@ Notes:
 - `rustinel run` enables console output by default on every platform.
 - `--no-console` suppresses console output, for example when redirecting logs.
 - `--console` is kept as a compatibility alias and has the same effect as the default.
+- `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
 ### `service`

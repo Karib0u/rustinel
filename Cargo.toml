@@ -13,6 +13,12 @@ members = ["."]
 default-members = ["."]
 resolver = "2"
 
+[features]
+# Opt-in RSigma library backend: swaps Rustinel's built-in Sigma matcher for
+# rsigma-parser + rsigma-eval while keeping Rustinel-owned normalization,
+# logsource routing, ECS alerts, hot reload, and IOC/YARA.
+rsigma-engine = ["dep:rsigma-parser", "dep:rsigma-eval"]
+
 [dependencies]
 # Sigma detection engine
 # Using regex for pattern matching in Sigma rules
@@ -20,6 +26,11 @@ regex = "1.10"
 
 # Boolean expression evaluator for Sigma logic
 evalexpr = "13.1.0"
+
+# Optional RSigma library backend (enabled by the `rsigma-engine` feature):
+# parsing (rsigma-parser) and stateless evaluation (rsigma-eval).
+rsigma-parser = { version = "0.18", optional = true }
+rsigma-eval = { version = "0.18", optional = true }
 
 # Network and encoding utilities for Sigma
 ipnetwork = "0.21.1"
@@ -88,3 +99,10 @@ windows-service = "0.8.1"
 
 [dev-dependencies]
 tempfile = "3.8"
+criterion = "0.5"
+
+# Compare the built-in Sigma engine (default) against the RSigma backend by
+# running `cargo bench` and `cargo bench --features rsigma-engine`.
+[[bench]]
+name = "sigma_backend"
+harness = false
