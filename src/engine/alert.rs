@@ -1,6 +1,7 @@
 use super::*;
 
 impl Engine {
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn truncate_str(s: &str, max_len: usize) -> (String, bool) {
         if s.len() <= max_len {
             return (s.to_string(), false);
@@ -24,6 +25,7 @@ impl Engine {
         (out, true)
     }
 
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn pattern_descriptor(pattern: &FieldPattern) -> (String, String, Option<bool>) {
         match pattern {
             FieldPattern::Exact(s, cased) => ("exact".to_string(), s.clone(), Some(*cased)),
@@ -50,6 +52,7 @@ impl Engine {
         }
     }
 
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn collect_keyword_matches(
         &self,
         event: &NormalizedEvent,
@@ -102,6 +105,7 @@ impl Engine {
         matched
     }
 
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn collect_field_matches(
         &self,
         event: &NormalizedEvent,
@@ -201,6 +205,7 @@ impl Engine {
         }
     }
 
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn build_sigma_summary(
         &self,
         rule: &CompiledRule,
@@ -262,6 +267,7 @@ impl Engine {
         summary
     }
 
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn build_sigma_match_details(
         &self,
         event: &NormalizedEvent,
@@ -345,6 +351,7 @@ impl Engine {
 
     /// Check an event against loaded rules
     /// OPTIMIZED: Uses zero-copy field access instead of HashMap creation
+    #[cfg(not(feature = "rsigma-engine"))]
     pub fn check_event(&self, event: &NormalizedEvent) -> Option<Alert> {
         let candidate_logsources = Self::sigma_logsources_for_event(event);
 

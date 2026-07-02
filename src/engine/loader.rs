@@ -15,12 +15,17 @@ impl Engine {
         self.load_rules_recursive(rules_dir)?;
 
         info!("Loaded {} Sigma rules total", self.rule_count);
+        #[cfg(not(feature = "rsigma-engine"))]
         for (logsource, rules) in &self.rules_by_logsource {
             info!(
                 "  Logsource '{}': {} rules",
                 logsource.display(),
                 rules.len()
             );
+        }
+        #[cfg(feature = "rsigma-engine")]
+        for (logsource, count) in self.rsigma.counts() {
+            info!("  Logsource '{}': {} rules", logsource.display(), count);
         }
         info!(
             "Skipped rules - deferred: {}, unknown_logsource: {}, product_mismatch: {}, inactive_collectors: {}",
@@ -73,6 +78,7 @@ impl Engine {
     }
 
     /// Parse Sigma rule documents from YAML content, expanding `action: global` files.
+    #[cfg(not(feature = "rsigma-engine"))]
     pub fn parse_rule_documents(content: &str) -> Result<Vec<SigmaRule>> {
         let documents: Vec<serde_yaml::Value> = serde_yaml::Deserializer::from_str(content)
             .map(serde_yaml::Value::deserialize)
@@ -123,6 +129,7 @@ impl Engine {
     }
 
     /// Load a single rule file (supports multi-document YAML for "action: global" rules)
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn load_rule<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let content = fs::read_to_string(path.as_ref()).context("Failed to read rule file")?;
 
@@ -148,6 +155,7 @@ impl Engine {
     }
 
     /// Compile a Sigma rule into efficient matching patterns
+    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn compile_rule(&self, rule: SigmaRule) -> Result<CompiledRule> {
         let logsource = Self::normalized_logsource(&rule);
 

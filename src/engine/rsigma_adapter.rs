@@ -68,7 +68,7 @@ impl Event for RsigmaEvent<'_> {
         self.field_map()
             .values()
             .filter_map(Value::as_str)
-            .any(|value| pred(value))
+            .any(pred)
     }
 
     fn all_string_values(&self) -> Vec<Cow<'_, str>> {
@@ -153,7 +153,9 @@ mod tests {
         let adapter = RsigmaEvent::new(&event);
         let values = adapter.all_string_values();
         assert!(values.iter().any(|value| value.as_ref() == "/bin/sh"));
-        assert!(values.iter().any(|value| value.as_ref() == "2026-01-01T00:00:00Z"));
+        assert!(values
+            .iter()
+            .any(|value| value.as_ref() == "2026-01-01T00:00:00Z"));
         assert!(values.iter().any(|value| value.as_ref() == "1"));
     }
 

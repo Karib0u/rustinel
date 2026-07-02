@@ -4,54 +4,102 @@
 //! Checks normalized events against Sigma rules filtered by logsource.
 
 mod alert;
-mod condition;
 mod handler;
 mod loader;
 mod logsource;
-mod matcher;
-mod rule;
 mod stats;
+
+// The built-in Sigma matcher and its rule/condition types are only compiled
+// for the default backend. The `rsigma-engine` feature replaces them with the
+// RSigma library engine.
+#[cfg(not(feature = "rsigma-engine"))]
+mod condition;
+#[cfg(not(feature = "rsigma-engine"))]
+mod matcher;
+#[cfg(not(feature = "rsigma-engine"))]
+mod rule;
 
 #[cfg(feature = "rsigma-engine")]
 mod rsigma_adapter;
+#[cfg(feature = "rsigma-engine")]
+mod rsigma_backend;
 
-pub(crate) use condition::RuleLogicErrorLogLevel;
 pub use handler::SigmaDetectionHandler;
 pub(crate) use logsource::{current_platform, platform_product, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};
+#[cfg(not(feature = "rsigma-engine"))]
 pub(crate) use matcher::{FieldPattern, NumericOp, PatternMatcher};
+#[cfg(not(feature = "rsigma-engine"))]
 pub(crate) use rule::CompiledRule;
+#[cfg(not(feature = "rsigma-engine"))]
 pub use rule::{Detection, FieldCriterion, Selection, SigmaRule};
 pub use stats::EngineStats;
 
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose, Engine as _};
-use evalexpr::*;
-use ipnetwork::IpNetwork;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::net::IpAddr;
 use std::path::Path;
-use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 
+// Built-in matcher/condition dependencies, unused by the RSigma backend.
+#[cfg(not(feature = "rsigma-engine"))]
+use base64::{engine::general_purpose, Engine as _};
+#[cfg(not(feature = "rsigma-engine"))]
+use evalexpr::*;
+#[cfg(not(feature = "rsigma-engine"))]
+use ipnetwork::IpNetwork;
+#[cfg(not(feature = "rsigma-engine"))]
+use regex::Regex;
+#[cfg(not(feature = "rsigma-engine"))]
+use std::net::IpAddr;
+#[cfg(not(feature = "rsigma-engine"))]
+use std::sync::LazyLock;
+
+#[cfg(not(feature = "rsigma-engine"))]
 use crate::models::{
-    Alert, AlertSeverity, DetectionEngine, EventCategory, MatchDebugLevel, MatchDetails,
-    NormalizedEvent, SigmaFieldMatch, SigmaKeywordMatch, SigmaMatchDetails,
+    Alert, AlertSeverity, DetectionEngine, MatchDetails, SigmaFieldMatch, SigmaKeywordMatch,
+    SigmaMatchDetails,
 };
+use crate::models::{EventCategory, MatchDebugLevel, NormalizedEvent};
 use crate::sensor::Platform;
 
+/// Controls logging verbosity when a rule's condition fails to evaluate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuleLogicErrorLogLevel {
+    Off,
+    Debug,
+    Warn,
+}
+
+impl RuleLogicErrorLogLevel {
+    pub(crate) fn from_logging_level(level: &str) -> Self {
+        let normalized = level.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "debug" | "trace" => Self::Debug,
+            "warn" | "warning" => Self::Warn,
+            _ => Self::Off,
+        }
+    }
+}
+
+#[cfg(not(feature = "rsigma-engine"))]
 const MAX_SIGMA_MATCHES: usize = 16;
+#[cfg(not(feature = "rsigma-engine"))]
 const MAX_SIGMA_KEYWORD_MATCHES: usize = 8;
+#[cfg(not(feature = "rsigma-engine"))]
 const MAX_MATCH_VALUE_LEN: usize = 160;
+#[cfg(not(feature = "rsigma-engine"))]
 const MAX_PATTERN_LEN: usize = 160;
 pub struct Engine {
     /// Platform whose Sigma logsource rules should be accepted.
     platform: Platform,
-    /// Compiled rules indexed by normalized logsource.
+    /// Compiled rules indexed by normalized logsource (built-in backend).
+    #[cfg(not(feature = "rsigma-engine"))]
     rules_by_logsource: HashMap<LogSourceKey, Vec<CompiledRule>>,
+    /// Per-logsource RSigma engines and descriptions (rsigma-engine backend).
+    #[cfg(feature = "rsigma-engine")]
+    rsigma: rsigma_backend::RsigmaStore,
 
     /// Total number of loaded rules
     rule_count: usize,
@@ -81,6 +129,9 @@ pub struct Engine {
     unknown_logsource_counts: HashMap<LogSourceKey, usize>,
 
     /// Controls logging for rule logic evaluation errors.
+    // Consumed only by the built-in condition evaluator; carried but unread
+    // under the RSigma backend.
+    #[cfg_attr(feature = "rsigma-engine", allow(dead_code))]
     rule_logic_error_log_level: RuleLogicErrorLogLevel,
 
     /// Controls whether match debug details are attached to alerts.
@@ -147,7 +198,10 @@ impl Engine {
     ) -> Self {
         Self {
             platform,
+            #[cfg(not(feature = "rsigma-engine"))]
             rules_by_logsource: HashMap::new(),
+            #[cfg(feature = "rsigma-engine")]
+            rsigma: rsigma_backend::RsigmaStore::default(),
             rule_count: 0,
             rule_files_found: 0,
             failed_rules: Vec::new(),
@@ -169,7 +223,7 @@ impl Default for Engine {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "rsigma-engine")))]
 mod tests {
     use super::*;
     use crate::models::{EventFields, ProcessCreationFields};
