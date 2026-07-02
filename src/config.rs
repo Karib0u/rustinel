@@ -101,6 +101,9 @@ pub struct AppConfig {
 pub struct ScannerConfig {
     pub sigma_enabled: bool,
     pub sigma_rules_path: PathBuf,
+    /// Sigma matching backend: "builtin" (default) or "rsigma". Selecting
+    /// "rsigma" requires a binary built with the `rsigma-engine` feature.
+    pub sigma_engine: String,
     pub yara_enabled: bool,
     pub yara_rules_path: PathBuf,
     pub yara_allowlist_paths: Vec<String>,
@@ -202,6 +205,7 @@ impl AppConfig {
             // Scanner
             .set_default("scanner.sigma_enabled", true)?
             .set_default("scanner.sigma_rules_path", "rules/sigma")?
+            .set_default("scanner.sigma_engine", "builtin")?
             .set_default("scanner.yara_enabled", true)?
             .set_default("scanner.yara_rules_path", "rules/yara")?
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
@@ -296,6 +300,7 @@ impl Default for AppConfig {
             scanner: ScannerConfig {
                 sigma_enabled: true,
                 sigma_rules_path: PathBuf::from("rules/sigma"),
+                sigma_engine: "builtin".to_string(),
                 yara_enabled: true,
                 yara_rules_path: PathBuf::from("rules/yara"),
                 yara_allowlist_paths: Vec::new(),
@@ -406,6 +411,22 @@ mod tests {
             cfg.ioc.paths_regex_path,
             PathBuf::from("rules/ioc/paths_regex.txt")
         );
+    }
+
+    #[test]
+    fn sigma_engine_defaults_to_builtin() {
+        assert_eq!(AppConfig::default().scanner.sigma_engine, "builtin");
+    }
+
+    #[test]
+    fn env_overrides_sigma_engine() {
+        // Mutates process env, scoped to this test and restored below. No other
+        // test asserts scanner.sigma_engine through AppConfig::new(), so setting
+        // it here cannot make a parallel test flaky.
+        std::env::set_var("EDR__SCANNER__SIGMA_ENGINE", "rsigma");
+        let cfg = AppConfig::new().expect("config should load");
+        std::env::remove_var("EDR__SCANNER__SIGMA_ENGINE");
+        assert_eq!(cfg.scanner.sigma_engine, "rsigma");
     }
 
     #[test]

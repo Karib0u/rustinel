@@ -1,0 +1,57 @@
+name: RSigma Engine
+
+# Parity gate for the optional `rsigma-engine` backend: builds and runs the
+# full test suite with the feature enabled so the RSigma-backed engine stays in
+# lockstep with the built-in one (the default backend is covered by the main
+# CI/CD workflow). Runs on macOS and Windows, which need no eBPF object, so the
+# platform-independent Sigma engine is exercised without the Linux build.rs
+# dependency.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'tests/**'
+      - '.github/workflows/rsigma-engine.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'tests/**'
+      - '.github/workflows/rsigma-engine.yml'
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  feature:
+    name: rsigma-engine (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    permissions:
+      contents: read # check out the repository
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Clippy (rsigma-engine)
+        run: cargo clippy --locked --features rsigma-engine --all-targets -- -D clippy::all
+      - name: Test (rsigma-engine)
+        run: cargo test --locked --features rsigma-engine --verbose

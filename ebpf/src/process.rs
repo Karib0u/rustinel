@@ -16,7 +16,7 @@
 //!   offset 20+: variable string data
 
 use aya_ebpf::{
-    helpers::{bpf_get_current_uid_gid, bpf_probe_read_kernel_str_bytes},
+    helpers::{bpf_get_current_comm, bpf_get_current_uid_gid, bpf_probe_read_kernel_str_bytes},
     macros::{map, tracepoint},
     maps::RingBuf,
     programs::TracePointContext,
@@ -61,14 +61,8 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
 
     // Read comm and image into local buffers, then copy into ring-buffer entry.
     // Keep buffers small enough to stay within the 512-byte BPF stack limit.
-    let mut comm = [0u8; 16];
+    let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
     let mut image = [0u8; 128];
-
-    // bpf_get_current_comm fills `comm` with the current task's short name.
-    aya_ebpf::helpers::gen::bpf_get_current_comm(
-        comm.as_mut_ptr() as *mut _,
-        core::mem::size_of_val(&comm) as u32,
-    );
 
     // Read null-terminated executable path from kernel tracepoint data.
     // Ignore errors — an empty image is still a useful process event.
@@ -103,11 +97,7 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     }
 
     let uid = bpf_get_current_uid_gid() as u32;
-    let mut comm = [0u8; 16];
-    aya_ebpf::helpers::gen::bpf_get_current_comm(
-        comm.as_mut_ptr() as *mut _,
-        core::mem::size_of_val(&comm) as u32,
-    );
+    let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
     if let Some(mut entry) = PROCESS_RING.reserve::<ProcessEvent>(0) {
         entry.write(ProcessEvent {

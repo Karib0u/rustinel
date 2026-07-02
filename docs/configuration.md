@@ -29,6 +29,7 @@ Production note:
 [scanner]
 sigma_enabled = true
 sigma_rules_path = "rules/sigma"
+sigma_engine = "builtin"
 yara_enabled = true
 yara_rules_path = "rules/yara"
 
@@ -93,6 +94,7 @@ Use Windows path prefixes on Windows and Unix path prefixes on Linux.
 | --- | --- |
 | `scanner.sigma_enabled` | `true` |
 | `scanner.sigma_rules_path` | `rules/sigma` |
+| `scanner.sigma_engine` | `builtin` |
 | `scanner.yara_enabled` | `true` |
 | `scanner.yara_rules_path` | `rules/yara` |
 | `reload.enabled` | `true` |
@@ -155,6 +157,7 @@ These defaults feed `allowlist.paths`, which then propagate to active response, 
 | --- | --- | --- |
 | `sigma_enabled` | `true` | Enable Sigma rule evaluation |
 | `sigma_rules_path` | `rules/sigma` | Sigma rules directory |
+| `sigma_engine` | `builtin` | Sigma matching backend: `builtin` or `rsigma` (the latter needs the `rsigma-engine` build feature) |
 | `yara_enabled` | `true` | Enable YARA scanning |
 | `yara_rules_path` | `rules/yara` | YARA rules directory |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped by YARA queueing and scanning |

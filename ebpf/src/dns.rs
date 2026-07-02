@@ -7,7 +7,10 @@
 //! userspace via `/proc/<pid>/net/` or application-layer tracing.
 
 use aya_ebpf::{
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_probe_read_user},
+    helpers::{
+        bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_probe_read_user,
+        bpf_probe_read_user_buf,
+    },
     macros::{map, tracepoint},
     maps::{PerCpuArray, RingBuf},
     programs::TracePointContext,
@@ -87,12 +90,12 @@ unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
     };
     let read_len = len.min(MAX_DNS_PAYLOAD);
     (*scratch).payload = [0u8; MAX_DNS_PAYLOAD];
-    let ret = aya_ebpf::helpers::gen::bpf_probe_read_user(
-        (*scratch).payload.as_mut_ptr() as *mut core::ffi::c_void,
-        read_len as u32,
-        buf_ptr as *const core::ffi::c_void,
-    );
-    if ret != 0 {
+    if bpf_probe_read_user_buf(
+        buf_ptr as *const u8,
+        &mut (&mut (*scratch).payload)[..read_len],
+    )
+    .is_err()
+    {
         return Ok(0);
     }
 
