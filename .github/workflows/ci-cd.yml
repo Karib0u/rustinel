@@ -125,7 +125,6 @@ jobs:
         with:
           path: ~/.cargo/bin/bpf-linker
           key: bpf-linker-${{ runner.os }}-${{ hashFiles('ebpf/Cargo.toml') }}
-          lookup-only: true
 
       - name: Install bpf-linker
         if: steps.cache-bpf-linker.outputs.cache-hit != 'true'
