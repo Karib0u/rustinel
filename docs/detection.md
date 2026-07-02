@@ -54,15 +54,17 @@ The built-in engine does not implement the following, whereas RSigma does. Run s
 | Sigma feature | Built-in | RSigma |
 | --- | --- | --- |
 | `N of` condition quantifiers such as `2 of selection*` | No (only `1 of` and `all of`) | Yes |
-| Array-scope quantifiers `field[any]` and `field[all]`, and element-scope blocks | No | Yes |
+| Array-scope quantifiers `field[any]` and `field[all]`, and element-scope blocks ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212)) | No | Yes |
 | Correlations (`event_count`, `value_count`, `temporal`, `temporal_ordered`, `value_sum`, `value_avg`, `value_percentile`, `value_median`) | No | Yes |
 | Filter rules | No | Yes |
 | Collection actions `reset` and `repeat` (`global` is supported by both) | No | Yes |
 | `expand` modifier and `%placeholder%` expansion | No | Yes |
-| `sigma-version` aware evaluation | No | Yes |
+| `sigma-version` aware evaluation ([SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) | No | Yes |
 | Full rule-object metadata (status, date, author, references, falsepositives, related, fields, custom attributes) | Dropped | Preserved |
 
 On an unsupported construct the built-in engine may skip the rule at load, fail to match, or mis-evaluate a complex condition, so rulesets that rely on these features should run under the RSigma engine.
+
+Array matching and `sigma-version` are proposed Sigma Enhancement Proposals ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212) and [SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) targeting the next major Sigma release; RSigma is their reference implementation and supports them ahead of standardization.
 
 ### Rule Loading and Classification
 
