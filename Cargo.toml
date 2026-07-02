@@ -99,7 +99,7 @@ windows-service = "0.8.1"
 
 [dev-dependencies]
 tempfile = "3.8"
-criterion = "0.5"
+criterion = "0.8"
 
 # Compare the built-in Sigma engine (default) against the RSigma backend by
 # running `cargo bench` and `cargo bench --features rsigma-engine`.
