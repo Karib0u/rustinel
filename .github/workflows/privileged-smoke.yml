@@ -3,6 +3,12 @@ name: Privileged Smoke Tests
 on:
   workflow_dispatch:
 
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -11,10 +17,14 @@ jobs:
   linux-privileged-smoke:
     name: Linux Privileged Smoke
     runs-on: [self-hosted, linux]
+    permissions:
+      contents: read # checkout
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Build memory target
         run: cargo build --locked --example memory_target
       - name: Run ignored YARA memory smoke tests
@@ -25,10 +35,14 @@ jobs:
   windows-privileged-smoke:
     name: Windows Privileged Smoke
     runs-on: [self-hosted, windows]
+    permissions:
+      contents: read # checkout
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Build memory target
         run: cargo build --locked --example memory_target
       - name: Run ignored YARA memory smoke tests

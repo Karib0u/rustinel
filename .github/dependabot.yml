@@ -12,6 +12,8 @@ updates:
       patch-updates:
         update-types:
           - patch
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: cargo
     directory: /ebpf
@@ -25,6 +27,8 @@ updates:
       patch-updates:
         update-types:
           - patch
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
@@ -34,3 +38,5 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - ci
+    cooldown:
+      default-days: 7
