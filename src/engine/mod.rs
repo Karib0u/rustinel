@@ -12,6 +12,9 @@ mod matcher;
 mod rule;
 mod stats;
 
+#[cfg(feature = "rsigma-engine")]
+mod rsigma_adapter;
+
 pub(crate) use condition::RuleLogicErrorLogLevel;
 pub use handler::SigmaDetectionHandler;
 pub(crate) use logsource::{current_platform, platform_product, RuleLoadDecision};
