@@ -19,6 +19,32 @@ All detection hits are written as ECS NDJSON alerts. The same alerts can also fe
 
 ## Sigma
 
+### Detection Engine
+
+Rustinel ships two interchangeable Sigma matchers, selectable at runtime:
+
+- Built-in (default): Rustinel's own matcher with an `evalexpr` condition evaluator. Always available.
+- RSigma: the `rsigma-parser` and `rsigma-eval` libraries. Available only in binaries built with the `rsigma-engine` Cargo feature, which the official release binaries include.
+
+Both backends reuse Rustinel's normalization, logsource classification, ECS alert output, hot reload, and IOC and YARA paths, so switching between them changes only the Sigma matching internals.
+
+Select the engine with the `run` flag or the config file, with the flag taking precedence:
+
+```sh
+rustinel run --sigma-engine rsigma   # or: --sigma-engine builtin (default)
+```
+
+```toml
+[scanner]
+sigma_engine = "rsigma"  # or "builtin" (default)
+```
+
+The `EDR__SCANNER__SIGMA_ENGINE` environment variable works as well. Requesting `rsigma` from a binary built without the `rsigma-engine` feature fails fast at startup with a clear message rather than silently falling back. To compile the engine into your own build:
+
+```sh
+cargo build --release --features rsigma-engine
+```
+
 ### Rule Loading and Classification
 
 - Rules load recursively from `scanner.sigma_rules_path`.
