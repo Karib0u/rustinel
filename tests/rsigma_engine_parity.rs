@@ -1,28 +1,43 @@
-//! Sigma detection parity checks that must hold for both the built-in engine
-//! and the RSigma-backed engine.
+//! Sigma detection parity checks across the built-in and RSigma engines.
 //!
-//! These tests use only the public `Engine` API, so CI runs them once with the
-//! default backend and once with `--features rsigma-engine`; agreement across
-//! both runs is the parity guarantee. They deliberately exercise the modifiers
-//! most likely to diverge between the two matchers: `cidr` and numeric/string
-//! comparisons (where the RSigma adapter yields every value as a string) plus
-//! `re` and `contains|all`.
+//! With the `rsigma-engine` feature enabled both backends are compiled in, so
+//! each test builds one engine per available backend over the same rules and
+//! events and asserts they reach the same verdict. Without the feature only the
+//! built-in backend runs. The rules deliberately exercise the modifiers most
+//! likely to diverge between the two matchers: `cidr` (where the RSigma adapter
+//! yields values as strings) plus `re` and `contains|all`.
 
 #[cfg(test)]
 mod common;
 
 use common::{network_connect_event, process_start_event, SigmaFixture, TestNormalizer};
-use rustinel::{engine::Engine, sensor::Platform};
+use rustinel::engine::{Engine, SigmaEngineKind};
+use rustinel::models::MatchDebugLevel;
+use rustinel::sensor::Platform;
 
-fn load_engine(fixture: &SigmaFixture, platform: Platform) -> Engine {
-    let mut engine = Engine::new_for_platform(platform);
+/// Every Sigma backend compiled into this build.
+fn backends() -> Vec<SigmaEngineKind> {
+    vec![
+        SigmaEngineKind::Builtin,
+        #[cfg(feature = "rsigma-engine")]
+        SigmaEngineKind::Rsigma,
+    ]
+}
+
+fn engine_with(fixture: &SigmaFixture, platform: Platform, kind: SigmaEngineKind) -> Engine {
+    let mut engine = Engine::new_for_platform_with_logging_level_and_match_debug(
+        platform,
+        "info",
+        MatchDebugLevel::Off,
+        kind,
+    );
     engine
         .load_rules(fixture.rules_dir())
         .expect("sigma rules should load");
     assert_eq!(
         engine.stats().failed_rules,
         Vec::<(String, String)>::new(),
-        "no rule should fail to load"
+        "no rule should fail to load ({kind:?})"
     );
     engine
 }
@@ -45,17 +60,19 @@ detection:
 level: high
 "#,
     );
-    let engine = load_engine(&fixture, Platform::Linux);
     let harness = TestNormalizer::new(false);
     let normalized = harness
         .normalizer
         .normalize(&network_connect_event(Platform::Linux))
         .expect("network event should normalize");
 
-    let alert = engine
-        .check_event(&normalized)
-        .expect("cidr + port rule should match");
-    assert_eq!(alert.rule_name, "Parity Network CIDR");
+    for kind in backends() {
+        let engine = engine_with(&fixture, Platform::Linux, kind);
+        let alert = engine
+            .check_event(&normalized)
+            .unwrap_or_else(|| panic!("cidr + port rule should match ({kind:?})"));
+        assert_eq!(alert.rule_name, "Parity Network CIDR", "backend {kind:?}");
+    }
 }
 
 #[test]
@@ -76,17 +93,19 @@ detection:
 level: high
 "#,
     );
-    let engine = load_engine(&fixture, Platform::Linux);
     let harness = TestNormalizer::new(false);
     let normalized = harness
         .normalizer
         .normalize(&network_connect_event(Platform::Linux))
         .expect("network event should normalize");
 
-    assert!(
-        engine.check_event(&normalized).is_none(),
-        "destination outside the CIDR must not alert"
-    );
+    for kind in backends() {
+        let engine = engine_with(&fixture, Platform::Linux, kind);
+        assert!(
+            engine.check_event(&normalized).is_none(),
+            "destination outside the CIDR must not alert ({kind:?})"
+        );
+    }
 }
 
 #[test]
@@ -110,15 +129,20 @@ detection:
 level: high
 "#,
     );
-    let engine = load_engine(&fixture, Platform::Linux);
     let harness = TestNormalizer::new(false);
     let normalized = harness
         .normalizer
         .normalize(&process_start_event(Platform::Linux))
         .expect("process event should normalize");
 
-    let alert = engine
-        .check_event(&normalized)
-        .expect("contains|all + re rule should match");
-    assert_eq!(alert.rule_name, "Parity Process ContainsAll Regex");
+    for kind in backends() {
+        let engine = engine_with(&fixture, Platform::Linux, kind);
+        let alert = engine
+            .check_event(&normalized)
+            .unwrap_or_else(|| panic!("contains|all + re rule should match ({kind:?})"));
+        assert_eq!(
+            alert.rule_name, "Parity Process ContainsAll Regex",
+            "backend {kind:?}"
+        );
+    }
 }

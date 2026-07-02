@@ -16,6 +16,27 @@ impl Cli {
     }
 }
 
+/// Sigma detection backend selectable at runtime.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SigmaEngineArg {
+    /// Rustinel's built-in matcher.
+    Builtin,
+    /// The RSigma library engine (only available in builds with the
+    /// `rsigma-engine` feature).
+    #[cfg(feature = "rsigma-engine")]
+    Rsigma,
+}
+
+impl SigmaEngineArg {
+    pub fn kind(self) -> crate::engine::SigmaEngineKind {
+        match self {
+            SigmaEngineArg::Builtin => crate::engine::SigmaEngineKind::Builtin,
+            #[cfg(feature = "rsigma-engine")]
+            SigmaEngineArg::Rsigma => crate::engine::SigmaEngineKind::Rsigma,
+        }
+    }
+}
+
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// Run in the foreground with console output
@@ -26,6 +47,10 @@ pub enum Commands {
         /// Disable console output
         #[arg(long)]
         no_console: bool,
+        /// Sigma detection backend to use (built-in matcher or RSigma engine).
+        /// Overrides `scanner.sigma_engine` from the config file.
+        #[arg(long, value_enum, value_name = "ENGINE")]
+        sigma_engine: Option<SigmaEngineArg>,
     },
     /// Service management commands
     Service {
@@ -55,6 +80,7 @@ mod tests {
             Some(Commands::Run {
                 console,
                 no_console,
+                ..
             }) => {
                 assert!(!console);
                 assert!(!no_console);
@@ -71,6 +97,7 @@ mod tests {
             Some(Commands::Run {
                 console,
                 no_console,
+                ..
             }) => {
                 assert!(console);
                 assert!(!no_console);
@@ -87,6 +114,7 @@ mod tests {
             Some(Commands::Run {
                 console,
                 no_console,
+                ..
             }) => {
                 assert!(!console);
                 assert!(no_console);

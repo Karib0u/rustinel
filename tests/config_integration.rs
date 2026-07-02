@@ -3,7 +3,11 @@ mod common;
 
 use common::{process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
-    config::AppConfig, engine::Engine, ioc::IocEngine, models::MatchDebugLevel, scanner::Scanner,
+    config::AppConfig,
+    engine::{Engine, SigmaEngineKind},
+    ioc::IocEngine,
+    models::MatchDebugLevel,
+    scanner::Scanner,
     sensor::Platform,
 };
 
@@ -119,6 +123,7 @@ fn match_debug_configuration_controls_sigma_and_yara_details() {
         Platform::Linux,
         "info",
         MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
     );
     off.load_rules(sigma.rules_dir()).expect("load off rule");
     assert!(off.check_event(&event).unwrap().match_details.is_none());
@@ -127,6 +132,7 @@ fn match_debug_configuration_controls_sigma_and_yara_details() {
         Platform::Linux,
         "info",
         MatchDebugLevel::Full,
+        SigmaEngineKind::Builtin,
     );
     full.load_rules(sigma.rules_dir()).expect("load full rule");
     let details = full.check_event(&event).unwrap().match_details.unwrap();

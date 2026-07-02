@@ -15,15 +15,29 @@ use std::collections::HashMap;
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use rustinel::engine::Engine;
-use rustinel::models::{EventCategory, EventFields, NormalizedEvent};
+use rustinel::engine::{Engine, SigmaEngineKind};
+use rustinel::models::{EventCategory, EventFields, MatchDebugLevel, NormalizedEvent};
 use rustinel::sensor::Platform;
 use tempfile::TempDir;
+
+#[cfg(feature = "rsigma-engine")]
+const ENGINE_KIND: SigmaEngineKind = SigmaEngineKind::Rsigma;
+#[cfg(not(feature = "rsigma-engine"))]
+const ENGINE_KIND: SigmaEngineKind = SigmaEngineKind::Builtin;
 
 #[cfg(feature = "rsigma-engine")]
 const BACKEND: &str = "rsigma";
 #[cfg(not(feature = "rsigma-engine"))]
 const BACKEND: &str = "builtin";
+
+fn engine() -> Engine {
+    Engine::new_for_platform_with_logging_level_and_match_debug(
+        Platform::Linux,
+        "info",
+        MatchDebugLevel::Off,
+        ENGINE_KIND,
+    )
+}
 
 /// A representative Linux ruleset covering the common logsource families and
 /// the modifiers Rustinel rules lean on (`endswith`, `contains`, `cidr`).
@@ -210,7 +224,7 @@ fn sample_events() -> Vec<NormalizedEvent> {
 fn bench_check_event(c: &mut Criterion) {
     let tempdir = TempDir::new().expect("bench tempdir");
     write_rules(tempdir.path());
-    let mut engine = Engine::new_for_platform(Platform::Linux);
+    let mut engine = engine();
     engine
         .load_rules(tempdir.path())
         .expect("bench rules should load");
@@ -228,7 +242,7 @@ fn bench_check_event(c: &mut Criterion) {
 fn bench_check_event_large(c: &mut Criterion) {
     let tempdir = TempDir::new().expect("bench tempdir");
     write_scaled_rules(tempdir.path(), SYNTHETIC_RULES_PER_FAMILY);
-    let mut engine = Engine::new_for_platform(Platform::Linux);
+    let mut engine = engine();
     engine
         .load_rules(tempdir.path())
         .expect("bench rules should load");

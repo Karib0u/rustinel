@@ -4,21 +4,17 @@
 //! Checks normalized events against Sigma rules filtered by logsource.
 
 mod alert;
+mod condition;
 mod handler;
 mod loader;
 mod logsource;
+mod matcher;
+mod rule;
 mod stats;
 
-// The built-in Sigma matcher and its rule/condition types are only compiled
-// for the default backend. The `rsigma-engine` feature replaces them with the
-// RSigma library engine.
-#[cfg(not(feature = "rsigma-engine"))]
-mod condition;
-#[cfg(not(feature = "rsigma-engine"))]
-mod matcher;
-#[cfg(not(feature = "rsigma-engine"))]
-mod rule;
-
+// The RSigma library backend is compiled in only when the feature is enabled.
+// It runs alongside the built-in matcher and is selected at runtime via
+// `SigmaEngineKind`.
 #[cfg(feature = "rsigma-engine")]
 mod rsigma_adapter;
 #[cfg(feature = "rsigma-engine")]
@@ -27,42 +23,89 @@ mod rsigma_backend;
 pub use handler::SigmaDetectionHandler;
 pub(crate) use logsource::{current_platform, platform_product, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};
-#[cfg(not(feature = "rsigma-engine"))]
 pub(crate) use matcher::{FieldPattern, NumericOp, PatternMatcher};
-#[cfg(not(feature = "rsigma-engine"))]
 pub(crate) use rule::CompiledRule;
-#[cfg(not(feature = "rsigma-engine"))]
 pub use rule::{Detection, FieldCriterion, Selection, SigmaRule};
 pub use stats::EngineStats;
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose, Engine as _};
+use evalexpr::*;
+use ipnetwork::IpNetwork;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::net::IpAddr;
 use std::path::Path;
+use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 
-// Built-in matcher/condition dependencies, unused by the RSigma backend.
-#[cfg(not(feature = "rsigma-engine"))]
-use base64::{engine::general_purpose, Engine as _};
-#[cfg(not(feature = "rsigma-engine"))]
-use evalexpr::*;
-#[cfg(not(feature = "rsigma-engine"))]
-use ipnetwork::IpNetwork;
-#[cfg(not(feature = "rsigma-engine"))]
-use regex::Regex;
-#[cfg(not(feature = "rsigma-engine"))]
-use std::net::IpAddr;
-#[cfg(not(feature = "rsigma-engine"))]
-use std::sync::LazyLock;
-
-#[cfg(not(feature = "rsigma-engine"))]
 use crate::models::{
-    Alert, AlertSeverity, DetectionEngine, MatchDetails, SigmaFieldMatch, SigmaKeywordMatch,
-    SigmaMatchDetails,
+    Alert, AlertSeverity, DetectionEngine, EventCategory, MatchDebugLevel, MatchDetails,
+    NormalizedEvent, SigmaFieldMatch, SigmaKeywordMatch, SigmaMatchDetails,
 };
-use crate::models::{EventCategory, MatchDebugLevel, NormalizedEvent};
 use crate::sensor::Platform;
+
+/// Which Sigma matching backend the engine uses at runtime.
+///
+/// Both variants always exist so configuration parses uniformly; selecting
+/// [`SigmaEngineKind::Rsigma`] requires a binary built with the `rsigma-engine`
+/// feature, which is validated at startup via [`SigmaEngineKind::is_available`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SigmaEngineKind {
+    /// Rustinel's built-in matcher.
+    #[default]
+    Builtin,
+    /// The RSigma library engine (`rsigma-parser` + `rsigma-eval`).
+    Rsigma,
+}
+
+impl SigmaEngineKind {
+    /// Parse an engine name (`builtin` or `rsigma`).
+    pub fn parse(value: &str) -> anyhow::Result<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "builtin" | "built-in" | "default" => Ok(Self::Builtin),
+            "rsigma" => Ok(Self::Rsigma),
+            other => Err(anyhow::anyhow!(
+                "unknown sigma engine '{other}' (expected 'builtin' or 'rsigma')"
+            )),
+        }
+    }
+
+    /// Whether this backend is compiled into the current binary.
+    pub fn is_available(self) -> bool {
+        match self {
+            Self::Builtin => true,
+            Self::Rsigma => cfg!(feature = "rsigma-engine"),
+        }
+    }
+
+    /// The lowercase engine name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Builtin => "builtin",
+            Self::Rsigma => "rsigma",
+        }
+    }
+
+    /// Resolve the effective engine from an optional CLI override and the
+    /// configured value, validating that the chosen backend is compiled in.
+    pub fn resolve(cli: Option<SigmaEngineKind>, configured: &str) -> anyhow::Result<Self> {
+        let kind = match cli {
+            Some(kind) => kind,
+            None => Self::parse(configured)?,
+        };
+        if !kind.is_available() {
+            anyhow::bail!(
+                "the '{}' Sigma engine was requested but this binary was built without the \
+                 rsigma-engine feature; rebuild with `--features rsigma-engine` or select 'builtin'",
+                kind.as_str()
+            );
+        }
+        Ok(kind)
+    }
+}
 
 /// Controls logging verbosity when a rule's condition fails to evaluate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,19 +126,16 @@ impl RuleLogicErrorLogLevel {
     }
 }
 
-#[cfg(not(feature = "rsigma-engine"))]
 const MAX_SIGMA_MATCHES: usize = 16;
-#[cfg(not(feature = "rsigma-engine"))]
 const MAX_SIGMA_KEYWORD_MATCHES: usize = 8;
-#[cfg(not(feature = "rsigma-engine"))]
 const MAX_MATCH_VALUE_LEN: usize = 160;
-#[cfg(not(feature = "rsigma-engine"))]
 const MAX_PATTERN_LEN: usize = 160;
 pub struct Engine {
     /// Platform whose Sigma logsource rules should be accepted.
     platform: Platform,
+    /// Which matching backend is active for this engine instance.
+    engine_kind: SigmaEngineKind,
     /// Compiled rules indexed by normalized logsource (built-in backend).
-    #[cfg(not(feature = "rsigma-engine"))]
     rules_by_logsource: HashMap<LogSourceKey, Vec<CompiledRule>>,
     /// Per-logsource RSigma engines and descriptions (rsigma-engine backend).
     #[cfg(feature = "rsigma-engine")]
@@ -128,10 +168,7 @@ pub struct Engine {
     /// Unknown logsource counts by normalized tuple.
     unknown_logsource_counts: HashMap<LogSourceKey, usize>,
 
-    /// Controls logging for rule logic evaluation errors.
-    // Consumed only by the built-in condition evaluator; carried but unread
-    // under the RSigma backend.
-    #[cfg_attr(feature = "rsigma-engine", allow(dead_code))]
+    /// Controls logging for rule logic evaluation errors (built-in backend).
     rule_logic_error_log_level: RuleLogicErrorLogLevel,
 
     /// Controls whether match debug details are attached to alerts.
@@ -146,8 +183,9 @@ impl Engine {
 
     /// Creates a new engine instance for an explicit sensor platform.
     pub fn new_for_platform(platform: Platform) -> Self {
-        Self::new_for_platform_with_rule_logic_error_log_level_and_match_debug(
+        Self::new_inner(
             platform,
+            SigmaEngineKind::Builtin,
             RuleLogicErrorLogLevel::Warn,
             MatchDebugLevel::Off,
         )
@@ -158,47 +196,50 @@ impl Engine {
     #[allow(dead_code)]
     pub fn new_with_logging_level(logging_level: &str) -> Self {
         let level = RuleLogicErrorLogLevel::from_logging_level(logging_level);
-        Self::new_for_platform_with_rule_logic_error_log_level_and_match_debug(
+        Self::new_inner(
             current_platform(),
+            SigmaEngineKind::Builtin,
             level,
             MatchDebugLevel::Off,
         )
     }
 
-    /// Creates a new engine instance that also configures match debug verbosity.
+    /// Creates a new engine instance for the current platform, selecting the
+    /// backend and match-debug verbosity. Used by the hot-reload worker.
     pub fn new_with_logging_level_and_match_debug(
         logging_level: &str,
         match_debug: MatchDebugLevel,
+        engine_kind: SigmaEngineKind,
     ) -> Self {
         Self::new_for_platform_with_logging_level_and_match_debug(
             current_platform(),
             logging_level,
             match_debug,
+            engine_kind,
         )
     }
 
-    /// Creates a new engine instance for an explicit platform and match-debug setting.
+    /// Creates a new engine instance for an explicit platform, backend, and
+    /// match-debug setting. Used at runtime startup.
     pub fn new_for_platform_with_logging_level_and_match_debug(
         platform: Platform,
         logging_level: &str,
         match_debug: MatchDebugLevel,
+        engine_kind: SigmaEngineKind,
     ) -> Self {
         let level = RuleLogicErrorLogLevel::from_logging_level(logging_level);
-        Self::new_for_platform_with_rule_logic_error_log_level_and_match_debug(
-            platform,
-            level,
-            match_debug,
-        )
+        Self::new_inner(platform, engine_kind, level, match_debug)
     }
 
-    fn new_for_platform_with_rule_logic_error_log_level_and_match_debug(
+    fn new_inner(
         platform: Platform,
+        engine_kind: SigmaEngineKind,
         level: RuleLogicErrorLogLevel,
         match_debug: MatchDebugLevel,
     ) -> Self {
         Self {
             platform,
-            #[cfg(not(feature = "rsigma-engine"))]
+            engine_kind,
             rules_by_logsource: HashMap::new(),
             #[cfg(feature = "rsigma-engine")]
             rsigma: rsigma_backend::RsigmaStore::default(),
@@ -215,6 +256,24 @@ impl Engine {
             match_debug,
         }
     }
+
+    /// The active detection backend.
+    pub fn engine_kind(&self) -> SigmaEngineKind {
+        self.engine_kind
+    }
+
+    /// Check an event against the loaded rules using the active backend.
+    pub fn check_event(&self, event: &NormalizedEvent) -> Option<Alert> {
+        match self.engine_kind {
+            SigmaEngineKind::Builtin => self.check_event_builtin(event),
+            #[cfg(feature = "rsigma-engine")]
+            SigmaEngineKind::Rsigma => self.check_event_rsigma(event),
+            // Unreachable in practice (startup validation rejects `rsigma`
+            // without the feature); fall back rather than panic.
+            #[cfg(not(feature = "rsigma-engine"))]
+            SigmaEngineKind::Rsigma => self.check_event_builtin(event),
+        }
+    }
 }
 
 impl Default for Engine {
@@ -223,7 +282,7 @@ impl Default for Engine {
     }
 }
 
-#[cfg(all(test, not(feature = "rsigma-engine")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::{EventFields, ProcessCreationFields};

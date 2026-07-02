@@ -146,7 +146,7 @@ impl Engine {
     /// `action: global`/`reset`/`repeat`), applies Rustinel's platform/logsource
     /// load decision to each rule, and compiles accepted rules into the
     /// per-logsource RSigma engines.
-    pub(crate) fn load_rule<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+    pub(crate) fn load_rule_rsigma<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path).context("Failed to read rule file")?;
         let collection = parse_sigma_yaml(&content).map_err(|err| anyhow::anyhow!("{err}"))?;
@@ -178,7 +178,7 @@ impl Engine {
     /// Routes the event to candidate logsources exactly as the built-in
     /// backend, then evaluates the RSigma engine for each candidate bucket and
     /// maps the first detection to an [`Alert`].
-    pub fn check_event(&self, event: &NormalizedEvent) -> Option<Alert> {
+    pub(crate) fn check_event_rsigma(&self, event: &NormalizedEvent) -> Option<Alert> {
         let candidate_logsources = Self::sigma_logsources_for_event(event);
         let adapter = RsigmaEvent::new(event);
 

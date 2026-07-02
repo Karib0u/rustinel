@@ -153,7 +153,6 @@ pub(crate) fn platform_product(platform: Platform) -> &'static str {
 
 /// Field pattern for matching
 impl Engine {
-    #[cfg(not(feature = "rsigma-engine"))]
     pub(crate) fn normalized_logsource(rule: &SigmaRule) -> LogSourceKey {
         LogSourceKey::from_logsource(&rule.logsource)
     }
