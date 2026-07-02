@@ -28,6 +28,8 @@ Rustinel ships two interchangeable Sigma matchers, selectable at runtime:
 
 Both backends reuse Rustinel's normalization, logsource classification, ECS alert output, hot reload, and IOC and YARA paths, so switching between them changes only the Sigma matching internals.
 
+The RSigma engine is an opt-in, experimental backend. It is a newer detection path that may differ in behavior from the built-in matcher (see [Engine Conformance](#engine-conformance) for the known differences). The built-in matcher remains the default and the supported path; the official release binaries include RSigma so you can try it without rebuilding.
+
 Select the engine with the `run` flag or the config file, with the flag taking precedence:
 
 ```sh
