@@ -18,9 +18,13 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-pub fn run(console_output: bool, log_level: Option<String>) -> anyhow::Result<()> {
+pub fn run(
+    console_output: bool,
+    log_level: Option<String>,
+    sigma_engine: Option<crate::engine::SigmaEngineKind>,
+) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(run_linux_edr(Some(console_output), log_level))
+    runtime.block_on(run_linux_edr(Some(console_output), log_level, sigma_engine))
 }
 
 /// Linux eBPF EDR main loop. Mirrors `run_edr` but replaces ETW with the
@@ -28,6 +32,7 @@ pub fn run(console_output: bool, log_level: Option<String>) -> anyhow::Result<()
 async fn run_linux_edr(
     console_output_override: Option<bool>,
     log_level_override: Option<String>,
+    sigma_engine_override: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     // 1. Configuration
     let mut cfg = match config::AppConfig::new() {
@@ -79,10 +84,14 @@ async fn run_linux_edr(
     let (response_engine, response_worker_handle) = ResponseEngine::new(&cfg.response);
 
     // 5. Sigma engine
+    let engine_kind =
+        crate::engine::SigmaEngineKind::resolve(sigma_engine_override, &cfg.scanner.sigma_engine)?;
+    info!(engine = engine_kind.as_str(), "Selected Sigma engine");
     let mut sigma_engine = Engine::new_for_platform_with_logging_level_and_match_debug(
         Platform::Linux,
         &cfg.logging.level,
         cfg.alerts.match_debug,
+        engine_kind,
     );
 
     if cfg.scanner.sigma_enabled {
@@ -147,6 +156,7 @@ async fn run_linux_edr(
             cfg.reload.clone(),
             cfg.logging.level.clone(),
             cfg.alerts.match_debug,
+            engine_kind,
             rx,
         ));
         reload_poller_handle = Some(reload::spawn_reload_poller(

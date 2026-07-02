@@ -69,6 +69,10 @@ impl DetectorStore {
     }
 }
 
+// The worker is wired from the platform runtime with the full detector,
+// config, logging, backend, and channel context; grouping these into a struct
+// would only obscure the call sites.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_reload_worker(
     store: Arc<DetectorStore>,
     scanner_cfg: ScannerConfig,
@@ -76,6 +80,7 @@ pub fn spawn_reload_worker(
     reload_cfg: ReloadConfig,
     log_level: String,
     match_debug: MatchDebugLevel,
+    engine_kind: crate::engine::SigmaEngineKind,
     mut reload_rx: mpsc::UnboundedReceiver<ReloadTarget>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -135,8 +140,11 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        let mut engine =
-                            Engine::new_with_logging_level_and_match_debug(&log_level, match_debug);
+                        let mut engine = Engine::new_with_logging_level_and_match_debug(
+                            &log_level,
+                            match_debug,
+                            engine_kind,
+                        );
 
                         match engine.load_rules(&scanner_cfg.sigma_rules_path) {
                             Ok(()) => {
