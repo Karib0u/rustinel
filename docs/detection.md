@@ -45,6 +45,25 @@ The `EDR__SCANNER__SIGMA_ENGINE` environment variable works as well. Requesting 
 cargo build --release --features rsigma-engine
 ```
 
+### Engine Conformance
+
+The built-in engine implements the stateless subset of the Sigma specification that covers typical field-matching rules. The RSigma engine implements the full specification plus experimental features. Both agree on the common surface: the modifiers listed under [Supported Modifiers](#supported-modifiers), wildcards, keyword search, list-as-OR and map-as-AND selections, and `1 of` and `all of` conditions.
+
+The built-in engine does not implement the following, whereas RSigma does. Run such rulesets under `--sigma-engine rsigma`:
+
+| Sigma feature | Built-in | RSigma |
+| --- | --- | --- |
+| `N of` condition quantifiers such as `2 of selection*` | No (only `1 of` and `all of`) | Yes |
+| Array-scope quantifiers `field[any]` and `field[all]`, and element-scope blocks | No | Yes |
+| Correlations (`event_count`, `value_count`, `temporal`, `temporal_ordered`, `value_sum`, `value_avg`, `value_percentile`, `value_median`) | No | Yes |
+| Filter rules | No | Yes |
+| Collection actions `reset` and `repeat` (`global` is supported by both) | No | Yes |
+| `expand` modifier and `%placeholder%` expansion | No | Yes |
+| `sigma-version` aware evaluation | No | Yes |
+| Full rule-object metadata (status, date, author, references, falsepositives, related, fields, custom attributes) | Dropped | Preserved |
+
+On an unsupported construct the built-in engine may skip the rule at load, fail to match, or mis-evaluate a complex condition, so rulesets that rely on these features should run under the RSigma engine.
+
 ### Rule Loading and Classification
 
 - Rules load recursively from `scanner.sigma_rules_path`.
