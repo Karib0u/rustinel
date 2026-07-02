@@ -105,7 +105,7 @@ impl Engine {
         condition_str: &str,
         results: &HashMap<String, bool>,
     ) -> bool {
-        let mut context = HashMapContext::<DefaultNumericTypes>::new();
+        let mut context = HashMapContext::new();
 
         // Load selection results into evaluation context
         for (key, value) in results {
@@ -164,7 +164,7 @@ impl Engine {
             return false;
         };
 
-        let mut context = HashMapContext::<DefaultNumericTypes>::new();
+        let mut context = HashMapContext::new();
         for (key, value) in results {
             if let Err(e) = context.set_value(key.clone(), (*value).into()) {
                 warn!("Failed to set context value for '{}': {}", key, e);
