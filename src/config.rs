@@ -414,6 +414,22 @@ mod tests {
     }
 
     #[test]
+    fn sigma_engine_defaults_to_builtin() {
+        assert_eq!(AppConfig::default().scanner.sigma_engine, "builtin");
+    }
+
+    #[test]
+    fn env_overrides_sigma_engine() {
+        // Mutates process env, scoped to this test and restored below. No other
+        // test asserts scanner.sigma_engine through AppConfig::new(), so setting
+        // it here cannot make a parallel test flaky.
+        std::env::set_var("EDR__SCANNER__SIGMA_ENGINE", "rsigma");
+        let cfg = AppConfig::new().expect("config should load");
+        std::env::remove_var("EDR__SCANNER__SIGMA_ENGINE");
+        assert_eq!(cfg.scanner.sigma_engine, "rsigma");
+    }
+
+    #[test]
     fn test_global_allowlist_propagates_to_modules() {
         let cfg = AppConfig::default();
         assert_eq!(cfg.response.allowlist_paths, cfg.allowlist.paths);

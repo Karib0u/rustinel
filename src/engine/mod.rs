@@ -1223,3 +1223,74 @@ detection:
         assert!(compiled.condition_tree.is_some());
     }
 }
+
+#[cfg(test)]
+mod engine_kind_tests {
+    use super::SigmaEngineKind;
+
+    #[test]
+    fn parse_accepts_known_names_and_rejects_others() {
+        assert_eq!(
+            SigmaEngineKind::parse("builtin").unwrap(),
+            SigmaEngineKind::Builtin
+        );
+        assert_eq!(
+            SigmaEngineKind::parse(" RSIGMA ").unwrap(),
+            SigmaEngineKind::Rsigma
+        );
+        assert!(SigmaEngineKind::parse("bogus").is_err());
+    }
+
+    #[test]
+    fn availability_tracks_the_feature() {
+        assert!(SigmaEngineKind::Builtin.is_available());
+        assert_eq!(
+            SigmaEngineKind::Rsigma.is_available(),
+            cfg!(feature = "rsigma-engine")
+        );
+    }
+
+    #[test]
+    fn resolve_reads_the_configured_value() {
+        assert_eq!(
+            SigmaEngineKind::resolve(None, "builtin").unwrap(),
+            SigmaEngineKind::Builtin
+        );
+    }
+
+    #[test]
+    fn resolve_rejects_an_invalid_configured_value() {
+        assert!(SigmaEngineKind::resolve(None, "bogus").is_err());
+    }
+
+    #[test]
+    fn cli_override_takes_precedence_over_config() {
+        // Built-in is always available, so this holds in every build.
+        assert_eq!(
+            SigmaEngineKind::resolve(Some(SigmaEngineKind::Builtin), "rsigma").unwrap(),
+            SigmaEngineKind::Builtin
+        );
+    }
+
+    #[cfg(feature = "rsigma-engine")]
+    #[test]
+    fn resolve_rsigma_when_feature_enabled() {
+        assert_eq!(
+            SigmaEngineKind::resolve(None, "rsigma").unwrap(),
+            SigmaEngineKind::Rsigma
+        );
+        assert_eq!(
+            SigmaEngineKind::resolve(Some(SigmaEngineKind::Rsigma), "builtin").unwrap(),
+            SigmaEngineKind::Rsigma
+        );
+    }
+
+    #[cfg(not(feature = "rsigma-engine"))]
+    #[test]
+    fn resolve_rejects_rsigma_without_the_feature() {
+        let err = SigmaEngineKind::resolve(None, "rsigma").unwrap_err();
+        assert!(err.to_string().contains("rsigma-engine"));
+        // The CLI override path fails the same way.
+        assert!(SigmaEngineKind::resolve(Some(SigmaEngineKind::Rsigma), "builtin").is_err());
+    }
+}
