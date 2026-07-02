@@ -1,0 +1,41 @@
+name: Detection-as-Code
+
+# Detection-as-Code gate for the bundled Sigma rules. Uses the official
+# timescale/rsigma-action, which installs a SLSA-verified rsigma release and
+# runs lint, validate, and a merge-base fields-drift diff, annotating findings
+# on the PR and keeping a single sticky summary comment. Scoped to rule changes
+# so it stays off code-only pull requests.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rules/sigma/**'
+      - '.github/workflows/sigma-rules.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'rules/sigma/**'
+      - '.github/workflows/sigma-rules.yml'
+
+permissions:
+  contents: read
+  # Needed for the sticky summary comment on same-repo pull requests. Fork
+  # pull requests get a read-only token, so the comment is skipped there while
+  # lint and validate still gate the run.
+  pull-requests: write
+
+jobs:
+  rsigma:
+    name: Lint and validate Sigma rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history so the action can diff rule fields against the PR merge-base.
+          fetch-depth: 0
+      - uses: timescale/rsigma-action@v1
+        with:
+          # Pinned to the rsigma release whose library crates back the engine
+          # integration; bump alongside the rsigma-parser/rsigma-eval dependency.
+          version: v0.17.0
+          rules: rules/sigma
