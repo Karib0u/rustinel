@@ -36,24 +36,6 @@ static NOT_UPPERCASE_REGEX: LazyLock<Regex> =
 static NOT_LOWERCASE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bnot\b").expect("NOT_LOWERCASE_REGEX pattern is valid"));
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuleLogicErrorLogLevel {
-    Off,
-    Debug,
-    Warn,
-}
-
-impl RuleLogicErrorLogLevel {
-    pub(crate) fn from_logging_level(level: &str) -> Self {
-        let normalized = level.trim().to_ascii_lowercase();
-        match normalized.as_str() {
-            "debug" | "trace" => Self::Debug,
-            "warn" | "warning" => Self::Warn,
-            _ => Self::Off,
-        }
-    }
-}
-
 /// Compiled selection with field criteria and keywords
 impl Engine {
     pub(crate) fn transpile_sigma_condition(

@@ -343,9 +343,9 @@ impl Engine {
         })
     }
 
-    /// Check an event against loaded rules
+    /// Check an event against loaded rules with the built-in matcher.
     /// OPTIMIZED: Uses zero-copy field access instead of HashMap creation
-    pub fn check_event(&self, event: &NormalizedEvent) -> Option<Alert> {
+    pub(crate) fn check_event_builtin(&self, event: &NormalizedEvent) -> Option<Alert> {
         let candidate_logsources = Self::sigma_logsources_for_event(event);
 
         // PERFORMANCE: Pass event directly - no HashMap allocation!

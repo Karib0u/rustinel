@@ -15,12 +15,8 @@ impl Engine {
         self.load_rules_recursive(rules_dir)?;
 
         info!("Loaded {} Sigma rules total", self.rule_count);
-        for (logsource, rules) in &self.rules_by_logsource {
-            info!(
-                "  Logsource '{}': {} rules",
-                logsource.display(),
-                rules.len()
-            );
+        for (logsource, count) in self.stats().rules_by_logsource {
+            info!("  Logsource '{}': {} rules", logsource, count);
         }
         info!(
             "Skipped rules - deferred: {}, unknown_logsource: {}, product_mismatch: {}, inactive_collectors: {}",
@@ -122,8 +118,23 @@ impl Engine {
         ])
     }
 
-    /// Load a single rule file (supports multi-document YAML for "action: global" rules)
+    /// Load a single rule file, dispatching to the active backend.
     pub(crate) fn load_rule<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        match self.engine_kind {
+            SigmaEngineKind::Builtin => self.load_rule_builtin(path),
+            #[cfg(feature = "rsigma-engine")]
+            SigmaEngineKind::Rsigma => self.load_rule_rsigma(path),
+            // Unreachable in practice: startup validation rejects `rsigma`
+            // without the feature. Fall back to the built-in matcher rather
+            // than panic if it is ever constructed directly.
+            #[cfg(not(feature = "rsigma-engine"))]
+            SigmaEngineKind::Rsigma => self.load_rule_builtin(path),
+        }
+    }
+
+    /// Load a single rule file with the built-in matcher (supports
+    /// multi-document YAML for "action: global" rules).
+    pub(crate) fn load_rule_builtin<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let content = fs::read_to_string(path.as_ref()).context("Failed to read rule file")?;
 
         for rule in Self::parse_rule_documents(&content)? {

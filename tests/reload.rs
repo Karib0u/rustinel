@@ -6,7 +6,7 @@ use std::sync::Arc;
 use common::{dns_query_event, process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
     config::{ReloadConfig, ScannerConfig},
-    engine::Engine,
+    engine::{Engine, SigmaEngineKind},
     ioc::IocEngine,
     models::MatchDebugLevel,
     reload::{spawn_reload_worker, DetectorStore, ReloadTarget},
@@ -29,6 +29,7 @@ fn scanner_cfg(sigma: &SigmaFixture, yara: &YaraFixture) -> ScannerConfig {
     ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: sigma.rules_dir().to_path_buf(),
+        sigma_engine: "builtin".to_string(),
         yara_enabled: true,
         yara_rules_path: yara.rules_dir().to_path_buf(),
         yara_allowlist_paths: Vec::new(),
@@ -96,6 +97,7 @@ level: high
         },
         "info".to_string(),
         MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
         rx,
     );
     tx.send(ReloadTarget::Sigma).expect("send reload");
@@ -151,6 +153,7 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
         },
         "info".to_string(),
         MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
         rx,
     );
     tx.send(ReloadTarget::Yara).expect("send yara reload");
@@ -207,6 +210,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
         },
         "info".to_string(),
         MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
         rx,
     );
     tx.send(ReloadTarget::Ioc).expect("send ioc reload");
@@ -238,6 +242,7 @@ async fn test_reload_poller_fallback_polling() {
     let scanner_cfg = ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: non_existent_dir.clone(),
+        sigma_engine: "builtin".to_string(),
         yara_enabled: false,
         yara_rules_path: PathBuf::from(""),
         yara_allowlist_paths: Vec::new(),
@@ -337,6 +342,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
         },
         "info".to_string(),
         MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
         rx,
     );
 
@@ -406,6 +412,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
         },
         "info".to_string(),
         MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
         rx,
     );
 
