@@ -14,10 +14,16 @@ pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse_args();
 
     match cli.command {
-        Some(Commands::Run { no_console, .. }) => {
-            crate::runtime::windows::run_console(!no_console, cli.log_level)
-        }
-        None => crate::runtime::windows::run_console(true, cli.log_level),
+        Some(Commands::Run {
+            no_console,
+            sigma_engine,
+            ..
+        }) => crate::runtime::windows::run_console(
+            !no_console,
+            cli.log_level,
+            sigma_engine.map(|engine| engine.kind()),
+        ),
+        None => crate::runtime::windows::run_console(true, cli.log_level, None),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
     }
 }
@@ -28,10 +34,16 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
-        Some(Commands::Run { no_console, .. }) => {
-            crate::runtime::linux::run(!no_console, cli.log_level)
-        }
-        None => crate::runtime::linux::run(true, cli.log_level),
+        Some(Commands::Run {
+            no_console,
+            sigma_engine,
+            ..
+        }) => crate::runtime::linux::run(
+            !no_console,
+            cli.log_level,
+            sigma_engine.map(|engine| engine.kind()),
+        ),
+        None => crate::runtime::linux::run(true, cli.log_level, None),
     }
 }
 
@@ -41,10 +53,16 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
-        Some(Commands::Run { no_console, .. }) => {
-            crate::runtime::macos::run(!no_console, cli.log_level)
-        }
-        None => crate::runtime::macos::run(true, cli.log_level),
+        Some(Commands::Run {
+            no_console,
+            sigma_engine,
+            ..
+        }) => crate::runtime::macos::run(
+            !no_console,
+            cli.log_level,
+            sigma_engine.map(|engine| engine.kind()),
+        ),
+        None => crate::runtime::macos::run(true, cli.log_level, None),
     }
 }
 
