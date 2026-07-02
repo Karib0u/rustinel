@@ -46,7 +46,10 @@
 //!   offset 16: ret                 (i64)
 
 use aya_ebpf::{
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_probe_read_user_str_bytes},
+    helpers::{
+        bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid,
+        bpf_probe_read_user_str_bytes,
+    },
     macros::{kprobe, map, tracepoint},
     maps::{HashMap, RingBuf},
     programs::{ProbeContext, TracePointContext},
@@ -217,17 +220,12 @@ unsafe fn queue_file_event(
     }
 
     let mut path = [0u8; 96];
-    let mut comm = [0u8; 16];
+    let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
     let _ = bpf_probe_read_user_str_bytes(path_ptr as *const u8, &mut path);
     if path[0] == 0 {
         return Ok(0);
     }
-
-    aya_ebpf::helpers::gen::bpf_get_current_comm(
-        comm.as_mut_ptr() as *mut _,
-        core::mem::size_of_val(&comm) as u32,
-    );
 
     let pending_event = FileEvent {
         kind,
@@ -261,18 +259,13 @@ unsafe fn queue_rename_event(
 
     let mut path = [0u8; 96];
     let mut aux_path = [0u8; 96];
-    let mut comm = [0u8; 16];
+    let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
     let _ = bpf_probe_read_user_str_bytes(new_path_ptr as *const u8, &mut path);
     let _ = bpf_probe_read_user_str_bytes(old_path_ptr as *const u8, &mut aux_path);
     if path[0] == 0 || aux_path[0] == 0 {
         return Ok(0);
     }
-
-    aya_ebpf::helpers::gen::bpf_get_current_comm(
-        comm.as_mut_ptr() as *mut _,
-        core::mem::size_of_val(&comm) as u32,
-    );
 
     let pending_event = FileEvent {
         kind: 3,
