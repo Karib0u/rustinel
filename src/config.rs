@@ -103,10 +103,10 @@ impl InstallLayout {
         cfg.scanner.yara_rules_path = self.yara_rules_dir.clone();
         cfg.logging.directory = self.logs_dir.clone();
         cfg.alerts.directory = self.alerts_dir.clone();
-        cfg.ioc.hashes_path = self.ioc_dir.join("hashes.txt");
-        cfg.ioc.ips_path = self.ioc_dir.join("ips.txt");
-        cfg.ioc.domains_path = self.ioc_dir.join("domains.txt");
-        cfg.ioc.paths_regex_path = self.ioc_dir.join("paths_regex.txt");
+        cfg.ioc.hashes_path = layout_join(self.platform, &self.ioc_dir, "hashes.txt");
+        cfg.ioc.ips_path = layout_join(self.platform, &self.ioc_dir, "ips.txt");
+        cfg.ioc.domains_path = layout_join(self.platform, &self.ioc_dir, "domains.txt");
+        cfg.ioc.paths_regex_path = layout_join(self.platform, &self.ioc_dir, "paths_regex.txt");
         cfg
     }
 
@@ -116,18 +116,28 @@ impl InstallLayout {
         rules_dir: PathBuf,
         logs_dir: PathBuf,
     ) -> Self {
-        let ioc_dir = rules_dir.join("ioc");
+        let ioc_dir = layout_join(platform, &rules_dir, "ioc");
         Self {
             platform,
             config_file,
             rules_dir: rules_dir.clone(),
-            sigma_rules_dir: rules_dir.join("sigma"),
-            yara_rules_dir: rules_dir.join("yara"),
+            sigma_rules_dir: layout_join(platform, &rules_dir, "sigma"),
+            yara_rules_dir: layout_join(platform, &rules_dir, "yara"),
             ioc_dir,
             alerts_dir: logs_dir.clone(),
             logs_dir,
         }
     }
+}
+
+fn layout_join(platform: InstallPlatform, base: &Path, child: &str) -> PathBuf {
+    let separator = match platform {
+        InstallPlatform::Windows => r"\",
+        InstallPlatform::Linux | InstallPlatform::Macos => "/",
+    };
+    let base = base.to_string_lossy();
+    let base = base.trim_end_matches(['/', '\\']);
+    PathBuf::from(format!("{base}{separator}{child}"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
