@@ -1,9 +1,9 @@
-name: RSigma Engine
+name: RSigma Engine Parity
 
 # Parity gate for the optional `rsigma-engine` backend: builds and runs the
 # full test suite with the feature enabled so the RSigma-backed engine stays in
 # lockstep with the built-in one (the default backend is covered by the main
-# CI/CD workflow). Runs on macOS and Windows, which need no eBPF object, so the
+# CI workflow). Runs on macOS and Windows, which need no eBPF object, so the
 # platform-independent Sigma engine is exercised without the Linux build.rs
 # dependency.
 on:
@@ -35,7 +35,7 @@ env:
 
 jobs:
   feature:
-    name: rsigma-engine (${{ matrix.os }})
+    name: RSigma Engine (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -51,7 +51,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - name: Clippy (rsigma-engine)
+      - name: Clippy (RSigma Engine)
         run: cargo clippy --locked --features rsigma-engine --all-targets -- -D clippy::all
-      - name: Test (rsigma-engine)
+      - name: Test (RSigma Engine)
         run: cargo test --locked --features rsigma-engine --verbose

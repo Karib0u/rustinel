@@ -7,7 +7,7 @@
 - [ ] `bug` - bug fix
 - [ ] `refactor` - refactoring, no behaviour change
 - [ ] `documentation` - docs only
-- [ ] `ci` - CI/CD changes
+- [ ] `ci` - CI and release changes
 - [ ] `dependencies` - dependency update
 
 ## Test plan

@@ -1,4 +1,4 @@
-name: Privileged Smoke Tests
+name: Privileged Smoke
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ env:
 
 jobs:
   linux-privileged-smoke:
-    name: Linux Privileged Smoke
+    name: Privileged Smoke (Linux)
     runs-on: [self-hosted, linux]
     permissions:
       contents: read # checkout
@@ -33,7 +33,7 @@ jobs:
         run: cargo test --locked --test active_response -- --include-ignored
 
   windows-privileged-smoke:
-    name: Windows Privileged Smoke
+    name: Privileged Smoke (Windows)
     runs-on: [self-hosted, windows]
     permissions:
       contents: read # checkout

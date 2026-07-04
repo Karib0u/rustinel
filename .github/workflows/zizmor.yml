@@ -1,4 +1,4 @@
-name: Workflow security (zizmor)
+name: Workflow Security
 
 on:
   push:
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   zizmor:
-    name: zizmor
+    name: Audit Workflows
     runs-on: ubuntu-latest
     permissions:
       security-events: write # upload SARIF to code scanning

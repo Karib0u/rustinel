@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml"><img src="https://github.com/Karib0u/rustinel/actions/workflows/ci-cd.yml/badge.svg?style=flat-square" alt="CI"></a>
+  <a href="https://github.com/Karib0u/rustinel/actions/workflows/ci.yml"><img src="https://github.com/Karib0u/rustinel/actions/workflows/ci.yml/badge.svg?style=flat-square" alt="CI"></a>
   <a href="https://github.com/Karib0u/rustinel/releases/latest"><img src="https://img.shields.io/github/v/release/Karib0u/rustinel?style=flat-square&color=ff8a3d" alt="Latest release"></a>
   <a href="https://github.com/Karib0u/rustinel/releases"><img src="https://img.shields.io/github/downloads/Karib0u/rustinel/total?style=flat-square&color=ff8a3d" alt="Downloads"></a>
   <a href="https://github.com/Karib0u/rustinel/stargazers"><img src="https://img.shields.io/github/stars/Karib0u/rustinel?style=flat-square&color=ff8a3d" alt="Stars"></a>

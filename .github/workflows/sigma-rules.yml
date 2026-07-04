@@ -1,4 +1,4 @@
-name: Detection-as-Code
+name: Sigma Rules
 
 # Detection-as-Code gate for the bundled Sigma rules. Uses the official
 # timescale/rsigma-action, which installs a SLSA-verified rsigma release and
@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   rsigma:
-    name: Lint and validate Sigma rules
+    name: Lint and Validate Sigma Rules
     runs-on: ubuntu-latest
     permissions:
       contents: read # check out the rules and download the public rsigma release
