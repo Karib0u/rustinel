@@ -30,6 +30,7 @@ pub fn run() -> anyhow::Result<()> {
             sigma_engine.map(|engine| engine.kind()),
         ),
         None => crate::runtime::windows::run_console(true, cli.log_level, cli.config, None),
+        Some(Commands::Doctor { .. }) => unreachable!("doctor is handled before service dispatch"),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
     }
 }
