@@ -21,9 +21,10 @@ pub fn run() -> anyhow::Result<()> {
         }) => crate::runtime::windows::run_console(
             !no_console,
             cli.log_level,
+            cli.config,
             sigma_engine.map(|engine| engine.kind()),
         ),
-        None => crate::runtime::windows::run_console(true, cli.log_level, None),
+        None => crate::runtime::windows::run_console(true, cli.log_level, cli.config, None),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
     }
 }
@@ -41,9 +42,10 @@ pub fn run() -> anyhow::Result<()> {
         }) => crate::runtime::linux::run(
             !no_console,
             cli.log_level,
+            cli.config,
             sigma_engine.map(|engine| engine.kind()),
         ),
-        None => crate::runtime::linux::run(true, cli.log_level, None),
+        None => crate::runtime::linux::run(true, cli.log_level, cli.config, None),
     }
 }
 
@@ -60,9 +62,10 @@ pub fn run() -> anyhow::Result<()> {
         }) => crate::runtime::macos::run(
             !no_console,
             cli.log_level,
+            cli.config,
             sigma_engine.map(|engine| engine.kind()),
         ),
-        None => crate::runtime::macos::run(true, cli.log_level, None),
+        None => crate::runtime::macos::run(true, cli.log_level, cli.config, None),
     }
 }
 

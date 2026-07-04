@@ -12,6 +12,7 @@ Running `rustinel` without a subcommand is equivalent to `rustinel run`.
 
 | Option | Description |
 | --- | --- |
+| `--config <PATH>` | Load configuration from an explicit file path. This has the highest configuration file precedence. |
 | `--log-level <LEVEL>` | Interactive log-level override. For production and cross-platform automation, prefer `config.toml` or `EDR__LOGGING__LEVEL`. |
 
 ## Commands
@@ -21,24 +22,27 @@ Running `rustinel` without a subcommand is equivalent to `rustinel run`.
 Run Rustinel in the foreground.
 
 ```text
-rustinel run [--no-console] [--console] [--log-level <LEVEL>] [--sigma-engine <ENGINE>]
+rustinel run [--config <PATH>] [--no-console] [--console] [--log-level <LEVEL>] [--sigma-engine <ENGINE>]
 ```
 
 Examples:
 
 ```powershell
 rustinel run
+rustinel run --config C:\ProgramData\Rustinel\config.toml
 rustinel run --no-console
 rustinel run --log-level debug
 ```
 
 ```bash
 sudo ./rustinel run
+sudo ./rustinel run --config /etc/rustinel/config.toml
 ```
 
 Notes:
 
 - `rustinel run` enables console output by default on every platform.
+- `--config <PATH>` selects the config file and overrides `RUSTINEL_CONFIG`, managed platform paths, executable-directory config, and current-directory config.
 - `--no-console` suppresses console output, for example when redirecting logs.
 - `--console` is kept as a compatibility alias and has the same effect as the default.
 - `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
@@ -75,6 +79,7 @@ Common examples:
 ```powershell
 $env:EDR__LOGGING__LEVEL="debug"
 $env:EDR__SCANNER__SIGMA_ENABLED="true"
+$env:RUSTINEL_CONFIG="C:\ProgramData\Rustinel\config.toml"
 rustinel run
 ```
 
@@ -83,6 +88,7 @@ rustinel run
 ```bash
 export EDR__LOGGING__LEVEL=debug
 export EDR__SCANNER__SIGMA_ENABLED=true
+export RUSTINEL_CONFIG=/etc/rustinel/config.toml
 sudo ./rustinel run
 ```
 

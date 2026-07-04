@@ -5,6 +5,9 @@
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
+    /// Configuration file path
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<std::path::PathBuf>,
     /// Override logging level (e.g., error, warn, info, debug, trace)
     #[arg(long, global = true, value_name = "LEVEL")]
     pub log_level: Option<String>,
@@ -147,5 +150,25 @@ mod tests {
             }
             _ => panic!("expected run command"),
         }
+    }
+
+    #[test]
+    fn global_config_flag_is_accepted_before_subcommand() {
+        let cli = Cli::try_parse_from(["rustinel", "--config", "/tmp/rustinel.toml", "run"])
+            .expect("config path should parse");
+        assert_eq!(
+            cli.config,
+            Some(std::path::PathBuf::from("/tmp/rustinel.toml"))
+        );
+    }
+
+    #[test]
+    fn global_config_flag_is_accepted_after_subcommand() {
+        let cli = Cli::try_parse_from(["rustinel", "run", "--config", "/tmp/rustinel.toml"])
+            .expect("config path should parse");
+        assert_eq!(
+            cli.config,
+            Some(std::path::PathBuf::from("/tmp/rustinel.toml"))
+        );
     }
 }

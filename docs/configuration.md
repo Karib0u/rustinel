@@ -4,24 +4,46 @@ Rustinel loads configuration from these sources, highest priority first:
 
 1. CLI flags where supported
 2. Environment variables using the `EDR__` prefix
-3. `config.toml` in the current working directory
+3. Selected configuration file
+4. Built-in defaults
+
+The configuration file is selected from these locations, highest priority first:
+
+1. `--config <PATH>`
+2. `RUSTINEL_CONFIG`
+3. Managed platform configuration path
 4. `config.toml` in the directory containing the executable
-5. Built-in defaults
+5. `config.toml` in the current working directory
+6. Built-in defaults
 
 ## Configuration File
 
-Place `config.toml` in the directory you launch Rustinel from, alongside the
-`rustinel` executable, or use absolute paths throughout. When both a working-directory
-and an executable-directory config exist, the working-directory file takes precedence
-on conflicting keys.
+Portable archives can keep `config.toml` next to the `rustinel` executable.
+Managed deployments should use the platform configuration path listed below.
+When both an executable-directory config and a working-directory config exist,
+the executable-directory file takes precedence.
+
+Relative paths in `config.toml` are resolved relative to the directory that
+contains that config file. For example, a portable archive extracted to
+`/opt/rustinel` can use `rules/sigma` in `/opt/rustinel/config.toml`, and it
+will resolve to `/opt/rustinel/rules/sigma` even if Rustinel is launched from a
+different directory.
 
 Production note:
 
 - Windows services often run with `C:\Windows\System32` as the working directory.
-  Because the executable directory is also searched, you can keep `config.toml` next
-  to `rustinel.exe` (for example in `C:\Rustinel`) without copying it into `System32`.
+  Managed installs should use `C:\ProgramData\Rustinel\config.toml`; portable
+  installs can keep `config.toml` next to `rustinel.exe`.
 - Linux service managers can also start in a directory that is not your install root.
 - For production, prefer absolute paths for rules, logs, and alerts.
+
+## Managed Layouts
+
+| Platform | Config | Rules | Logs and alerts |
+| --- | --- | --- | --- |
+| Windows | `C:\ProgramData\Rustinel\config.toml` | `C:\ProgramData\Rustinel\rules` | `C:\ProgramData\Rustinel\logs` |
+| Linux | `/etc/rustinel/config.toml` | `/var/lib/rustinel/rules` | `/var/log/rustinel` |
+| macOS | `/Library/Application Support/Rustinel/config.toml` | `/Library/Application Support/Rustinel/rules` | `/Library/Logs/Rustinel` |
 
 ## Example `config.toml`
 

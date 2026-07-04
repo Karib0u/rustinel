@@ -3,9 +3,8 @@
 //! Provides structured configuration for the Rustinel agent.
 //! Configuration can be loaded from:
 //! 1. Default values (hardcoded)
-//! 2. `config` file (optional) — searched first in the directory of the
-//!    running executable, then in the current working directory (the latter
-//!    takes precedence on conflicting keys)
+//! 2. First available config file from explicit path, RUSTINEL_CONFIG,
+//!    managed platform path, executable directory, then current directory
 //! 3. Environment variables with EDR__ prefix
 //!
 //! Example environment variable override:
@@ -13,22 +12,169 @@
 //! EDR__SCANNER__SIGMA_RULES_PATH=custom/path
 
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::models::MatchDebugLevel;
 
-/// Build an optional config-file source rooted at the directory containing the
-/// running executable.
-///
-/// Windows services start with `C:\Windows\System32` as their working
-/// directory, so a `config.toml` placed next to `rustinel.exe` (e.g. in
-/// `C:\Rustinel`) is otherwise never found. This lets operators keep all
-/// Rustinel files in one directory. The current working directory is still
-/// searched and takes precedence, preserving the previous behavior.
-fn exe_dir_config_source() -> Option<config::File<config::FileSourceFile, config::FileFormat>> {
-    let config_base = exe_dir_config_base()?;
-    let config_base = config_base.to_str()?;
-    Some(config::File::with_name(config_base).required(false))
+const CONFIG_FILE_NAME: &str = "config.toml";
+const CONFIG_PATH_ENV: &str = "RUSTINEL_CONFIG";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallPlatform {
+    Windows,
+    Linux,
+    Macos,
+}
+
+impl InstallPlatform {
+    pub fn current() -> Self {
+        #[cfg(windows)]
+        {
+            Self::Windows
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Self::Macos
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            Self::Linux
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallLayout {
+    pub platform: InstallPlatform,
+    pub config_file: PathBuf,
+    pub rules_dir: PathBuf,
+    pub sigma_rules_dir: PathBuf,
+    pub yara_rules_dir: PathBuf,
+    pub ioc_dir: PathBuf,
+    pub logs_dir: PathBuf,
+    pub alerts_dir: PathBuf,
+}
+
+impl InstallLayout {
+    pub fn managed(platform: InstallPlatform) -> Self {
+        match platform {
+            InstallPlatform::Windows => Self {
+                platform,
+                config_file: PathBuf::from(r"C:\ProgramData\Rustinel\config.toml"),
+                rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules"),
+                sigma_rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\sigma"),
+                yara_rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\yara"),
+                ioc_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\ioc"),
+                logs_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
+                alerts_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
+            },
+            InstallPlatform::Linux => Self::from_roots(
+                platform,
+                PathBuf::from("/etc/rustinel/config.toml"),
+                PathBuf::from("/var/lib/rustinel/rules"),
+                PathBuf::from("/var/log/rustinel"),
+            ),
+            InstallPlatform::Macos => Self::from_roots(
+                platform,
+                PathBuf::from("/Library/Application Support/Rustinel/config.toml"),
+                PathBuf::from("/Library/Application Support/Rustinel/rules"),
+                PathBuf::from("/Library/Logs/Rustinel"),
+            ),
+        }
+    }
+
+    pub fn portable(exe_dir: impl Into<PathBuf>) -> Self {
+        let root = exe_dir.into();
+        Self::from_roots(
+            InstallPlatform::current(),
+            root.join(CONFIG_FILE_NAME),
+            root.join("rules"),
+            root.join("logs"),
+        )
+    }
+
+    pub fn managed_current() -> Self {
+        Self::managed(InstallPlatform::current())
+    }
+
+    pub fn managed_config(&self) -> AppConfig {
+        let mut cfg = AppConfig::default();
+        cfg.scanner.sigma_rules_path = self.sigma_rules_dir.clone();
+        cfg.scanner.yara_rules_path = self.yara_rules_dir.clone();
+        cfg.logging.directory = self.logs_dir.clone();
+        cfg.alerts.directory = self.alerts_dir.clone();
+        cfg.ioc.hashes_path = self.ioc_dir.join("hashes.txt");
+        cfg.ioc.ips_path = self.ioc_dir.join("ips.txt");
+        cfg.ioc.domains_path = self.ioc_dir.join("domains.txt");
+        cfg.ioc.paths_regex_path = self.ioc_dir.join("paths_regex.txt");
+        cfg
+    }
+
+    fn from_roots(
+        platform: InstallPlatform,
+        config_file: PathBuf,
+        rules_dir: PathBuf,
+        logs_dir: PathBuf,
+    ) -> Self {
+        let ioc_dir = rules_dir.join("ioc");
+        Self {
+            platform,
+            config_file,
+            rules_dir: rules_dir.clone(),
+            sigma_rules_dir: rules_dir.join("sigma"),
+            yara_rules_dir: rules_dir.join("yara"),
+            ioc_dir,
+            alerts_dir: logs_dir.clone(),
+            logs_dir,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigLoadOptions {
+    pub explicit_config: Option<PathBuf>,
+    pub env_config: Option<PathBuf>,
+    pub managed_config: PathBuf,
+    pub exe_config: Option<PathBuf>,
+    pub cwd_config: PathBuf,
+}
+
+impl ConfigLoadOptions {
+    pub fn from_runtime(explicit_config: Option<PathBuf>) -> Self {
+        Self {
+            explicit_config,
+            env_config: std::env::var_os(CONFIG_PATH_ENV).map(PathBuf::from),
+            managed_config: InstallLayout::managed_current().config_file,
+            exe_config: exe_dir_config_base().map(|base| base.with_extension("toml")),
+            cwd_config: PathBuf::from(CONFIG_FILE_NAME),
+        }
+    }
+
+    fn selected_config(&self) -> Option<PathBuf> {
+        if let Some(path) = &self.explicit_config {
+            return Some(path.clone());
+        }
+
+        if let Some(path) = &self.env_config {
+            return Some(path.clone());
+        }
+
+        if self.managed_config.exists() {
+            return Some(self.managed_config.clone());
+        }
+
+        if let Some(path) = &self.exe_config {
+            if path.exists() {
+                return Some(path.clone());
+            }
+        }
+
+        if self.cwd_config.exists() {
+            return Some(self.cwd_config.clone());
+        }
+
+        None
+    }
 }
 
 /// Compute the extension-less config file base path next to the running
@@ -200,6 +346,20 @@ pub struct DedupConfig {
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
+        Self::from_options(ConfigLoadOptions::from_runtime(None))
+    }
+
+    pub fn from_config_path(config_path: Option<PathBuf>) -> Result<Self, config::ConfigError> {
+        Self::from_options(ConfigLoadOptions::from_runtime(config_path))
+    }
+
+    pub fn from_options(options: ConfigLoadOptions) -> Result<Self, config::ConfigError> {
+        let selected_config = options.selected_config().map(absolute_config_path);
+        let config_dir = selected_config
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+
         let builder = config::Config::builder()
             // --- Defaults ---
             // Scanner
@@ -226,7 +386,7 @@ impl AppConfig {
             .set_default("alerts.directory", "logs")?
             .set_default("alerts.filename", "alerts.json")?
             .set_default("alerts.match_debug", "off")?
-            // Global allowlist — platform-specific trusted paths.
+            // Global allowlist, platform-specific trusted paths.
             // These are the default values only; override via config.toml or
             // EDR__ALLOWLIST__PATHS environment variable.
             .set_default("allowlist.paths", default_allowlist_paths())?
@@ -259,24 +419,59 @@ impl AppConfig {
             .set_default("dedup.window_secs", 60i64)?
             .set_default("dedup.max_entries", 10000i64)?;
 
-        // --- Sources ---
-        // Config files are searched in two locations, lowest priority first.
-        // The executable's directory is the fallback; the current working
-        // directory overrides it on conflicting keys, preserving the historical
-        // behavior where `config.toml` is read from the launch directory
-        // (e.g. `C:\Windows\System32` for a service).
-        let builder = match exe_dir_config_source() {
-            Some(source) => builder.add_source(source),
+        let builder = match selected_config {
+            Some(path) => builder.add_source(config::File::from(path).required(true)),
             None => builder,
         };
         let s = builder
-            .add_source(config::File::with_name("config").required(false))
             .add_source(config::Environment::with_prefix("EDR").separator("__"))
             .build()?;
 
         let mut cfg: Self = s.try_deserialize()?;
+        if let Some(config_dir) = config_dir {
+            cfg.resolve_relative_paths(&config_dir);
+        }
         cfg.apply_allowlist_fallbacks();
         Ok(cfg)
+    }
+
+    fn resolve_relative_paths(&mut self, base_dir: &Path) {
+        resolve_path_from_config(
+            &mut self.scanner.sigma_rules_path,
+            base_dir,
+            "SCANNER__SIGMA_RULES_PATH",
+        );
+        resolve_path_from_config(
+            &mut self.scanner.yara_rules_path,
+            base_dir,
+            "SCANNER__YARA_RULES_PATH",
+        );
+        resolve_path_from_config(&mut self.logging.directory, base_dir, "LOGGING__DIRECTORY");
+        resolve_path_from_config(&mut self.alerts.directory, base_dir, "ALERTS__DIRECTORY");
+        resolve_path_from_config(&mut self.ioc.hashes_path, base_dir, "IOC__HASHES_PATH");
+        resolve_path_from_config(&mut self.ioc.ips_path, base_dir, "IOC__IPS_PATH");
+        resolve_path_from_config(&mut self.ioc.domains_path, base_dir, "IOC__DOMAINS_PATH");
+        resolve_path_from_config(
+            &mut self.ioc.paths_regex_path,
+            base_dir,
+            "IOC__PATHS_REGEX_PATH",
+        );
+        resolve_path_list_from_config(&mut self.allowlist.paths, base_dir, "ALLOWLIST__PATHS");
+        resolve_path_list_from_config(
+            &mut self.response.allowlist_paths,
+            base_dir,
+            "RESPONSE__ALLOWLIST_PATHS",
+        );
+        resolve_path_list_from_config(
+            &mut self.scanner.yara_allowlist_paths,
+            base_dir,
+            "SCANNER__YARA_ALLOWLIST_PATHS",
+        );
+        resolve_path_list_from_config(
+            &mut self.ioc.hash_allowlist_paths,
+            base_dir,
+            "IOC__HASH_ALLOWLIST_PATHS",
+        );
     }
 
     fn apply_allowlist_fallbacks(&mut self) {
@@ -291,6 +486,44 @@ impl AppConfig {
         if self.scanner.yara_allowlist_paths.is_empty() {
             self.scanner.yara_allowlist_paths = self.allowlist.paths.clone();
         }
+    }
+}
+
+fn resolve_path(path: &mut PathBuf, base_dir: &Path) {
+    if path.is_relative() {
+        *path = base_dir.join(&path);
+    }
+}
+
+fn resolve_path_from_config(path: &mut PathBuf, base_dir: &Path, env_key: &str) {
+    if std::env::var_os(format!("EDR__{env_key}")).is_none() {
+        resolve_path(path, base_dir);
+    }
+}
+
+fn absolute_config_path(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        return path;
+    }
+
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(path),
+        Err(_) => path,
+    }
+}
+
+fn resolve_path_list(paths: &mut [String], base_dir: &Path) {
+    for path in paths {
+        let value = PathBuf::from(path.as_str());
+        if value.is_relative() {
+            *path = base_dir.join(value).to_string_lossy().into_owned();
+        }
+    }
+}
+
+fn resolve_path_list_from_config(paths: &mut [String], base_dir: &Path, env_key: &str) {
+    if std::env::var_os(format!("EDR__{env_key}")).is_none() {
+        resolve_path_list(paths, base_dir);
     }
 }
 
@@ -403,14 +636,185 @@ mod tests {
     #[test]
     fn test_config_paths() {
         let cfg = AppConfig::new().unwrap();
-        assert_eq!(cfg.scanner.sigma_rules_path, PathBuf::from("rules/sigma"));
-        assert_eq!(cfg.scanner.yara_rules_path, PathBuf::from("rules/yara"));
-        assert_eq!(cfg.ioc.hashes_path, PathBuf::from("rules/ioc/hashes.txt"));
-        assert_eq!(cfg.ioc.ips_path, PathBuf::from("rules/ioc/ips.txt"));
+        let cwd = std::env::current_dir().expect("current dir");
+        assert_eq!(cfg.scanner.sigma_rules_path, cwd.join("rules/sigma"));
+        assert_eq!(cfg.scanner.yara_rules_path, cwd.join("rules/yara"));
+        assert_eq!(cfg.ioc.hashes_path, cwd.join("rules/ioc/hashes.txt"));
+        assert_eq!(cfg.ioc.ips_path, cwd.join("rules/ioc/ips.txt"));
         assert_eq!(
             cfg.ioc.paths_regex_path,
-            PathBuf::from("rules/ioc/paths_regex.txt")
+            cwd.join("rules/ioc/paths_regex.txt")
         );
+    }
+
+    #[test]
+    fn default_config_paths_remain_portable() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.scanner.sigma_rules_path, PathBuf::from("rules/sigma"));
+        assert_eq!(cfg.scanner.yara_rules_path, PathBuf::from("rules/yara"));
+        assert_eq!(cfg.logging.directory, PathBuf::from("logs"));
+    }
+
+    #[test]
+    fn explicit_config_has_highest_precedence_and_roots_relative_paths() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let explicit_dir = temp.path().join("explicit");
+        let env_dir = temp.path().join("env");
+        std::fs::create_dir_all(&explicit_dir).expect("explicit dir");
+        std::fs::create_dir_all(&env_dir).expect("env dir");
+        let explicit = explicit_dir.join("custom.toml");
+        let env_config = env_dir.join("config.toml");
+
+        std::fs::write(
+            &explicit,
+            r#"
+[scanner]
+sigma_rules_path = "explicit-sigma"
+yara_rules_path = "explicit-yara"
+
+[logging]
+level = "trace"
+directory = "explicit-logs"
+
+[alerts]
+directory = "explicit-alerts"
+
+[ioc]
+hashes_path = "explicit-ioc/hashes.txt"
+ips_path = "explicit-ioc/ips.txt"
+domains_path = "explicit-ioc/domains.txt"
+paths_regex_path = "explicit-ioc/paths_regex.txt"
+"#,
+        )
+        .expect("write explicit config");
+        std::fs::write(&env_config, "[logging]\nlevel = \"debug\"\n").expect("write env config");
+
+        let cfg = AppConfig::from_options(ConfigLoadOptions {
+            explicit_config: Some(explicit.clone()),
+            env_config: Some(env_config),
+            managed_config: temp.path().join("managed.toml"),
+            exe_config: Some(temp.path().join("exe.toml")),
+            cwd_config: temp.path().join("cwd.toml"),
+        })
+        .expect("load config");
+
+        assert_eq!(cfg.logging.level, "trace");
+        assert_eq!(
+            cfg.scanner.sigma_rules_path,
+            explicit_dir.join("explicit-sigma")
+        );
+        assert_eq!(cfg.logging.directory, explicit_dir.join("explicit-logs"));
+        assert_eq!(cfg.alerts.directory, explicit_dir.join("explicit-alerts"));
+        assert_eq!(
+            cfg.ioc.hashes_path,
+            explicit_dir.join("explicit-ioc/hashes.txt")
+        );
+    }
+
+    #[test]
+    fn config_discovery_prefers_managed_then_exe_then_cwd() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let managed = temp.path().join("managed.toml");
+        let exe = temp.path().join("exe.toml");
+        let cwd = temp.path().join("cwd.toml");
+
+        std::fs::write(&managed, "[logging]\nlevel = \"warn\"\n").expect("write managed config");
+        std::fs::write(&exe, "[logging]\nlevel = \"debug\"\n").expect("write exe config");
+        std::fs::write(&cwd, "[logging]\nlevel = \"trace\"\n").expect("write cwd config");
+
+        let cfg = AppConfig::from_options(ConfigLoadOptions {
+            explicit_config: None,
+            env_config: None,
+            managed_config: managed.clone(),
+            exe_config: Some(exe.clone()),
+            cwd_config: cwd.clone(),
+        })
+        .expect("load managed config");
+        assert_eq!(cfg.logging.level, "warn");
+
+        std::fs::remove_file(&managed).expect("remove managed config");
+        let cfg = AppConfig::from_options(ConfigLoadOptions {
+            explicit_config: None,
+            env_config: None,
+            managed_config: managed,
+            exe_config: Some(exe.clone()),
+            cwd_config: cwd.clone(),
+        })
+        .expect("load exe config");
+        assert_eq!(cfg.logging.level, "debug");
+
+        std::fs::remove_file(&exe).expect("remove exe config");
+        let cfg = AppConfig::from_options(ConfigLoadOptions {
+            explicit_config: None,
+            env_config: None,
+            managed_config: temp.path().join("missing-managed.toml"),
+            exe_config: Some(exe),
+            cwd_config: cwd,
+        })
+        .expect("load cwd config");
+        assert_eq!(cfg.logging.level, "trace");
+    }
+
+    #[test]
+    fn env_config_has_precedence_after_explicit_config() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let env_config = temp.path().join("env.toml");
+        let managed = temp.path().join("managed.toml");
+        std::fs::write(&env_config, "[logging]\nlevel = \"debug\"\n").expect("write env config");
+        std::fs::write(&managed, "[logging]\nlevel = \"warn\"\n").expect("write managed config");
+
+        let cfg = AppConfig::from_options(ConfigLoadOptions {
+            explicit_config: None,
+            env_config: Some(env_config),
+            managed_config: managed,
+            exe_config: None,
+            cwd_config: temp.path().join("cwd.toml"),
+        })
+        .expect("load env config");
+
+        assert_eq!(cfg.logging.level, "debug");
+    }
+
+    #[test]
+    fn managed_layouts_cover_all_platforms() {
+        let windows = InstallLayout::managed(InstallPlatform::Windows);
+        assert_eq!(
+            windows.config_file.to_string_lossy(),
+            r"C:\ProgramData\Rustinel\config.toml"
+        );
+        assert_eq!(
+            windows.sigma_rules_dir.to_string_lossy(),
+            r"C:\ProgramData\Rustinel\rules\sigma"
+        );
+
+        let linux = InstallLayout::managed(InstallPlatform::Linux);
+        assert_eq!(
+            linux.config_file,
+            PathBuf::from("/etc/rustinel/config.toml")
+        );
+        assert_eq!(
+            linux.sigma_rules_dir,
+            PathBuf::from("/var/lib/rustinel/rules/sigma")
+        );
+        assert!(linux.managed_config().logging.directory.is_absolute());
+
+        let macos = InstallLayout::managed(InstallPlatform::Macos);
+        assert_eq!(
+            macos.config_file,
+            PathBuf::from("/Library/Application Support/Rustinel/config.toml")
+        );
+        assert_eq!(macos.logs_dir, PathBuf::from("/Library/Logs/Rustinel"));
+        assert!(macos.managed_config().scanner.yara_rules_path.is_absolute());
+    }
+
+    #[test]
+    fn portable_layout_stays_under_executable_directory() {
+        let root = PathBuf::from("portable-root");
+        let layout = InstallLayout::portable(&root);
+
+        assert_eq!(layout.config_file, root.join("config.toml"));
+        assert_eq!(layout.sigma_rules_dir, root.join("rules").join("sigma"));
+        assert_eq!(layout.logs_dir, root.join("logs"));
     }
 
     #[test]

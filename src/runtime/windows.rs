@@ -26,6 +26,7 @@ enum ShutdownMode {
 pub fn run_console(
     console_output: bool,
     log_level: Option<String>,
+    config_path: Option<std::path::PathBuf>,
     sigma_engine: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
@@ -33,6 +34,7 @@ pub fn run_console(
         ShutdownMode::Console,
         Some(console_output),
         log_level,
+        config_path,
         sigma_engine,
     ))
 }
@@ -109,7 +111,7 @@ fn service_main() -> anyhow::Result<()> {
             }
         });
 
-        let run_result = run_edr(ShutdownMode::Service(shutdown_rx), None, None, None).await;
+        let run_result = run_edr(ShutdownMode::Service(shutdown_rx), None, None, None, None).await;
         stop_task.abort();
         let _ = stop_task.await;
         run_result
@@ -165,10 +167,11 @@ async fn run_edr(
     shutdown_mode: ShutdownMode,
     console_output_override: Option<bool>,
     log_level_override: Option<String>,
+    config_path: Option<std::path::PathBuf>,
     sigma_engine_override: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     // 1. Load Configuration
-    let mut cfg = match config::AppConfig::new() {
+    let mut cfg = match config::AppConfig::from_config_path(config_path) {
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed to load configuration: {}", err);

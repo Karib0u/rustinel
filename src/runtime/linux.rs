@@ -21,10 +21,16 @@ use tracing::{error, info, warn};
 pub fn run(
     console_output: bool,
     log_level: Option<String>,
+    config_path: Option<std::path::PathBuf>,
     sigma_engine: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(run_linux_edr(Some(console_output), log_level, sigma_engine))
+    runtime.block_on(run_linux_edr(
+        Some(console_output),
+        log_level,
+        config_path,
+        sigma_engine,
+    ))
 }
 
 /// Linux eBPF EDR main loop. Mirrors `run_edr` but replaces ETW with the
@@ -32,10 +38,11 @@ pub fn run(
 async fn run_linux_edr(
     console_output_override: Option<bool>,
     log_level_override: Option<String>,
+    config_path: Option<std::path::PathBuf>,
     sigma_engine_override: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     // 1. Configuration
-    let mut cfg = match config::AppConfig::new() {
+    let mut cfg = match config::AppConfig::from_config_path(config_path) {
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed to load configuration: {}", err);
