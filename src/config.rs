@@ -149,6 +149,21 @@ pub struct ConfigLoadOptions {
     pub cwd_config: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigSource {
+    Explicit,
+    Environment,
+    Managed,
+    Executable,
+    CurrentDirectory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectedConfig {
+    pub source: ConfigSource,
+    pub path: PathBuf,
+}
+
 impl ConfigLoadOptions {
     pub fn from_runtime(explicit_config: Option<PathBuf>) -> Self {
         Self {
@@ -160,27 +175,42 @@ impl ConfigLoadOptions {
         }
     }
 
-    fn selected_config(&self) -> Option<PathBuf> {
+    pub fn selected_config(&self) -> Option<SelectedConfig> {
         if let Some(path) = &self.explicit_config {
-            return Some(path.clone());
+            return Some(SelectedConfig {
+                source: ConfigSource::Explicit,
+                path: path.clone(),
+            });
         }
 
         if let Some(path) = &self.env_config {
-            return Some(path.clone());
+            return Some(SelectedConfig {
+                source: ConfigSource::Environment,
+                path: path.clone(),
+            });
         }
 
         if self.managed_config.exists() {
-            return Some(self.managed_config.clone());
+            return Some(SelectedConfig {
+                source: ConfigSource::Managed,
+                path: self.managed_config.clone(),
+            });
         }
 
         if let Some(path) = &self.exe_config {
             if path.exists() {
-                return Some(path.clone());
+                return Some(SelectedConfig {
+                    source: ConfigSource::Executable,
+                    path: path.clone(),
+                });
             }
         }
 
         if self.cwd_config.exists() {
-            return Some(self.cwd_config.clone());
+            return Some(SelectedConfig {
+                source: ConfigSource::CurrentDirectory,
+                path: self.cwd_config.clone(),
+            });
         }
 
         None
@@ -364,7 +394,9 @@ impl AppConfig {
     }
 
     pub fn from_options(options: ConfigLoadOptions) -> Result<Self, config::ConfigError> {
-        let selected_config = options.selected_config().map(absolute_config_path);
+        let selected_config = options
+            .selected_config()
+            .map(|selected| absolute_config_path(selected.path));
         let config_dir = selected_config
             .as_deref()
             .and_then(Path::parent)

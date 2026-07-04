@@ -57,6 +57,12 @@ pub enum Commands {
         #[arg(long, value_enum, value_name = "ENGINE")]
         sigma_engine: Option<SigmaEngineArg>,
     },
+    /// Check configuration, paths, and runtime prerequisites
+    Doctor {
+        /// Emit structured JSON output
+        #[arg(long)]
+        json: bool,
+    },
     /// Service management commands
     Service {
         #[command(subcommand)]
@@ -170,5 +176,15 @@ mod tests {
             cli.config,
             Some(std::path::PathBuf::from("/tmp/rustinel.toml"))
         );
+    }
+
+    #[test]
+    fn doctor_accepts_json_flag() {
+        let cli = Cli::try_parse_from(["rustinel", "doctor", "--json"]).expect("valid CLI");
+
+        match cli.command {
+            Some(Commands::Doctor { json }) => assert!(json),
+            _ => panic!("expected doctor command"),
+        }
     }
 }
