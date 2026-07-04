@@ -796,7 +796,10 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
             linux.sigma_rules_dir,
             PathBuf::from("/var/lib/rustinel/rules/sigma")
         );
-        assert!(linux.managed_config().logging.directory.is_absolute());
+        assert_eq!(
+            linux.managed_config().logging.directory.to_string_lossy(),
+            "/var/log/rustinel"
+        );
 
         let macos = InstallLayout::managed(InstallPlatform::Macos);
         assert_eq!(
@@ -804,7 +807,14 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
             PathBuf::from("/Library/Application Support/Rustinel/config.toml")
         );
         assert_eq!(macos.logs_dir, PathBuf::from("/Library/Logs/Rustinel"));
-        assert!(macos.managed_config().scanner.yara_rules_path.is_absolute());
+        assert_eq!(
+            macos
+                .managed_config()
+                .scanner
+                .yara_rules_path
+                .to_string_lossy(),
+            "/Library/Application Support/Rustinel/rules/yara"
+        );
     }
 
     #[test]
