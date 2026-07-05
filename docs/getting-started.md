@@ -91,6 +91,8 @@ Bundled demo rules:
 | Linux | `rules/sigma/linux_whoami.yml` |
 | macOS | `rules/sigma/macos_whoami.yml` |
 
+Installed release packs become active under `rules/current`.
+
 ## Install Options
 
 Install to a specific directory:
@@ -260,13 +262,15 @@ The operational log should report a reload event.
 Windows example:
 
 ```powershell
-Add-Content rules\sigma\windows_whoami.yml "`n# hot reload smoke test"
+$rule = Get-ChildItem rules\current\sigma -Filter *.yml | Select-Object -First 1
+Add-Content $rule.FullName "`n# hot reload smoke test"
 ```
 
 Linux example:
 
 ```bash
-printf '\n# hot reload smoke test\n' >> rules/sigma/linux_whoami.yml
+rule=$(find rules/current/sigma -name '*.yml' -print -quit)
+printf '\n# hot reload smoke test\n' >> "$rule"
 ```
 
 ## Next Steps

@@ -32,6 +32,7 @@ pub fn run() -> anyhow::Result<()> {
         None => crate::runtime::windows::run_console(true, cli.log_level, cli.config, None),
         Some(Commands::Doctor { .. }) => unreachable!("doctor is handled before service dispatch"),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
+        Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
     }
 }
 
@@ -45,6 +46,7 @@ pub fn run() -> anyhow::Result<()> {
             let code = crate::doctor::run_cli(cli.config, json)?;
             std::process::exit(code);
         }
+        Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
         Some(Commands::Run {
             no_console,
             sigma_engine,
@@ -69,6 +71,7 @@ pub fn run() -> anyhow::Result<()> {
             let code = crate::doctor::run_cli(cli.config, json)?;
             std::process::exit(code);
         }
+        Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
         Some(Commands::Run {
             no_console,
             sigma_engine,

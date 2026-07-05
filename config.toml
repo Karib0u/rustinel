@@ -4,9 +4,9 @@
 # 1. Feature Toggles & Rules
 [scanner]
 sigma_enabled = true
-sigma_rules_path = "rules/sigma"
+sigma_rules_path = "rules/current/sigma"
 yara_enabled = true
-yara_rules_path = "rules/yara"
+yara_rules_path = "rules/current/yara"
 
 [reload]
 enabled = true
@@ -77,9 +77,9 @@ channel_capacity = 128
 # 5. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
 enabled = true
-hashes_path = "rules/ioc/hashes.txt"
-ips_path = "rules/ioc/ips.txt"
-domains_path = "rules/ioc/domains.txt"
-paths_regex_path = "rules/ioc/paths_regex.txt"
+hashes_path = "rules/current/ioc/hashes.txt"
+ips_path = "rules/current/ioc/ips.txt"
+domains_path = "rules/current/ioc/domains.txt"
+paths_regex_path = "rules/current/ioc/paths_regex.txt"
 default_severity = "high"
 max_file_size_mb = 50

@@ -48,6 +48,41 @@ Notes:
 - `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
+### `rules`
+
+Discover and install released rules packs.
+
+```text
+rustinel rules list [--catalog-url <URL>] [--rules-dir <PATH>]
+rustinel rules install <PACK> [--catalog-url <URL>] [--rules-dir <PATH>]
+```
+
+Examples:
+
+```bash
+rustinel rules list
+sudo rustinel rules install linux-essential
+```
+
+The default catalog is the latest released `index.json` from
+`Karib0u/rustinel-rules`. `rules list` filters packs to the current platform and
+marks the active pack from `rules/state.json`. `rules install` downloads the pack
+artifact into `rules/staging`, verifies its SHA-256 checksum, rejects unsafe ZIP
+paths, validates `pack.yml`, then atomically replaces `rules/current`.
+
+Managed active rules layout:
+
+```text
+rules/
++-- current/
+|   +-- pack.yml
+|   +-- sigma/
+|   +-- yara/
+|   +-- ioc/
++-- staging/
++-- state.json
+```
+
 ### `service`
 
 Manage native service installation and lifecycle.

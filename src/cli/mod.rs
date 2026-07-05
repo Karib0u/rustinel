@@ -68,6 +68,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: ServiceAction,
     },
+    /// Rules catalog and active pack management
+    Rules {
+        #[command(subcommand)]
+        action: RulesAction,
+    },
 }
 
 #[derive(clap::Subcommand, Copy, Clone)]
@@ -78,6 +83,30 @@ pub enum ServiceAction {
     Stop,
     Restart,
     Status,
+}
+
+#[derive(clap::Subcommand, Clone)]
+pub enum RulesAction {
+    /// List rules packs available for this platform
+    List {
+        /// Rules catalog index URL
+        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        catalog_url: String,
+        /// Rules root directory, containing current, staging, and state.json
+        #[arg(long, value_name = "PATH")]
+        rules_dir: Option<std::path::PathBuf>,
+    },
+    /// Install a rules pack and make it active
+    Install {
+        /// Pack ID from `rustinel rules list`
+        pack: String,
+        /// Rules catalog index URL
+        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        catalog_url: String,
+        /// Rules root directory, containing current, staging, and state.json
+        #[arg(long, value_name = "PATH")]
+        rules_dir: Option<std::path::PathBuf>,
+    },
 }
 
 #[cfg(test)]
@@ -213,6 +242,42 @@ mod tests {
                 assert!(matches!(action, ServiceAction::Status));
             }
             _ => panic!("expected service command"),
+        }
+    }
+
+    #[test]
+    fn rules_list_accepts_catalog_url() {
+        let cli = Cli::try_parse_from([
+            "rustinel",
+            "rules",
+            "list",
+            "--catalog-url",
+            "https://github.com/Karib0u/rustinel-rules/releases/download/v0.2.0/index.json",
+        ])
+        .expect("rules list should parse");
+
+        match cli.command {
+            Some(Commands::Rules {
+                action: RulesAction::List { catalog_url, .. },
+            }) => {
+                assert!(catalog_url.ends_with("/index.json"));
+            }
+            _ => panic!("expected rules list command"),
+        }
+    }
+
+    #[test]
+    fn rules_install_requires_pack() {
+        let cli = Cli::try_parse_from(["rustinel", "rules", "install", "linux-essential"])
+            .expect("rules install should parse");
+
+        match cli.command {
+            Some(Commands::Rules {
+                action: RulesAction::Install { pack, .. },
+            }) => {
+                assert_eq!(pack, "linux-essential");
+            }
+            _ => panic!("expected rules install command"),
         }
     }
 }

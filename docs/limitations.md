@@ -120,6 +120,11 @@ macOS support is experimental and detection-only.
 - **Telemetry is dropped under load (silent risk).** Sensor channels are bounded and
   drop on overflow, with only a periodic warning. Under burst load you get silent
   detection gaps, not slowdown.
+- **Rules catalog trust is release-bound in Phase 1.** `rustinel rules install`
+  trusts HTTPS GitHub release assets from `Karib0u/rustinel-rules` and requires
+  the artifact SHA-256 from the released catalog to match before activation. The
+  catalog is not separately signed in this phase, so protect release publishing
+  credentials and review release assets before promoting them.
 - **Active response is kill-after-the-fact.** The only response is process
   termination, fired after the event is processed - the process may already have
   done its work or exited. A PID-reuse race is narrowed by identity checks but not

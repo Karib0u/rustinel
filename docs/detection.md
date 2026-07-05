@@ -217,10 +217,10 @@ The IOC engine hot reloads indicator files and splits work between inline event 
 
 | Indicator Type | Source File | Checked Against | Execution Path |
 | --- | --- | --- | --- |
-| Hashes | `rules/ioc/hashes.txt` | Process-start executable path | Background worker |
-| IPs / CIDRs | `rules/ioc/ips.txt` | Network source and destination IPs, plus IPs parsed from DNS answers | Inline |
-| Domains | `rules/ioc/domains.txt` | DNS `QueryName`, network `DestinationHostname`, WMI `DestinationHostname` | Inline |
-| Path regexes | `rules/ioc/paths_regex.txt` | `ProcessCreation.Image`, `ProcessCreation.TargetImage`, `FileEvent.TargetFilename`, `ImageLoad.ImageLoaded`, `PowerShellScript.Path`, `ServiceCreation.ServiceFileName` | Inline |
+| Hashes | `rules/current/ioc/hashes.txt` | Process-start executable path | Background worker |
+| IPs / CIDRs | `rules/current/ioc/ips.txt` | Network source and destination IPs, plus IPs parsed from DNS answers | Inline |
+| Domains | `rules/current/ioc/domains.txt` | DNS `QueryName`, network `DestinationHostname`, WMI `DestinationHostname` | Inline |
+| Path regexes | `rules/current/ioc/paths_regex.txt` | `ProcessCreation.Image`, `ProcessCreation.TargetImage`, `FileEvent.TargetFilename`, `ImageLoad.ImageLoaded`, `PowerShellScript.Path`, `ServiceCreation.ServiceFileName` | Inline |
 
 ### Runtime Notes
 

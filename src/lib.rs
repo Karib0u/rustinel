@@ -14,6 +14,7 @@ pub mod normalizer;
 pub mod platform;
 pub mod reload;
 pub mod response;
+pub mod rules;
 pub mod runtime;
 pub mod scanner;
 pub mod sensor;

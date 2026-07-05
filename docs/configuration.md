@@ -25,8 +25,8 @@ the executable-directory file takes precedence.
 
 Relative paths in `config.toml` are resolved relative to the directory that
 contains that config file. For example, a portable archive extracted to
-`/opt/rustinel` can use `rules/sigma` in `/opt/rustinel/config.toml`, and it
-will resolve to `/opt/rustinel/rules/sigma` even if Rustinel is launched from a
+`/opt/rustinel` can use `rules/current/sigma` in `/opt/rustinel/config.toml`, and it
+will resolve to `/opt/rustinel/rules/current/sigma` even if Rustinel is launched from a
 different directory.
 
 Production note:
@@ -50,10 +50,10 @@ Production note:
 ```toml
 [scanner]
 sigma_enabled = true
-sigma_rules_path = "rules/sigma"
+sigma_rules_path = "rules/current/sigma"
 sigma_engine = "builtin"
 yara_enabled = true
-yara_rules_path = "rules/yara"
+yara_rules_path = "rules/current/yara"
 
 # Memory scanning is off by default.
 # yara_memory_enabled = false
@@ -98,10 +98,10 @@ aggregation_interval_buffer_size = 50
 
 [ioc]
 enabled = true
-hashes_path = "rules/ioc/hashes.txt"
-ips_path = "rules/ioc/ips.txt"
-domains_path = "rules/ioc/domains.txt"
-paths_regex_path = "rules/ioc/paths_regex.txt"
+hashes_path = "rules/current/ioc/hashes.txt"
+ips_path = "rules/current/ioc/ips.txt"
+domains_path = "rules/current/ioc/domains.txt"
+paths_regex_path = "rules/current/ioc/paths_regex.txt"
 default_severity = "high"
 max_file_size_mb = 50
 ```
@@ -115,10 +115,10 @@ Use Windows path prefixes on Windows and Unix path prefixes on Linux.
 | Option | Default |
 | --- | --- |
 | `scanner.sigma_enabled` | `true` |
-| `scanner.sigma_rules_path` | `rules/sigma` |
+| `scanner.sigma_rules_path` | `rules/current/sigma` |
 | `scanner.sigma_engine` | `builtin` |
 | `scanner.yara_enabled` | `true` |
-| `scanner.yara_rules_path` | `rules/yara` |
+| `scanner.yara_rules_path` | `rules/current/yara` |
 | `reload.enabled` | `true` |
 | `reload.debounce_ms` | `2000` |
 | `logging.level` | `info` |
@@ -178,10 +178,10 @@ These defaults feed `allowlist.paths`, which then propagate to active response, 
 | Option | Default | Description |
 | --- | --- | --- |
 | `sigma_enabled` | `true` | Enable Sigma rule evaluation |
-| `sigma_rules_path` | `rules/sigma` | Sigma rules directory |
+| `sigma_rules_path` | `rules/current/sigma` | Sigma rules directory |
 | `sigma_engine` | `builtin` | Sigma matching backend: `builtin` or `rsigma` (the latter needs the `rsigma-engine` build feature) |
 | `yara_enabled` | `true` | Enable YARA scanning |
-| `yara_rules_path` | `rules/yara` | YARA rules directory |
+| `yara_rules_path` | `rules/current/yara` | YARA rules directory |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped by YARA queueing and scanning |
 | `yara_memory_enabled` | `false` | Enable YARA memory scanning (requires `yara_enabled = true`) |
 | `yara_memory_queue_capacity` | `64` | Maximum pending memory scan jobs before new ones are dropped |
@@ -284,10 +284,10 @@ See [Active Response](active-response.md) for platform behavior and safe testing
 | Option | Default | Description |
 | --- | --- | --- |
 | `enabled` | `true` | Enable IOC detection |
-| `hashes_path` | `rules/ioc/hashes.txt` | Hash IOC file |
-| `ips_path` | `rules/ioc/ips.txt` | IP and CIDR IOC file |
-| `domains_path` | `rules/ioc/domains.txt` | Domain IOC file |
-| `paths_regex_path` | `rules/ioc/paths_regex.txt` | Path regex IOC file |
+| `hashes_path` | `rules/current/ioc/hashes.txt` | Hash IOC file |
+| `ips_path` | `rules/current/ioc/ips.txt` | IP and CIDR IOC file |
+| `domains_path` | `rules/current/ioc/domains.txt` | Domain IOC file |
+| `paths_regex_path` | `rules/current/ioc/paths_regex.txt` | Path regex IOC file |
 | `default_severity` | `high` | Severity assigned to IOC alerts |
 | `max_file_size_mb` | `50` | Skip hashing files larger than this limit |
 | `hash_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped during hashing |
@@ -309,7 +309,7 @@ $env:EDR__ALLOWLIST__PATHS='["C:\\Windows\\","C:\\Program Files\\"]'
 
 ```bash
 export EDR__LOGGING__LEVEL=debug
-export EDR__SCANNER__SIGMA_RULES_PATH=/opt/rustinel/rules/sigma
+export EDR__SCANNER__SIGMA_RULES_PATH=/opt/rustinel/rules/current/sigma
 export EDR__ALLOWLIST__PATHS='["/usr/bin/","/usr/sbin/"]'
 sudo /opt/rustinel/rustinel run
 ```
@@ -343,8 +343,8 @@ directory = "C:\\Rustinel\\logs"
 
 ```toml
 [scanner]
-sigma_rules_path = "/opt/rustinel/rules/sigma"
-yara_rules_path = "/opt/rustinel/rules/yara"
+sigma_rules_path = "/opt/rustinel/rules/current/sigma"
+yara_rules_path = "/opt/rustinel/rules/current/yara"
 
 [logging]
 directory = "/opt/rustinel/logs"

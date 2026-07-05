@@ -63,8 +63,8 @@
                                                │ atomic swap
                                   ┌────────────┴────────────┐
                                   │ Reload poller + worker  │
-                                  │ rules/sigma rules/yara  │
-                                  │ rules/ioc/*             │
+                                  │ rules/current/{sigma,yara} │
+                                  │ rules/current/ioc/*        │
                                   └─────────────────────────┘
 ```
 

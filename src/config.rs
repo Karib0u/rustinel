@@ -62,9 +62,9 @@ impl InstallLayout {
                 platform,
                 config_file: PathBuf::from(r"C:\ProgramData\Rustinel\config.toml"),
                 rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules"),
-                sigma_rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\sigma"),
-                yara_rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\yara"),
-                ioc_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\ioc"),
+                sigma_rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\current\sigma"),
+                yara_rules_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\current\yara"),
+                ioc_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\current\ioc"),
                 logs_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
                 alerts_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
             },
@@ -116,13 +116,14 @@ impl InstallLayout {
         rules_dir: PathBuf,
         logs_dir: PathBuf,
     ) -> Self {
-        let ioc_dir = layout_join(platform, &rules_dir, "ioc");
+        let current_dir = layout_join(platform, &rules_dir, "current");
+        let ioc_dir = layout_join(platform, &current_dir, "ioc");
         Self {
             platform,
             config_file,
             rules_dir: rules_dir.clone(),
-            sigma_rules_dir: layout_join(platform, &rules_dir, "sigma"),
-            yara_rules_dir: layout_join(platform, &rules_dir, "yara"),
+            sigma_rules_dir: layout_join(platform, &current_dir, "sigma"),
+            yara_rules_dir: layout_join(platform, &current_dir, "yara"),
             ioc_dir,
             alerts_dir: logs_dir.clone(),
             logs_dir,
@@ -406,10 +407,10 @@ impl AppConfig {
             // --- Defaults ---
             // Scanner
             .set_default("scanner.sigma_enabled", true)?
-            .set_default("scanner.sigma_rules_path", "rules/sigma")?
+            .set_default("scanner.sigma_rules_path", "rules/current/sigma")?
             .set_default("scanner.sigma_engine", "builtin")?
             .set_default("scanner.yara_enabled", true)?
-            .set_default("scanner.yara_rules_path", "rules/yara")?
+            .set_default("scanner.yara_rules_path", "rules/current/yara")?
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
             .set_default("scanner.yara_memory_enabled", false)?
             .set_default("scanner.yara_memory_queue_capacity", 64i64)?
@@ -445,10 +446,10 @@ impl AppConfig {
             .set_default("network.aggregation_interval_buffer_size", 50)?
             // IOC
             .set_default("ioc.enabled", true)?
-            .set_default("ioc.hashes_path", "rules/ioc/hashes.txt")?
-            .set_default("ioc.ips_path", "rules/ioc/ips.txt")?
-            .set_default("ioc.domains_path", "rules/ioc/domains.txt")?
-            .set_default("ioc.paths_regex_path", "rules/ioc/paths_regex.txt")?
+            .set_default("ioc.hashes_path", "rules/current/ioc/hashes.txt")?
+            .set_default("ioc.ips_path", "rules/current/ioc/ips.txt")?
+            .set_default("ioc.domains_path", "rules/current/ioc/domains.txt")?
+            .set_default("ioc.paths_regex_path", "rules/current/ioc/paths_regex.txt")?
             .set_default("ioc.default_severity", "high")?
             .set_default("ioc.max_file_size_mb", 50)?
             .set_default("ioc.hash_allowlist_paths", Vec::<String>::new())?
@@ -574,10 +575,10 @@ impl Default for AppConfig {
         let mut cfg = Self {
             scanner: ScannerConfig {
                 sigma_enabled: true,
-                sigma_rules_path: PathBuf::from("rules/sigma"),
+                sigma_rules_path: PathBuf::from("rules/current/sigma"),
                 sigma_engine: "builtin".to_string(),
                 yara_enabled: true,
-                yara_rules_path: PathBuf::from("rules/yara"),
+                yara_rules_path: PathBuf::from("rules/current/yara"),
                 yara_allowlist_paths: Vec::new(),
                 yara_memory_enabled: false,
                 yara_memory_queue_capacity: 64,
@@ -618,10 +619,10 @@ impl Default for AppConfig {
             },
             ioc: IocConfig {
                 enabled: true,
-                hashes_path: PathBuf::from("rules/ioc/hashes.txt"),
-                ips_path: PathBuf::from("rules/ioc/ips.txt"),
-                domains_path: PathBuf::from("rules/ioc/domains.txt"),
-                paths_regex_path: PathBuf::from("rules/ioc/paths_regex.txt"),
+                hashes_path: PathBuf::from("rules/current/ioc/hashes.txt"),
+                ips_path: PathBuf::from("rules/current/ioc/ips.txt"),
+                domains_path: PathBuf::from("rules/current/ioc/domains.txt"),
+                paths_regex_path: PathBuf::from("rules/current/ioc/paths_regex.txt"),
                 default_severity: "high".to_string(),
                 max_file_size_mb: 50,
                 hash_allowlist_paths: Vec::new(),
@@ -679,21 +680,33 @@ mod tests {
     fn test_config_paths() {
         let cfg = AppConfig::new().unwrap();
         let cwd = std::env::current_dir().expect("current dir");
-        assert_eq!(cfg.scanner.sigma_rules_path, cwd.join("rules/sigma"));
-        assert_eq!(cfg.scanner.yara_rules_path, cwd.join("rules/yara"));
-        assert_eq!(cfg.ioc.hashes_path, cwd.join("rules/ioc/hashes.txt"));
-        assert_eq!(cfg.ioc.ips_path, cwd.join("rules/ioc/ips.txt"));
+        assert_eq!(
+            cfg.scanner.sigma_rules_path,
+            cwd.join("rules/current/sigma")
+        );
+        assert_eq!(cfg.scanner.yara_rules_path, cwd.join("rules/current/yara"));
+        assert_eq!(
+            cfg.ioc.hashes_path,
+            cwd.join("rules/current/ioc/hashes.txt")
+        );
+        assert_eq!(cfg.ioc.ips_path, cwd.join("rules/current/ioc/ips.txt"));
         assert_eq!(
             cfg.ioc.paths_regex_path,
-            cwd.join("rules/ioc/paths_regex.txt")
+            cwd.join("rules/current/ioc/paths_regex.txt")
         );
     }
 
     #[test]
     fn default_config_paths_remain_portable() {
         let cfg = AppConfig::default();
-        assert_eq!(cfg.scanner.sigma_rules_path, PathBuf::from("rules/sigma"));
-        assert_eq!(cfg.scanner.yara_rules_path, PathBuf::from("rules/yara"));
+        assert_eq!(
+            cfg.scanner.sigma_rules_path,
+            PathBuf::from("rules/current/sigma")
+        );
+        assert_eq!(
+            cfg.scanner.yara_rules_path,
+            PathBuf::from("rules/current/yara")
+        );
         assert_eq!(cfg.logging.directory, PathBuf::from("logs"));
     }
 
@@ -826,7 +839,7 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         );
         assert_eq!(
             windows.sigma_rules_dir.to_string_lossy(),
-            r"C:\ProgramData\Rustinel\rules\sigma"
+            r"C:\ProgramData\Rustinel\rules\current\sigma"
         );
 
         let linux = InstallLayout::managed(InstallPlatform::Linux);
@@ -836,7 +849,7 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         );
         assert_eq!(
             linux.sigma_rules_dir,
-            PathBuf::from("/var/lib/rustinel/rules/sigma")
+            PathBuf::from("/var/lib/rustinel/rules/current/sigma")
         );
         assert_eq!(
             linux.managed_config().logging.directory.to_string_lossy(),
@@ -855,7 +868,7 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
                 .scanner
                 .yara_rules_path
                 .to_string_lossy(),
-            "/Library/Application Support/Rustinel/rules/yara"
+            "/Library/Application Support/Rustinel/rules/current/yara"
         );
     }
 
@@ -865,7 +878,10 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         let layout = InstallLayout::portable(&root);
 
         assert_eq!(layout.config_file, root.join("config.toml"));
-        assert_eq!(layout.sigma_rules_dir, root.join("rules").join("sigma"));
+        assert_eq!(
+            layout.sigma_rules_dir,
+            root.join("rules").join("current").join("sigma")
+        );
         assert_eq!(layout.logs_dir, root.join("logs"));
     }
 
