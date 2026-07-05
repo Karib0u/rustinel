@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 
 use crate::cli::ServiceAction;
-use crate::config::{InstallLayout, InstallPlatform};
+use crate::config::{layout_join, InstallLayout, InstallPlatform};
 
 pub const WINDOWS_SERVICE_NAME: &str = "Rustinel";
 pub const WINDOWS_SERVICE_DISPLAY_NAME: &str = "Rustinel ETW Sentinel";
@@ -186,8 +186,8 @@ pub struct LaunchdDefinition {
 
 impl LaunchdDefinition {
     pub fn managed(paths: &ManagedServicePaths) -> Self {
-        let stdout_path = layout_path_string(paths.platform, &paths.logs_dir, "launchd.out.log");
-        let stderr_path = layout_path_string(paths.platform, &paths.logs_dir, "launchd.err.log");
+        let stdout_path = layout_join(paths.platform, &paths.logs_dir, "launchd.out.log");
+        let stderr_path = layout_join(paths.platform, &paths.logs_dir, "launchd.err.log");
         let contents = format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
@@ -221,8 +221,8 @@ impl LaunchdDefinition {
             xml_escape(&paths.binary_path.to_string_lossy()),
             xml_escape(&paths.config_path.to_string_lossy()),
             xml_escape(&paths.working_dir.to_string_lossy()),
-            xml_escape(&stdout_path),
-            xml_escape(&stderr_path)
+            xml_escape(&stdout_path.to_string_lossy()),
+            xml_escape(&stderr_path.to_string_lossy())
         );
 
         Self {
@@ -230,16 +230,6 @@ impl LaunchdDefinition {
             contents,
         }
     }
-}
-
-fn layout_path_string(platform: InstallPlatform, base: &Path, child: &str) -> String {
-    let separator = match platform {
-        InstallPlatform::Windows => r"\",
-        InstallPlatform::Linux | InstallPlatform::Macos => "/",
-    };
-    let base = base.to_string_lossy();
-    let base = base.trim_end_matches(['/', '\\']);
-    format!("{base}{separator}{child}")
 }
 
 fn xml_escape(value: &str) -> String {

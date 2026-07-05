@@ -130,7 +130,7 @@ impl InstallLayout {
     }
 }
 
-fn layout_join(platform: InstallPlatform, base: &Path, child: &str) -> PathBuf {
+pub(crate) fn layout_join(platform: InstallPlatform, base: &Path, child: &str) -> PathBuf {
     let separator = match platform {
         InstallPlatform::Windows => r"\",
         InstallPlatform::Linux | InstallPlatform::Macos => "/",
