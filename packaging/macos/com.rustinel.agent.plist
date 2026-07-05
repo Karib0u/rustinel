@@ -9,8 +9,9 @@
 
     sudo launchctl bootstrap system /Library/LaunchDaemons/com.rustinel.agent.plist
 
-  This template expects the release package to be installed under
-  /usr/local/var/rustinel.
+  This template expects the managed release package to be installed under
+  /usr/local/var/rustinel and the configuration to live in
+  /Library/Application Support/Rustinel/config.toml.
 -->
 <plist version="1.0">
 <dict>
@@ -20,6 +21,9 @@
     <array>
         <string>/usr/local/var/rustinel/Rustinel.app/Contents/MacOS/rustinel</string>
         <string>run</string>
+        <string>--config</string>
+        <string>/Library/Application Support/Rustinel/config.toml</string>
+        <string>--no-console</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/usr/local/var/rustinel</string>
@@ -30,8 +34,8 @@
     <key>ProcessType</key>
     <string>Interactive</string>
     <key>StandardOutPath</key>
-    <string>/usr/local/var/log/rustinel/launchd.out.log</string>
+    <string>/Library/Logs/Rustinel/launchd.out.log</string>
     <key>StandardErrorPath</key>
-    <string>/usr/local/var/log/rustinel/launchd.err.log</string>
+    <string>/Library/Logs/Rustinel/launchd.err.log</string>
 </dict>
 </plist>

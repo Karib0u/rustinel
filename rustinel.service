@@ -4,21 +4,21 @@ Documentation=https://github.com/Karib0u/rustinel
 After=network.target
 
 [Service]
-ExecStart=/opt/rustinel/rustinel run
+Type=simple
+ExecStart=/opt/rustinel/rustinel run --config /etc/rustinel/config.toml --no-console
 WorkingDirectory=/opt/rustinel
 Restart=on-failure
-RestartSec=5
+RestartSec=5s
+User=root
 
 # Allow eBPF program loading and network observability without full root.
-# CAP_BPF          — load and attach eBPF programs
-# CAP_NET_ADMIN    — attach tc/xdp programs (future use), read socket metadata
-# CAP_SYS_RESOURCE — raise memlock limit required by eBPF maps
+# CAP_BPF loads and attaches eBPF programs.
+# CAP_NET_ADMIN attaches tc/xdp programs and reads socket metadata.
+# CAP_SYS_RESOURCE raises memlock limits required by eBPF maps.
 AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_SYS_RESOURCE
 CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_SYS_RESOURCE
 NoNewPrivileges=true
 
-# Logging goes to files in WorkingDirectory/logs/ via tracing-appender.
-# StandardOutput/StandardError are left as journal so startup errors are visible.
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=rustinel

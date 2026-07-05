@@ -61,33 +61,50 @@ Use absolute paths in `config.toml` once you move beyond the default repo layout
   `rustinel.exe` (it will still be found) and use absolute paths for rules and logs.
 - Linux supervisors should also use absolute paths for predictable upgrades and restarts.
 
-## Windows Service Lifecycle
+## Native Service Lifecycle
 
-Rustinel includes built-in Windows service management commands:
+Rustinel includes built-in native service management commands on Windows,
+Linux, and macOS:
 
 ```powershell
 .\rustinel.exe service install
 .\rustinel.exe service start
+.\rustinel.exe service status
+.\rustinel.exe service restart
 .\rustinel.exe service stop
 .\rustinel.exe service uninstall
 ```
 
+```bash
+sudo rustinel service install
+sudo rustinel service start
+rustinel service status
+sudo rustinel service restart
+sudo rustinel service stop
+sudo rustinel service uninstall
+```
+
 Important behavior:
 
-- `service install` registers the current executable path with the Service Control Manager.
-- Replacing the binary in the same directory is fine.
-- Moving the binary to a new directory requires `service uninstall` followed by `service install`.
-- Service mode does not consume interactive CLI flags; configure it with `config.toml` and `EDR__...` environment variables.
+- `service install` registers the native service definition with managed paths.
+- The managed binary and managed configuration file must already exist.
+- `service install` does not download rules, copy a temporary executable, or overwrite user configuration.
+- `service uninstall` stops and unregisters the native service while preserving configuration, rules, logs, and state.
+- `service status` prints one normalized value: `not-installed`, `stopped`, `starting`, `running`, `failed`, or `unknown`.
+- Service mode uses the managed config file path and can still be adjusted with `EDR__...` environment variables.
+
+Managed service paths:
+
+| Platform | Native manager | Binary | Configuration |
+| --- | --- | --- | --- |
+| Windows | Service Control Manager | `C:\Program Files\Rustinel\rustinel.exe` | `C:\ProgramData\Rustinel\config.toml` |
+| Linux | systemd | `/opt/rustinel/rustinel` | `/etc/rustinel/config.toml` |
+| macOS | launchd | `/usr/local/var/rustinel/Rustinel.app/Contents/MacOS/rustinel` | `/Library/Application Support/Rustinel/config.toml` |
 
 ## Linux Runtime Model
 
-Rustinel does not currently ship Linux service-management commands. Common deployment patterns are:
-
-- Run it directly in a root shell for testing
-- Wrap it in `systemd`
-- Run it under another process supervisor
-
-The binary itself is the same foreground application in all cases:
+The binary itself remains the same foreground application. Service management
+wraps it with `systemd`:
 
 ```bash
 sudo /opt/rustinel/rustinel run
@@ -104,7 +121,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/opt/rustinel/rustinel run
+ExecStart=/opt/rustinel/rustinel run --config /etc/rustinel/config.toml --no-console
 WorkingDirectory=/opt/rustinel
 Restart=on-failure
 RestartSec=5s
@@ -123,22 +140,23 @@ sudo systemctl start rustinel
 sudo systemctl status rustinel
 ```
 
-Because `config.toml` is loaded from `WorkingDirectory`, use absolute paths for all rules and log directories in that file when running under `systemd`.
+The built-in `service install` command writes this unit to
+`/etc/systemd/system/rustinel.service`, reloads `systemd`, and enables the unit.
 
 ## macOS Runtime Model
 
 macOS support is experimental and detection-only today. Active response is not
-supported on macOS. Rustinel does not ship macOS service-management commands
-yet; run it in the foreground as root:
+supported on macOS. You can still run it in the foreground as root:
 
 ```bash
 sudo /usr/local/var/rustinel/rustinel run
 ```
 
-For background execution, install the release package under
-`/usr/local/var/rustinel` and load the bundled `com.rustinel.agent.plist` as a
-`launchd` LaunchDaemon. The plist contains the exact `launchctl bootstrap`
-command and expects that path.
+For background execution, `service install` writes and bootstraps
+`/Library/LaunchDaemons/com.rustinel.agent.plist` as a `launchd`
+LaunchDaemon. It expects the managed app bundle at
+`/usr/local/var/rustinel/Rustinel.app` and the managed configuration file at
+`/Library/Application Support/Rustinel/config.toml`.
 
 The app bundle must be signed with the
 `com.apple.developer.endpoint-security.client` entitlement, contain the

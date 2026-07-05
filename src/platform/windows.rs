@@ -1,81 +1,163 @@
+use std::ffi::OsString;
+
 use crate::cli::ServiceAction;
+use crate::service::{
+    execute_backend_action, ManagedServicePaths, ServiceBackend, ServiceStatus,
+    SERVICE_DESCRIPTION, WINDOWS_SERVICE_DISPLAY_NAME, WINDOWS_SERVICE_NAME,
+};
 use crate::state::ProcessCache;
 
-pub const SERVICE_NAME: &str = "Rustinel";
-const SERVICE_DISPLAY_NAME: &str = "Rustinel ETW Sentinel";
-const SERVICE_DESCRIPTION: &str = "High-performance endpoint detection agent";
+pub const SERVICE_NAME: &str = WINDOWS_SERVICE_NAME;
 
 pub fn handle_service_command(action: ServiceAction) -> anyhow::Result<()> {
-    match action {
-        ServiceAction::Install => install_service(),
-        ServiceAction::Uninstall => uninstall_service(),
-        ServiceAction::Start => start_service(),
-        ServiceAction::Stop => stop_service(),
+    let backend = WindowsServiceBackend::new();
+    execute_backend_action(&backend, action)
+}
+
+struct WindowsServiceBackend {
+    paths: ManagedServicePaths,
+}
+
+impl WindowsServiceBackend {
+    fn new() -> Self {
+        Self {
+            paths: ManagedServicePaths::current(),
+        }
+    }
+
+    fn service_info(&self) -> windows_service::service::ServiceInfo {
+        use windows_service::service::{
+            ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
+        };
+
+        ServiceInfo {
+            name: OsString::from(SERVICE_NAME),
+            display_name: OsString::from(WINDOWS_SERVICE_DISPLAY_NAME),
+            service_type: ServiceType::OWN_PROCESS,
+            start_type: ServiceStartType::AutoStart,
+            error_control: ServiceErrorControl::Normal,
+            executable_path: self.paths.binary_path.clone(),
+            launch_arguments: vec![
+                OsString::from("run"),
+                OsString::from("--config"),
+                self.paths.config_path.as_os_str().to_os_string(),
+                OsString::from("--no-console"),
+            ],
+            dependencies: vec![],
+            account_name: None,
+            account_password: None,
+        }
+    }
+
+    fn is_not_installed(err: &windows_service::Error) -> bool {
+        match err {
+            windows_service::Error::Winapi(io_err) => io_err.raw_os_error() == Some(1060),
+            _ => false,
+        }
     }
 }
 
-fn install_service() -> anyhow::Result<()> {
-    use std::env;
-    use std::ffi::OsString;
+impl ServiceBackend for WindowsServiceBackend {
+    fn name(&self) -> &'static str {
+        SERVICE_NAME
+    }
+
+    fn install(&self) -> anyhow::Result<()> {
+        use windows_service::service::ServiceAccess;
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+
+        self.paths.validate_install_inputs()?;
+
+        let manager = ServiceManager::local_computer(
+            None::<&str>,
+            ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
+        )?;
+        let service_info = self.service_info();
+        let access = ServiceAccess::QUERY_CONFIG | ServiceAccess::CHANGE_CONFIG;
+
+        match manager.open_service(SERVICE_NAME, access) {
+            Ok(service) => {
+                service.change_config(&service_info)?;
+                service.set_description(SERVICE_DESCRIPTION)?;
+            }
+            Err(err) if Self::is_not_installed(&err) => {
+                let service = manager.create_service(&service_info, access)?;
+                service.set_description(SERVICE_DESCRIPTION)?;
+            }
+            Err(err) => return Err(err.into()),
+        }
+
+        Ok(())
+    }
+
+    fn uninstall(&self) -> anyhow::Result<()> {
+        use windows_service::service::ServiceAccess;
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+        let access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
+        let service = match manager.open_service(SERVICE_NAME, access) {
+            Ok(service) => service,
+            Err(err) if Self::is_not_installed(&err) => return Ok(()),
+            Err(err) => return Err(err.into()),
+        };
+
+        let status = service.query_status()?;
+        if windows_status(status.current_state) == ServiceStatus::Running {
+            let _ = service.stop();
+        }
+        service.delete()?;
+        Ok(())
+    }
+
+    fn start(&self) -> anyhow::Result<()> {
+        use windows_service::service::ServiceAccess;
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+        let service = manager.open_service(SERVICE_NAME, ServiceAccess::START)?;
+        service.start(&[] as &[OsString])?;
+        Ok(())
+    }
+
+    fn stop(&self) -> anyhow::Result<()> {
+        use windows_service::service::ServiceAccess;
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+        let service = manager.open_service(SERVICE_NAME, ServiceAccess::STOP)?;
+        service.stop()?;
+        Ok(())
+    }
+
+    fn status(&self) -> anyhow::Result<ServiceStatus> {
+        use windows_service::service::ServiceAccess;
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+        let service = match manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS) {
+            Ok(service) => service,
+            Err(err) if Self::is_not_installed(&err) => return Ok(ServiceStatus::NotInstalled),
+            Err(err) => return Err(err.into()),
+        };
+
+        Ok(windows_status(service.query_status()?.current_state))
+    }
+}
+
+fn windows_status(state: windows_service::service::ServiceState) -> ServiceStatus {
     use windows_service::service::{
-        ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
-    };
-    use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-
-    let exe_path = env::current_exe()?;
-    let manager =
-        ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CREATE_SERVICE)?;
-
-    let service_info = ServiceInfo {
-        name: OsString::from(SERVICE_NAME),
-        display_name: OsString::from(SERVICE_DISPLAY_NAME),
-        service_type: ServiceType::OWN_PROCESS,
-        start_type: ServiceStartType::AutoStart,
-        error_control: ServiceErrorControl::Normal,
-        executable_path: exe_path,
-        launch_arguments: vec![],
-        dependencies: vec![],
-        account_name: None,
-        account_password: None,
+        ServiceState::ContinuePending, ServiceState::PausePending, ServiceState::Paused,
+        ServiceState::Running, ServiceState::StartPending, ServiceState::StopPending,
+        ServiceState::Stopped,
     };
 
-    let service = manager.create_service(&service_info, ServiceAccess::CHANGE_CONFIG)?;
-    let _ = service.set_description(SERVICE_DESCRIPTION);
-    println!("Service '{}' installed.", SERVICE_NAME);
-    Ok(())
-}
-
-fn uninstall_service() -> anyhow::Result<()> {
-    use windows_service::service::ServiceAccess;
-    use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-
-    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
-    let service = manager.open_service(SERVICE_NAME, ServiceAccess::DELETE)?;
-    service.delete()?;
-    println!("Service '{}' uninstalled.", SERVICE_NAME);
-    Ok(())
-}
-
-fn start_service() -> anyhow::Result<()> {
-    use windows_service::service::ServiceAccess;
-    use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-
-    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
-    let service = manager.open_service(SERVICE_NAME, ServiceAccess::START)?;
-    service.start(&[] as &[std::ffi::OsString])?;
-    println!("Service '{}' started.", SERVICE_NAME);
-    Ok(())
-}
-
-fn stop_service() -> anyhow::Result<()> {
-    use windows_service::service::ServiceAccess;
-    use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-
-    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
-    let service = manager.open_service(SERVICE_NAME, ServiceAccess::STOP)?;
-    service.stop()?;
-    println!("Service '{}' stopped.", SERVICE_NAME);
-    Ok(())
+    match state {
+        Stopped | Paused => ServiceStatus::Stopped,
+        StartPending | ContinuePending => ServiceStatus::Starting,
+        Running => ServiceStatus::Running,
+        StopPending | PausePending => ServiceStatus::Stopped,
+    }
 }
 
 mod native_snapshot {

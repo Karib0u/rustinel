@@ -17,5 +17,6 @@ pub mod response;
 pub mod runtime;
 pub mod scanner;
 pub mod sensor;
+pub mod service;
 pub mod state;
 pub mod utils;

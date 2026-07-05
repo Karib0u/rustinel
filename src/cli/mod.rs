@@ -76,6 +76,8 @@ pub enum ServiceAction {
     Uninstall,
     Start,
     Stop,
+    Restart,
+    Status,
 }
 
 #[cfg(test)]
@@ -185,6 +187,32 @@ mod tests {
         match cli.command {
             Some(Commands::Doctor { json }) => assert!(json),
             _ => panic!("expected doctor command"),
+        }
+    }
+
+    #[test]
+    fn service_accepts_restart() {
+        let cli =
+            Cli::try_parse_from(["rustinel", "service", "restart"]).expect("restart should parse");
+
+        match cli.command {
+            Some(Commands::Service { action }) => {
+                assert!(matches!(action, ServiceAction::Restart));
+            }
+            _ => panic!("expected service command"),
+        }
+    }
+
+    #[test]
+    fn service_accepts_status() {
+        let cli =
+            Cli::try_parse_from(["rustinel", "service", "status"]).expect("status should parse");
+
+        match cli.command {
+            Some(Commands::Service { action }) => {
+                assert!(matches!(action, ServiceAction::Status));
+            }
+            _ => panic!("expected service command"),
         }
     }
 }

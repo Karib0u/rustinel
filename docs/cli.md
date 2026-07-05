@@ -50,10 +50,10 @@ Notes:
 
 ### `service`
 
-Manage Windows service installation and lifecycle.
+Manage native service installation and lifecycle.
 
 ```text
-rustinel service <install|uninstall|start|stop>
+rustinel service <install|uninstall|start|stop|restart|status>
 ```
 
 Examples:
@@ -61,14 +61,45 @@ Examples:
 ```powershell
 rustinel service install
 rustinel service start
+rustinel service status
+rustinel service restart
 rustinel service stop
 rustinel service uninstall
 ```
 
-Platform note:
+```bash
+sudo rustinel service install
+sudo rustinel service start
+rustinel service status
+sudo rustinel service restart
+sudo rustinel service stop
+sudo rustinel service uninstall
+```
 
-- Service commands are supported on Windows only.
-- On Linux, use `systemd` or another process supervisor if you need background execution.
+Status output is normalized across platforms:
+
+```text
+not-installed
+stopped
+starting
+running
+failed
+unknown
+```
+
+Managed paths:
+
+| Platform | Native manager | Binary | Configuration |
+| --- | --- | --- | --- |
+| Windows | Service Control Manager | `C:\Program Files\Rustinel\rustinel.exe` | `C:\ProgramData\Rustinel\config.toml` |
+| Linux | systemd | `/opt/rustinel/rustinel` | `/etc/rustinel/config.toml` |
+| macOS | launchd | `/usr/local/var/rustinel/Rustinel.app/Contents/MacOS/rustinel` | `/Library/Application Support/Rustinel/config.toml` |
+
+`service install` validates that the managed binary and configuration file
+already exist. It registers the native service definition only; it does not
+download rules, copy a temporary executable, or overwrite user configuration.
+`service uninstall` unregisters the native service and preserves configuration,
+rules, logs, and state.
 
 ## Environment Variables
 
