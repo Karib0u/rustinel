@@ -53,9 +53,10 @@ pub fn launchd_status_from_output(output: &str) -> ServiceStatus {
         ServiceStatus::Running
     } else if output.contains("state = spawning") {
         ServiceStatus::Starting
-    } else if output.contains("state = waiting") || output.contains("state = exited") {
-        ServiceStatus::Stopped
-    } else if output.contains("last exit code = 0") {
+    } else if output.contains("state = waiting")
+        || output.contains("state = exited")
+        || output.contains("last exit code = 0")
+    {
         ServiceStatus::Stopped
     } else if output.contains("last exit code =") {
         ServiceStatus::Failed
@@ -185,8 +186,8 @@ pub struct LaunchdDefinition {
 
 impl LaunchdDefinition {
     pub fn managed(paths: &ManagedServicePaths) -> Self {
-        let stdout_path = paths.logs_dir.join("launchd.out.log");
-        let stderr_path = paths.logs_dir.join("launchd.err.log");
+        let stdout_path = layout_path_string(paths.platform, &paths.logs_dir, "launchd.out.log");
+        let stderr_path = layout_path_string(paths.platform, &paths.logs_dir, "launchd.err.log");
         let contents = format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
@@ -220,8 +221,8 @@ impl LaunchdDefinition {
             xml_escape(&paths.binary_path.to_string_lossy()),
             xml_escape(&paths.config_path.to_string_lossy()),
             xml_escape(&paths.working_dir.to_string_lossy()),
-            xml_escape(&stdout_path.to_string_lossy()),
-            xml_escape(&stderr_path.to_string_lossy())
+            xml_escape(&stdout_path),
+            xml_escape(&stderr_path)
         );
 
         Self {
@@ -229,6 +230,16 @@ impl LaunchdDefinition {
             contents,
         }
     }
+}
+
+fn layout_path_string(platform: InstallPlatform, base: &Path, child: &str) -> String {
+    let separator = match platform {
+        InstallPlatform::Windows => r"\",
+        InstallPlatform::Linux | InstallPlatform::Macos => "/",
+    };
+    let base = base.to_string_lossy();
+    let base = base.trim_end_matches(['/', '\\']);
+    format!("{base}{separator}{child}")
 }
 
 fn xml_escape(value: &str) -> String {
