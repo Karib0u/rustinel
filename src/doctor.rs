@@ -1,11 +1,13 @@
 use crate::config::{AppConfig, ConfigLoadOptions, ConfigSource, InstallLayout, InstallPlatform};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use crate::service::ManagedServicePaths;
+use crate::service::ServiceStatus;
 #[cfg(windows)]
 use crate::service::WINDOWS_SERVICE_NAME;
 #[cfg(target_os = "macos")]
 use crate::service::{launchd_status_from_output, LAUNCHD_LABEL};
 #[cfg(target_os = "linux")]
 use crate::service::{systemd_status_from_state, SYSTEMD_UNIT_NAME};
-use crate::service::{ManagedServicePaths, ServiceStatus};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -990,15 +992,15 @@ fn inspect_service(mode: InstallMode, results: &mut Vec<DiagnosticResult>) -> Se
 fn read_service_status() -> ServiceDiagnostic {
     #[cfg(target_os = "linux")]
     {
-        return read_systemd_status();
+        read_systemd_status()
     }
     #[cfg(target_os = "macos")]
     {
-        return read_launchd_status();
+        read_launchd_status()
     }
     #[cfg(windows)]
     {
-        return read_windows_service_status();
+        read_windows_service_status()
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
@@ -1111,15 +1113,15 @@ fn service_diag(
 fn platform_prerequisite_results() -> Vec<DiagnosticResult> {
     #[cfg(target_os = "linux")]
     {
-        return linux_prerequisite_results();
+        linux_prerequisite_results()
     }
     #[cfg(target_os = "macos")]
     {
-        return macos_prerequisite_results();
+        macos_prerequisite_results()
     }
     #[cfg(windows)]
     {
-        return windows_prerequisite_results();
+        windows_prerequisite_results()
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
