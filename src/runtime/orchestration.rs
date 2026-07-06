@@ -33,6 +33,19 @@ pub fn run() -> anyhow::Result<()> {
         Some(Commands::Doctor { .. }) => unreachable!("doctor is handled before service dispatch"),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
         Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
+        Some(Commands::Setup {
+            pack,
+            yes,
+            no_start,
+            force,
+            catalog_url,
+        }) => crate::setup::run_cli(crate::setup::SetupOptions {
+            pack,
+            yes,
+            no_start,
+            force,
+            catalog_url,
+        }),
     }
 }
 
@@ -47,6 +60,19 @@ pub fn run() -> anyhow::Result<()> {
             std::process::exit(code);
         }
         Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
+        Some(Commands::Setup {
+            pack,
+            yes,
+            no_start,
+            force,
+            catalog_url,
+        }) => crate::setup::run_cli(crate::setup::SetupOptions {
+            pack,
+            yes,
+            no_start,
+            force,
+            catalog_url,
+        }),
         Some(Commands::Run {
             no_console,
             sigma_engine,
@@ -72,6 +98,19 @@ pub fn run() -> anyhow::Result<()> {
             std::process::exit(code);
         }
         Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
+        Some(Commands::Setup {
+            pack,
+            yes,
+            no_start,
+            force,
+            catalog_url,
+        }) => crate::setup::run_cli(crate::setup::SetupOptions {
+            pack,
+            yes,
+            no_start,
+            force,
+            catalog_url,
+        }),
         Some(Commands::Run {
             no_console,
             sigma_engine,

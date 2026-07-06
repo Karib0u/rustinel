@@ -48,6 +48,35 @@ Notes:
 - `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
+### `doctor`
+
+Run read-only preflight and health checks without starting the agent.
+
+```text
+rustinel doctor [--config <PATH>] [--json]
+```
+
+Examples:
+
+```bash
+rustinel doctor
+rustinel doctor --json
+sudo rustinel doctor --config /etc/rustinel/config.toml
+```
+
+Doctor reports `pass`, `warn`, or `fail` for configuration discovery and parsing,
+resolved paths, writable log and alert directories, installed rules pack state,
+pack compatibility and checksum metadata, Sigma, YARA, and IOC parsing, native
+service state, active-response safety, and platform telemetry prerequisites.
+
+Exit codes are intended for automation:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | All checks passed. |
+| `1` | One or more warnings were found. |
+| `2` | One or more failures were found. |
+
 ### `rules`
 
 Discover and install released rules packs.
@@ -82,6 +111,40 @@ rules/
 +-- staging/
 +-- state.json
 ```
+
+### `setup`
+
+Install Rustinel into the managed platform layout, install a rules pack,
+register the native service, optionally start it, and run health checks.
+
+```text
+rustinel setup [--pack <essential|advanced>] [--yes] [--no-start] [--force]
+```
+
+Examples:
+
+```powershell
+rustinel setup --yes
+rustinel setup --pack advanced --no-start
+```
+
+```bash
+sudo rustinel setup --yes
+sudo rustinel setup --pack advanced --no-start
+```
+
+Behavior:
+
+- `setup` creates the managed configuration, rules, log, alert, and binary directories before writing files.
+- `--pack` chooses the Essential or Advanced rules pack. Without `--pack`, interactive terminals prompt for a pack and non-interactive runs use Essential.
+- `--yes` accepts defaults and skips the prompt.
+- `--no-start` registers the native service without starting it.
+- `--force` replaces an existing managed configuration. Without `--force`, existing configuration is preserved and validated before setup continues.
+- The current executable is copied to the managed service binary path before service registration.
+- Rules pack downloads use the same catalog validation, SHA-256 verification, ZIP safety checks, and atomic activation as `rules install`.
+- If a rules download or validation fails, setup preserves existing active rules and continues only when an existing active pack is valid.
+- If service installation or startup fails, setup leaves configuration and rules in place and prints the exact recovery command.
+- The final summary prints configuration, rules, logs, alerts, service binary, active pack, and service status.
 
 ### `service`
 

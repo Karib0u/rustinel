@@ -104,7 +104,7 @@ impl Catalog {
             .collect::<Vec<_>>()
     }
 
-    fn find_pack(&self, pack_id: &str) -> Option<&CatalogPack> {
+    pub fn find_pack(&self, pack_id: &str) -> Option<&CatalogPack> {
         self.packs.iter().find(|pack| pack.id == pack_id)
     }
 
@@ -226,19 +226,36 @@ pub fn install_pack_archive_bytes(
     })
 }
 
+pub fn download_and_install_pack(
+    catalog_url: &Url,
+    catalog: &Catalog,
+    pack_id: &str,
+    rules_dir: &Path,
+) -> Result<InstallOutcome> {
+    let selected = catalog
+        .find_pack(pack_id)
+        .with_context(|| format!("pack {pack_id} was not found in the catalog"))?;
+    validate_pack_installable(selected)?;
+    let artifact_url = resolve_artifact_url(catalog_url, selected)?;
+    validate_release_url(&artifact_url)?;
+    let archive = fetch_url_bytes(&artifact_url, MAX_ARTIFACT_BYTES)
+        .with_context(|| format!("download {}", selected.artifact))?;
+    install_pack_archive_bytes(catalog, pack_id, rules_dir, &archive)
+}
+
 pub fn read_state(rules_dir: &Path) -> Option<RulesState> {
     let state_path = rules_dir.join("state.json");
     let bytes = fs::read(state_path).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
-fn fetch_catalog(catalog_url: &Url) -> Result<Catalog> {
+pub fn fetch_catalog(catalog_url: &Url) -> Result<Catalog> {
     let bytes = fetch_url_bytes(catalog_url, MAX_CATALOG_BYTES)
         .with_context(|| format!("download catalog {catalog_url}"))?;
     Catalog::from_slice(&bytes)
 }
 
-fn fetch_url_bytes(url: &Url, max_bytes: u64) -> Result<Vec<u8>> {
+pub fn fetch_url_bytes(url: &Url, max_bytes: u64) -> Result<Vec<u8>> {
     let response = reqwest::blocking::get(url.as_str())?.error_for_status()?;
     if let Some(length) = response.content_length() {
         if length > max_bytes {
@@ -363,7 +380,7 @@ fn safe_catalog_path(value: &str) -> Result<PathBuf> {
     Ok(safe)
 }
 
-fn validate_pack_installable(pack: &CatalogPack) -> Result<()> {
+pub fn validate_pack_installable(pack: &CatalogPack) -> Result<()> {
     if pack.os != current_os() {
         bail!(
             "pack {} targets {}, but this binary runs on {}",
@@ -601,7 +618,7 @@ fn recreate_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn parse_release_url(value: &str) -> Result<Url> {
+pub fn parse_release_url(value: &str) -> Result<Url> {
     let url = Url::parse(value).with_context(|| format!("parse URL {value}"))?;
     validate_release_url(&url)?;
     Ok(url)
@@ -620,7 +637,7 @@ fn validate_release_url(url: &Url) -> Result<()> {
     Ok(())
 }
 
-fn resolve_artifact_url(catalog_url: &Url, pack: &CatalogPack) -> Result<Url> {
+pub fn resolve_artifact_url(catalog_url: &Url, pack: &CatalogPack) -> Result<Url> {
     catalog_url
         .join(&pack.artifact)
         .with_context(|| format!("resolve artifact URL {}", pack.artifact))

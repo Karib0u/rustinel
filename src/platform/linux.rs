@@ -5,13 +5,18 @@ use anyhow::{bail, Context};
 
 use crate::cli::ServiceAction;
 use crate::service::{
-    execute_backend_action, systemd_status_from_state, ManagedServicePaths, ServiceBackend,
-    ServiceStatus, SystemdDefinition, SYSTEMD_SERVICE_NAME,
+    execute_backend_action, run_backend_action, systemd_status_from_state, ManagedServicePaths,
+    ServiceBackend, ServiceCommandResult, ServiceStatus, SystemdDefinition, SYSTEMD_SERVICE_NAME,
 };
 
 pub fn handle_service_command(action: ServiceAction) -> anyhow::Result<()> {
     let backend = SystemdBackend::new();
     execute_backend_action(&backend, action)
+}
+
+pub fn run_service_action(action: ServiceAction) -> anyhow::Result<ServiceCommandResult> {
+    let backend = SystemdBackend::new();
+    run_backend_action(&backend, action)
 }
 
 struct SystemdBackend {
