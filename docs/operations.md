@@ -52,6 +52,37 @@ Full Disk Access setup and [Development](development.md) for signing details.
 
 Use absolute paths in `config.toml` once you move beyond the default repo layout.
 
+## Managed Setup
+
+For a persistent endpoint installation, use the managed setup command:
+
+```powershell
+rustinel setup --yes
+```
+
+```bash
+sudo rustinel setup --yes
+```
+
+`setup` prepares the managed layout, writes a managed configuration when needed,
+downloads and verifies the selected rules pack, copies the current executable to
+the service binary path, registers the native service, starts it unless
+`--no-start` is supplied, runs health checks, and prints the final paths and
+service status. Existing managed configuration is preserved unless `--force` is
+supplied.
+
+Pack selection:
+
+```bash
+sudo rustinel setup --pack essential
+sudo rustinel setup --pack advanced --no-start
+```
+
+Without `--pack`, an interactive terminal prompts for Essential or Advanced.
+Non-interactive setup defaults to Essential. If rules download or verification
+fails, setup preserves existing active rules and continues only when the active
+pack is valid.
+
 ## Working Directory Rules
 
 - `config.toml` is loaded from the current working directory, falling back to the

@@ -44,6 +44,24 @@ impl SigmaEngineArg {
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
+    /// Install Rustinel into the managed platform layout
+    Setup {
+        /// Rules pack level to install
+        #[arg(long, value_enum, value_name = "PACK")]
+        pack: Option<SetupPack>,
+        /// Accept defaults and do not prompt
+        #[arg(long)]
+        yes: bool,
+        /// Register the service but do not start it
+        #[arg(long)]
+        no_start: bool,
+        /// Replace existing managed configuration
+        #[arg(long)]
+        force: bool,
+        /// Rules catalog index URL
+        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        catalog_url: String,
+    },
     /// Run in the foreground with console output
     Run {
         /// Compatibility alias; console output is enabled by default
@@ -73,6 +91,21 @@ pub enum Commands {
         #[command(subcommand)]
         action: RulesAction,
     },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetupPack {
+    Essential,
+    Advanced,
+}
+
+impl SetupPack {
+    pub fn level(self) -> &'static str {
+        match self {
+            Self::Essential => "essential",
+            Self::Advanced => "advanced",
+        }
+    }
 }
 
 #[derive(clap::Subcommand, Copy, Clone)]
@@ -207,6 +240,37 @@ mod tests {
             cli.config,
             Some(std::path::PathBuf::from("/tmp/rustinel.toml"))
         );
+    }
+
+    #[test]
+    fn setup_accepts_managed_install_flags() {
+        let cli = Cli::try_parse_from([
+            "rustinel",
+            "setup",
+            "--pack",
+            "advanced",
+            "--yes",
+            "--no-start",
+            "--force",
+        ])
+        .expect("setup should parse");
+
+        match cli.command {
+            Some(Commands::Setup {
+                pack,
+                yes,
+                no_start,
+                force,
+                catalog_url,
+            }) => {
+                assert_eq!(pack, Some(SetupPack::Advanced));
+                assert!(yes);
+                assert!(no_start);
+                assert!(force);
+                assert!(catalog_url.ends_with("/index.json"));
+            }
+            _ => panic!("expected setup command"),
+        }
     }
 
     #[test]

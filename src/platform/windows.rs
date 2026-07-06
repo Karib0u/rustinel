@@ -2,8 +2,9 @@ use std::ffi::OsString;
 
 use crate::cli::ServiceAction;
 use crate::service::{
-    execute_backend_action, ManagedServicePaths, ServiceBackend, ServiceStatus,
-    SERVICE_DESCRIPTION, WINDOWS_SERVICE_DISPLAY_NAME, WINDOWS_SERVICE_NAME,
+    execute_backend_action, run_backend_action, ManagedServicePaths, ServiceBackend,
+    ServiceCommandResult, ServiceStatus, SERVICE_DESCRIPTION, WINDOWS_SERVICE_DISPLAY_NAME,
+    WINDOWS_SERVICE_NAME,
 };
 use crate::state::ProcessCache;
 
@@ -12,6 +13,11 @@ pub const SERVICE_NAME: &str = WINDOWS_SERVICE_NAME;
 pub fn handle_service_command(action: ServiceAction) -> anyhow::Result<()> {
     let backend = WindowsServiceBackend::new();
     execute_backend_action(&backend, action)
+}
+
+pub fn run_service_action(action: ServiceAction) -> anyhow::Result<ServiceCommandResult> {
+    let backend = WindowsServiceBackend::new();
+    run_backend_action(&backend, action)
 }
 
 struct WindowsServiceBackend {

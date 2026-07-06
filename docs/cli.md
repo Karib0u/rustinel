@@ -83,6 +83,40 @@ rules/
 +-- state.json
 ```
 
+### `setup`
+
+Install Rustinel into the managed platform layout, install a rules pack,
+register the native service, optionally start it, and run health checks.
+
+```text
+rustinel setup [--pack <essential|advanced>] [--yes] [--no-start] [--force]
+```
+
+Examples:
+
+```powershell
+rustinel setup --yes
+rustinel setup --pack advanced --no-start
+```
+
+```bash
+sudo rustinel setup --yes
+sudo rustinel setup --pack advanced --no-start
+```
+
+Behavior:
+
+- `setup` creates the managed configuration, rules, log, alert, and binary directories before writing files.
+- `--pack` chooses the Essential or Advanced rules pack. Without `--pack`, interactive terminals prompt for a pack and non-interactive runs use Essential.
+- `--yes` accepts defaults and skips the prompt.
+- `--no-start` registers the native service without starting it.
+- `--force` replaces an existing managed configuration. Without `--force`, existing configuration is preserved and validated before setup continues.
+- The current executable is copied to the managed service binary path before service registration.
+- Rules pack downloads use the same catalog validation, SHA-256 verification, ZIP safety checks, and atomic activation as `rules install`.
+- If a rules download or validation fails, setup preserves existing active rules and continues only when an existing active pack is valid.
+- If service installation or startup fails, setup leaves configuration and rules in place and prints the exact recovery command.
+- The final summary prints configuration, rules, logs, alerts, service binary, active pack, and service status.
+
 ### `service`
 
 Manage native service installation and lifecycle.
