@@ -48,6 +48,35 @@ Notes:
 - `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
+### `doctor`
+
+Run read-only preflight and health checks without starting the agent.
+
+```text
+rustinel doctor [--config <PATH>] [--json]
+```
+
+Examples:
+
+```bash
+rustinel doctor
+rustinel doctor --json
+sudo rustinel doctor --config /etc/rustinel/config.toml
+```
+
+Doctor reports `pass`, `warn`, or `fail` for configuration discovery and parsing,
+resolved paths, writable log and alert directories, installed rules pack state,
+pack compatibility and checksum metadata, Sigma, YARA, and IOC parsing, native
+service state, active-response safety, and platform telemetry prerequisites.
+
+Exit codes are intended for automation:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | All checks passed. |
+| `1` | One or more warnings were found. |
+| `2` | One or more failures were found. |
+
 ### `rules`
 
 Discover and install released rules packs.

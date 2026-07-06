@@ -46,6 +46,7 @@ async fn run_linux_edr(
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed to load configuration: {}", err);
+            eprintln!("Hint: run rustinel doctor --config <path> to inspect configuration and runtime prerequisites.");
             return Err(anyhow::anyhow!("configuration error: {}", err));
         }
     };

@@ -175,7 +175,7 @@ async fn run_edr(
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed to load configuration: {}", err);
-            eprintln!("Hint: check config.toml and EDR__* environment overrides.");
+            eprintln!("Hint: run rustinel doctor --config <path> to inspect configuration and runtime prerequisites.");
             return Err(anyhow::anyhow!("Failed to load configuration: {}", err));
         }
     };
