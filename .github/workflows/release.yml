@@ -360,7 +360,8 @@ jobs:
             rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           name: Rustinel ${{ github.ref_name }}
           body: |
             ## Downloads
