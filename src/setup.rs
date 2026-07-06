@@ -289,9 +289,8 @@ fn set_executable_permissions(_path: &Path) -> Result<()> {
 }
 
 fn install_service(layout: &InstallLayout, service_paths: &ManagedServicePaths) -> Result<()> {
-    crate::platform::run_service_action(ServiceAction::Install).map_err(|err| {
-        print_service_install_recovery(layout, service_paths, &err);
-        err
+    crate::platform::run_service_action(ServiceAction::Install).inspect_err(|err| {
+        print_service_install_recovery(layout, service_paths, err);
     })?;
     println!("Registered native service.");
     Ok(())
