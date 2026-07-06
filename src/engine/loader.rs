@@ -68,12 +68,23 @@ impl Engine {
         Ok(())
     }
 
-    /// Parse Sigma rule documents from YAML content, expanding `action: global` files.
+    /// Parse Sigma rule documents from YAML content.
+    ///
+    /// Ordinary multi-document YAML files load one rule per document. Files
+    /// starting with `action: global` keep the existing template expansion
+    /// behavior. Other collection actions are only supported by the RSigma
+    /// backend and are rejected here with document context.
     pub fn parse_rule_documents(content: &str) -> Result<Vec<SigmaRule>> {
-        let documents: Vec<serde_yaml::Value> = serde_yaml::Deserializer::from_str(content)
-            .map(serde_yaml::Value::deserialize)
-            .collect::<Result<Vec<_>, _>>()
-            .context("Failed to parse YAML documents")?;
+        let mut documents = Vec::new();
+        for (index, doc) in serde_yaml::Deserializer::from_str(content).enumerate() {
+            let document_number = index + 1;
+            let value = serde_yaml::Value::deserialize(doc)
+                .with_context(|| format!("Failed to parse YAML document {document_number}"))?;
+
+            if !value.is_null() {
+                documents.push((document_number, value));
+            }
+        }
 
         if documents.is_empty() {
             return Err(anyhow::anyhow!("No YAML documents found"));
@@ -81,16 +92,16 @@ impl Engine {
 
         let is_global = documents
             .first()
-            .and_then(|doc| doc.get("action"))
+            .and_then(|(_, doc)| doc.get("action"))
             .and_then(|v| v.as_str())
             .map(|s| s == "global")
             .unwrap_or(false);
 
         if is_global && documents.len() > 1 {
-            let global_metadata = &documents[0];
+            let global_metadata = &documents[0].1;
             let mut rules = Vec::with_capacity(documents.len() - 1);
 
-            for doc in &documents[1..] {
+            for (document_number, doc) in &documents[1..] {
                 let mut merged = global_metadata.clone();
 
                 if let Some(logsource) = doc.get("logsource") {
@@ -105,17 +116,32 @@ impl Engine {
                 }
 
                 rules.push(
-                    serde_yaml::from_value(merged)
-                        .context("Failed to parse merged global sub-rule")?,
+                    serde_yaml::from_value(merged).with_context(|| {
+                        format!(
+                            "Failed to parse merged global sub-rule from YAML document {document_number}"
+                        )
+                    })?,
                 );
             }
 
             return Ok(rules);
         }
 
-        Ok(vec![
-            serde_yaml::from_value(documents[0].clone()).context("Failed to parse YAML")?
-        ])
+        let mut rules = Vec::with_capacity(documents.len());
+        for (document_number, doc) in documents {
+            if let Some(action) = doc.get("action").and_then(|v| v.as_str()) {
+                return Err(anyhow::anyhow!(
+                    "Unsupported Sigma collection action '{action}' in YAML document {document_number}; the built-in backend only supports 'global'"
+                ));
+            }
+
+            rules.push(
+                serde_yaml::from_value(doc)
+                    .with_context(|| format!("Failed to parse YAML document {document_number}"))?,
+            );
+        }
+
+        Ok(rules)
     }
 
     /// Load a single rule file, dispatching to the active backend.
@@ -232,5 +258,123 @@ impl Engine {
             transpiled_condition,
             condition_tree,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Engine;
+
+    fn rule_yaml(title: &str, event_id: u32) -> String {
+        format!(
+            r#"
+title: {title}
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    EventID: {event_id}
+  condition: selection
+"#
+        )
+    }
+
+    #[test]
+    fn parse_single_document_rule() {
+        let rules = Engine::parse_rule_documents(&rule_yaml("Single Rule", 1)).unwrap();
+
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].title, "Single Rule");
+    }
+
+    #[test]
+    fn parse_global_multi_document_rule_expands_sub_rules() {
+        let yaml = r#"
+action: global
+title: Global Rule
+logsource:
+  product: windows
+  category: process_creation
+---
+detection:
+  selection:
+    EventID: 1
+  condition: selection
+---
+detection:
+  selection:
+    EventID: 2
+  condition: selection
+"#;
+
+        let rules = Engine::parse_rule_documents(yaml).unwrap();
+
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].title, "Global Rule");
+        assert_eq!(rules[1].title, "Global Rule");
+        assert_eq!(rules[0].detection.selections["selection"]["EventID"], 1);
+        assert_eq!(rules[1].detection.selections["selection"]["EventID"], 2);
+    }
+
+    #[test]
+    fn parse_independent_multi_document_rules_loads_each_document() {
+        let yaml = format!(
+            "{}\n---\n{}",
+            rule_yaml("First Rule", 1),
+            rule_yaml("Second Rule", 2)
+        );
+
+        let rules = Engine::parse_rule_documents(&yaml).unwrap();
+
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].title, "First Rule");
+        assert_eq!(rules[1].title, "Second Rule");
+    }
+
+    #[test]
+    fn parse_many_independent_documents_loads_all_rules() {
+        let yaml = format!(
+            "{}\n---\n{}\n---\n{}",
+            rule_yaml("First Rule", 1),
+            rule_yaml("Second Rule", 2),
+            rule_yaml("Third Rule", 3)
+        );
+
+        let rules = Engine::parse_rule_documents(&yaml).unwrap();
+        let titles: Vec<_> = rules.iter().map(|rule| rule.title.as_str()).collect();
+
+        assert_eq!(titles, ["First Rule", "Second Rule", "Third Rule"]);
+    }
+
+    #[test]
+    fn parse_later_invalid_document_reports_document_number() {
+        let yaml = format!(
+            "{}\n---\ntitle: Broken Rule\nlogsource:\n  product: windows\n",
+            rule_yaml("First Rule", 1)
+        );
+
+        let error = Engine::parse_rule_documents(&yaml).unwrap_err().to_string();
+
+        assert!(error.contains("YAML document 2"));
+    }
+
+    #[test]
+    fn parse_later_malformed_yaml_reports_document_number() {
+        let yaml = format!("{}\n---\ntitle: [broken\n", rule_yaml("First Rule", 1));
+
+        let error = Engine::parse_rule_documents(&yaml).unwrap_err().to_string();
+
+        assert!(error.contains("YAML document 2"));
+    }
+
+    #[test]
+    fn parse_unsupported_collection_action_reports_document_number() {
+        let yaml = format!("{}\n---\naction: reset\n", rule_yaml("First Rule", 1));
+
+        let error = Engine::parse_rule_documents(&yaml).unwrap_err().to_string();
+
+        assert!(error.contains("Unsupported Sigma collection action 'reset'"));
+        assert!(error.contains("YAML document 2"));
     }
 }

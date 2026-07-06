@@ -71,7 +71,8 @@ Array matching and `sigma-version` are proposed Sigma Enhancement Proposals ([SE
 ### Rule Loading and Classification
 
 - Rules load recursively from `scanner.sigma_rules_path`.
-- Multi-document YAML with `action: global` is supported.
+- Multi-document YAML is supported. Ordinary documents load as separate rules,
+  and `action: global` documents expand shared metadata into following rules.
 - Rules are classified at load time by normalized `product`, `service`, and `category`.
 - `product` mismatches are skipped.
 - Known Linux service families that are not implemented yet are marked as deferred instead of unknown.
