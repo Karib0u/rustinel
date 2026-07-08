@@ -70,6 +70,61 @@ need() {
   fi
 }
 
+print_promotion_command() {
+  cat <<EOF
+Permanent deployment command:
+  cd "$install_dir" && sudo ./rustinel setup --yes
+EOF
+}
+
+print_portable_evaluation() {
+  run_command="sudo ./rustinel run"
+  if [ "$os" = "Darwin" ]; then
+    run_command="sudo ./rustinel run"
+  fi
+  demo_rules_status="not found"
+  if find "$install_dir/rules/sigma" -type f -name '*whoami*.yml' | grep -q .; then
+    demo_rules_status="present"
+  fi
+
+  cat <<EOF
+
+Rustinel $version installed to:
+  $install_dir
+
+Portable evaluation mode:
+  Package: $install_dir
+  Config: $install_dir/config.toml
+  Demo rules: $install_dir/rules/sigma ($demo_rules_status)
+  Alerts: $install_dir/logs/alerts.json.*
+  Active response: disabled in bundled config
+
+Start monitoring:
+  cd "$install_dir"
+  $run_command
+
+Demo trigger from another terminal:
+  whoami
+
+Show the alert:
+  cat "$install_dir/logs/alerts.json."*
+
+EOF
+
+  if [ "$os" = "Darwin" ]; then
+    cat <<EOF
+macOS note:
+  Grant Full Disk Access to $install_dir/Rustinel.app before the first
+  successful Endpoint Security run. If the first run exits with NotPermitted,
+  grant access in System Settings > Privacy & Security > Full Disk Access and
+  run the command again.
+
+EOF
+  fi
+
+  print_promotion_command
+}
+
 need curl
 need tar
 
@@ -157,37 +212,7 @@ mkdir -p "$(dirname "$install_dir")"
 mkdir -p "$install_dir"
 cp -R "$package_dir/." "$install_dir/"
 
-if [ "$os" = "Darwin" ]; then
-  cat <<EOF
-
-Rustinel $version installed to:
-  $install_dir
-
-macOS requires a one-time approval before Endpoint Security can start:
-  1. Grant Full Disk Access to:  $install_dir/Rustinel.app
-     (System Settings > Privacy & Security > Full Disk Access)
-  2. cd "$install_dir" && sudo ./rustinel run
-  3. Trigger the demo in another terminal:  whoami
-  4. Read the alert:  cat logs/alerts.json.*
-
-Before approval the agent exits with a NotPermitted error and opens the Full
-Disk Access pane for you; grant access, then run it again.
-
-EOF
-else
-  cat <<EOF
-
-Rustinel $version installed to:
-  $install_dir
-
-Try the bundled demo rule:
-  cd "$install_dir"
-  sudo ./rustinel run
-  whoami
-  cat logs/alerts.json.*
-
-EOF
-fi
+print_portable_evaluation
 
 if [ "$run_after_install" -eq 1 ]; then
   cd "$install_dir"
@@ -196,9 +221,24 @@ if [ "$run_after_install" -eq 1 ]; then
     echo "$install_dir/Rustinel.app; if it exits with NotPermitted, grant access" >&2
     echo "in System Settings > Privacy & Security > Full Disk Access, then re-run." >&2
   fi
+  echo ""
+  echo "Starting portable evaluation. Trigger detection with: whoami"
+  echo "Alerts are written to: $install_dir/logs/alerts.json.*"
+  echo ""
   if [ "$(id -u)" -eq 0 ]; then
-    exec ./rustinel run
+    if ./rustinel run; then
+      run_status=0
+    else
+      run_status=$?
+    fi
   else
-    exec sudo ./rustinel run
+    if sudo ./rustinel run; then
+      run_status=0
+    else
+      run_status=$?
+    fi
   fi
+  echo ""
+  print_promotion_command
+  exit "$run_status"
 fi

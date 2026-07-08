@@ -398,7 +398,7 @@ jobs:
             **Windows (PowerShell)**
 
             ```powershell
-            iwr https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1; powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Version ${{ steps.version.outputs.version }} -Run
+            $env:RUSTINEL_VERSION='${{ steps.version.outputs.version }}'; irm https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 | iex; Remove-Item Env:\RUSTINEL_VERSION -ErrorAction SilentlyContinue
             ```
 
             Full install, configuration, and SIEM ingestion guides: https://docs.rustinel.io/getting-started/

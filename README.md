@@ -38,8 +38,7 @@ Rustinel ships release archives with a binary, default config, demo rules, and a
 **Windows** - from an elevated PowerShell:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
-powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
+irm https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 | iex
 ```
 
 **Linux**

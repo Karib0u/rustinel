@@ -14,6 +14,86 @@ function Show-InstallScope {
     Write-Host "Source build guide: https://docs.rustinel.io/getting-started/#compile-from-source"
 }
 
+function Test-TruthyEnv {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+
+    $normalized = $Value.Trim().ToLowerInvariant()
+    return @("1", "true", "yes", "on") -contains $normalized
+}
+
+function Show-PromotionCommand {
+    param([string]$Path)
+
+    Write-Host "Permanent deployment command:"
+    Write-Host "  Set-Location `"$Path`"; .\rustinel.exe setup --yes"
+}
+
+function Show-PortableEvaluation {
+    param(
+        [string]$Path,
+        [string]$ReleaseVersion
+    )
+
+    $demoRulesPath = Join-Path $Path "rules\sigma"
+    $demoRulesStatus = "not found"
+    $demoRule = Get-ChildItem -Path $demoRulesPath -Filter "*whoami*.yml" -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($demoRule) {
+        $demoRulesStatus = "present"
+    }
+
+    Write-Host ""
+    Write-Host "Rustinel $ReleaseVersion installed to:"
+    Write-Host "  $Path"
+    Write-Host ""
+    Write-Host "Portable evaluation mode:"
+    Write-Host "  Package: $Path"
+    Write-Host "  Config: $(Join-Path $Path 'config.toml')"
+    Write-Host "  Demo rules: $demoRulesPath ($demoRulesStatus)"
+    Write-Host "  Alerts: $(Join-Path $Path 'logs\alerts.json.*')"
+    Write-Host "  Active response: disabled in bundled config"
+    Write-Host ""
+    Write-Host "Start monitoring from an elevated PowerShell:"
+    Write-Host "  Set-Location `"$Path`""
+    Write-Host "  .\rustinel.exe run"
+    Write-Host ""
+    Write-Host "Demo trigger from another PowerShell:"
+    Write-Host "  whoami"
+    Write-Host ""
+    Write-Host "Show the alert:"
+    Write-Host "  Get-Content `"$Path\logs\alerts.json.*`""
+    Write-Host ""
+    Show-PromotionCommand -Path $Path
+}
+
+$InvokedFromStream = [string]::IsNullOrEmpty($PSCommandPath)
+
+if (-not $PSBoundParameters.ContainsKey("Repo") -and -not [string]::IsNullOrWhiteSpace($env:RUSTINEL_REPO)) {
+    $Repo = $env:RUSTINEL_REPO
+}
+
+if (-not $PSBoundParameters.ContainsKey("Version") -and -not [string]::IsNullOrWhiteSpace($env:RUSTINEL_VERSION)) {
+    $Version = $env:RUSTINEL_VERSION
+}
+
+if (-not $PSBoundParameters.ContainsKey("InstallDir") -and -not [string]::IsNullOrWhiteSpace($env:RUSTINEL_INSTALL_DIR)) {
+    $InstallDir = $env:RUSTINEL_INSTALL_DIR
+}
+
+if (-not $PSBoundParameters.ContainsKey("Run") -and (Test-TruthyEnv $env:RUSTINEL_RUN)) {
+    $Run = $true
+}
+
+if (-not $PSBoundParameters.ContainsKey("Force") -and (Test-TruthyEnv $env:RUSTINEL_FORCE)) {
+    $Force = $true
+}
+
+$RunEvaluation = [bool]$Run -or $InvokedFromStream
+
 if (-not [Environment]::Is64BitOperatingSystem) {
     throw "Only 64-bit Windows is supported by the published release archive."
 }
@@ -81,20 +161,24 @@ try {
     New-Item -ItemType Directory -Path $InstallDir | Out-Null
     Copy-Item -Path (Join-Path $packageDir "*") -Destination $InstallDir -Recurse -Force
 
-    Write-Host ""
-    Write-Host "Rustinel $Version installed to:"
-    Write-Host "  $InstallDir"
-    Write-Host ""
-    Write-Host "Try the bundled demo rule from an elevated PowerShell:"
-    Write-Host "  Set-Location `"$InstallDir`""
-    Write-Host "  .\rustinel.exe run"
-    Write-Host "  whoami"
-    Write-Host "  Get-Content .\logs\alerts.json.*"
-    Write-Host ""
+    Show-PortableEvaluation -Path $InstallDir -ReleaseVersion $Version
 
-    if ($Run) {
+    if ($RunEvaluation) {
         Set-Location $InstallDir
+        Write-Host ""
+        Write-Host "Starting portable evaluation. Trigger detection with: whoami"
+        Write-Host "Alerts are written to: $(Join-Path $InstallDir 'logs\alerts.json.*')"
+        Write-Host ""
         & .\rustinel.exe run
+        $runStatus = $LASTEXITCODE
+        if ($null -eq $runStatus) {
+            $runStatus = 0
+        }
+        Write-Host ""
+        Show-PromotionCommand -Path $InstallDir
+        if ($runStatus -ne 0 -and -not $InvokedFromStream) {
+            exit $runStatus
+        }
     }
 }
 finally {
