@@ -28,8 +28,30 @@ function Test-TruthyEnv {
 function Show-PromotionCommand {
     param([string]$Path)
 
+    if (-not (Test-SetupSupportedVersion $Version)) {
+        Write-Host "Permanent deployment:"
+        Write-Host "  rustinel setup is available in Rustinel 1.2.0 and later."
+        Write-Host "  This installer resolved version $Version, so no setup command is printed."
+        return
+    }
+
     Write-Host "Permanent deployment command:"
     Write-Host "  Set-Location `"$Path`"; .\rustinel.exe setup --yes"
+}
+
+function Test-SetupSupportedVersion {
+    param([string]$ReleaseVersion)
+
+    $normalized = $ReleaseVersion.TrimStart("v")
+    $match = [regex]::Match($normalized, "^(\d+)\.(\d+)\.")
+    if (-not $match.Success) {
+        return $false
+    }
+
+    $major = [int]$match.Groups[1].Value
+    $minor = [int]$match.Groups[2].Value
+
+    return ($major -gt 1) -or ($major -eq 1 -and $minor -ge 2)
 }
 
 function Show-PortableEvaluation {
@@ -175,6 +197,9 @@ try {
             $runStatus = 0
         }
         Write-Host ""
+        if ($runStatus -ne 0) {
+            Write-Host "Rustinel exited with status: $runStatus"
+        }
         Show-PromotionCommand -Path $InstallDir
         if ($runStatus -ne 0 -and -not $InvokedFromStream) {
             exit $runStatus

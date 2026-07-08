@@ -71,10 +71,36 @@ need() {
 }
 
 print_promotion_command() {
+  if ! version_supports_setup "$version"; then
+    cat <<EOF
+Permanent deployment:
+  rustinel setup is available in Rustinel 1.2.0 and later.
+  This installer resolved version $version, so no setup command is printed.
+EOF
+    return
+  fi
+
   cat <<EOF
 Permanent deployment command:
   cd "$install_dir" && sudo ./rustinel setup --yes
 EOF
+}
+
+version_supports_setup() {
+  value="${1#v}"
+  major="$(printf '%s\n' "$value" | sed -n 's/^\([0-9][0-9]*\)\..*/\1/p')"
+  minor="$(printf '%s\n' "$value" | sed -n 's/^[0-9][0-9]*\.\([0-9][0-9]*\)\..*/\1/p')"
+
+  if [ -z "$major" ] || [ -z "$minor" ]; then
+    return 1
+  fi
+  if [ "$major" -gt 1 ]; then
+    return 0
+  fi
+  if [ "$major" -eq 1 ] && [ "$minor" -ge 2 ]; then
+    return 0
+  fi
+  return 1
 }
 
 print_portable_evaluation() {
@@ -239,6 +265,9 @@ if [ "$run_after_install" -eq 1 ]; then
     fi
   fi
   echo ""
+  if [ "$run_status" -ne 0 ]; then
+    echo "Rustinel exited with status: $run_status" >&2
+  fi
   print_promotion_command
   exit "$run_status"
 fi
