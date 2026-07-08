@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use chrono::{SecondsFormat, Utc};
-use semver::{Version, VersionReq};
+use semver::{Prerelease, Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -392,7 +392,7 @@ pub fn validate_pack_installable(pack: &CatalogPack) -> Result<()> {
 
     let req = VersionReq::parse(&pack.requires_rustinel)?;
     let current = Version::parse(env!("CARGO_PKG_VERSION").trim_start_matches('v'))?;
-    if !req.matches(&current) {
+    if !rustinel_version_matches_requirement(&req, &current) {
         bail!(
             "pack {} requires Rustinel {}, but this binary is {}",
             pack.id,
@@ -401,6 +401,20 @@ pub fn validate_pack_installable(pack: &CatalogPack) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub(crate) fn rustinel_version_matches_requirement(req: &VersionReq, current: &Version) -> bool {
+    if req.matches(current) {
+        return true;
+    }
+
+    if current.pre.is_empty() {
+        return false;
+    }
+
+    let mut release_version = current.clone();
+    release_version.pre = Prerelease::EMPTY;
+    req.matches(&release_version)
 }
 
 fn verify_sha256(bytes: &[u8], expected: &str) -> Result<()> {
@@ -761,6 +775,22 @@ mod tests {
 
         assert_eq!(packs.len(), 1);
         assert_eq!(packs[0].id, "demo-pack");
+    }
+
+    #[test]
+    fn prerelease_version_satisfies_release_floor_requirement() {
+        let req = VersionReq::parse(">=1.0.0").unwrap();
+        let current = Version::parse("1.2.0-rc.1").unwrap();
+
+        assert!(rustinel_version_matches_requirement(&req, &current));
+    }
+
+    #[test]
+    fn prerelease_version_rejects_future_release_requirement() {
+        let req = VersionReq::parse(">1.2.0").unwrap();
+        let current = Version::parse("1.2.0-rc.1").unwrap();
+
+        assert!(!rustinel_version_matches_requirement(&req, &current));
     }
 
     fn catalog_for(id: &str, os: &str, archive: &[u8]) -> Catalog {

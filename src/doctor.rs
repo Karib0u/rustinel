@@ -920,13 +920,15 @@ fn validate_pack_manifest(
     };
     let current = Version::parse(env!("CARGO_PKG_VERSION").trim_start_matches('v'));
     match current {
-        Ok(version) if req.matches(&version) => results.push(DiagnosticResult::pass(
-            "rules_pack_compatibility",
-            format!(
-                "Rules pack requirement {} matches Rustinel {}",
-                manifest.requires_rustinel, version
-            ),
-        )),
+        Ok(version) if crate::rules::rustinel_version_matches_requirement(&req, &version) => {
+            results.push(DiagnosticResult::pass(
+                "rules_pack_compatibility",
+                format!(
+                    "Rules pack requirement {} matches Rustinel {}",
+                    manifest.requires_rustinel, version
+                ),
+            ))
+        }
         Ok(version) => results.push(
             DiagnosticResult::fail(
                 "rules_pack_compatibility",
