@@ -285,6 +285,20 @@ impl Scanner {
         })
     }
 
+    /// Build a scanner with zero rules without touching the filesystem.
+    ///
+    /// Used when YARA scanning is disabled or rule loading fails, so the
+    /// fallback never walks a directory tree.
+    pub fn empty() -> Self {
+        Self {
+            rules: Compiler::new().build(),
+            compiled_files: 0,
+            files_found: 0,
+            failed_files: 0,
+            cache: Mutex::new(YaraScanCache::new()),
+        }
+    }
+
     pub fn compiled_files(&self) -> usize {
         self.compiled_files
     }
@@ -542,6 +556,14 @@ mod tests {
         // Test that we can create a scanner even with an empty/missing directory
         let result = Scanner::new("nonexistent_dir");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_empty_scanner_has_no_rules() {
+        let scanner = Scanner::empty();
+        assert_eq!(scanner.compiled_files(), 0);
+        assert_eq!(scanner.files_found(), 0);
+        assert_eq!(scanner.failed_files(), 0);
     }
 
     #[test]

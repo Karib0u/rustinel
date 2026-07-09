@@ -12,7 +12,6 @@ use crate::sensor::windows::EtwSensor;
 use crate::sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
 use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
 use crate::{config, reload, scanner};
-use std::path::Path;
 use std::sync::Arc;
 use tokio::runtime::Builder;
 use tokio::sync::{mpsc, watch};
@@ -348,17 +347,12 @@ async fn run_edr(
             Err(e) => {
                 warn!(target: "rustinel", error = %e, "Failed to load YARA rules. YARA scanning disabled.");
                 // Create an empty scanner so we don't crash
-                Arc::new(
-                    scanner::Scanner::new(Path::new("."))
-                        .expect("Failed to create empty YARA scanner"),
-                )
+                Arc::new(scanner::Scanner::empty())
             }
         }
     } else {
         info!(target: "rustinel", "YARA scanning disabled by configuration");
-        Arc::new(
-            scanner::Scanner::new(Path::new(".")).expect("Failed to create empty YARA scanner"),
-        )
+        Arc::new(scanner::Scanner::empty())
     };
 
     let yara_allowlist_paths =

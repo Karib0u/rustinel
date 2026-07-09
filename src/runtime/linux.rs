@@ -12,7 +12,6 @@ use crate::sensor::linux::EbpfSensor;
 use crate::sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
 use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
 use crate::{config, reload, scanner};
-use std::path::Path;
 use std::sync::Arc;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
@@ -132,11 +131,11 @@ async fn run_linux_edr(
             }
             Err(e) => {
                 warn!(error = %e, "Failed to load YARA rules; YARA scanning disabled");
-                Arc::new(scanner::Scanner::new(Path::new(".")).expect("empty YARA scanner"))
+                Arc::new(scanner::Scanner::empty())
             }
         }
     } else {
-        Arc::new(scanner::Scanner::new(Path::new(".")).expect("empty YARA scanner"))
+        Arc::new(scanner::Scanner::empty())
     };
 
     let yara_allowlist_paths =
