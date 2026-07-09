@@ -41,16 +41,9 @@ fn action_code_for_record(
                 _ => 0,
             },
         },
-        EventCategory::File => match record.opcode() {
-            64 | 65 | 70 | 71 | 72 => record.opcode(),
-            _ => match action {
-                SensorAction::Create => 64,
-                SensorAction::Delete => 70,
-                SensorAction::Rename => 71,
-                SensorAction::Modify => 65,
-                _ => 0,
-            },
-        },
+        // The manifest-based Kernel-File provider emits events with opcode 0,
+        // so the action code comes from the routed action, not the opcode.
+        EventCategory::File => file_action_code(action),
         EventCategory::Registry => match record.opcode() {
             36 | 38 | 39 | 41 => record.opcode(),
             _ => match action {
@@ -65,6 +58,19 @@ fn action_code_for_record(
         EventCategory::Wmi => 0,
         EventCategory::Service => 0,
         EventCategory::Task => 0,
+    }
+}
+
+/// Maps a routed file action to the platform-shared action code scheme
+/// (64 = create, 65 = modify, 70 = delete, 71 = rename) used by the Linux
+/// and macOS sensors as well.
+fn file_action_code(action: SensorAction) -> u8 {
+    match action {
+        SensorAction::Create => 64,
+        SensorAction::Delete => 70,
+        SensorAction::Rename => 71,
+        SensorAction::Modify => 65,
+        _ => 0,
     }
 }
 
@@ -119,8 +125,9 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
 
 #[cfg(test)]
 mod tests {
-    use super::map_to_sysmon_id;
+    use super::{file_action_code, map_to_sysmon_id};
     use crate::models::EventCategory;
+    use crate::sensor::SensorAction;
 
     #[test]
     fn process_start_maps_to_sysmon_1() {
@@ -130,6 +137,32 @@ mod tests {
     #[test]
     fn file_create_maps_to_sysmon_11() {
         assert_eq!(map_to_sysmon_id(EventCategory::File, 64, 999), 11);
+    }
+
+    #[test]
+    fn file_actions_map_to_shared_action_codes() {
+        assert_eq!(file_action_code(SensorAction::Create), 64);
+        assert_eq!(file_action_code(SensorAction::Modify), 65);
+        assert_eq!(file_action_code(SensorAction::Delete), 70);
+        assert_eq!(file_action_code(SensorAction::Rename), 71);
+    }
+
+    #[test]
+    fn file_delete_action_maps_to_sysmon_23() {
+        let code = file_action_code(SensorAction::Delete);
+        assert_eq!(
+            map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
+            23
+        );
+    }
+
+    #[test]
+    fn file_rename_action_keeps_event_id_71() {
+        let code = file_action_code(SensorAction::Rename);
+        assert_eq!(
+            map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
+            71
+        );
     }
 
     #[test]

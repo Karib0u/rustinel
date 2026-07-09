@@ -48,16 +48,17 @@ impl EtwProviders {
     const SERVICE_CONTROL_MANAGER_GUID: &'static str = "555908d1-a6d7-4695-8e1e-26931d2012f4";
     const TASK_SCHEDULER_GUID: &'static str = "de7b24ea-73c8-4a09-985d-5bdadcfa9017";
 
+    // Keyword names follow the Microsoft-Windows-Kernel-File manifest.
     const KERNEL_FILE_KEYWORD_FILENAME: u64 = 0x0010;
     const KERNEL_FILE_KEYWORD_CREATE: u64 = 0x0080;
-    const KERNEL_FILE_KEYWORD_DELETE: u64 = 0x0200;
-    const KERNEL_FILE_KEYWORD_RENAME: u64 = 0x0400;
-    const KERNEL_FILE_KEYWORD_SETINFO: u64 = 0x0800;
+    const KERNEL_FILE_KEYWORD_WRITE: u64 = 0x0200;
+    const KERNEL_FILE_KEYWORD_DELETE_PATH: u64 = 0x0400;
+    const KERNEL_FILE_KEYWORD_RENAME_SETLINK_PATH: u64 = 0x0800;
     const FILE_KEYWORDS: u64 = Self::KERNEL_FILE_KEYWORD_FILENAME
         | Self::KERNEL_FILE_KEYWORD_CREATE
-        | Self::KERNEL_FILE_KEYWORD_DELETE
-        | Self::KERNEL_FILE_KEYWORD_RENAME
-        | Self::KERNEL_FILE_KEYWORD_SETINFO;
+        | Self::KERNEL_FILE_KEYWORD_WRITE
+        | Self::KERNEL_FILE_KEYWORD_DELETE_PATH
+        | Self::KERNEL_FILE_KEYWORD_RENAME_SETLINK_PATH;
 
     const REG_KEYWORD_CREATE_KEY: u64 = 0x1000;
     const REG_KEYWORD_SET_VALUE_KEY: u64 = 0x2000;
@@ -165,6 +166,34 @@ impl EtwProviders {
     }
 }
 
+/// Microsoft-Windows-Kernel-File manifest event IDs.
+const KERNEL_FILE_EVENT_CREATE: u16 = 12;
+const KERNEL_FILE_EVENT_DELETE_PATH: u16 = 26;
+const KERNEL_FILE_EVENT_RENAME_PATH: u16 = 27;
+const KERNEL_FILE_EVENT_SET_LINK_PATH: u16 = 28;
+
+/// The manifest provider emits file events with opcode 0, so routing must use
+/// manifest event IDs rather than MOF FileIo opcodes.
+fn kernel_file_action(event_id: u16) -> SensorAction {
+    match event_id {
+        KERNEL_FILE_EVENT_CREATE => SensorAction::Create,
+        KERNEL_FILE_EVENT_DELETE_PATH => SensorAction::Delete,
+        KERNEL_FILE_EVENT_RENAME_PATH => SensorAction::Rename,
+        _ => SensorAction::Modify,
+    }
+}
+
+/// DeletePath, RenamePath, and SetLinkPath carry their path in `FilePath`;
+/// the remaining file events use `FileName`.
+fn kernel_file_path_property(event_id: u16) -> &'static str {
+    match event_id {
+        KERNEL_FILE_EVENT_DELETE_PATH
+        | KERNEL_FILE_EVENT_RENAME_PATH
+        | KERNEL_FILE_EVENT_SET_LINK_PATH => "FilePath",
+        _ => "FileName",
+    }
+}
+
 struct EtwRouting {
     kernel_process_guid: GUID,
     guid_to_category: HashMap<GUID, EventCategory>,
@@ -216,12 +245,7 @@ impl EtwRouting {
                 id if id >= 15 => SensorAction::Connect,
                 _ => return None,
             },
-            EventCategory::File => match record.opcode() {
-                64 | 65 => SensorAction::Create,
-                70 | 72 => SensorAction::Delete,
-                71 => SensorAction::Rename,
-                _ => SensorAction::Modify,
-            },
+            EventCategory::File => kernel_file_action(record.event_id()),
             EventCategory::Registry => match record.opcode() {
                 36 => SensorAction::Create,
                 38 | 41 => SensorAction::Delete,
@@ -509,8 +533,14 @@ fn decode_file(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent>
     let mappings = field_maps::file_event_mappings();
     let fields = FileEventFields {
         source_filename: None,
-        target_filename: try_get_string(parser, mappings.get_etw_field("TargetFilename")?)
-            .map(|path| convert_nt_to_dos(&path)),
+        target_filename: try_get_string_any(
+            parser,
+            &[
+                kernel_file_path_property(record.event_id()),
+                mappings.get_etw_field("TargetFilename")?,
+            ],
+        )
+        .map(|path| convert_nt_to_dos(&path)),
         process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
@@ -824,6 +854,23 @@ fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kernel_file_event_ids_route_to_actions() {
+        assert_eq!(kernel_file_action(12), SensorAction::Create);
+        assert_eq!(kernel_file_action(16), SensorAction::Modify);
+        assert_eq!(kernel_file_action(26), SensorAction::Delete);
+        assert_eq!(kernel_file_action(27), SensorAction::Rename);
+    }
+
+    #[test]
+    fn kernel_file_path_events_read_file_path() {
+        assert_eq!(kernel_file_path_property(12), "FileName");
+        assert_eq!(kernel_file_path_property(16), "FileName");
+        assert_eq!(kernel_file_path_property(26), "FilePath");
+        assert_eq!(kernel_file_path_property(27), "FilePath");
+        assert_eq!(kernel_file_path_property(28), "FilePath");
+    }
 
     #[test]
     fn provider_guids_are_unique() {
