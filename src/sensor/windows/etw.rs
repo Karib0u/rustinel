@@ -40,7 +40,7 @@ struct EtwProviders;
 impl EtwProviders {
     const KERNEL_PROCESS_GUID: &'static str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
     const KERNEL_NETWORK_GUID: &'static str = "7dd42a49-5329-4832-8dfd-43d979153a88";
-    const KERNEL_FILE_GUID: &'static str = "edd08927-9cc4-4e65-b970-63462d3f77bd";
+    const KERNEL_FILE_GUID: &'static str = "edd08927-9cc4-4e65-b970-c2560fb5c289";
     const KERNEL_REGISTRY_GUID: &'static str = "70eb4f03-c1de-4f73-a051-33d13d5413bd";
     const DNS_CLIENT_GUID: &'static str = "1c95126e-7eea-49a9-a3fe-a378b03ddb4d";
     const POWERSHELL_GUID: &'static str = "A0C1853B-5C40-4B15-8766-3CF1C58F985A";
