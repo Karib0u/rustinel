@@ -13,10 +13,11 @@ User=root
 
 # Allow eBPF program loading and network observability without full root.
 # CAP_BPF loads and attaches eBPF programs.
+# CAP_PERFMON enables tracepoint and performance monitoring access.
 # CAP_NET_ADMIN attaches tc/xdp programs and reads socket metadata.
 # CAP_SYS_RESOURCE raises memlock limits required by eBPF maps.
-AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_SYS_RESOURCE
-CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_SYS_RESOURCE
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE
 NoNewPrivileges=true
 
 StandardOutput=journal

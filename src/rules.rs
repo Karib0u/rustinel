@@ -345,18 +345,24 @@ fn validate_catalog_pack(pack: &CatalogPack) -> Result<()> {
 
 fn validate_engine_paths(pack_id: &str, engine: &CatalogEngine) -> Result<()> {
     for (value, suffix) in [
-        (&engine.sigma_rules_path, "rules/sigma"),
-        (&engine.yara_rules_path, "rules/yara"),
-        (&engine.hashes_path, "rules/ioc/hashes.txt"),
-        (&engine.ips_path, "rules/ioc/ips.txt"),
-        (&engine.domains_path, "rules/ioc/domains.txt"),
-        (&engine.paths_regex_path, "rules/ioc/paths_regex.txt"),
+        (&engine.sigma_rules_path, &["sigma"][..]),
+        (&engine.yara_rules_path, &["yara"][..]),
+        (&engine.hashes_path, &["ioc", "hashes.txt"][..]),
+        (&engine.ips_path, &["ioc", "ips.txt"][..]),
+        (&engine.domains_path, &["ioc", "domains.txt"][..]),
+        (&engine.paths_regex_path, &["ioc", "paths_regex.txt"][..]),
     ] {
         let path = safe_catalog_path(value)
             .with_context(|| format!("catalog pack {pack_id} has unsafe engine path {value}"))?;
-        let normalized = path.to_string_lossy().replace('\\', "/");
-        if !normalized.ends_with(suffix) {
-            bail!("catalog pack {pack_id} engine path {value} does not end with {suffix}");
+        let components = path
+            .components()
+            .filter_map(|component| component.as_os_str().to_str())
+            .collect::<Vec<_>>();
+        if components.len() < suffix.len()
+            || components[components.len() - suffix.len()..] != *suffix
+        {
+            let expected = suffix.join("/");
+            bail!("catalog pack {pack_id} engine path {value} does not end with {expected}");
         }
     }
     Ok(())
@@ -499,10 +505,11 @@ fn validate_extracted_pack(extracted_dir: &Path, pack: &CatalogPack) -> Result<(
         serde_yaml::from_slice(&manifest_bytes).context("parse pack manifest")?;
     validate_manifest(&manifest, pack)?;
 
+    let rules_root = locate_pack_rules_root(extracted_dir)?;
     for path in [
-        extracted_dir.join("rules").join("sigma"),
-        extracted_dir.join("rules").join("yara"),
-        extracted_dir.join("rules").join("ioc"),
+        rules_root.join("sigma"),
+        rules_root.join("yara"),
+        rules_root.join("ioc"),
     ] {
         if !path.is_dir() {
             bail!("pack is missing expected directory {}", path.display());
@@ -510,12 +517,28 @@ fn validate_extracted_pack(extracted_dir: &Path, pack: &CatalogPack) -> Result<(
     }
 
     for file in ["hashes.txt", "ips.txt", "domains.txt", "paths_regex.txt"] {
-        let path = extracted_dir.join("rules").join("ioc").join(file);
+        let path = rules_root.join("ioc").join(file);
         if !path.is_file() {
             bail!("pack is missing expected IOC file {}", path.display());
         }
     }
     Ok(())
+}
+
+fn locate_pack_rules_root(extracted_dir: &Path) -> Result<PathBuf> {
+    for root in [extracted_dir.to_path_buf(), extracted_dir.join("rules")] {
+        if ["sigma", "yara", "ioc"]
+            .into_iter()
+            .all(|dir| root.join(dir).is_dir())
+        {
+            return Ok(root);
+        }
+    }
+
+    bail!(
+        "pack is missing expected directory {}",
+        extracted_dir.join("sigma").display()
+    )
 }
 
 fn validate_manifest(manifest: &PackManifest, pack: &CatalogPack) -> Result<()> {
@@ -563,16 +586,14 @@ impl Drop for WorkDirCleanup {
 }
 
 fn prepare_current_dir(extracted_dir: &Path, next_current: &Path) -> Result<()> {
+    let rules_root = locate_pack_rules_root(extracted_dir)?;
     recreate_dir(next_current)?;
     fs::copy(
         extracted_dir.join("pack.yml"),
         next_current.join("pack.yml"),
     )?;
     for dir in ["sigma", "yara", "ioc"] {
-        fs::rename(
-            extracted_dir.join("rules").join(dir),
-            next_current.join(dir),
-        )?;
+        fs::rename(rules_root.join(dir), next_current.join(dir))?;
     }
     Ok(())
 }
@@ -778,6 +799,14 @@ mod tests {
     }
 
     #[test]
+    fn catalog_accepts_pack_relative_engine_paths() {
+        let archive = pack_zip(current_os(), "demo-pack");
+        let catalog = catalog_for("demo-pack", current_os(), &archive);
+
+        catalog.validate().expect("catalog should validate");
+    }
+
+    #[test]
     fn prerelease_version_satisfies_release_floor_requirement() {
         let req = VersionReq::parse(">=1.0.0").unwrap();
         let current = Version::parse("1.2.0-rc.1").unwrap();
@@ -811,12 +840,12 @@ mod tests {
                 artifact: "demo.zip".to_string(),
                 sha256: sha256_hex(archive),
                 engine: Some(CatalogEngine {
-                    sigma_rules_path: format!("{id}/rules/sigma"),
-                    yara_rules_path: format!("{id}/rules/yara"),
-                    hashes_path: format!("{id}/rules/ioc/hashes.txt"),
-                    ips_path: format!("{id}/rules/ioc/ips.txt"),
-                    domains_path: format!("{id}/rules/ioc/domains.txt"),
-                    paths_regex_path: format!("{id}/rules/ioc/paths_regex.txt"),
+                    sigma_rules_path: format!("{id}/sigma"),
+                    yara_rules_path: format!("{id}/yara"),
+                    hashes_path: format!("{id}/ioc/hashes.txt"),
+                    ips_path: format!("{id}/ioc/ips.txt"),
+                    domains_path: format!("{id}/ioc/domains.txt"),
+                    paths_regex_path: format!("{id}/ioc/paths_regex.txt"),
                 }),
             }],
         }
@@ -834,13 +863,12 @@ mod tests {
             zip.start_file("pack.yml", options).unwrap();
             zip.write_all(manifest(os, id, schema_version).as_bytes())
                 .unwrap();
-            zip.start_file("rules/sigma/demo.yml", options).unwrap();
+            zip.start_file("sigma/demo.yml", options).unwrap();
             zip.write_all(b"title: Demo\n").unwrap();
-            zip.start_file("rules/yara/demo.yar", options).unwrap();
+            zip.start_file("yara/demo.yar", options).unwrap();
             zip.write_all(b"rule demo { condition: true }\n").unwrap();
             for file in ["hashes.txt", "ips.txt", "domains.txt", "paths_regex.txt"] {
-                zip.start_file(format!("rules/ioc/{file}"), options)
-                    .unwrap();
+                zip.start_file(format!("ioc/{file}"), options).unwrap();
                 zip.write_all(b"\n").unwrap();
             }
             zip.finish().unwrap();

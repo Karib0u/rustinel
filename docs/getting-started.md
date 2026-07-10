@@ -177,7 +177,7 @@ cannot start, Rustinel continues with Endpoint Security process and file telemet
 | Platform | Requirements |
 | --- | --- |
 | Windows | Windows 10/11 or Server 2016+, Administrator privileges |
-| Linux | Kernel 5.8+ with BTF, root or eBPF capabilities such as `CAP_BPF` or `CAP_SYS_ADMIN`, `tracefs`, and `debugfs` |
+| Linux | Kernel 5.8+ with BTF, root or eBPF capabilities such as `CAP_BPF`, `CAP_PERFMON`, and `CAP_NET_ADMIN`, or `CAP_SYS_ADMIN`, `tracefs`, and `debugfs` |
 | macOS | macOS 11+, root, signed Endpoint Security client, Full Disk Access, and `/dev/bpf*` access for network and DNS capture |
 
 Building from source also requires Rust 1.92+. Windows needs Visual Studio Build

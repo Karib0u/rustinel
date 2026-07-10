@@ -85,12 +85,19 @@ impl InstallLayout {
 
     pub fn portable(exe_dir: impl Into<PathBuf>) -> Self {
         let root = exe_dir.into();
-        Self::from_roots(
-            InstallPlatform::current(),
-            root.join(CONFIG_FILE_NAME),
-            root.join("rules"),
-            root.join("logs"),
-        )
+        let platform = InstallPlatform::current();
+        let rules_dir = root.join("rules");
+        let logs_dir = root.join("logs");
+        Self {
+            platform,
+            config_file: root.join(CONFIG_FILE_NAME),
+            rules_dir: rules_dir.clone(),
+            sigma_rules_dir: rules_dir.join("sigma"),
+            yara_rules_dir: rules_dir.join("yara"),
+            ioc_dir: rules_dir.join("ioc"),
+            alerts_dir: logs_dir.clone(),
+            logs_dir,
+        }
     }
 
     pub fn managed_current() -> Self {
@@ -680,19 +687,13 @@ mod tests {
     fn test_config_paths() {
         let cfg = AppConfig::new().unwrap();
         let cwd = std::env::current_dir().expect("current dir");
-        assert_eq!(
-            cfg.scanner.sigma_rules_path,
-            cwd.join("rules/current/sigma")
-        );
-        assert_eq!(cfg.scanner.yara_rules_path, cwd.join("rules/current/yara"));
-        assert_eq!(
-            cfg.ioc.hashes_path,
-            cwd.join("rules/current/ioc/hashes.txt")
-        );
-        assert_eq!(cfg.ioc.ips_path, cwd.join("rules/current/ioc/ips.txt"));
+        assert_eq!(cfg.scanner.sigma_rules_path, cwd.join("rules/sigma"));
+        assert_eq!(cfg.scanner.yara_rules_path, cwd.join("rules/yara"));
+        assert_eq!(cfg.ioc.hashes_path, cwd.join("rules/ioc/hashes.txt"));
+        assert_eq!(cfg.ioc.ips_path, cwd.join("rules/ioc/ips.txt"));
         assert_eq!(
             cfg.ioc.paths_regex_path,
-            cwd.join("rules/current/ioc/paths_regex.txt")
+            cwd.join("rules/ioc/paths_regex.txt")
         );
     }
 
@@ -878,10 +879,9 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         let layout = InstallLayout::portable(&root);
 
         assert_eq!(layout.config_file, root.join("config.toml"));
-        assert_eq!(
-            layout.sigma_rules_dir,
-            root.join("rules").join("current").join("sigma")
-        );
+        assert_eq!(layout.sigma_rules_dir, root.join("rules").join("sigma"));
+        assert_eq!(layout.yara_rules_dir, root.join("rules").join("yara"));
+        assert_eq!(layout.ioc_dir, root.join("rules").join("ioc"));
         assert_eq!(layout.logs_dir, root.join("logs"));
     }
 

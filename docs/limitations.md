@@ -75,7 +75,7 @@ The Linux sensor covers process, network, file, and DNS.
 - **No library-load, module-load, or ptrace events.** Sigma rules in those Linux
   categories never match.
 - **Kernel requirements.** Needs Linux 5.8+ with BTF and
-  `CAP_BPF` / `CAP_SYS_ADMIN`; older or BTF-less kernels and many restricted
+  `CAP_BPF`, `CAP_PERFMON`, and `CAP_NET_ADMIN`, or `CAP_SYS_ADMIN`; older or BTF-less kernels and many restricted
   containers are unsupported.
 
 ## macOS (ESF) - experimental

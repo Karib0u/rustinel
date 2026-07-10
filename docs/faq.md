@@ -23,7 +23,7 @@ Current telemetry coverage is broadest on Windows, which includes process, image
 Yes.
 
 - Windows ETW collection requires Administrator privileges.
-- Linux eBPF collection requires root or equivalent capabilities such as `CAP_BPF` or `CAP_SYS_ADMIN`, depending on your setup.
+- Linux eBPF collection requires root or equivalent capabilities such as `CAP_BPF`, `CAP_PERFMON`, and `CAP_NET_ADMIN`, or `CAP_SYS_ADMIN` on supported setups.
 - macOS Endpoint Security collection requires root, Full Disk Access, and a signed app bundle whose embedded provisioning profile authorizes `com.apple.developer.endpoint-security.client`.
 
 ## Running and Deployment

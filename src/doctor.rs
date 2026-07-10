@@ -1174,18 +1174,20 @@ fn linux_privilege_result() -> DiagnosticResult {
 
     let caps = effective_capabilities();
     let has_needed = caps
-        .map(|caps| has_cap(caps, 12) && has_cap(caps, 24) && has_cap(caps, 39))
+        .map(|caps| {
+            has_cap(caps, 12) && has_cap(caps, 24) && has_cap(caps, 38) && has_cap(caps, 39)
+        })
         .unwrap_or(false);
     if has_needed {
         DiagnosticResult::pass(
             "required_privileges",
-            "Process has CAP_NET_ADMIN, CAP_SYS_RESOURCE, and CAP_BPF",
+            "Process has CAP_NET_ADMIN, CAP_SYS_RESOURCE, CAP_PERFMON, and CAP_BPF",
         )
     } else {
         DiagnosticResult::fail(
             "required_privileges",
             "Linux eBPF telemetry requires root or eBPF capabilities",
-            "Missing root or one of CAP_NET_ADMIN, CAP_SYS_RESOURCE, CAP_BPF",
+            "Missing root or one of CAP_NET_ADMIN, CAP_SYS_RESOURCE, CAP_PERFMON, CAP_BPF",
         )
         .with_fix("Run as root or grant the managed service the required capabilities")
     }
