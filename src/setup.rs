@@ -249,6 +249,10 @@ fn active_rules_are_valid(rules_dir: &Path) -> bool {
 
 fn install_binary(binary_path: &Path) -> Result<()> {
     let current_exe = std::env::current_exe().context("locate current executable")?;
+    if InstallPlatform::current() == InstallPlatform::Macos {
+        return install_macos_bundle(&current_exe, binary_path);
+    }
+
     if same_file_best_effort(&current_exe, binary_path) {
         println!("Managed binary already points to {}", binary_path.display());
         return Ok(());
@@ -263,6 +267,102 @@ fn install_binary(binary_path: &Path) -> Result<()> {
     })?;
     set_executable_permissions(binary_path)?;
     println!("Installed managed binary to {}", binary_path.display());
+    Ok(())
+}
+
+fn install_macos_bundle(current_exe: &Path, binary_path: &Path) -> Result<()> {
+    let source_app = app_bundle_root(current_exe)
+        .context("locate the signed Rustinel.app containing the current executable")?;
+    let destination_app =
+        app_bundle_root(binary_path).context("locate the managed Rustinel.app destination")?;
+
+    if source_app == destination_app {
+        println!(
+            "Managed app already points to {}",
+            destination_app.display()
+        );
+        return Ok(());
+    }
+
+    let temporary_app =
+        destination_app.with_file_name(format!(".Rustinel.app.tmp.{}", std::process::id()));
+    if temporary_app.exists() {
+        fs::remove_dir_all(&temporary_app).with_context(|| {
+            format!(
+                "remove incomplete temporary app bundle {}",
+                temporary_app.display()
+            )
+        })?;
+    }
+
+    if let Err(err) = copy_directory(&source_app, &temporary_app) {
+        let _ = fs::remove_dir_all(&temporary_app);
+        return Err(err).with_context(|| {
+            format!(
+                "copy signed app bundle from {} to {}",
+                source_app.display(),
+                destination_app.display()
+            )
+        });
+    }
+
+    if destination_app.exists() {
+        fs::remove_dir_all(&destination_app).with_context(|| {
+            format!("replace existing app bundle {}", destination_app.display())
+        })?;
+    }
+    fs::rename(&temporary_app, &destination_app).with_context(|| {
+        format!(
+            "install app bundle from {} to {}",
+            temporary_app.display(),
+            destination_app.display()
+        )
+    })?;
+    set_executable_permissions(binary_path)?;
+    println!("Installed managed app to {}", destination_app.display());
+    Ok(())
+}
+
+fn app_bundle_root(path: &Path) -> Option<PathBuf> {
+    let mut current = path;
+    loop {
+        if current.file_name().and_then(|name| name.to_str()) == Some("Rustinel.app") {
+            return Some(current.to_path_buf());
+        }
+        current = current.parent()?;
+    }
+}
+
+fn copy_directory(source: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination)
+        .with_context(|| format!("create directory {}", destination.display()))?;
+
+    for entry in fs::read_dir(source).with_context(|| format!("read {}", source.display()))? {
+        let entry = entry.with_context(|| format!("read entry in {}", source.display()))?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("inspect {}", source_path.display()))?;
+
+        if file_type.is_dir() {
+            copy_directory(&source_path, &destination_path)?;
+        } else if file_type.is_file() {
+            fs::copy(&source_path, &destination_path).with_context(|| {
+                format!(
+                    "copy app bundle file from {} to {}",
+                    source_path.display(),
+                    destination_path.display()
+                )
+            })?;
+        } else {
+            bail!(
+                "unsupported file type in app bundle: {}",
+                source_path.display()
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -429,6 +529,40 @@ mod tests {
         assert_eq!(
             value,
             r#""C:\\ProgramData\\Rustinel\\config \"main\".toml""#
+        );
+    }
+
+    #[test]
+    fn app_bundle_root_finds_signed_bundle_from_binary_paths() {
+        let binary = Path::new("/usr/local/var/rustinel/Rustinel.app/Contents/MacOS/rustinel");
+
+        assert_eq!(
+            app_bundle_root(binary),
+            Some(PathBuf::from("/usr/local/var/rustinel/Rustinel.app"))
+        );
+        assert_eq!(app_bundle_root(Path::new("/opt/rustinel/rustinel")), None);
+    }
+
+    #[test]
+    fn copy_directory_preserves_app_bundle_contents() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        let destination = tempfile::tempdir().expect("destination tempdir");
+        let source_app = source.path().join("Rustinel.app");
+        let source_binary = source_app.join("Contents/MacOS/rustinel");
+        fs::create_dir_all(source_binary.parent().expect("binary parent")).expect("directories");
+        fs::write(&source_binary, b"binary").expect("binary");
+        fs::write(source_app.join("Contents/Info.plist"), b"plist").expect("plist");
+
+        let destination_app = destination.path().join("Rustinel.app");
+        copy_directory(&source_app, &destination_app).expect("copy app bundle");
+
+        assert_eq!(
+            fs::read(destination_app.join("Contents/MacOS/rustinel")).expect("copied binary"),
+            b"binary"
+        );
+        assert_eq!(
+            fs::read(destination_app.join("Contents/Info.plist")).expect("copied plist"),
+            b"plist"
         );
     }
 
