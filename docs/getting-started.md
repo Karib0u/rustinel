@@ -16,6 +16,16 @@ Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/script
 powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
 ```
 
+Official Windows binaries use the MSVC runtime. Install the current x64
+[Microsoft Visual C++ Redistributable](https://aka.ms/vc14/vc_redist.x64.exe)
+if Rustinel exits before printing output. Exit code `-1073741515`
+(`0xC0000135`) normally means a required runtime DLL is missing:
+
+```powershell
+Invoke-WebRequest https://aka.ms/vc14/vc_redist.x64.exe -OutFile "$env:TEMP\vc_redist.x64.exe"
+Start-Process "$env:TEMP\vc_redist.x64.exe" -ArgumentList "/install", "/quiet", "/norestart" -Wait -Verb RunAs
+```
+
 ### Linux
 
 ```bash
@@ -172,11 +182,45 @@ for the macOS result-code table.
 Network and DNS capture also needs access to `/dev/bpf*`. If packet capture
 cannot start, Rustinel continues with Endpoint Security process and file telemetry.
 
+## Keep Rustinel Running
+
+After the portable test succeeds, install the managed layout and native service:
+
+=== "Windows"
+
+    ```powershell
+    rustinel setup --yes
+    rustinel service status
+    rustinel doctor
+    ```
+
+=== "Linux"
+
+    ```bash
+    sudo rustinel setup --yes
+    rustinel service status
+    rustinel doctor
+    ```
+
+=== "macOS"
+
+    Grant Full Disk Access to `Rustinel.app` before starting the LaunchDaemon.
+
+    ```bash
+    sudo ./rustinel setup --yes
+    ./rustinel service status
+    ./rustinel doctor
+    ```
+
+`setup` installs an Essential rules pack by default, registers the platform's
+native service, starts it, and runs health checks. Use `--pack advanced` to
+select the larger pack or `--no-start` to register without starting.
+
 ## Minimum Requirements
 
 | Platform | Requirements |
 | --- | --- |
-| Windows | Windows 10/11 or Server 2016+, Administrator privileges |
+| Windows | Windows 10/11 or Server 2016+, x64 Visual C++ Redistributable, Administrator privileges for telemetry and service management |
 | Linux | Kernel 5.8+ with BTF, root or eBPF capabilities such as `CAP_BPF`, `CAP_PERFMON`, and `CAP_NET_ADMIN`, or `CAP_SYS_ADMIN`, `tracefs`, and `debugfs` |
 | macOS | macOS 11+, root, signed Endpoint Security client, Full Disk Access, and `/dev/bpf*` access for network and DNS capture |
 

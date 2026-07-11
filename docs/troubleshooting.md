@@ -6,6 +6,10 @@ Use this page when Rustinel starts but does not behave the way you expect, or wh
 
 Before changing config or rules, check these first:
 
+- Run `rustinel doctor` (use `sudo rustinel doctor` when validating privileged
+  platform prerequisites). Address `fail` results first; warnings return exit
+  code `1` and failures return exit code `2`. Use `rustinel doctor --json` for
+  automation.
 - Read the current operational log: `logs/rustinel.log.<date>`
 - Run in the foreground with a higher log level:
   - Windows: `.\rustinel.exe run --log-level debug`
@@ -29,6 +33,17 @@ Before changing config or rules, check these first:
 | Logs mention dropped events or full queues | sensor backpressure, YARA/IOC/response queues saturated |
 
 ## Startup Failures
+
+### Windows exits without printing output
+
+Official Windows binaries require the x64 Microsoft Visual C++ Redistributable.
+If PowerShell reports `$LASTEXITCODE` as `-1073741515` (`0xC0000135`), install
+the runtime and retry:
+
+```powershell
+Invoke-WebRequest https://aka.ms/vc14/vc_redist.x64.exe -OutFile "$env:TEMP\vc_redist.x64.exe"
+Start-Process "$env:TEMP\vc_redist.x64.exe" -ArgumentList "/install", "/quiet", "/norestart" -Wait -Verb RunAs
+```
 
 ### `Failed to load configuration`
 

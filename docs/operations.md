@@ -71,6 +71,10 @@ the service binary path, registers the native service, starts it unless
 service status. Existing managed configuration is preserved unless `--force` is
 supplied.
 
+On macOS, `setup` copies the complete signed `Rustinel.app` bundle into the
+managed layout. Do not replace only `Contents/MacOS/rustinel`: doing so can
+invalidate the signing context required by Endpoint Security.
+
 Pack selection:
 
 ```bash
@@ -82,6 +86,17 @@ Without `--pack`, an interactive terminal prompts for Essential or Advanced.
 Non-interactive setup defaults to Essential. If rules download or verification
 fails, setup preserves existing active rules and continues only when the active
 pack is valid.
+
+## Rules And Hot Reload
+
+Install a released pack with `rustinel rules install <PACK>`. Managed packs are
+activated atomically under the platform rules directory. Local edits to active
+Sigma, YARA, and IOC files are watched when `reload.enabled = true` (the
+default), with rapid changes grouped by `reload.debounce_ms`.
+
+After editing a rule, check the operational log for a successful reload and
+trigger a known event. A rejected reload leaves the last valid in-memory rules
+active. Run `rustinel doctor` to validate the on-disk configuration and rules.
 
 ## Working Directory Rules
 
