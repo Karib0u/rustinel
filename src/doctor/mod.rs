@@ -4,4 +4,8 @@ pub mod prerequisites;
 pub mod rules;
 pub mod services;
 
-pub use crate::doctor::inspect::{inspect, run_cli, DiagnosticStatus};
+pub use inspect::{
+    format_human, inspect, inspect_with_options, run_cli, ConfigDiagnostic, DiagnosticResult,
+    DiagnosticStatus, DoctorReport, InstallMode, ResolvedPaths, RulePackDiagnostic,
+    ServiceDiagnostic,
+};
