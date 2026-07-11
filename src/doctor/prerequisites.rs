@@ -1,5 +1,10 @@
 use crate::doctor::inspect::DiagnosticResult;
+#[cfg(target_os = "macos")]
+use crate::service::ManagedServicePaths;
+#[cfg(target_os = "linux")]
 use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
 pub(crate) fn platform_prerequisite_results() -> Vec<DiagnosticResult> {
     #[cfg(target_os = "linux")]
