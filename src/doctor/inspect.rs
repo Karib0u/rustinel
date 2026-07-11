@@ -1,10 +1,4 @@
 use crate::config::{AppConfig, ConfigLoadOptions, ConfigSource, InstallLayout, InstallPlatform};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-#[cfg(windows)]
-use crate::service::WINDOWS_SERVICE_NAME;
-#[cfg(target_os = "macos")]
-use crate::service::{launchd_status_from_output, LAUNCHD_LABEL};
-#[cfg(target_os = "linux")]
 use serde::Serialize;
 use std::fmt;
 use std::path::{Path, PathBuf};

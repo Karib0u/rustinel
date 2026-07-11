@@ -1,7 +1,13 @@
 use crate::doctor::inspect::{DiagnosticResult, InstallMode, ServiceDiagnostic};
-use crate::service::{
-    systemd_status_from_state, ManagedServicePaths, ServiceStatus, SYSTEMD_UNIT_NAME,
-};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use crate::service::ManagedServicePaths;
+use crate::service::ServiceStatus;
+#[cfg(windows)]
+use crate::service::WINDOWS_SERVICE_NAME;
+#[cfg(target_os = "macos")]
+use crate::service::{launchd_status_from_output, LAUNCHD_LABEL};
+#[cfg(target_os = "linux")]
+use crate::service::{systemd_status_from_state, SYSTEMD_UNIT_NAME};
 
 pub(crate) fn inspect_service(
     mode: InstallMode,
