@@ -30,21 +30,34 @@
 
 ---
 
-## Get Your First Alert
+## Quick Start
 
 Rustinel ships release archives with a binary, default config, demo rules, and a
 `logs/` directory.
 
-**Windows** - from an elevated PowerShell:
+**Windows** - test from PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 | iex
 ```
 
-**Linux**
+Then deploy from an elevated PowerShell and diagnose the managed installation:
+
+```powershell
+rustinel setup --yes
+rustinel doctor
+```
+
+The Windows release binary requires the x64 Microsoft Visual C++ Redistributable.
+See [Getting Started](https://docs.rustinel.io/getting-started/#windows) if the
+process exits before printing output.
+
+**Linux** - test, deploy, and diagnose:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --run
+sudo rustinel setup --yes
+rustinel doctor
 ```
 
 **macOS** (experimental)
@@ -60,6 +73,13 @@ macOS notes before using it beyond a first test.
 
 ```bash
 sudo ./rustinel run
+```
+
+After Full Disk Access is granted, deploy and diagnose the managed installation:
+
+```bash
+sudo ./rustinel setup --yes
+./rustinel doctor
 ```
 
 With the agent running, trigger the bundled demo rule:

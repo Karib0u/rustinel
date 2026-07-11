@@ -140,7 +140,7 @@ Behavior:
 - `--yes` accepts defaults and skips the prompt.
 - `--no-start` registers the native service without starting it.
 - `--force` replaces an existing managed configuration. Without `--force`, existing configuration is preserved and validated before setup continues.
-- The current executable is copied to the managed service binary path before service registration.
+- The current executable is copied to the managed service binary path before service registration. On macOS, setup copies the complete signed `Rustinel.app` bundle so its signature, entitlements, and provisioning profile remain intact.
 - Rules pack downloads use the same catalog validation, SHA-256 verification, ZIP safety checks, and atomic activation as `rules install`.
 - If a rules download or validation fails, setup preserves existing active rules and continues only when an existing active pack is valid.
 - If service installation or startup fails, setup leaves configuration and rules in place and prints the exact recovery command.
