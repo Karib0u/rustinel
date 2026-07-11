@@ -271,7 +271,10 @@ fn install_binary(binary_path: &Path) -> Result<()> {
 }
 
 fn install_macos_bundle(current_exe: &Path, binary_path: &Path) -> Result<()> {
-    let source_app = app_bundle_root(current_exe)
+    let resolved_exe = current_exe
+        .canonicalize()
+        .with_context(|| format!("resolve executable path {}", current_exe.display()))?;
+    let source_app = app_bundle_root(&resolved_exe)
         .context("locate the signed Rustinel.app containing the current executable")?;
     let destination_app =
         app_bundle_root(binary_path).context("locate the managed Rustinel.app destination")?;
@@ -541,6 +544,31 @@ mod tests {
             Some(PathBuf::from("/usr/local/var/rustinel/Rustinel.app"))
         );
         assert_eq!(app_bundle_root(Path::new("/opt/rustinel/rustinel")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn app_bundle_root_finds_bundle_after_resolving_release_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let release = tempfile::tempdir().expect("release tempdir");
+        let app_binary = release.path().join("Rustinel.app/Contents/MacOS/rustinel");
+        fs::create_dir_all(app_binary.parent().expect("binary parent")).expect("directories");
+        fs::write(&app_binary, b"binary").expect("binary");
+        let portable_binary = release.path().join("rustinel");
+        symlink("Rustinel.app/Contents/MacOS/rustinel", &portable_binary).expect("symlink");
+
+        let resolved = portable_binary.canonicalize().expect("resolve symlink");
+        assert_eq!(
+            app_bundle_root(&resolved),
+            Some(
+                release
+                    .path()
+                    .canonicalize()
+                    .expect("resolve release directory")
+                    .join("Rustinel.app"),
+            )
+        );
     }
 
     #[test]
