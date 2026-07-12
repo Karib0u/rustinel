@@ -70,7 +70,18 @@ need() {
   fi
 }
 
+setup_supported() {
+  # Probe the installed binary. Only releases that ship the managed-deployment
+  # workflow answer `setup --help` successfully; older/stable builds do not, so
+  # we avoid advertising a command they cannot run.
+  [ -x "$install_dir/rustinel" ] || return 1
+  "$install_dir/rustinel" setup --help >/dev/null 2>&1
+}
+
 print_promotion_command() {
+  if ! setup_supported; then
+    return 0
+  fi
   cat <<EOF
 Permanent deployment command:
   cd "$install_dir" && sudo ./rustinel setup --yes

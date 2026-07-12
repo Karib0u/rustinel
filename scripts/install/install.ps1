@@ -25,9 +25,30 @@ function Test-TruthyEnv {
     return @("1", "true", "yes", "on") -contains $normalized
 }
 
+function Test-SetupSupported {
+    param([string]$Path)
+
+    # Probe the installed binary. Only releases that ship the managed-deployment
+    # workflow answer `setup --help` successfully; older/stable builds do not, so
+    # we avoid advertising a command they cannot run.
+    $exe = Join-Path $Path "rustinel.exe"
+    if (-not (Test-Path $exe)) {
+        return $false
+    }
+    try {
+        & $exe setup --help *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
 function Show-PromotionCommand {
     param([string]$Path)
 
+    if (-not (Test-SetupSupported -Path $Path)) {
+        return
+    }
     Write-Host "Permanent deployment command:"
     Write-Host "  Set-Location `"$Path`"; .\rustinel.exe setup --yes"
 }
