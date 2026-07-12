@@ -514,7 +514,7 @@ fn decode_process(
 
     let process_start_key = match action {
         SensorAction::Start => {
-            creation_time_with_fallback.map(|start_time| ProcessStartKey { pid, start_time })
+            creation_time_opt.map(|start_time| ProcessStartKey { pid, start_time })
         }
         SensorAction::Stop => {
             creation_time_opt.map(|start_time| ProcessStartKey { pid, start_time })

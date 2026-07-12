@@ -12,8 +12,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::{debug, info, warn};
 use yara_x::{Compiler, Rules, Scanner as XScanner};
 
-use crate::models::{MatchDebugLevel, YaraRuleMatch, YaraStringMatch};
+use crate::models::{MatchDebugLevel, ProcessCreationFields, YaraRuleMatch, YaraStringMatch};
 use crate::sensor::{SensorAction, SensorEvent, SensorEventHandler, SensorPayload};
+use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
 
 /// Strip NT namespace prefix and convert to a path the YARA scanner can open.
 /// On Windows raw ETW paths may arrive as `\??\C:\Windows\...`.
@@ -205,8 +206,7 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 /// Job queued from a process-start event for background memory scanning.
 #[derive(Debug, Clone)]
 pub struct YaraMemoryJob {
-    pub pid: u32,
-    pub image: String,
+    pub expected_identity: ProcessIdentity,
 }
 
 /// Main Scanner struct holding compiled rules
@@ -525,10 +525,8 @@ impl SensorEventHandler for YaraEventHandler {
         }
 
         if let Some(memory_tx) = &self.memory_tx {
-            match memory_tx.try_send(YaraMemoryJob {
-                pid,
-                image: path.to_string(),
-            }) {
+            let expected_identity = capture_process_identity(event, fields, pid, path);
+            match memory_tx.try_send(YaraMemoryJob { expected_identity }) {
                 Ok(_) => tracing::trace!(
                     target: "scanner",
                     pid = pid,
@@ -544,6 +542,38 @@ impl SensorEventHandler for YaraEventHandler {
                 ),
             }
         }
+    }
+}
+
+fn capture_process_identity(
+    event: &SensorEvent,
+    fields: &ProcessCreationFields,
+    pid: u32,
+    image: &str,
+) -> ProcessIdentity {
+    let queried = query_process_identity(pid);
+    let event_start_time = event
+        .process_start_key
+        .filter(|key| key.pid == pid)
+        .map(|key| key.start_time);
+    let start_time = event_start_time
+        .or_else(|| queried.as_ref().and_then(|identity| identity.start_time))
+        .or(fields.process_start_time);
+    let command_line_hash = fields
+        .command_line
+        .as_deref()
+        .map(hash_command_line)
+        .or_else(|| {
+            queried
+                .as_ref()
+                .and_then(|identity| identity.command_line_hash.clone())
+        });
+
+    ProcessIdentity {
+        pid,
+        image: image.to_string(),
+        start_time,
+        command_line_hash,
     }
 }
 

@@ -200,7 +200,9 @@ Every YARA match is emitted as a `critical` alert.
 
 YARA memory scanning is optional and disabled by default (`scanner.yara_memory_enabled = false`).
 
-When enabled, Rustinel queues process IDs from process-start events to a bounded background worker. The worker waits a configurable delay (`yara_memory_delay_ms`, default 750 ms) to allow packers or loaders to finish unpacking, then reads a limited amount of selected process memory and scans it with the active YARA ruleset.
+When enabled, Rustinel queues process identities from process-start events to a bounded background worker. The worker waits a configurable delay (`yara_memory_delay_ms`, default 750 ms) to allow packers or loaders to finish unpacking, then reads a limited amount of selected process memory and scans it with the active YARA ruleset.
+
+Before reading memory, the worker revalidates the queued PID against the process image and any available start-time and command-line metadata. If the process identity changed or cannot be queried, the worker skips the scan and logs the reason. Platforms without process identity query support fail closed.
 
 Default behavior scans private readable memory only and avoids mapped or image-backed regions to reduce overhead and false positives. Each matching YARA rule emits its own `critical` alert. The alert `provider` field is set to `yara-memory` to distinguish memory hits from file hits (`etw`, `ebpf`, or `esf`).
 

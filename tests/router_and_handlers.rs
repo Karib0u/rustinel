@@ -4,6 +4,7 @@ mod common;
 use std::sync::Arc;
 
 use common::{process_start_event, SigmaFixture, TestNormalizer, TEST_PID};
+use rustinel::utils::hash_command_line;
 use rustinel::{
     alerts::AlertSink,
     config::ResponseConfig,
@@ -82,8 +83,23 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     assert_eq!(path, common::image_for(Platform::Linux));
     assert_eq!(pid, TEST_PID);
     let memory = memory_rx.try_recv().expect("memory job queued");
-    assert_eq!(memory.pid, TEST_PID);
-    assert_eq!(memory.image, common::image_for(Platform::Linux));
+    assert_eq!(memory.expected_identity.pid, TEST_PID);
+    assert_eq!(
+        memory.expected_identity.image,
+        common::image_for(Platform::Linux)
+    );
+    assert_eq!(
+        memory.expected_identity.start_time,
+        Some(common::TEST_PROCESS_START_TIME)
+    );
+    assert_eq!(
+        memory.expected_identity.command_line_hash,
+        Some(hash_command_line(&format!(
+            "{} https://{}",
+            common::image_for(Platform::Linux),
+            common::TEST_DOMAIN
+        )))
+    );
 
     let mut stop = process_start_event(Platform::Linux);
     stop.action = SensorAction::Stop;

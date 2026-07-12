@@ -13,7 +13,7 @@ pub mod time;
 pub mod user;
 
 pub use log_rate_limiter::LogRateLimiter;
-pub use path::convert_nt_to_dos;
+pub use path::{convert_nt_to_dos, normalize_path_for_comparison};
 #[cfg(windows)]
 pub use pe::parse_metadata;
 #[cfg(target_os = "macos")]
@@ -23,7 +23,8 @@ pub use process::query_process_command_line_from_handle;
 #[cfg(target_os = "linux")]
 pub use process::query_process_details;
 pub use process::{
-    hash_command_line, query_process_command_line, query_process_identity, ProcessIdentity,
+    hash_command_line, query_process_command_line, query_process_identity,
+    validate_process_identity, ProcessIdentity,
 };
 #[cfg(target_os = "linux")]
 pub use socket::query_socket_metadata;

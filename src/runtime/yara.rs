@@ -8,7 +8,7 @@ use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::scanner::{self, YaraMemoryJob};
 use crate::sensor::Platform;
-use crate::utils::{self, LogRateLimiter};
+use crate::utils::{self, validate_process_identity, LogRateLimiter};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -291,13 +291,24 @@ pub fn spawn_yara_memory_worker(
         info!(target: "scanner", "YARA memory worker started");
         while let Some(job) = rx.blocking_recv() {
             std::thread::sleep(Duration::from_millis(cfg.delay_ms));
-            let chunks = match memory::read_process_memory_chunks(job.pid, &cfg) {
+            if let Err(reason) = validate_process_identity(&job.expected_identity) {
+                debug!(
+                    target: "scanner",
+                    pid = job.expected_identity.pid,
+                    image = %job.expected_identity.image,
+                    reason = %reason,
+                    "YARA memory scan skipped after process identity validation"
+                );
+                continue;
+            }
+
+            let chunks = match memory::read_process_memory_chunks(job.expected_identity.pid, &cfg) {
                 Ok(chunks) => chunks,
                 Err(err) => {
                     tracing::trace!(
                         target: "scanner",
-                        pid = job.pid,
-                        image = %job.image,
+                        pid = job.expected_identity.pid,
+                        image = %job.expected_identity.image,
                         error = %err,
                         "YARA memory scan skipped"
                     );
@@ -312,7 +323,7 @@ pub fn spawn_yara_memory_worker(
                     Err(err) => {
                         tracing::trace!(
                             target: "scanner",
-                            pid = job.pid,
+                            pid = job.expected_identity.pid,
                             error = %err,
                             "YARA memory chunk scan failed"
                         );
@@ -324,8 +335,8 @@ pub fn spawn_yara_memory_worker(
                     let rule_names: Vec<String> =
                         matches.iter().map(|rule| rule.rule.clone()).collect();
                     warn!(
-                        pid = job.pid,
-                        image = %job.image,
+                        pid = job.expected_identity.pid,
+                        image = %job.expected_identity.image,
                         rules = ?rule_names,
                         "YARA memory detection triggered"
                     );
@@ -336,8 +347,8 @@ pub fn spawn_yara_memory_worker(
                         let alert = build_yara_memory_alert(
                             &rule_match.rule,
                             rule_match.metadata_id.clone(),
-                            &job.image,
-                            job.pid,
+                            &job.expected_identity.image,
+                            job.expected_identity.pid,
                             details,
                             platform,
                             provider,

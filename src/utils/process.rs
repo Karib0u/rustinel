@@ -3,12 +3,50 @@
 use digest::Digest;
 use sha2::Sha256;
 
+use super::path::normalize_path_for_comparison;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessIdentity {
     pub pid: u32,
     pub image: String,
     pub start_time: Option<u64>,
     pub command_line_hash: Option<String>,
+}
+
+impl ProcessIdentity {
+    /// Compare two identities, allowing metadata that is unavailable on one side.
+    pub fn matches(&self, current: &Self) -> Result<(), String> {
+        if self.pid != current.pid {
+            return Err(format!("pid changed from {} to {}", self.pid, current.pid));
+        }
+
+        if !same_process_image(&self.image, &current.image) {
+            return Err(format!(
+                "image changed from '{}' to '{}'",
+                self.image, current.image
+            ));
+        }
+
+        if let (Some(expected_start), Some(current_start)) = (self.start_time, current.start_time) {
+            if expected_start != current_start {
+                return Err(format!(
+                    "start time changed from {} to {}",
+                    expected_start, current_start
+                ));
+            }
+        }
+
+        if let (Some(expected_hash), Some(current_hash)) = (
+            self.command_line_hash.as_deref(),
+            current.command_line_hash.as_deref(),
+        ) {
+            if expected_hash != current_hash {
+                return Err("command line hash changed".to_string());
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -258,10 +296,34 @@ pub fn query_process_identity(_pid: u32) -> Option<ProcessIdentity> {
     None
 }
 
+/// Query and validate the process currently using the expected PID.
+pub fn validate_process_identity(expected: &ProcessIdentity) -> Result<ProcessIdentity, String> {
+    let current = query_process_identity(expected.pid)
+        .ok_or_else(|| "process no longer exists or identity could not be queried".to_string())?;
+    expected.matches(&current)?;
+    Ok(current)
+}
+
 pub fn hash_command_line(command_line: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(command_line.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+fn same_process_image(expected: &str, current: &str) -> bool {
+    if normalize_path_for_comparison(expected) == normalize_path_for_comparison(current) {
+        return true;
+    }
+
+    let expected = std::fs::canonicalize(expected).ok();
+    let current = std::fs::canonicalize(current).ok();
+    match (expected, current) {
+        (Some(expected), Some(current)) => {
+            normalize_path_for_comparison(&expected.to_string_lossy())
+                == normalize_path_for_comparison(&current.to_string_lossy())
+        }
+        _ => false,
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -324,5 +386,81 @@ mod tests {
         let command_line =
             query_process_command_line(pid).expect("current process command line should exist");
         assert!(!command_line.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    fn identity() -> ProcessIdentity {
+        ProcessIdentity {
+            pid: 42,
+            image: "/usr/bin/example".to_string(),
+            start_time: Some(100),
+            command_line_hash: Some("hash".to_string()),
+        }
+    }
+
+    #[test]
+    fn matching_identity_is_accepted() {
+        assert!(identity().matches(&identity()).is_ok());
+    }
+
+    #[test]
+    fn image_mismatch_is_rejected() {
+        let mut current = identity();
+        current.image = "/usr/bin/other".to_string();
+
+        assert_eq!(
+            identity().matches(&current),
+            Err("image changed from '/usr/bin/example' to '/usr/bin/other'".to_string())
+        );
+    }
+
+    #[test]
+    fn start_time_mismatch_is_rejected_when_both_are_available() {
+        let mut current = identity();
+        current.start_time = Some(101);
+
+        assert_eq!(
+            identity().matches(&current),
+            Err("start time changed from 100 to 101".to_string())
+        );
+    }
+
+    #[test]
+    fn command_line_hash_mismatch_is_rejected_when_both_are_available() {
+        let mut current = identity();
+        current.command_line_hash = Some("other-hash".to_string());
+
+        assert_eq!(
+            identity().matches(&current),
+            Err("command line hash changed".to_string())
+        );
+    }
+
+    #[test]
+    fn unavailable_optional_metadata_does_not_reject_identity() {
+        let mut current = identity();
+        current.start_time = None;
+        current.command_line_hash = None;
+
+        assert!(identity().matches(&current).is_ok());
+    }
+
+    #[test]
+    fn missing_current_identity_is_rejected() {
+        let expected = ProcessIdentity {
+            pid: 0,
+            image: "/usr/bin/example".to_string(),
+            start_time: None,
+            command_line_hash: None,
+        };
+
+        assert_eq!(
+            validate_process_identity(&expected),
+            Err("process no longer exists or identity could not be queried".to_string())
+        );
     }
 }

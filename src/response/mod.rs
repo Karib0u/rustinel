@@ -5,7 +5,9 @@
 
 use crate::config::ResponseConfig;
 use crate::models::{Alert, AlertSeverity, DetectionEngine, EventFields};
-use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
+use crate::utils::{
+    hash_command_line, normalize_path_for_comparison, validate_process_identity, ProcessIdentity,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -482,54 +484,6 @@ fn extract_process_identity(alert: &Alert) -> Option<ProcessIdentity> {
     })
 }
 
-fn validate_process_identity(expected: &ProcessIdentity) -> Result<ProcessIdentity, String> {
-    let current = query_process_identity(expected.pid)
-        .ok_or_else(|| "process no longer exists or identity could not be queried".to_string())?;
-
-    if !same_process_image(&expected.image, &current.image) {
-        return Err(format!(
-            "image changed from '{}' to '{}'",
-            expected.image, current.image
-        ));
-    }
-
-    if let (Some(expected_start), Some(current_start)) = (expected.start_time, current.start_time) {
-        if expected_start != current_start {
-            return Err(format!(
-                "start time changed from {} to {}",
-                expected_start, current_start
-            ));
-        }
-    }
-
-    if let (Some(expected_hash), Some(current_hash)) = (
-        expected.command_line_hash.as_deref(),
-        current.command_line_hash.as_deref(),
-    ) {
-        if expected_hash != current_hash {
-            return Err("command line hash changed".to_string());
-        }
-    }
-
-    Ok(current)
-}
-
-fn same_process_image(expected: &str, current: &str) -> bool {
-    if normalize_path(expected) == normalize_path(current) {
-        return true;
-    }
-
-    let expected = std::fs::canonicalize(expected).ok();
-    let current = std::fs::canonicalize(current).ok();
-    match (expected, current) {
-        (Some(expected), Some(current)) => {
-            normalize_path(&expected.to_string_lossy())
-                == normalize_path(&current.to_string_lossy())
-        }
-        _ => false,
-    }
-}
-
 fn parse_pid(value: Option<&str>) -> Option<u32> {
     let value = value?.trim();
     if let Some(hex) = value
@@ -539,17 +493,6 @@ fn parse_pid(value: Option<&str>) -> Option<u32> {
         u32::from_str_radix(hex, 16).ok()
     } else {
         value.parse::<u32>().ok()
-    }
-}
-
-fn normalize_path(value: &str) -> String {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        value.trim().to_ascii_lowercase()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        value.trim().replace('/', "\\").to_ascii_lowercase()
     }
 }
 
@@ -563,7 +506,7 @@ fn normalize_allowlist_paths(values: &[String]) -> Vec<String> {
         .iter()
         .filter(|v| !v.trim().is_empty())
         .map(|value| {
-            let mut normalized = normalize_path(value);
+            let mut normalized = normalize_path_for_comparison(value);
             if !normalized.ends_with(SEP) {
                 normalized.push(SEP);
             }
@@ -576,7 +519,7 @@ fn normalize_allowlist_images(values: &[String]) -> Vec<String> {
     values
         .iter()
         .filter(|v| !v.trim().is_empty())
-        .map(|value| normalize_path(value))
+        .map(|value| normalize_path_for_comparison(value))
         .collect()
 }
 
@@ -590,7 +533,7 @@ fn image_basename(path: &str) -> &str {
 }
 
 fn is_allowlisted(image: &str, allowlist_images: &[String], allowlist_paths: &[String]) -> bool {
-    let normalized = normalize_path(image);
+    let normalized = normalize_path_for_comparison(image);
 
     if allowlist_paths
         .iter()
@@ -706,7 +649,7 @@ mod tests {
     #[test]
     fn validate_process_identity_accepts_current_process() {
         let pid = std::process::id();
-        let identity = query_process_identity(pid).expect("current process identity");
+        let identity = crate::utils::query_process_identity(pid).expect("current process identity");
         assert!(validate_process_identity(&identity).is_ok());
     }
 
@@ -714,7 +657,8 @@ mod tests {
     #[test]
     fn validate_process_identity_rejects_image_mismatch() {
         let pid = std::process::id();
-        let mut identity = query_process_identity(pid).expect("current process identity");
+        let mut identity =
+            crate::utils::query_process_identity(pid).expect("current process identity");
         identity.image = if cfg!(windows) {
             r"C:\definitely-not-rustinel.exe".to_string()
         } else {
@@ -728,7 +672,8 @@ mod tests {
     #[test]
     fn validate_process_identity_rejects_start_time_mismatch_when_available() {
         let pid = std::process::id();
-        let mut identity = query_process_identity(pid).expect("current process identity");
+        let mut identity =
+            crate::utils::query_process_identity(pid).expect("current process identity");
         let Some(start_time) = identity.start_time else {
             return;
         };

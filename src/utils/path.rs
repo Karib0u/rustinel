@@ -113,6 +113,18 @@ pub fn convert_nt_to_dos(nt_path: &str) -> String {
     nt_path.to_string()
 }
 
+/// Normalize a path for case-insensitive process identity comparisons.
+pub fn normalize_path_for_comparison(value: &str) -> String {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        value.trim().to_ascii_lowercase()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        value.trim().replace('/', "\\").to_ascii_lowercase()
+    }
+}
+
 fn lookup_dos_path(drive_map: &DriveMapCache, nt_path: &str) -> Option<String> {
     let map = drive_map.map.read().ok()?;
     for (device_path, dos_drive) in map.iter() {
@@ -210,6 +222,21 @@ mod tests {
         assert_eq!(
             convert_nt_to_dos(r"\\server\share\file.txt"),
             r"\\server\share\file.txt"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_for_comparison() {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert_eq!(
+            normalize_path_for_comparison(" /USR/BIN/example "),
+            "/usr/bin/example"
+        );
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        assert_eq!(
+            normalize_path_for_comparison(" /USR/BIN/example "),
+            r"\usr\bin\example"
         );
     }
 }
