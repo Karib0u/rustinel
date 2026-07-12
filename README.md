@@ -38,7 +38,7 @@ Rustinel ships release archives with a binary, default config, demo rules, and a
 **Windows** - test from PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 | iex
+irm https://rustinel.io/install.ps1 | iex
 ```
 
 Then deploy from an elevated PowerShell and diagnose the managed installation:
@@ -55,7 +55,7 @@ process exits before printing output.
 **Linux** - test, deploy, and diagnose:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --run
+curl -fsSL https://rustinel.io/install.sh | sh -s -- --run
 sudo rustinel setup --yes
 rustinel doctor
 ```
@@ -63,7 +63,7 @@ rustinel doctor
 **macOS** (experimental)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh
+curl -fsSL https://rustinel.io/install.sh | sh
 cd rustinel
 ```
 

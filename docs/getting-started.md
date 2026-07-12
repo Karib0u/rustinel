@@ -12,7 +12,7 @@ Use the install scripts when you want a published binary, bundled demo rules,
 Run from an elevated PowerShell:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 -OutFile install-rustinel.ps1
+Invoke-WebRequest https://rustinel.io/install.ps1 -OutFile install-rustinel.ps1
 powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
 ```
 
@@ -29,13 +29,13 @@ Start-Process "$env:TEMP\vc_redist.x64.exe" -ArgumentList "/install", "/quiet", 
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --run
+curl -fsSL https://rustinel.io/install.sh | sh -s -- --run
 ```
 
 To inspect the script first:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh
+curl -fsSLO https://rustinel.io/install.sh
 less install.sh
 sh install.sh --run
 ```
@@ -46,7 +46,7 @@ macOS support is experimental. Install without `--run` so you can grant the
 required Full Disk Access approval before the first real start:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh
+curl -fsSL https://rustinel.io/install.sh | sh
 cd rustinel
 ```
 
