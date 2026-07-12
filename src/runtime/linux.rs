@@ -82,9 +82,10 @@ async fn run_linux_edr(
     let process_cache = Arc::new(ProcessCache::new());
     let sid_cache = Arc::new(SidCache::new()); // no-op on Linux; kept for Normalizer compat
     let dns_cache = Arc::new(DnsCache::new());
-    let connection_aggregator = Arc::new(ConnectionAggregator::with_limits(
+    let connection_aggregator = Arc::new(ConnectionAggregator::with_limits_and_window(
         cfg.network.aggregation_max_entries,
         cfg.network.aggregation_interval_buffer_size,
+        cfg.network.aggregation_window_secs,
     ));
 
     // 4. Active response engine

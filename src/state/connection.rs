@@ -98,7 +98,7 @@ impl ConnectionState {
     }
 }
 
-/// Aggregation metadata for summary events
+/// Aggregation metadata for connection metrics.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AggregationMeta {
@@ -111,22 +111,26 @@ pub struct AggregationMeta {
 /// Result of recording a connection
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AggregationResult {
-    /// First connection - emit full event
+    /// First connection in the current aggregate period.
     FirstConnection,
-    /// Subsequent connection - suppress (aggregated)
+    /// Subsequent connection in the current aggregate period.
     Aggregated,
 }
 
 /// Thread-safe cache for network connection aggregation
-/// Reduces event volume by aggregating repeated connections to same destination
+/// Tracks repeated connections to the same destination without suppressing
+/// events from the detection pipeline.
 pub struct ConnectionAggregator {
     cache: RwLock<HashMap<ConnectionKey, ConnectionState>>,
     max_entries: usize,
     interval_buffer_size: usize,
+    window_secs: u64,
     last_cleanup: AtomicU64,
 }
 
 impl ConnectionAggregator {
+    const DEFAULT_WINDOW_SECS: u64 = 60;
+
     /// Create with default limits
     pub fn new() -> Self {
         Self::with_limits(20_000, 50)
@@ -134,18 +138,32 @@ impl ConnectionAggregator {
 
     /// Create with custom limits
     pub fn with_limits(max_entries: usize, interval_buffer_size: usize) -> Self {
+        Self::with_limits_and_window(max_entries, interval_buffer_size, Self::DEFAULT_WINDOW_SECS)
+    }
+
+    /// Create with custom limits and a time window for aggregate state.
+    ///
+    /// A zero window starts a new aggregate period for every connection. The
+    /// window controls metric aggregation only. Network events are never
+    /// suppressed by the normalizer.
+    pub fn with_limits_and_window(
+        max_entries: usize,
+        interval_buffer_size: usize,
+        window_secs: u64,
+    ) -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
             max_entries,
             interval_buffer_size,
+            window_secs,
             last_cleanup: AtomicU64::new(0),
         }
     }
 
-    /// Record a connection and determine if it should be emitted
+    /// Record a connection and determine its aggregate period.
     ///
-    /// Returns `FirstConnection` if this is the first time seeing this connection key,
-    /// or `Aggregated` if it's a repeat that should be suppressed.
+    /// Returns `FirstConnection` for a new aggregate period or `Aggregated`
+    /// for a repeat within the current period.
     pub fn record(
         &self,
         process_image: &str,
@@ -154,7 +172,22 @@ impl ConnectionAggregator {
         protocol: Protocol,
         pid: u32,
     ) -> AggregationResult {
-        let now = now_secs();
+        self.record_at(now_secs(), process_image, dest_ip, dest_port, protocol, pid)
+    }
+
+    /// Record a connection at a supplied timestamp.
+    ///
+    /// This is useful for deterministic callers and tests that need to verify
+    /// aggregate-window expiration without waiting for wall-clock time.
+    pub fn record_at(
+        &self,
+        timestamp: u64,
+        process_image: &str,
+        dest_ip: IpAddr,
+        dest_port: u16,
+        protocol: Protocol,
+        pid: u32,
+    ) -> AggregationResult {
         let key = ConnectionKey {
             process_image: process_image.to_string(),
             dest_ip,
@@ -165,14 +198,19 @@ impl ConnectionAggregator {
         let mut cache = self.cache.write().unwrap();
 
         if let Some(state) = cache.get_mut(&key) {
-            state.update(now, pid);
+            if timestamp.saturating_sub(state.first_seen) >= self.window_secs {
+                *state = ConnectionState::new(timestamp, pid, self.interval_buffer_size);
+                return AggregationResult::FirstConnection;
+            }
+
+            state.update(timestamp, pid);
             return AggregationResult::Aggregated;
         }
 
-        // First connection - insert and emit
+        // First connection in this aggregate period - insert and emit.
         cache.insert(
             key,
-            ConnectionState::new(now, pid, self.interval_buffer_size),
+            ConnectionState::new(timestamp, pid, self.interval_buffer_size),
         );
 
         // Trim if over capacity
@@ -183,7 +221,7 @@ impl ConnectionAggregator {
         AggregationResult::FirstConnection
     }
 
-    /// Get aggregation metadata for a connection (for summary events)
+    /// Get aggregation metadata for a connection metric.
     #[allow(dead_code)]
     pub fn get_meta(
         &self,

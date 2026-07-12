@@ -351,10 +351,12 @@ pub struct ResponseConfig {
 /// Network event aggregation configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct NetworkConfig {
-    /// Enable connection aggregation to reduce event volume
+    /// Enable connection aggregation metrics without suppressing network events
     pub aggregation_enabled: bool,
     /// Maximum number of unique connections to track
     pub aggregation_max_entries: usize,
+    /// Window in seconds before a connection starts a new aggregate period
+    pub aggregation_window_secs: u64,
     /// Number of inter-connection intervals to store for beacon detection
     pub aggregation_interval_buffer_size: usize,
 }
@@ -450,6 +452,7 @@ impl AppConfig {
             // Network
             .set_default("network.aggregation_enabled", true)?
             .set_default("network.aggregation_max_entries", 20000)?
+            .set_default("network.aggregation_window_secs", 60)?
             .set_default("network.aggregation_interval_buffer_size", 50)?
             // IOC
             .set_default("ioc.enabled", true)?
@@ -622,6 +625,7 @@ impl Default for AppConfig {
             network: NetworkConfig {
                 aggregation_enabled: true,
                 aggregation_max_entries: 20_000,
+                aggregation_window_secs: 60,
                 aggregation_interval_buffer_size: 50,
             },
             ioc: IocConfig {
@@ -681,6 +685,7 @@ mod tests {
         assert!(cfg.reload.enabled);
         assert_eq!(cfg.reload.debounce_ms, 2000);
         assert_eq!(cfg.alerts.match_debug, MatchDebugLevel::Off);
+        assert_eq!(cfg.network.aggregation_window_secs, 60);
     }
 
     #[test]

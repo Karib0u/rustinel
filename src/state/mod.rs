@@ -111,6 +111,26 @@ mod tests {
     }
 
     #[test]
+    fn connection_aggregator_starts_new_period_after_window() {
+        let aggregator = ConnectionAggregator::with_limits_and_window(10, 10, 60);
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+
+        let result1 = aggregator.record_at(100, "C:\\app.exe", ip, 443, Protocol::Tcp, 1234);
+        let result2 = aggregator.record_at(101, "C:\\app.exe", ip, 443, Protocol::Tcp, 1234);
+        let result3 = aggregator.record_at(161, "C:\\app.exe", ip, 443, Protocol::Tcp, 5678);
+
+        assert_eq!(result1, AggregationResult::FirstConnection);
+        assert_eq!(result2, AggregationResult::Aggregated);
+        assert_eq!(result3, AggregationResult::FirstConnection);
+
+        let meta = aggregator
+            .get_meta("C:\\app.exe", ip, 443, Protocol::Tcp)
+            .unwrap();
+        assert_eq!(meta.connection_count, 1);
+        assert_eq!(meta.unique_pids, vec![5678]);
+    }
+
+    #[test]
     fn connection_aggregator_different_destinations_emit() {
         let aggregator = ConnectionAggregator::new();
         let ip1: IpAddr = "10.0.0.1".parse().unwrap();

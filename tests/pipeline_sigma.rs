@@ -97,13 +97,14 @@ fn sigma_network_detection_pipeline_enriches_aggregates_and_maps_to_ecs() {
         assert_normalized_field_eq(&first, "SourceIp", TEST_SOURCE_IP);
         assert_normalized_field_eq(&first, "Protocol", "tcp");
 
-        assert!(
-            harness
-                .normalizer
-                .normalize(&network_connect_event(platform))
-                .is_none(),
-            "repeated identical connection should be aggregated"
-        );
+        let repeated = harness
+            .normalizer
+            .normalize(&network_connect_event(platform))
+            .expect("repeated connection should remain available to detection");
+        let repeated_alert = engine
+            .check_event(&repeated)
+            .expect("repeated network connection should match Sigma");
+        assert_sigma_alert(&repeated_alert, "Test Network Destination");
 
         let alert = engine
             .check_event(&first)
@@ -118,6 +119,33 @@ fn sigma_network_detection_pipeline_enriches_aggregates_and_maps_to_ecs() {
         assert_ecs_field_eq(&ecs, "network.transport", "tcp");
         assert_ecs_field_eq(&ecs, "process.executable", image_for(platform));
     }
+}
+
+#[test]
+fn sigma_network_rule_loaded_after_first_connection_matches_repeat() {
+    let fixture = SigmaFixture::new();
+    let harness = TestNormalizer::new(true);
+
+    harness
+        .normalizer
+        .normalize(&process_start_event(Platform::Linux))
+        .expect("process start should prime process cache");
+    harness
+        .normalizer
+        .normalize(&network_connect_event(Platform::Linux))
+        .expect("first network connection should normalize");
+
+    fixture.write_network_rule(Platform::Linux);
+    let engine = load_engine(Platform::Linux, &fixture);
+    let repeated = harness
+        .normalizer
+        .normalize(&network_connect_event(Platform::Linux))
+        .expect("repeated network connection should normalize");
+
+    let alert = engine
+        .check_event(&repeated)
+        .expect("a rule loaded after the first connection should match the repeat");
+    assert_sigma_alert(&alert, "Test Network Destination");
 }
 
 #[test]

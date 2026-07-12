@@ -74,7 +74,14 @@ channel_capacity = 128
 #
 # allowlist_images = []
 
-# 5. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
+# 5. Network Connection Metrics
+[network]
+aggregation_enabled = true
+aggregation_max_entries = 20000
+aggregation_window_secs = 60
+aggregation_interval_buffer_size = 50
+
+# 6. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
 enabled = true
 hashes_path = "rules/ioc/hashes.txt"

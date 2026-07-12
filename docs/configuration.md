@@ -94,6 +94,7 @@ allowlist_images = []
 [network]
 aggregation_enabled = true
 aggregation_max_entries = 20000
+aggregation_window_secs = 60
 aggregation_interval_buffer_size = 50
 
 [ioc]
@@ -275,9 +276,19 @@ See [Active Response](active-response.md) for platform behavior and safe testing
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `aggregation_enabled` | `true` | Enable repeated-connection suppression |
+| `aggregation_enabled` | `true` | Track repeated-connection metrics without suppressing network events |
 | `aggregation_max_entries` | `20000` | Maximum unique connections tracked |
+| `aggregation_window_secs` | `60` | Start a new aggregate period after this many seconds; `0` starts a new period for every event |
 | `aggregation_interval_buffer_size` | `50` | Timing intervals retained per aggregated connection |
+
+Connection aggregation is observational. Every normalized network event is
+forwarded to Sigma and IOC evaluation, including repeated connections and
+connections from a new process using the same image. The in-memory aggregate
+tracks count, first-seen and last-seen timestamps, unique process IDs, and
+intervals for each key. The window limits how long those values are combined,
+including during continuous activity; it does not create a detection blind
+spot. Forwarding every event increases processing and storage work for high
+volume destinations, while alert deduplication remains available separately.
 
 ### IOC
 

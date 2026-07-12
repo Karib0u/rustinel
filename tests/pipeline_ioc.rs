@@ -42,13 +42,19 @@ fn ip_ioc_matches_network_and_dns_response_ips() {
         "{TEST_DESTINATION_IP}; exact\n198.51.100.0/24; cidr\n"
     ));
     let engine = IocEngine::load(&fixture.config());
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new(true);
 
     let network = harness
         .normalizer
         .normalize(&network_connect_event(Platform::Linux))
         .expect("network event should normalize");
     assert_eq!(engine.check_event(&network).len(), 2);
+
+    let repeated_network = harness
+        .normalizer
+        .normalize(&network_connect_event(Platform::Linux))
+        .expect("repeated network event should remain available to IOC detection");
+    assert_eq!(engine.check_event(&repeated_network).len(), 2);
 
     let dns = harness
         .normalizer

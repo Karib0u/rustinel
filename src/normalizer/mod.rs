@@ -12,9 +12,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::models::*;
 use crate::sensor::{SensorAction, SensorEvent, SensorPayload};
-use crate::state::{
-    AggregationResult, ConnectionAggregator, DnsCache, ProcessCache, Protocol, SidCache,
-};
+use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, Protocol, SidCache};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
 
 /// Event normalizer that converts shared sensor events to normalized events.
@@ -233,13 +231,11 @@ impl Normalizer {
                     };
                     let pid = event_pid(event, fields.process_id.as_deref());
 
-                    let result = self
-                        .connection_aggregator
+                    // Aggregation is observational state for connection counts
+                    // and interval statistics. Every raw event remains visible
+                    // to Sigma and IOC detection.
+                    self.connection_aggregator
                         .record(image, dest_ip, dest_port, protocol, pid);
-
-                    if result == AggregationResult::Aggregated {
-                        return None;
-                    }
                 }
             }
         }
@@ -675,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn network_aggregation_suppresses_repeated_connections() {
+    fn network_aggregation_keeps_repeated_connections_for_detection() {
         let normalizer = build_normalizer(true);
         normalizer.process_cache.add(
             7,
@@ -720,7 +716,37 @@ mod tests {
         };
 
         assert!(normalizer.normalize(&build_event()).is_some());
-        assert!(normalizer.normalize(&build_event()).is_none());
+        assert!(normalizer.normalize(&build_event()).is_some());
+
+        let mut restarted = build_event();
+        restarted.pid = Some(8);
+        if let SensorPayload::Network(fields) = &mut restarted.payload {
+            fields.process_id = Some("8".to_string());
+            fields.user = Some("bob".to_string());
+            fields.destination_hostname = Some("new.example.test".to_string());
+        }
+
+        let normalized = normalizer
+            .normalize(&restarted)
+            .expect("connection from a restarted process should remain visible");
+        assert_eq!(normalized.get_field("ProcessId"), Some("8"));
+        assert_eq!(normalized.get_field("User"), Some("bob"));
+        assert_eq!(
+            normalized.get_field("DestinationHostname"),
+            Some("new.example.test")
+        );
+
+        let meta = normalizer
+            .connection_aggregator
+            .get_meta(
+                "C:\\curl.exe",
+                "198.51.100.10".parse().unwrap(),
+                443,
+                Protocol::Tcp,
+            )
+            .expect("connection aggregate should be tracked");
+        assert_eq!(meta.connection_count, 3);
+        assert_eq!(meta.unique_pids.len(), 2);
     }
 
     #[test]

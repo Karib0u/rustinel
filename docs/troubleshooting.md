@@ -189,13 +189,12 @@ The most common reasons are:
 - the rule depends on fields that the platform does not emit
 - the event family does not exist on that platform yet
 - the event was skipped by an allowlist
-- the event was suppressed by network aggregation
 
 Examples:
 
 - registry, image load, PowerShell, WMI, service, and task detections are Windows-only today
 - Linux DNS events populate `QueryName` for outbound plaintext DNS queries, but not `QueryResults`
-- repeated network connections may be suppressed when aggregation is enabled
+- network aggregation records connection metrics but does not suppress repeated events
 
 ### Linux DNS or IOC domain rules do not match
 

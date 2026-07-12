@@ -261,9 +261,10 @@ async fn run_edr(
     let process_cache = Arc::new(ProcessCache::new());
     let sid_cache = Arc::new(SidCache::new());
     let dns_cache = Arc::new(DnsCache::new());
-    let connection_aggregator = Arc::new(ConnectionAggregator::with_limits(
+    let connection_aggregator = Arc::new(ConnectionAggregator::with_limits_and_window(
         cfg.network.aggregation_max_entries,
         cfg.network.aggregation_interval_buffer_size,
+        cfg.network.aggregation_window_secs,
     ));
 
     // Snapshot existing processes using Windows API (handles cold start problem)
