@@ -124,7 +124,7 @@ DNS field availability differs by platform:
 | `Image` | Yes | Yes | No |
 | `ProcessId` | Yes | Yes | No |
 
-On Linux, `QueryName` is extracted in userspace from the bounded raw DNS payload emitted by the eBPF `sendto` path. This covers outbound plaintext DNS queries observed on port 53. It does not cover DNS-over-HTTPS, DNS-over-TLS, cached resolver answers that do not send a packet, or DNS response answers. `QueryResults` and `QueryStatus` remain Windows-only today.
+On Linux, `QueryName` is extracted in userspace from the bounded raw DNS payload emitted by the eBPF `sendto`, `sendmsg`, or `sendmmsg` paths. Each message uses the first iovec, capped at 256 bytes, and each `sendmmsg` call is capped at four messages. This covers outbound plaintext DNS queries observed on port 53. It does not cover DNS-over-HTTPS, DNS-over-TLS, cached resolver answers that do not send a packet, or DNS response answers. `QueryResults` and `QueryStatus` remain Windows-only today.
 
 On macOS, `QueryName` and `RecordType` are parsed from `/dev/bpf` packet capture of outbound port-53 traffic, so the same plaintext-only limitations apply. Because capture is packet-based rather than per-process, macOS DNS events are **not** attributed to a process; `Image` and `ProcessId` are empty. Likewise, macOS `network_connection` events do not populate `DestinationHostname`, and their process attribution is best-effort. See [Limitations](limitations.md#macos-network-and-dns-attribution).
 

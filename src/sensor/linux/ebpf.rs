@@ -144,6 +144,13 @@ impl Sensor for EbpfSensor {
             "sys_exit_renameat2",
         )?;
         attach_tracepoint(&mut bpf, "handle_sendto", "syscalls", "sys_enter_sendto")?;
+        attach_tracepoint(&mut bpf, "handle_sendmsg", "syscalls", "sys_enter_sendmsg")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_sendmmsg",
+            "syscalls",
+            "sys_enter_sendmmsg",
+        )?;
 
         info!("eBPF tracepoints attached");
 

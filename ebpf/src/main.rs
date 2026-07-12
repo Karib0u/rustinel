@@ -19,6 +19,8 @@
 //! | `handle_renameat2`    | `syscalls/sys_enter_renameat2`| queue rename |
 //! | `handle_renameat2_exit`| `syscalls/sys_exit_renameat2`| emit rename |
 //! | `handle_sendto`       | `syscalls/sys_enter_sendto`  | emit DNS query |
+//! | `handle_sendmsg`      | `syscalls/sys_enter_sendmsg` | emit DNS query |
+//! | `handle_sendmmsg`     | `syscalls/sys_enter_sendmmsg`| emit DNS query |
 //!
 //! Requirements: Linux 5.8+ with BTF enabled (CO-RE / ring-buffer support).
 
