@@ -87,6 +87,29 @@ Non-interactive setup defaults to Essential. If rules download or verification
 fails, setup preserves existing active rules and continues only when the active
 pack is valid.
 
+## Installer And Archive Options
+
+The install scripts accept a target directory and published version:
+
+=== "Linux and macOS"
+
+    ```bash
+    scripts/install/install.sh --dir /opt/rustinel --version 1.2.0
+    ```
+
+=== "Windows"
+
+    ```powershell
+    .\scripts\install\install.ps1 -InstallDir C:\Rustinel -Version 1.2.0
+    ```
+
+The scripts download published binaries only. They do not install Rust or build
+from source. Manual packages are available from
+[GitHub Releases](https://github.com/Karib0u/rustinel/releases) for Windows
+x86_64, Linux x86_64 and arm64, and macOS Intel and Apple Silicon. Each archive
+contains the binary, `config.toml`, demo rules, install scripts, examples, and
+an empty `logs/` directory.
+
 ## Rules And Hot Reload
 
 Install a released pack with `rustinel rules install <PACK>`. Managed packs are
@@ -100,12 +123,14 @@ active. Run `rustinel doctor` to validate the on-disk configuration and rules.
 
 ## Working Directory Rules
 
-- `config.toml` is loaded from the current working directory, falling back to the
-  directory containing the executable (the working-directory copy wins on conflicts).
-- Relative rule and log paths resolve from the current working directory.
-- Windows services often start in `C:\Windows\System32`; keep `config.toml` next to
-  `rustinel.exe` (it will still be found) and use absolute paths for rules and logs.
-- Linux supervisors should also use absolute paths for predictable upgrades and restarts.
+- Configuration files are selected from `--config`, `RUSTINEL_CONFIG`, the
+  managed platform path, the executable directory, and the current working
+  directory, in that order.
+- Relative paths resolve from the directory containing the selected
+  configuration file.
+- `rustinel doctor` reports the selected configuration and resolved paths.
+- Use the managed platform configuration path for native services.
+- Prefer absolute paths for custom service layouts and supervisors.
 
 ## Native Service Lifecycle
 

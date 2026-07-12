@@ -1,121 +1,53 @@
 # Roadmap
 
-This roadmap describes planned areas of work.
+This page summarizes the active GitHub backlog. Priorities may change, and an
+open issue is not a release commitment. Follow the linked issue for current
+scope, discussion, and acceptance criteria.
 
-It is not a strict release commitment.
+## Immediate Correctness
 
-## Sensor
+- [#164: stop connection aggregation from permanently suppressing detection](https://github.com/Karib0u/rustinel/issues/164)
+- [#35: revalidate process identity before YARA memory scans](https://github.com/Karib0u/rustinel/issues/35)
+- [#32: capture `sendmsg` and `sendmmsg` DNS queries on Linux](https://github.com/Karib0u/rustinel/issues/32)
 
-### Windows
+## Telemetry Fidelity
 
-- **ETW integrity checks:** detect ETW session tampering and provider blinding that could suppress telemetry.
-- **Deep inspection via stack walking:** identify shellcode and "floating code" executing outside mapped image regions.
+- [#166: route Windows Kernel-Network events by operation and protocol](https://github.com/Karib0u/rustinel/issues/166)
+- [#168: preserve absolute Linux file paths and report truncation](https://github.com/Karib0u/rustinel/issues/168)
+- [#142: capture Linux process arguments in the kernel](https://github.com/Karib0u/rustinel/issues/142)
+- [#140: add telemetry drop counters and backpressure visibility](https://github.com/Karib0u/rustinel/issues/140)
+- [#141: report rules that have no active backing collector](https://github.com/Karib0u/rustinel/issues/141)
 
-### Linux
+## Detection Reliability
 
-- **DNS response enrichment:** Linux DNS query names are extracted in userspace from raw eBPF payload events. Future work should parse DNS responses for `QueryResults` and DNS answer-to-network correlation.
-- **Expanded file telemetry:** cover `chmod`, `chown`, `truncate`, and `link` syscalls to close gaps in file-integrity coverage.
-- **Container context:** enrich process events with cgroup, namespace, and container runtime metadata so rules can scope to specific workloads.
+- [#165: prevent distinct event subjects from sharing a deduplication key](https://github.com/Karib0u/rustinel/issues/165)
+- [#160: correct deduplication rollup counts](https://github.com/Karib0u/rustinel/issues/160)
+- [#170: align deduplication window behavior with its documented semantics](https://github.com/Karib0u/rustinel/issues/170)
+- [#167: harden YARA and IOC caches against file replacement](https://github.com/Karib0u/rustinel/issues/167)
+- [#169: distinguish YARA scan failures from clean results](https://github.com/Karib0u/rustinel/issues/169)
+- [#161: close the Unicode case-insensitive Sigma matching gap](https://github.com/Karib0u/rustinel/issues/161)
+- [#162: add YARA scan timeouts and file-size limits](https://github.com/Karib0u/rustinel/issues/162)
 
-### macOS
+## Engineering Quality
 
-macOS support collects process and file telemetry through Endpoint Security and
-network and DNS through `/dev/bpf` capture. Active response is not supported on
-macOS today. Future work:
+- [#159: bound the process cache](https://github.com/Karib0u/rustinel/issues/159)
+- [#163: restrict alert and log file permissions](https://github.com/Karib0u/rustinel/issues/163)
+- [#135: add a SigmaHQ corpus smoke test in CI](https://github.com/Karib0u/rustinel/issues/135)
+- [#136: expand direct matcher edge-case tests](https://github.com/Karib0u/rustinel/issues/136)
+- [#137: cover alert construction and field-mapping degradation](https://github.com/Karib0u/rustinel/issues/137)
+- [#138: migrate away from unmaintained `serde_yaml`](https://github.com/Karib0u/rustinel/issues/138)
+- [#139: avoid AGPL `evalexpr` releases](https://github.com/Karib0u/rustinel/issues/139)
+- [#171: isolate configuration tests from managed host state](https://github.com/Karib0u/rustinel/issues/171)
 
-- **NetworkExtension flow source:** replace `/dev/bpf` capture with a Network Extension that carries the owning PID per flow, removing the best-effort socket-to-PID scan and its direction ambiguity.
-- **Interface selection:** capture across all active interfaces instead of the single `RUSTINEL_BPF_INTERFACE` default of `en0`.
-- **DNS response enrichment:** parse DNS answers for `QueryResults`, matching the Linux gap.
-- **AUTH-mode prevention:** explore macOS prevention by blocking process execution with `ES_EVENT_TYPE_AUTH_EXEC`.
+## Longer-Term Direction
 
-### Cross-Platform
+- [#143: design correlation and temporal rule support](https://github.com/Karib0u/rustinel/issues/143)
+- [#145: replace macOS `/dev/bpf` capture with NetworkExtension](https://github.com/Karib0u/rustinel/issues/145)
+- [#146: expand Linux file telemetry](https://github.com/Karib0u/rustinel/issues/146)
+- [#147: add periodic YARA memory sweeps](https://github.com/Karib0u/rustinel/issues/147)
+- [#148: add Linux container context](https://github.com/Karib0u/rustinel/issues/148)
+- [#149: make RSigma the default backend and stage built-in removal](https://github.com/Karib0u/rustinel/issues/149)
+- [#111: add safe atomic rules pack updates](https://github.com/Karib0u/rustinel/issues/111)
 
-- **Periodic YARA sweeps:** scheduled background scans of running processes independent of creation events.
-
-## Detection
-
-### YARA memory scanning enhancements
-
-YARA memory scanning is available as an optional detector for process memory.
-Future work is focused on improving coverage and operator control:
-
-- Periodic process sweeps independent of process creation events
-- Better memory-region selection
-- Optional executable-only private-region scanning
-- Richer memory match metadata in alerts
-
-Memory scanning remains privilege-dependent and platform behavior differs between
-Windows process-memory APIs and Linux `/proc/<pid>/mem` access.
-
-### More Sigma examples
-
-More example Sigma rules are planned for common detection scenarios, including:
-
-- Suspicious PowerShell
-- WMI abuse
-- Service creation
-- Scheduled task creation
-- Suspicious Linux process execution
-- Suspicious network activity
-
-### Better IOC examples
-
-More IOC examples are planned for:
-
-- Hash matching
-- Domain matching
-- IP matching
-- Path regex matching
-
-## Telemetry
-
-### Expanded Linux eBPF coverage
-
-Linux support currently focuses on process, network, file, and DNS telemetry.
-
-Future work may expand Linux coverage depending on stability, portability, and usefulness.
-
-### Better normalization documentation
-
-More documentation is planned around how raw ETW and eBPF events are normalized into Rustinel’s shared event model.
-
-## Operations
-
-### SIEM integration examples
-
-Rustinel writes ECS NDJSON alerts.
-
-Future documentation should include examples for ingesting those alerts into common SIEM and log platforms.
-
-### Deployment examples
-
-More deployment examples are planned for:
-
-- Windows service mode
-- Linux supervisor-based deployment
-- Lab environments
-- Detection engineering environments
-
-### Hardening guidance
-
-Optional hardening guidance is planned for users who want to make Rustinel harder to stop or identify.
-
-This may include recommendations around:
-
-- Installation paths
-- Service names
-- File permissions
-- Logging locations
-- Operational monitoring
-
-## Community
-
-Useful community contributions include:
-
-- Testing on different Windows, Linux, and macOS versions
-- Reporting telemetry gaps
-- Improving documentation
-- Adding Sigma examples
-- Adding YARA examples
-- Adding safe demo scenarios
-- Testing SIEM ingestion
+The complete backlog is available in
+[GitHub Issues](https://github.com/Karib0u/rustinel/issues).

@@ -34,56 +34,33 @@ It behaves the same as `rustinel run`.
 
 See [CLI Reference](cli.md).
 
-### Can I run Rustinel as a Windows service?
+### Can I run Rustinel as a native service?
 
-Yes. Windows supports built-in service commands:
+Yes. `rustinel setup` installs the managed layout and registers the native
+service on Windows, Linux, and macOS. The `rustinel service` commands manage its
+lifecycle through the Windows Service Control Manager, systemd, or launchd.
 
-- `rustinel service install`
-- `rustinel service start`
-- `rustinel service stop`
-- `rustinel service uninstall`
-
-The installed service points at the current executable path, so moving the binary to a new directory requires reinstalling the service.
-
-See [Operations and Upgrade Guide](operations.md).
-
-### Can I run Rustinel as a Linux service?
-
-Yes, but Rustinel does not include built-in Linux service-management commands. Run it under `systemd` or another supervisor.
-
-See [Operations and Upgrade Guide](operations.md) for the example `systemd` unit.
-
-### Can I run Rustinel as a macOS service?
-
-Yes, but like Linux it has no built-in service-management commands (those are Windows-only today). Run it in the foreground as root, or load the bundled `com.rustinel.agent.plist` as a `launchd` LaunchDaemon for background execution. Either way, the signed app bundle needs Full Disk Access.
-
-See [Operations and Upgrade Guide](operations.md) for the launchd layout.
+See [Operations and Upgrade Guide](operations.md) for managed paths, service
+behavior, and upgrades.
 
 ### Why does Rustinel look in the wrong directory for rules or logs?
 
-Because relative paths resolve from the current working directory.
+Relative paths in `config.toml` resolve from the directory containing the
+selected configuration file. Check which configuration file Rustinel selected,
+then verify its relative paths from that directory. Use `rustinel doctor` to
+inspect the resolved configuration and paths.
 
-That matters especially for:
-
-- Windows services, which often start in `C:\Windows\System32`
-- Linux supervisors, which may start outside your install directory
-
-For production deployments, use absolute paths for `config.toml`, rules, logs, and alerts.
+For production deployments, managed layouts and absolute paths remain the
+clearest choices.
 
 See [Configuration](configuration.md).
 
 ### Where does Rustinel read configuration from?
 
-Configuration precedence is:
-
-1. CLI flags where supported
-2. `EDR__...` environment variables
-3. `config.toml` in the current working directory
-4. `config.toml` in the directory containing the executable
-5. Built-in defaults
-
-This means you can keep `config.toml` next to the `rustinel` executable even when
-the working directory differs (such as `C:\Windows\System32` for a Windows service).
+Configuration values use CLI flags first, then `EDR__...` environment
+variables, the selected configuration file, and built-in defaults. The file is
+selected from `--config`, `RUSTINEL_CONFIG`, the managed platform path, the
+executable directory, or the current working directory, in that order.
 
 See [Configuration](configuration.md).
 
@@ -129,15 +106,8 @@ See [Getting Started](getting-started.md).
 
 ### Why do I see startup logs but no alerts?
 
-The most common reasons are:
-
-- the agent is running from a directory that does not contain the expected `config.toml` or rule paths
-- the relevant detector is disabled in config
-- the rule files were not loaded from the path you expected
-- the event source you are testing is not covered on that platform
-- the event was suppressed by network aggregation or skipped by an allowlist
-
-The operational log is the first place to check because it records sensor startup, rule loading, reload activity, warnings, and response decisions.
+Run `rustinel doctor`, trigger the bundled `whoami` rule, and follow the ordered
+checks in [Troubleshooting](troubleshooting.md#agent-runs-but-no-alerts).
 
 ## Detection Behavior
 
@@ -159,11 +129,10 @@ A restart is still useful when you change deployment layout, supervisor configur
 
 ### What exactly hot reloads?
 
-- Sigma rule files under `scanner.sigma_rules_path`
-- top-level YARA rule files under `scanner.yara_rules_path`
-- IOC files configured in `ioc.hashes_path`, `ioc.ips_path`, `ioc.domains_path`, and `ioc.paths_regex_path`
-
-If a rebuild produces an empty detector set (i.e. no rule files are present in the directory), Sigma and YARA will swap in the empty set (effectively disabling those detectors). However, if there are files found but any of them are broken (failed to compile/parse), the reload will be refused (with a warning logged) and the previous valid rules will remain active. IOCs will reject an empty reload and keep the last known good indicator set active.
+Sigma, YARA, and configured IOC files reload automatically. Sigma is recursive;
+YARA reads only the top-level configured directory. Invalid reloads keep the
+last valid detector active. See
+[Troubleshooting](troubleshooting.md#hot-reload-problems) for failure behavior.
 
 ### Do Sigma and YARA load subdirectories the same way?
 
@@ -176,36 +145,14 @@ See [Detection](detection.md).
 
 ### Why are my Linux DNS or domain-based detections not matching?
 
-Linux DNS coverage is still narrower than Windows, but outbound query names are supported.
-
-The eBPF DNS path observes userspace `sendto` calls for plaintext DNS traffic and parses the queried domain name in userspace. Linux DNS events can populate:
-
-- `QueryName`
-- `RecordType`
-- `Image`
-- `ProcessId`
-
-Linux DNS events do not currently populate `QueryResults` or `QueryStatus`. That means:
-
-- Sigma DNS rules that depend on `QueryName` can match on Linux
-- IOC domain matching from DNS `QueryName` works on Linux
-- IOC IP matching from DNS answers is effectively Windows-only right now
-
-Linux DNS query-name extraction covers outbound plaintext DNS queries observed on port 53. It does not cover DNS-over-HTTPS, DNS-over-TLS, cached resolver answers that do not send a packet, or response-answer parsing.
-
-See [Detection](detection.md).
+Linux captures visible plaintext DNS queries but not every resolver path or DNS
+response. See the focused checks in
+[Troubleshooting](troubleshooting.md#linux-dns-or-ioc-domain-rules-do-not-match).
 
 ### Why did YARA not scan a process I expected?
 
-The common causes are:
-
-- the event was not a process-start event
-- the executable path was under an allowlisted prefix
-- YARA is disabled
-- the rule file was not loaded from the configured directory
-- the queue was full and the job was dropped
-
-See [Detection](detection.md) and [Configuration](configuration.md).
+See the ordered checks in
+[Troubleshooting](troubleshooting.md#yara-did-not-scan-the-process-i-expected).
 
 ### How are severities assigned?
 
@@ -229,21 +176,11 @@ See [Detection](detection.md) and [Output Format](output.md).
 
 ## Active Response and Allowlists
 
-### Why didn’t active response kill the process?
+### Why didn't active response kill the process?
 
-Active response only acts when all of the following are true:
-
-- `response.enabled = true`
-- the alert severity is at or above `response.min_severity`
-- the process has a usable PID and image path
-- the PID is not protected
-- the target is not Rustinel itself
-- the image or path is not allowlisted
-- `prevention_enabled = true`
-
-If `prevention_enabled = false`, Rustinel logs what it would have done without terminating the process.
-
-See [Active Response](active-response.md).
+See the ordered checks in
+[Troubleshooting](troubleshooting.md#i-see-alerts-but-no-process-is-killed) and
+the safety model in [Active Response](active-response.md).
 
 ### Are allowlists shared across modules?
 

@@ -49,16 +49,15 @@ Start-Process "$env:TEMP\vc_redist.x64.exe" -ArgumentList "/install", "/quiet", 
 
 This usually means one of these:
 
-- `config.toml` is not in the current working directory or next to the executable
+- no configuration exists in the explicit, managed, executable, or working-directory locations
 - the TOML syntax is invalid
 - an `EDR__...` environment override has the wrong shape or type
-- a relative path assumes a different working directory than the one Rustinel is using
+- a relative path is wrong for the directory containing the selected configuration
 
 What to do:
 
-- verify where you launched Rustinel from
+- run `rustinel doctor` to see the selected configuration and resolved paths
 - prefer absolute paths for production deployments
-- temporarily move to the install directory and start again
 - remove recent environment overrides and retry
 
 See [Configuration](configuration.md).
@@ -386,7 +385,7 @@ If the problem is persistent, capture the relevant log excerpt before tuning.
 Check these first:
 
 - `logging.directory` points to a writable location
-- the current working directory is what you expect
+- relative log paths resolve correctly from the selected configuration directory
 - the service or supervisor account can write there
 
 Rustinel may fall back to a temp directory if file logging cannot be initialized. If that also fails, it falls back to a sink writer and you may lose file-based operational logs.

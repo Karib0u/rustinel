@@ -103,84 +103,11 @@ Bundled demo rules:
 
 Installed release packs become active under `rules/current`.
 
-## Install Options
+## Other Install Methods
 
-Install to a specific directory:
-
-```bash
-scripts/install/install.sh --dir /opt/rustinel
-```
-
-```powershell
-.\scripts\install\install.ps1 -InstallDir C:\Rustinel
-```
-
-Install a specific version:
-
-```bash
-scripts/install/install.sh --version 1.0.2
-```
-
-```powershell
-.\scripts\install\install.ps1 -Version 1.0.2
-```
-
-The install scripts only download published release binaries. They do not
-install Rust, Cargo, or build from source. If no release asset exists for your
-OS or architecture, the script exits before changing the install directory.
-
-## Manual Package Install
-
-Download the package for your platform from
-[GitHub Releases](https://github.com/Karib0u/rustinel/releases).
-
-| Platform | Package |
-| --- | --- |
-| Windows x86_64 | `rustinel-<version>-x86_64-pc-windows-msvc.zip` |
-| Linux x86_64 | `rustinel-<version>-x86_64-unknown-linux-musl.tar.gz` |
-| Linux arm64 | `rustinel-<version>-aarch64-unknown-linux-musl.tar.gz` |
-| macOS Apple Silicon | `rustinel-<version>-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `rustinel-<version>-x86_64-apple-darwin.tar.gz` |
-
-Release packages already include `config.toml`, bundled demo rules, install
-scripts, examples, and an empty `logs/` directory.
-
-### Windows
-
-1. Extract the zip archive.
-2. Open an elevated PowerShell in the extracted directory.
-3. Run:
-
-```powershell
-.\rustinel.exe run
-```
-
-### Linux
-
-```bash
-tar xzf rustinel-<version>-x86_64-unknown-linux-musl.tar.gz
-cd rustinel-<version>-x86_64-unknown-linux-musl
-sudo ./rustinel run
-```
-
-If startup fails with `tracefs not found`, see
-[Troubleshooting](troubleshooting.md#linux-ebpf-sensor-failed-to-start).
-
-### macOS
-
-```bash
-tar xzf rustinel-<version>-aarch64-apple-darwin.tar.gz
-cd rustinel-<version>-aarch64-apple-darwin
-sudo ./rustinel run
-```
-
-If startup exits with `NotPermitted`, grant Full Disk Access as described in the
-macOS install notes above. If it exits with `NotPrivileged`, re-run with `sudo`.
-See [Troubleshooting](troubleshooting.md#macos-endpoint-security-client-init-failed)
-for the macOS result-code table.
-
-Network and DNS capture also needs access to `/dev/bpf*`. If packet capture
-cannot start, Rustinel continues with Endpoint Security process and file telemetry.
+The scripts only download published release binaries. For version selection,
+custom installation directories, manual archives, and upgrade procedures, see
+[Operations and Upgrade Guide](operations.md).
 
 ## Keep Rustinel Running
 
@@ -224,98 +151,8 @@ select the larger pack or `--no-start` to register without starting.
 | Linux | Kernel 5.8+ with BTF, root or eBPF capabilities such as `CAP_BPF`, `CAP_PERFMON`, and `CAP_NET_ADMIN`, or `CAP_SYS_ADMIN`, `tracefs`, and `debugfs` |
 | macOS | macOS 11+, root, signed Endpoint Security client, Full Disk Access, and `/dev/bpf*` access for network and DNS capture |
 
-Building from source also requires Rust 1.92+. Windows needs Visual Studio Build
-Tools, Linux eBPF rebuilds need nightly Rust plus `rust-src` and `bpf-linker`,
-and macOS needs the Xcode Command Line Tools.
-
-## Build From Source
-
-Use this path if you want to build the binary yourself instead of using a
-published release.
-
-### Windows
-
-```powershell
-git clone https://github.com/Karib0u/rustinel.git
-cd rustinel
-cargo build --release
-.\target\release\rustinel.exe run
-```
-
-### Linux
-
-```bash
-git clone https://github.com/Karib0u/rustinel.git
-cd rustinel
-cargo build --release
-sudo ./target/release/rustinel run
-```
-
-On Linux, `build.rs` embeds `ebpf/rustinel-ebpf.o` when it already exists. If it
-does not exist, the build falls back to compiling the eBPF crate with nightly
-Rust.
-
-### macOS
-
-```bash
-git clone https://github.com/Karib0u/rustinel.git
-cd rustinel
-cargo build --release
-
-scripts/macos/package-app.sh \
-  --binary target/release/rustinel \
-  --output target/release/Rustinel.app \
-  --profile "$HOME/Downloads/rustinel.provisionprofile" \
-  --identity "Developer ID Application: Example (TEAMID)"
-
-sudo ./target/release/Rustinel.app/Contents/MacOS/rustinel run
-```
-
-The profile must belong to the explicit App ID approved for Endpoint Security
-and authorize `com.apple.developer.endpoint-security.client`. The packaging
-script derives the bundle identifier from that profile. Grant the resulting app
-bundle Full Disk Access before starting it. See [Development](development.md)
-for maintainer release-signing details and ad-hoc lab builds.
-
-## Optional Checks
-
-### YARA Demo
-
-Keep Rustinel running, build the demo binary, and run it:
-
-```bash
-rustc ./examples/yara_demo.rs -o ./examples/yara_demo
-./examples/yara_demo
-```
-
-On Windows:
-
-```powershell
-rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
-.\examples\yara_demo.exe
-```
-
-Confirm that an alert references `ExampleMarkerString` in
-`logs/alerts.json.<date>`.
-
-### Hot Reload
-
-Keep Rustinel running, edit a Sigma, YARA, or IOC file, and wait a few seconds.
-The operational log should report a reload event.
-
-Windows example:
-
-```powershell
-$rule = Get-ChildItem rules\current\sigma -Filter *.yml | Select-Object -First 1
-Add-Content $rule.FullName "`n# hot reload smoke test"
-```
-
-Linux example:
-
-```bash
-rule=$(find rules/current/sigma -name '*.yml' -print -quit)
-printf '\n# hot reload smoke test\n' >> "$rule"
-```
+Source builds require Rust 1.92 and platform build tools. See
+[Development](development.md) for build, signing, eBPF, and test instructions.
 
 ## Next Steps
 
@@ -323,4 +160,5 @@ printf '\n# hot reload smoke test\n' >> "$rule"
 - [SIEM Demos](siem-demos.md): ship first alerts to Elastic or Splunk.
 - [Operations and Upgrade Guide](operations.md): install layouts, services, and upgrades.
 - [CLI Reference](cli.md): service commands and runtime examples.
+- [Development](development.md): build and test from source.
 - [Limitations](limitations.md): current platform and detection gaps.
