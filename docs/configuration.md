@@ -108,6 +108,11 @@ max_file_size_mb = 50
 
 Use Windows path prefixes on Windows and Unix path prefixes on Linux.
 
+On Unix, Rustinel restricts configured log and alert directories to mode `0700`
+and their rolling files to `0600`. This prevents other local users from reading
+operational context or alert details. Windows continues to use the owning
+account's configured ACLs.
+
 ## Platform-Aware Defaults
 
 ### Shared Defaults

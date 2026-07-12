@@ -1,13 +1,37 @@
 use crate::alerts::AlertSink;
 use crate::config;
 use std::fs;
-use std::path::Path;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use tracing::info;
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const STARTUP_BANNER_INNER_WIDTH: usize = 49;
+
+struct RestrictedFileAppender {
+    inner: rolling::RollingFileAppender,
+    directory: PathBuf,
+    filename_prefix: String,
+    permission_date: chrono::NaiveDate,
+}
+
+impl Write for RestrictedFileAppender {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(buf)?;
+        let current_date = chrono::Local::now().date_naive();
+        if current_date != self.permission_date {
+            restrict_log_file_permissions(&self.directory, &self.filename_prefix)?;
+            self.permission_date = current_date;
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
 
 /// Build an `EnvFilter` from the logging configuration, with fallback to `info`.
 pub fn build_log_filter(logging: &config::LogConfig) -> EnvFilter {
@@ -184,12 +208,34 @@ fn try_build_daily_writer(
         return None;
     }
 
+    if let Err(err) = restrict_log_directory_permissions(directory) {
+        eprintln!(
+            "Unable to restrict {} log directory permissions for {:?}: {}",
+            label, directory, err
+        );
+        return None;
+    }
+
     match rolling::RollingFileAppender::builder()
         .rotation(rolling::Rotation::DAILY)
         .filename_prefix(filename)
         .build(directory)
     {
-        Ok(appender) => Some(tracing_appender::non_blocking(appender)),
+        Ok(appender) => {
+            if let Err(err) = restrict_log_file_permissions(directory, filename) {
+                eprintln!(
+                    "Unable to restrict {} log file permissions in {:?}: {}",
+                    label, directory, err
+                );
+                return None;
+            }
+            Some(tracing_appender::non_blocking(RestrictedFileAppender {
+                inner: appender,
+                directory: directory.to_path_buf(),
+                filename_prefix: filename.to_owned(),
+                permission_date: chrono::Local::now().date_naive(),
+            }))
+        }
         Err(err) => {
             eprintln!(
                 "Unable to initialize {} rolling log appender in {:?}: {}",
@@ -197,5 +243,75 @@ fn try_build_daily_writer(
             );
             None
         }
+    }
+}
+
+#[cfg(unix)]
+fn restrict_log_directory_permissions(directory: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn restrict_log_directory_permissions(_directory: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_log_file_permissions(directory: &Path, filename_prefix: &str) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let expected_prefix = format!("{filename_prefix}.");
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file()
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&expected_prefix)
+        {
+            fs::set_permissions(entry.path(), fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_log_file_permissions(_directory: &Path, _filename_prefix: &str) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod permission_tests {
+    use super::{restrict_log_directory_permissions, restrict_log_file_permissions};
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn restricts_log_directory_and_matching_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("logs");
+        fs::create_dir(&directory).unwrap();
+        let log_file = directory.join("alerts.json.2026-07-12");
+        let unrelated_file = directory.join("other.log");
+        fs::write(&log_file, b"alert").unwrap();
+        fs::write(&unrelated_file, b"other").unwrap();
+
+        restrict_log_directory_permissions(&directory).unwrap();
+        restrict_log_file_permissions(&directory, "alerts.json").unwrap();
+
+        assert_eq!(
+            fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&log_file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_ne!(
+            fs::metadata(&unrelated_file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }
