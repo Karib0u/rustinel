@@ -20,7 +20,8 @@ struct RestrictedFileAppender {
 impl Write for RestrictedFileAppender {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let written = self.inner.write(buf)?;
-        let current_date = chrono::Local::now().date_naive();
+        // RollingFileAppender's daily rotation boundary is UTC.
+        let current_date = chrono::Utc::now().date_naive();
         if current_date != self.permission_date {
             restrict_log_file_permissions(&self.directory, &self.filename_prefix)?;
             self.permission_date = current_date;
@@ -233,7 +234,7 @@ fn try_build_daily_writer(
                 inner: appender,
                 directory: directory.to_path_buf(),
                 filename_prefix: filename.to_owned(),
-                permission_date: chrono::Local::now().date_naive(),
+                permission_date: chrono::Utc::now().date_naive(),
             }))
         }
         Err(err) => {
@@ -297,6 +298,7 @@ mod permission_tests {
         let unrelated_file = directory.join("other.log");
         fs::write(&log_file, b"alert").unwrap();
         fs::write(&unrelated_file, b"other").unwrap();
+        fs::set_permissions(&unrelated_file, fs::Permissions::from_mode(0o644)).unwrap();
 
         restrict_log_directory_permissions(&directory).unwrap();
         restrict_log_file_permissions(&directory, "alerts.json").unwrap();
@@ -309,9 +311,9 @@ mod permission_tests {
             fs::metadata(&log_file).unwrap().permissions().mode() & 0o777,
             0o600
         );
-        assert_ne!(
+        assert_eq!(
             fs::metadata(&unrelated_file).unwrap().permissions().mode() & 0o777,
-            0o600
+            0o644
         );
     }
 }
