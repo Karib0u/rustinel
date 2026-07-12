@@ -379,13 +379,13 @@ jobs:
             **Linux**
 
             ```sh
-            curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --version ${{ steps.version.outputs.version }} --run
+            curl -fsSL https://rustinel.io/install.sh | sh -s -- --version ${{ steps.version.outputs.version }} --run
             ```
 
             **macOS**
 
             ```sh
-            curl -fsSL https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.sh | sh -s -- --version ${{ steps.version.outputs.version }}
+            curl -fsSL https://rustinel.io/install.sh | sh -s -- --version ${{ steps.version.outputs.version }}
             cd rustinel
             ```
 
@@ -398,7 +398,7 @@ jobs:
             **Windows (PowerShell)**
 
             ```powershell
-            $env:RUSTINEL_VERSION='${{ steps.version.outputs.version }}'; irm https://raw.githubusercontent.com/Karib0u/rustinel/main/scripts/install/install.ps1 | iex; Remove-Item Env:\RUSTINEL_VERSION -ErrorAction SilentlyContinue
+            $env:RUSTINEL_VERSION='${{ steps.version.outputs.version }}'; irm https://rustinel.io/install.ps1 | iex; Remove-Item Env:\RUSTINEL_VERSION -ErrorAction SilentlyContinue
             ```
 
             Full install, configuration, and SIEM ingestion guides: https://docs.rustinel.io/getting-started/
