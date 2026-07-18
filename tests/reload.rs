@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use common::{dns_query_event, process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
-    config::{ReloadConfig, ScannerConfig},
+    config::{ReloadConfig, ScannerConfig, ResponseConfig},
     engine::{Engine, SigmaEngineKind},
     ioc::IocEngine,
     models::MatchDebugLevel,
@@ -23,6 +23,17 @@ fn host_platform() -> Platform {
     } else {
         Platform::Linux
     }
+}
+
+fn dummy_response_config() -> Arc<arc_swap::ArcSwap<ResponseConfig>> {
+    Arc::new(arc_swap::ArcSwap::from(Arc::new(ResponseConfig {
+        enabled: false,
+        prevention_enabled: false,
+        min_severity: "critical".to_string(),
+        channel_capacity: 4,
+        allowlist_images: Vec::new(),
+        allowlist_paths: Vec::new(),
+    })))
 }
 
 fn scanner_cfg(sigma: &SigmaFixture, yara: &YaraFixture) -> ScannerConfig {
@@ -98,6 +109,8 @@ level: high
         "info".to_string(),
         MatchDebugLevel::Off,
         SigmaEngineKind::Builtin,
+        None,
+        dummy_response_config(),
         rx,
     );
     tx.send(ReloadTarget::Sigma).expect("send reload");
@@ -154,6 +167,8 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
         "info".to_string(),
         MatchDebugLevel::Off,
         SigmaEngineKind::Builtin,
+        None,
+        dummy_response_config(),
         rx,
     );
     tx.send(ReloadTarget::Yara).expect("send yara reload");
@@ -211,6 +226,8 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
         "info".to_string(),
         MatchDebugLevel::Off,
         SigmaEngineKind::Builtin,
+        None,
+        dummy_response_config(),
         rx,
     );
     tx.send(ReloadTarget::Ioc).expect("send ioc reload");
@@ -232,7 +249,6 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
 #[tokio::test]
 async fn test_reload_poller_fallback_polling() {
     use rustinel::config::IocConfig;
-    use rustinel::reload::spawn_reload_poller;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -277,7 +293,7 @@ async fn test_reload_poller_fallback_polling() {
 
     // Spawning the poller with a non-existent path will trigger the watcher failure
     // and cause it to fall back to the 100ms polling loop (in test configuration)
-    let handle = spawn_reload_poller(scanner_cfg, ioc_cfg, reload_cfg, reload_tx);
+    let handle = rustinel::reload::spawn_reload_poller(scanner_cfg, ioc_cfg, reload_cfg, None, reload_tx);
 
     // Give it a moment to initialize and fail watcher setup
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -343,6 +359,8 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
         "info".to_string(),
         MatchDebugLevel::Off,
         SigmaEngineKind::Builtin,
+        None,
+        dummy_response_config(),
         rx,
     );
 
@@ -413,6 +431,8 @@ async fn test_reload_accepts_partially_invalid_rules() {
         "info".to_string(),
         MatchDebugLevel::Off,
         SigmaEngineKind::Builtin,
+        None,
+        dummy_response_config(),
         rx,
     );
 
@@ -449,6 +469,84 @@ async fn test_reload_accepts_partially_invalid_rules() {
             .len(),
         1
     );
+
+    drop(tx);
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_config_reload_swaps_updated_response_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_file_path = dir.path().join("config.toml");
+
+    // Write initial configuration
+    std::fs::write(
+        &config_file_path,
+        r#"
+[response]
+enabled = false
+prevention_enabled = false
+min_severity = "high"
+"#,
+    )
+    .unwrap();
+
+    // Verify we can load it initially
+    let cfg = rustinel::config::AppConfig::from_config_path(Some(config_file_path.clone())).unwrap();
+    assert!(!cfg.response.enabled);
+    assert!(!cfg.response.prevention_enabled);
+    assert_eq!(cfg.response.min_severity, "high");
+
+    let response_config = Arc::new(arc_swap::ArcSwap::from(Arc::new(cfg.response)));
+
+    let sigma = SigmaFixture::new();
+    let yara = YaraFixture::new();
+    let ioc = common::IocFixture::new();
+
+    let store = DetectorStore::new(
+        Arc::new(Engine::new_for_platform(host_platform())),
+        Arc::new(Scanner::empty()),
+        Arc::new(IocEngine::load(&ioc.config())),
+    );
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handle = spawn_reload_worker(
+        Arc::clone(&store),
+        scanner_cfg(&sigma, &yara),
+        ioc.config(),
+        ReloadConfig {
+            enabled: true,
+            debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
+        },
+        "info".to_string(),
+        MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
+        Some(config_file_path.clone()),
+        response_config.clone(),
+        rx,
+    );
+
+    // Write updated configuration
+    std::fs::write(
+        &config_file_path,
+        r#"
+[response]
+enabled = true
+prevention_enabled = true
+min_severity = "low"
+"#,
+    )
+    .unwrap();
+
+    tx.send(ReloadTarget::Config).expect("send reload config");
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // Check that response config is swapped atomically with the new values!
+    let updated = response_config.load();
+    assert!(updated.enabled);
+    assert!(updated.prevention_enabled);
+    assert_eq!(updated.min_severity, "low");
 
     drop(tx);
     handle.abort();

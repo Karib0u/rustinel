@@ -13,6 +13,7 @@ use crate::sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
 use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
 use crate::{config, reload, scanner};
 use std::sync::Arc;
+use arc_swap::ArcSwap;
 use tokio::runtime::Builder;
 use tokio::sync::{mpsc, watch};
 use tracing::{error, info, warn};
@@ -170,6 +171,7 @@ async fn run_edr(
     sigma_engine_override: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     // 1. Load Configuration
+    let resolved_config_path = config::AppConfig::resolve_config_path(config_path.clone());
     let mut cfg = match config::AppConfig::from_config_path(config_path) {
         Ok(cfg) => cfg,
         Err(err) => {
@@ -208,7 +210,8 @@ async fn run_edr(
     log_startup_banner("Windows ETW");
 
     // 2.1 Initialize Active Response Engine (optional)
-    let (response_engine, response_worker_handle) = ResponseEngine::new(&cfg.response);
+    let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
+    let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
     info!(
         target: "rustinel",
         logs_dir = ?cfg.logging.directory,
@@ -435,6 +438,8 @@ async fn run_edr(
             cfg.logging.level.clone(),
             cfg.alerts.match_debug,
             engine_kind,
+            resolved_config_path.clone(),
+            response_config.clone(),
             rx,
         ));
 
@@ -442,6 +447,7 @@ async fn run_edr(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
+            resolved_config_path.clone(),
             tx.clone(),
         ));
         reload_tx = Some(tx);

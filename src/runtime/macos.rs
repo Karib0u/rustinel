@@ -13,6 +13,7 @@ use crate::sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
 use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
 use crate::{config, reload, scanner};
 use std::sync::Arc;
+use arc_swap::ArcSwap;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -42,6 +43,7 @@ async fn run_macos_edr(
     sigma_engine_override: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     // 1. Configuration
+    let resolved_config_path = config::AppConfig::resolve_config_path(config_path.clone());
     let mut cfg = match config::AppConfig::from_config_path(config_path) {
         Ok(cfg) => cfg,
         Err(err) => {
@@ -89,7 +91,8 @@ async fn run_macos_edr(
     ));
 
     // 4. Active response engine
-    let (response_engine, response_worker_handle) = ResponseEngine::new(&cfg.response);
+    let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
+    let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
 
     // 5. Sigma engine
     let engine_kind =
@@ -165,12 +168,15 @@ async fn run_macos_edr(
             cfg.logging.level.clone(),
             cfg.alerts.match_debug,
             engine_kind,
+            resolved_config_path.clone(),
+            response_config.clone(),
             rx,
         ));
         reload_poller_handle = Some(reload::spawn_reload_poller(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
+            resolved_config_path.clone(),
             tx.clone(),
         ));
         reload_tx = Some(tx);

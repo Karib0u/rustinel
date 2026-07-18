@@ -9,6 +9,8 @@ use crate::utils::{
     hash_command_line, normalize_path_for_comparison, validate_process_identity, ProcessIdentity,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use arc_swap::ArcSwap;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -27,12 +29,8 @@ struct ResponseTask {
 
 #[derive(Clone)]
 pub struct ResponseEngine {
-    enabled: bool,
-    min_severity: AlertSeverity,
-    prevention_enabled: bool,
+    config: Arc<ArcSwap<ResponseConfig>>,
     self_pid: u32,
-    allowlist_images: Vec<String>,
-    allowlist_paths: Vec<String>,
     tx: mpsc::Sender<ResponseTask>,
 }
 
@@ -65,33 +63,34 @@ pub enum ResponseDecision {
 }
 
 impl ResponseEngine {
-    pub fn new(cfg: &ResponseConfig) -> (Self, tokio::task::JoinHandle<()>) {
-        let (tx, mut rx) = mpsc::channel(cfg.channel_capacity);
-        let min_severity = parse_min_severity(&cfg.min_severity);
-        let allowlist_images = normalize_allowlist_images(&cfg.allowlist_images);
-        let allowlist_paths = normalize_allowlist_paths(&cfg.allowlist_paths);
-        let worker_allowlist_images = allowlist_images.clone();
-        let worker_allowlist_paths = allowlist_paths.clone();
-        let prevention_enabled = cfg.prevention_enabled;
-        let enabled = cfg.enabled;
+    pub fn new(cfg: Arc<ArcSwap<ResponseConfig>>) -> (Self, tokio::task::JoinHandle<()>) {
+        let channel_capacity = cfg.load().channel_capacity;
+        let (tx, mut rx) = mpsc::channel(channel_capacity);
         let self_pid = std::process::id();
+        let worker_cfg = cfg.clone();
 
         let handle = tokio::spawn(async move {
             info!(
                 target: TARGET_RESPONSE,
-                enabled,
-                prevention_enabled,
-                min_severity = ?min_severity,
                 "Active response worker started"
             );
 
+            let mut prepared = PreparedConfig::from_raw(&worker_cfg.load());
+
             while let Some(task) = rx.recv().await {
+                let current_raw = worker_cfg.load();
+                prepared.refresh_if_changed(&current_raw);
+
+                if !prepared.enabled {
+                    continue;
+                }
+
                 handle_task(
                     task,
-                    prevention_enabled,
+                    prepared.prevention_enabled,
                     self_pid,
-                    &worker_allowlist_images,
-                    &worker_allowlist_paths,
+                    &prepared.allowlist_images,
+                    &prepared.allowlist_paths,
                 );
             }
 
@@ -100,12 +99,8 @@ impl ResponseEngine {
 
         (
             Self {
-                enabled,
-                min_severity,
-                prevention_enabled,
+                config: cfg,
                 self_pid,
-                allowlist_images,
-                allowlist_paths,
                 tx,
             },
             handle,
@@ -142,27 +137,63 @@ impl ResponseEngine {
     }
 
     pub fn decision_for_alert(&self, alert: &Alert) -> ResponseDecision {
-        if !self.enabled {
+        let current_cfg = self.config.load();
+        if !current_cfg.enabled {
             return ResponseDecision::Disabled;
         }
 
         let severity = effective_alert_severity(alert);
-        if !severity_at_least(severity, self.min_severity) {
+        let min_severity = parse_min_severity(&current_cfg.min_severity);
+        if !severity_at_least(severity, min_severity) {
             return ResponseDecision::BelowSeverity {
                 severity,
-                min_severity: self.min_severity,
+                min_severity,
             };
         }
 
         let (pid, image) = extract_process_info(alert);
+        let allowlist_images = normalize_allowlist_images(&current_cfg.allowlist_images);
+        let allowlist_paths = normalize_allowlist_paths(&current_cfg.allowlist_paths);
         decide_response(
             pid,
             image.as_deref(),
-            self.prevention_enabled,
+            current_cfg.prevention_enabled,
             self.self_pid,
-            &self.allowlist_images,
-            &self.allowlist_paths,
+            &allowlist_images,
+            &allowlist_paths,
         )
+    }
+}
+
+/// Pre-computed / cached view of a `ResponseConfig`, rebuilt only when
+/// the underlying `Arc` pointer changes (i.e. on hot-reload).
+struct PreparedConfig {
+    /// Pointer to the raw config this snapshot was built from.
+    source: Arc<ResponseConfig>,
+    enabled: bool,
+    prevention_enabled: bool,
+    min_severity: AlertSeverity,
+    allowlist_images: Vec<String>,
+    allowlist_paths: Vec<String>,
+}
+
+impl PreparedConfig {
+    fn from_raw(raw: &Arc<ResponseConfig>) -> Self {
+        Self {
+            source: Arc::clone(raw),
+            enabled: raw.enabled,
+            prevention_enabled: raw.prevention_enabled,
+            min_severity: parse_min_severity(&raw.min_severity),
+            allowlist_images: normalize_allowlist_images(&raw.allowlist_images),
+            allowlist_paths: normalize_allowlist_paths(&raw.allowlist_paths),
+        }
+    }
+
+    /// Rebuild the cached snapshot only if the underlying `Arc` pointer has changed.
+    fn refresh_if_changed(&mut self, current: &Arc<ResponseConfig>) {
+        if !Arc::ptr_eq(&self.source, current) {
+            *self = Self::from_raw(current);
+        }
     }
 }
 

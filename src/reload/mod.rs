@@ -1,8 +1,8 @@
-//! Hot-reload support for Sigma, YARA, and IOC engines.
+//! Hot-reload support for Sigma, YARA, IOC engines, and configuration.
 //!
 //! This module keeps detector instances behind atomic pointers and provides:
-//! - A debounced reload worker.
-//! - A lightweight polling task that detects local rule/IOC file changes.
+//! - A debounced reload worker that swaps engines and active response config.
+//! - A lightweight polling task that detects local rule/IOC/config file changes.
 
 use std::collections::{hash_map::DefaultHasher, HashSet, VecDeque};
 use std::fs;
@@ -26,6 +26,7 @@ pub enum ReloadTarget {
     Sigma,
     Yara,
     Ioc,
+    Config,
 }
 
 /// Shared detector store with atomic swaps.
@@ -81,6 +82,8 @@ pub fn spawn_reload_worker(
     log_level: String,
     match_debug: MatchDebugLevel,
     engine_kind: crate::engine::SigmaEngineKind,
+    config_path: Option<PathBuf>,
+    response_config: Arc<ArcSwap<crate::config::ResponseConfig>>,
     mut reload_rx: mpsc::UnboundedReceiver<ReloadTarget>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -130,6 +133,7 @@ pub fn spawn_reload_worker(
                 ReloadTarget::Sigma => 0_u8,
                 ReloadTarget::Yara => 1_u8,
                 ReloadTarget::Ioc => 2_u8,
+                ReloadTarget::Config => 3_u8,
             });
 
             for target in targets {
@@ -268,6 +272,28 @@ pub fn spawn_reload_worker(
                             "IOC indicators hot-reloaded"
                         );
                     }
+                    ReloadTarget::Config => {
+                        let started = Instant::now();
+                        match crate::config::AppConfig::from_config_path(config_path.clone()) {
+                            Ok(new_cfg) => {
+                                response_config.store(Arc::new(new_cfg.response));
+                                info!(
+                                    target: "reload",
+                                    component = "config",
+                                    elapsed_ms = started.elapsed().as_millis() as u64,
+                                    "Configuration and Active Response settings hot-reloaded"
+                                );
+                            }
+                            Err(err) => {
+                                warn!(
+                                    target: "reload",
+                                    component = "config",
+                                    error = %err,
+                                    "Failed to reload config; keeping previous settings"
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
@@ -284,6 +310,7 @@ pub fn spawn_reload_poller(
     scanner_cfg: ScannerConfig,
     ioc_cfg: IocConfig,
     reload_cfg: ReloadConfig,
+    config_path: Option<PathBuf>,
     reload_tx: mpsc::UnboundedSender<ReloadTarget>,
 ) -> tokio::task::JoinHandle<()> {
     use notify::Watcher;
@@ -304,6 +331,7 @@ pub fn spawn_reload_poller(
             .yara_enabled
             .then(|| fingerprint_dir(&scanner_cfg.yara_rules_path, &["yar", "yara"]));
         let mut ioc_fp = ioc_cfg.enabled.then(|| fingerprint_ioc_files(&ioc_cfg));
+        let mut config_fp = config_path.as_ref().map(|path| fingerprint_file(path));
 
         match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
             if res.is_ok() {
@@ -339,6 +367,12 @@ pub fn spawn_reload_poller(
                     }
                     for parent in parents {
                         watch_targets.push((parent, notify::RecursiveMode::NonRecursive));
+                    }
+                }
+                if let Some(cfg_path) = &config_path {
+                    let normalized = normalize_path(cfg_path);
+                    if let Some(parent) = normalized.parent() {
+                        watch_targets.push((parent.to_path_buf(), notify::RecursiveMode::NonRecursive));
                     }
                 }
 
@@ -421,6 +455,16 @@ pub fn spawn_reload_poller(
                 if ioc_fp.as_ref() != Some(&next) {
                     ioc_fp = Some(next);
                     if reload_tx.send(ReloadTarget::Ioc).is_err() {
+                        break;
+                    }
+                }
+            }
+
+            if let Some(cfg_path) = &config_path {
+                let next = fingerprint_file(cfg_path);
+                if config_fp.as_ref() != Some(&next) {
+                    config_fp = Some(next);
+                    if reload_tx.send(ReloadTarget::Config).is_err() {
                         break;
                     }
                 }
