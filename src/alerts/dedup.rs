@@ -2,10 +2,21 @@
 //!
 //! The deduplicator groups repeated identical alerts within a configurable time window
 //! and emits a single rollup alert with `event.count` at window close.  The first
-//! occurrence always emits immediately — there is zero added latency for novel alerts.
+//! occurrence always emits immediately, so there is zero added latency for novel alerts.
 //!
-//! # Key
-//! `(engine, rule_id_or_name, process_executable, process_parent_executable, user_name)`
+//! # Identity
+//! Every key contains the detection engine, rule ID (or rule name fallback), event
+//! dataset/action/code, and a canonical subject fingerprint. The fingerprint includes
+//! process instance and command-line fields plus the fields that identify the subject
+//! for each supported category:
+//! - network endpoints, domain, and protocol
+//! - file or loaded-image path
+//! - registry path, data, event type, and rename target
+//! - DNS query, answers, and response status
+//! - script, WMI, remote-thread, service, and task targets
+//!
+//! Timestamps and rollup counts are deliberately excluded. Missing fields remain
+//! `None`, which is distinct from a present value but stable across repeated alerts.
 //!
 //! # Window semantics
 //! Each key starts a *tumbling* window anchored to the first emission.  Once
@@ -25,9 +36,61 @@ use tracing::info;
 pub struct DedupKey {
     engine: String,
     rule_id_or_name: String,
-    executable: String,
-    parent_executable: String,
-    user_name: String,
+    subject: SubjectIdentity,
+}
+
+/// Canonical security-relevant subject fields. Keeping these as typed values avoids
+/// delimiter ambiguity and makes the identity semantics explicit for every category.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SubjectIdentity {
+    event_dataset: String,
+    event_action: Option<String>,
+    event_code: Option<String>,
+    process_executable: Option<String>,
+    process_command_line: Option<String>,
+    process_pid: Option<u64>,
+    process_parent_executable: Option<String>,
+    process_parent_command_line: Option<String>,
+    process_parent_pid: Option<u64>,
+    user_name: Option<String>,
+    user_id: Option<String>,
+    user_domain: Option<String>,
+    destination_ip: Option<String>,
+    destination_port: Option<u16>,
+    source_ip: Option<String>,
+    source_port: Option<u16>,
+    destination_domain: Option<String>,
+    network_transport: Option<String>,
+    network_protocol: Option<String>,
+    network_direction: Option<String>,
+    file_path: Option<String>,
+    registry_path: Option<String>,
+    registry_data_strings: Option<Vec<String>>,
+    registry_event_type: Option<String>,
+    registry_new_name: Option<String>,
+    dns_query: Option<String>,
+    dns_answers: Option<Vec<String>>,
+    dns_response_code: Option<String>,
+    service_name: Option<String>,
+    service_executable: Option<String>,
+    service_type: Option<String>,
+    service_start_type: Option<String>,
+    service_account_name: Option<String>,
+    task_name: Option<String>,
+    task_content: Option<String>,
+    task_user_name: Option<String>,
+    powershell_script_block_text: Option<String>,
+    powershell_script_block_id: Option<String>,
+    wmi_operation: Option<String>,
+    wmi_query: Option<String>,
+    wmi_namespace: Option<String>,
+    wmi_event_type: Option<String>,
+    remote_thread_target_pid: Option<u64>,
+    remote_thread_target_image: Option<String>,
+    remote_thread_start_address: Option<String>,
+    remote_thread_start_module: Option<String>,
+    remote_thread_start_function: Option<String>,
+    process_target_image: Option<String>,
 }
 
 impl DedupKey {
@@ -38,9 +101,59 @@ impl DedupKey {
                 .rule_id
                 .clone()
                 .unwrap_or_else(|| format!("name::{}", ecs.rule_name)),
-            executable: ecs.process_executable.clone().unwrap_or_default(),
-            parent_executable: ecs.process_parent_executable.clone().unwrap_or_default(),
-            user_name: ecs.user_name.clone().unwrap_or_default(),
+            subject: SubjectIdentity {
+                event_dataset: ecs.event_dataset.clone(),
+                event_action: ecs.event_action.clone(),
+                event_code: ecs.event_code.clone(),
+                process_executable: ecs.process_executable.clone(),
+                process_command_line: ecs.process_command_line.clone(),
+                process_pid: ecs.process_pid,
+                process_parent_executable: ecs.process_parent_executable.clone(),
+                process_parent_command_line: ecs.process_parent_command_line.clone(),
+                process_parent_pid: ecs.process_parent_pid,
+                user_name: ecs.user_name.clone(),
+                user_id: ecs.user_id.clone(),
+                user_domain: ecs.user_domain.clone(),
+                destination_ip: ecs.destination_ip.clone(),
+                destination_port: ecs.destination_port,
+                source_ip: ecs.source_ip.clone(),
+                source_port: ecs.source_port,
+                destination_domain: ecs.destination_domain.clone(),
+                network_transport: ecs.network_transport.clone(),
+                network_protocol: ecs.network_protocol.clone(),
+                network_direction: ecs.network_direction.clone(),
+                file_path: ecs.file_path.clone(),
+                registry_path: ecs.registry_path.clone(),
+                registry_data_strings: ecs.registry_data_strings.clone(),
+                registry_event_type: ecs.edr_registry_event_type.clone(),
+                registry_new_name: ecs.edr_registry_new_name.clone(),
+                dns_query: ecs.dns_query.clone(),
+                dns_answers: ecs
+                    .dns_answers
+                    .as_ref()
+                    .map(|answers| answers.iter().map(|answer| answer.data.clone()).collect()),
+                dns_response_code: ecs.dns_response_code.clone(),
+                service_name: ecs.service_name.clone(),
+                service_executable: ecs.edr_service_executable.clone(),
+                service_type: ecs.edr_service_type.clone(),
+                service_start_type: ecs.edr_service_start_type.clone(),
+                service_account_name: ecs.edr_service_account_name.clone(),
+                task_name: ecs.edr_task_name.clone(),
+                task_content: ecs.edr_task_content.clone(),
+                task_user_name: ecs.edr_task_user_name.clone(),
+                powershell_script_block_text: ecs.edr_powershell_script_block_text.clone(),
+                powershell_script_block_id: ecs.edr_powershell_script_block_id.clone(),
+                wmi_operation: ecs.edr_wmi_operation.clone(),
+                wmi_query: ecs.edr_wmi_query.clone(),
+                wmi_namespace: ecs.edr_wmi_namespace.clone(),
+                wmi_event_type: ecs.edr_wmi_event_type.clone(),
+                remote_thread_target_pid: ecs.edr_remote_thread_target_pid,
+                remote_thread_target_image: ecs.edr_remote_thread_target_image.clone(),
+                remote_thread_start_address: ecs.edr_remote_thread_start_address.clone(),
+                remote_thread_start_module: ecs.edr_remote_thread_start_module.clone(),
+                remote_thread_start_function: ecs.edr_remote_thread_start_function.clone(),
+                process_target_image: ecs.edr_process_target_image.clone(),
+            },
         }
     }
 }
@@ -54,7 +167,7 @@ struct DedupEntry {
     sample: Alert,
 }
 
-/// Global counters — visible to operational logs.
+/// Global counters visible to operational logs.
 struct Counters {
     /// Total alerts suppressed (not written to the sink).
     suppressed_total: AtomicU64,
@@ -96,7 +209,7 @@ impl Deduplicator {
             return false;
         }
 
-        // Over capacity — emit untracked rather than drop or evict blindly.
+        // Over capacity: emit untracked rather than drop or evict blindly.
         if table.len() >= self.max_entries {
             return true;
         }
@@ -149,7 +262,7 @@ impl Deduplicator {
     fn emit_rollups(&self, entries: Vec<DedupEntry>, sink: &super::AlertSink) {
         for entry in entries {
             if entry.count <= 1 {
-                // Already emitted on first occurrence — nothing more to do.
+                // Already emitted on first occurrence, so nothing more to do.
                 continue;
             }
             let mut ecs = EcsAlert::from(&entry.sample);
@@ -247,10 +360,24 @@ mod tests {
     fn null_sink() -> AlertSink {
         let (writer, _guard) = tracing_appender::non_blocking(std::io::sink());
         // Keep guard alive for the duration of this helper's use.
-        // The guard is intentionally dropped here — the sink writer is non-blocking
+        // The guard is intentionally dropped here. The sink writer is non-blocking,
         // so the underlying channel still processes in the background. For tests that
         // don't inspect the output this is fine.
         AlertSink::new(writer)
+    }
+
+    fn assert_distinct_subjects(change_subject: impl FnOnce(&mut EcsAlert)) {
+        let dedup = Deduplicator::new(60, 1000);
+        let alert = make_alert("Rule A", "/usr/bin/curl");
+        let ecs_a = EcsAlert::from(&alert);
+        let mut ecs_b = EcsAlert::from(&alert);
+        change_subject(&mut ecs_b);
+
+        assert!(dedup.record(&ecs_a, &alert));
+        assert!(
+            dedup.record(&ecs_b, &alert),
+            "different event subjects must use separate dedup keys"
+        );
     }
 
     #[test]
@@ -279,6 +406,58 @@ mod tests {
             "third hit must return false (suppress)"
         );
         assert_eq!(dedup.counters.suppressed_total.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn network_destinations_are_tracked_separately() {
+        assert_distinct_subjects(|ecs| {
+            ecs.destination_ip = Some("203.0.113.7".to_string());
+            ecs.destination_port = Some(443);
+        });
+        assert_distinct_subjects(|ecs| {
+            ecs.destination_port = Some(8443);
+        });
+    }
+
+    #[test]
+    fn file_targets_are_tracked_separately() {
+        assert_distinct_subjects(|ecs| {
+            ecs.file_path = Some("/tmp/second-payload".to_string());
+        });
+    }
+
+    #[test]
+    fn registry_targets_are_tracked_separately() {
+        assert_distinct_subjects(|ecs| {
+            ecs.registry_path = Some(r"HKLM\Software\Example\Second".to_string());
+        });
+    }
+
+    #[test]
+    fn dns_queries_are_tracked_separately() {
+        assert_distinct_subjects(|ecs| {
+            ecs.dns_query = Some("second.example".to_string());
+        });
+    }
+
+    #[test]
+    fn process_instances_and_command_lines_are_tracked_separately() {
+        assert_distinct_subjects(|ecs| {
+            ecs.process_pid = Some(43);
+        });
+        assert_distinct_subjects(|ecs| {
+            ecs.process_command_line = Some("curl https://second.example".to_string());
+        });
+    }
+
+    #[test]
+    fn service_and_task_names_are_tracked_separately() {
+        assert_distinct_subjects(|ecs| {
+            ecs.service_name = Some("second-service".to_string());
+        });
+        assert_distinct_subjects(|ecs| {
+            ecs.edr_task_name = Some("second-task".to_string());
+        });
     }
 
     #[test]
