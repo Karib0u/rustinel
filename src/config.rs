@@ -284,6 +284,7 @@ pub struct AppConfig {
     pub alerts: AlertConfig,
     pub allowlist: AllowlistConfig,
     pub response: ResponseConfig,
+    pub process: ProcessConfig,
     pub network: NetworkConfig,
     pub ioc: IocConfig,
     pub reload: ReloadConfig,
@@ -346,6 +347,13 @@ pub struct ResponseConfig {
     pub channel_capacity: usize,
     pub allowlist_images: Vec<String>,
     pub allowlist_paths: Vec<String>,
+}
+
+/// Process metadata cache configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProcessConfig {
+    /// Maximum number of process metadata entries retained
+    pub max_entries: usize,
 }
 
 /// Network event aggregation configuration
@@ -449,6 +457,8 @@ impl AppConfig {
             .set_default("response.channel_capacity", 128)?
             .set_default("response.allowlist_images", Vec::<String>::new())?
             .set_default("response.allowlist_paths", Vec::<String>::new())?
+            // Process cache
+            .set_default("process.max_entries", 65536i64)?
             // Network
             .set_default("network.aggregation_enabled", true)?
             .set_default("network.aggregation_max_entries", 20000)?
@@ -621,6 +631,9 @@ impl Default for AppConfig {
                 channel_capacity: 128,
                 allowlist_images: Vec::new(),
                 allowlist_paths: Vec::new(),
+            },
+            process: ProcessConfig {
+                max_entries: 65_536,
             },
             network: NetworkConfig {
                 aggregation_enabled: true,
@@ -920,6 +933,12 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         assert!(cfg.dedup.enabled);
         assert_eq!(cfg.dedup.window_secs, 60);
         assert_eq!(cfg.dedup.max_entries, 10_000);
+    }
+
+    #[test]
+    fn test_process_cache_defaults() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.process.max_entries, 65_536);
     }
 
     #[test]

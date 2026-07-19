@@ -91,6 +91,9 @@ min_severity = "critical"
 channel_capacity = 128
 allowlist_images = []
 
+[process]
+max_entries = 65536
+
 [network]
 aggregation_enabled = true
 aggregation_max_entries = 20000
@@ -276,6 +279,12 @@ dedup: suppressed_total=1420 aggregated_rollup_alerts=38 pending_keys=0
 | `allowlist_paths` | inherits `allowlist.paths` | Module-specific trusted prefixes |
 
 See [Active Response](active-response.md) for platform behavior and safe testing.
+
+### Process Cache
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `max_entries` | `65536` | Maximum process metadata records retained; oldest records are evicted when process-exit events are missed |
 
 ### Network
 

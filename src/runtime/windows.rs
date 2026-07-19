@@ -258,7 +258,7 @@ async fn run_edr(
 
     // Initialize Process Cache and perform cold start snapshot
     info!("Initializing Process Cache...");
-    let process_cache = Arc::new(ProcessCache::new());
+    let process_cache = Arc::new(ProcessCache::with_max_entries(cfg.process.max_entries));
     let sid_cache = Arc::new(SidCache::new());
     let dns_cache = Arc::new(DnsCache::new());
     let connection_aggregator = Arc::new(ConnectionAggregator::with_limits_and_window(
