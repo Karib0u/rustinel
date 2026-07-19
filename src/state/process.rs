@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -61,6 +61,9 @@ pub struct ProcessCache {
     cache: RwLock<HashMap<(u32, u64), ProcessMetadata>>,
     /// Secondary index: PID -> Latest CreationTime (for O(1) lookup from events that only have PID)
     pid_index: RwLock<HashMap<u32, u64>>,
+    /// Compound keys ordered by creation time for efficient oldest-first eviction
+    eviction_order: RwLock<BTreeSet<(u64, u32)>>,
+    max_entries: usize,
     /// Recently-dead processes retained briefly to avoid parent/child race conditions
     graveyard: RwLock<HashMap<u32, GraveyardEntry>>,
     last_graveyard_cleanup: AtomicU64,
@@ -69,9 +72,16 @@ pub struct ProcessCache {
 impl ProcessCache {
     /// Create a new empty ProcessCache
     pub fn new() -> Self {
+        Self::with_max_entries(PROCESS_CACHE_MAX_ENTRIES)
+    }
+
+    /// Create an empty ProcessCache capped at `max_entries` processes
+    pub fn with_max_entries(max_entries: usize) -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
             pid_index: RwLock::new(HashMap::new()),
+            eviction_order: RwLock::new(BTreeSet::new()),
+            max_entries,
             graveyard: RwLock::new(HashMap::new()),
             last_graveyard_cleanup: AtomicU64::new(0),
         }
@@ -114,10 +124,11 @@ impl ProcessCache {
         logon_id: Option<String>,
         logon_guid: Option<String>,
     ) {
-        // Lock order: pid_index -> cache to avoid deadlocks with readers.
+        // Lock order: pid_index -> cache -> eviction_order to avoid deadlocks with readers.
         {
             let mut pid_index = self.pid_index.write().unwrap();
             let mut cache = self.cache.write().unwrap();
+            let mut eviction_order = self.eviction_order.write().unwrap();
 
             cache.insert(
                 (pid, creation_time),
@@ -138,9 +149,21 @@ impl ProcessCache {
                     logon_guid,
                 },
             );
+            eviction_order.insert((creation_time, pid));
 
             // Update secondary index to point to the latest creation time
             pid_index.insert(pid, creation_time);
+
+            while cache.len() > self.max_entries {
+                let Some((oldest_creation_time, oldest_pid)) = eviction_order.pop_first() else {
+                    break;
+                };
+
+                cache.remove(&(oldest_pid, oldest_creation_time));
+                if pid_index.get(&oldest_pid) == Some(&oldest_creation_time) {
+                    pid_index.remove(&oldest_pid);
+                }
+            }
         }
 
         if let Ok(mut graveyard) = self.graveyard.write() {
@@ -153,12 +176,14 @@ impl ProcessCache {
     /// Remove a process from the cache (called on process exit)
     /// Removes both from primary storage and updates secondary index
     pub fn remove(&self, pid: u32, creation_time: u64) {
-        // Lock order: pid_index -> cache to avoid deadlocks with readers.
+        // Lock order: pid_index -> cache -> eviction_order to avoid deadlocks with readers.
         let removed_meta = {
             let mut pid_index = self.pid_index.write().unwrap();
             let mut cache = self.cache.write().unwrap();
+            let mut eviction_order = self.eviction_order.write().unwrap();
 
             let meta = cache.remove(&(pid, creation_time));
+            eviction_order.remove(&(creation_time, pid));
 
             // Only remove from index if this was the latest creation_time
             if let Some(&indexed_time) = pid_index.get(&pid) {
@@ -304,3 +329,65 @@ struct GraveyardEntry {
 
 const GRAVEYARD_TTL_SECS: u64 = 60;
 const GRAVEYARD_CLEANUP_INTERVAL_SECS: u64 = 10;
+const PROCESS_CACHE_MAX_ENTRIES: usize = 65_536;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn add_process(cache: &ProcessCache, pid: u32, creation_time: u64) {
+        cache.add(
+            pid,
+            creation_time,
+            format!("process-{pid}"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+    }
+
+    #[test]
+    fn missed_exit_events_do_not_grow_cache_past_limit() {
+        let cache = ProcessCache::with_max_entries(2);
+
+        add_process(&cache, 10, 100);
+        add_process(&cache, 20, 200);
+        add_process(&cache, 30, 300);
+
+        assert_eq!(cache.count(), 2);
+        assert!(cache.get_metadata_by_key(10, 100).is_none());
+        assert_eq!(cache.get_image(20).as_deref(), Some("process-20"));
+        assert_eq!(cache.get_image(30).as_deref(), Some("process-30"));
+    }
+
+    #[test]
+    fn eviction_keeps_pid_index_consistent() {
+        let cache = ProcessCache::with_max_entries(1);
+
+        add_process(&cache, 10, 100);
+        add_process(&cache, 10, 200);
+
+        assert_eq!(cache.get_latest_creation_time(10), Some(200));
+        assert!(cache.get_metadata_by_key(10, 100).is_none());
+        assert_eq!(cache.get_image(10).as_deref(), Some("process-10"));
+    }
+
+    #[test]
+    fn zero_entry_limit_keeps_cache_empty() {
+        let cache = ProcessCache::with_max_entries(0);
+
+        add_process(&cache, 10, 100);
+
+        assert_eq!(cache.count(), 0);
+        assert_eq!(cache.get_latest_creation_time(10), None);
+    }
+}
