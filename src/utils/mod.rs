@@ -2,6 +2,7 @@
 //!
 //! Provides helper functions for path normalization and PE parsing.
 
+pub(crate) mod file_identity;
 pub mod log_rate_limiter;
 pub mod path;
 #[cfg(windows)]
