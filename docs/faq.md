@@ -209,7 +209,12 @@ Then trigger a known benign bundled rule such as:
 - `whoami` on Windows
 - `whoami` on Linux
 
-After you confirm the log output looks correct, enable prevention mode.
+The system `whoami` executable is allowlisted by default, so this verifies
+detection and should produce an `Active response skipped: allowlisted` log. Use
+the long-running YARA demo from [Active Response](active-response.md), or a test
+executable outside the trusted path allowlist, to validate process termination.
+
+After you confirm the response decisions look correct, enable prevention mode.
 
 See [Active Response](active-response.md).
 

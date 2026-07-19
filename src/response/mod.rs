@@ -114,9 +114,9 @@ impl ResponseEngine {
 
     pub fn handle_alert(&self, alert: &Alert) {
         let decision = self.decision_for_alert(alert);
-        if !matches!(
+        if matches!(
             decision,
-            ResponseDecision::DryRun { .. } | ResponseDecision::Terminate { .. }
+            ResponseDecision::Disabled | ResponseDecision::BelowSeverity { .. }
         ) {
             return;
         }
@@ -599,6 +599,78 @@ mod tests {
         ProcessCreationFields,
     };
     use crate::sensor::Platform;
+    use std::{
+        io::{self, Write},
+        sync::{Arc, Mutex},
+    };
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    struct LogWriter(LogBuffer);
+
+    impl Write for LogWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0
+                 .0
+                .lock()
+                .expect("log buffer lock")
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for LogBuffer {
+        type Writer = LogWriter;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            LogWriter(self.clone())
+        }
+    }
+
+    fn test_process_alert(pid: Option<&str>, image: Option<&str>) -> Alert {
+        Alert {
+            severity: AlertSeverity::Low,
+            rule_name: "Test process rule".to_string(),
+            rule_description: None,
+            rule_id: None,
+            engine: DetectionEngine::Sigma,
+            event: NormalizedEvent {
+                timestamp: "2026-02-03T00:00:00Z".to_string(),
+                platform: Platform::Linux,
+                provider: "test".to_string(),
+                category: EventCategory::Process,
+                event_id: 1,
+                event_id_string: "1".to_string(),
+                opcode: 1,
+                fields: EventFields::ProcessCreation(ProcessCreationFields {
+                    image: image.map(str::to_string),
+                    process_id: pid.map(str::to_string),
+                    process_start_time: None,
+                    command_line: None,
+                    original_file_name: None,
+                    product: None,
+                    description: None,
+                    target_image: None,
+                    parent_process_id: None,
+                    parent_image: None,
+                    parent_command_line: None,
+                    current_directory: None,
+                    integrity_level: None,
+                    user: None,
+                    logon_id: None,
+                    logon_guid: None,
+                }),
+                process_context: None,
+            },
+            match_details: None,
+        }
+    }
 
     #[test]
     fn test_parse_pid_decimal() {
@@ -645,6 +717,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn handle_alert_logs_allowlisted_decision() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        let logs = LogBuffer::default();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(logs.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            rt.block_on(async {
+                let cfg = ResponseConfig {
+                    enabled: true,
+                    prevention_enabled: true,
+                    min_severity: "low".to_string(),
+                    channel_capacity: 4,
+                    allowlist_images: vec![],
+                    allowlist_paths: vec!["/usr/bin/".to_string()],
+                };
+                let (engine, worker) = ResponseEngine::new(&cfg);
+
+                engine.handle_alert(&test_process_alert(Some("4242"), Some("/usr/bin/sleep")));
+                drop(engine);
+                worker.await.expect("response worker");
+            });
+        });
+
+        let output =
+            String::from_utf8(logs.0.lock().expect("log buffer lock").clone()).expect("UTF-8 logs");
+        assert!(
+            output.contains("Active response skipped: allowlisted"),
+            "expected allowlist decision in logs, got: {output}"
+        );
+        assert!(output.contains("pid=4242"));
+        assert!(output.contains("image=/usr/bin/sleep"));
+    }
+
     #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn validate_process_identity_accepts_current_process() {
@@ -684,42 +797,7 @@ mod tests {
 
     #[test]
     fn test_extract_process_info() {
-        let alert = Alert {
-            severity: AlertSeverity::High,
-            rule_name: "Test".to_string(),
-            rule_description: None,
-            rule_id: None,
-            engine: DetectionEngine::Sigma,
-            event: NormalizedEvent {
-                timestamp: "2026-02-03T00:00:00Z".to_string(),
-                platform: Platform::Windows,
-                provider: "etw".to_string(),
-                category: EventCategory::Process,
-                event_id: 1,
-                event_id_string: "1".to_string(),
-                opcode: 1,
-                fields: EventFields::ProcessCreation(ProcessCreationFields {
-                    image: Some("C:\\Temp\\evil.exe".to_string()),
-                    process_id: Some("4242".to_string()),
-                    process_start_time: None,
-                    command_line: None,
-                    original_file_name: None,
-                    product: None,
-                    description: None,
-                    target_image: None,
-                    parent_process_id: None,
-                    parent_image: None,
-                    parent_command_line: None,
-                    current_directory: None,
-                    integrity_level: None,
-                    user: None,
-                    logon_id: None,
-                    logon_guid: None,
-                }),
-                process_context: None,
-            },
-            match_details: None,
-        };
+        let alert = test_process_alert(Some("4242"), Some("C:\\Temp\\evil.exe"));
 
         let (pid, image) = extract_process_info(&alert);
         assert_eq!(pid, Some(4242));
