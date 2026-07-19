@@ -3,10 +3,12 @@ use md5::Md5;
 use sha1::Sha1;
 use sha2::Sha256;
 use std::collections::HashMap;
-use std::fs;
+use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::utils::file_identity::{self, FileIdentity};
 
 const HASH_CACHE_MAX_ENTRIES: usize = 10_000;
 const HASH_CACHE_TTL_SECS: u64 = 6 * 60 * 60;
@@ -37,13 +39,6 @@ pub struct ComputedHashes {
     pub md5: Option<String>,
     pub sha1: Option<String>,
     pub sha256: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FileIdentity {
-    path: String,
-    size: u64,
-    mtime: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -79,27 +74,43 @@ impl HashCache {
         requirements: HashRequirements,
         buf: &mut [u8],
     ) -> anyhow::Result<ComputedHashes> {
-        let identity = file_identity(path);
+        self.get_or_compute_with(path, requirements, buf, compute_hashes)
+    }
+
+    fn get_or_compute_with<F>(
+        &mut self,
+        path: &Path,
+        requirements: HashRequirements,
+        buf: &mut [u8],
+        compute: F,
+    ) -> anyhow::Result<ComputedHashes>
+    where
+        F: FnOnce(&mut File, HashRequirements, &mut [u8]) -> anyhow::Result<ComputedHashes>,
+    {
+        let mut file = File::open(path)?;
+        let identity = file_identity::from_file(&file);
         if let Some(identity) = &identity {
             if let Some(entry) = self.entries.get(identity) {
-                if !self.is_expired(entry) {
+                if !self.is_expired(entry) && file_identity::unchanged(&file, path, identity) {
                     return Ok(entry.hashes.clone());
                 }
             }
         }
 
-        let hashes = compute_hashes(path, requirements, buf)?;
+        let hashes = compute(&mut file, requirements, buf)?;
         if let Some(identity) = identity {
-            let now = now_secs();
-            self.entries.insert(
-                identity,
-                HashCacheEntry {
-                    hashes: hashes.clone(),
-                    timestamp: now,
-                },
-            );
-            if self.entries.len() > self.max_entries {
-                self.trim();
+            if file_identity::unchanged(&file, path, &identity) {
+                let now = now_secs();
+                self.entries.insert(
+                    identity,
+                    HashCacheEntry {
+                        hashes: hashes.clone(),
+                        timestamp: now,
+                    },
+                );
+                if self.entries.len() > self.max_entries {
+                    self.trim();
+                }
             }
         }
 
@@ -131,12 +142,10 @@ impl HashCache {
 }
 
 fn compute_hashes(
-    path: &Path,
+    file: &mut File,
     requirements: HashRequirements,
     buf: &mut [u8],
 ) -> anyhow::Result<ComputedHashes> {
-    let mut file = fs::File::open(path)?;
-
     let mut md5_hasher = requirements.md5.then(Md5::new);
     let mut sha1_hasher = requirements.sha1.then(Sha1::new);
     let mut sha256_hasher = requirements.sha256.then(Sha256::new);
@@ -164,26 +173,104 @@ fn compute_hashes(
     })
 }
 
-fn file_identity(path: &Path) -> Option<FileIdentity> {
-    let metadata = fs::metadata(path).ok()?;
-    let size = metadata.len();
-    let mtime = metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or_default();
-
-    Some(FileIdentity {
-        path: path.display().to_string(),
-        size,
-        mtime,
-    })
-}
-
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn sha256_only() -> HashRequirements {
+        HashRequirements {
+            md5: false,
+            sha1: false,
+            sha256: true,
+        }
+    }
+
+    #[test]
+    fn unchanged_file_reuses_hash_cache_entry() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"clean!").expect("write sample");
+        let mut cache = HashCache::new();
+        let mut buf = [0u8; 64];
+
+        let first = cache
+            .get_or_compute(&path, sha256_only(), &mut buf)
+            .expect("first hash");
+        cache
+            .entries
+            .values_mut()
+            .next()
+            .expect("cache entry")
+            .hashes
+            .sha256 = Some("cached".to_string());
+        let second = cache
+            .get_or_compute(&path, sha256_only(), &mut buf)
+            .expect("cached hash");
+
+        assert_ne!(first.sha256, second.sha256);
+        assert_eq!(second.sha256.as_deref(), Some("cached"));
+        assert_eq!(cache.entries.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacement_with_same_size_and_mtime_gets_new_hash() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"clean!").expect("write sample");
+        let original_mtime = fs::metadata(&path)
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+        let mut cache = HashCache::new();
+        let mut buf = [0u8; 64];
+        let clean = cache
+            .get_or_compute(&path, sha256_only(), &mut buf)
+            .expect("clean hash");
+
+        let replacement = tempdir.path().join("replacement.bin");
+        fs::write(&replacement, b"evil!!").expect("write replacement");
+        File::options()
+            .write(true)
+            .open(&replacement)
+            .expect("open replacement")
+            .set_times(fs::FileTimes::new().set_modified(original_mtime))
+            .expect("preserve mtime");
+        fs::rename(&replacement, &path).expect("replace sample");
+
+        let malicious = cache
+            .get_or_compute(&path, sha256_only(), &mut buf)
+            .expect("replacement hash");
+
+        assert_ne!(clean.sha256, malicious.sha256);
+        assert_eq!(cache.entries.len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_changed_during_hashing_is_not_cached() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"clean!").expect("write sample");
+        let mut cache = HashCache::new();
+        let mut buf = [0u8; 64];
+
+        cache
+            .get_or_compute_with(&path, sha256_only(), &mut buf, |file, requirements, buf| {
+                let hashes = compute_hashes(file, requirements, buf)?;
+                fs::write(&path, b"evil!!").expect("mutate during hashing");
+                Ok(hashes)
+            })
+            .expect("hash mutated file");
+
+        assert!(cache.entries.is_empty());
+    }
 }

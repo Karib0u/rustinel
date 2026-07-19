@@ -14,6 +14,7 @@ use yara_x::{Compiler, Rules, Scanner as XScanner};
 
 use crate::models::{MatchDebugLevel, ProcessCreationFields, YaraRuleMatch, YaraStringMatch};
 use crate::sensor::{SensorAction, SensorEvent, SensorEventHandler, SensorPayload};
+use crate::utils::file_identity::{self, FileIdentity};
 use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
 
 /// Strip NT namespace prefix and convert to a path the YARA scanner can open.
@@ -78,9 +79,7 @@ const YARA_CACHE_TTL_SECS: u64 = 6 * 60 * 60;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct YaraFileIdentity {
-    path: String,
-    size: u64,
-    mtime_nanos: u128,
+    file: FileIdentity,
     match_debug: MatchDebugLevel,
 }
 
@@ -160,24 +159,6 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-fn yara_file_identity(path: &str, match_debug: MatchDebugLevel) -> Option<YaraFileIdentity> {
-    let metadata = fs::metadata(path).ok()?;
-    let size = metadata.len();
-    let mtime_nanos = metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-
-    Some(YaraFileIdentity {
-        path: normalize_path_for_allowlist(path),
-        size,
-        mtime_nanos,
-        match_debug,
-    })
 }
 
 fn truncate_str(s: &str, max_len: usize) -> String {
@@ -322,31 +303,55 @@ impl Scanner {
         }
 
         let path = normalize_yara_path(path);
-        let path = path.as_str();
-        let identity = yara_file_identity(path, match_debug);
+        self.scan_file_cached(&path, match_debug, |path| {
+            let mut scanner = XScanner::new(&self.rules);
+            let scan_results = scanner
+                .scan_file(path)
+                .with_context(|| format!("YARA scan failed for {path}"))?;
+            Ok(collect_yara_matches(scan_results, match_debug))
+        })
+    }
+
+    fn scan_file_cached<F>(
+        &self,
+        path: &str,
+        match_debug: MatchDebugLevel,
+        scan: F,
+    ) -> Result<Vec<YaraRuleMatch>>
+    where
+        F: FnOnce(&str) -> Result<Vec<YaraRuleMatch>>,
+    {
+        let identity_guard = fs::File::open(path).ok();
+        let identity = identity_guard
+            .as_ref()
+            .and_then(file_identity::from_file)
+            .map(|file| YaraFileIdentity { file, match_debug });
         if let Some(identity) = identity.as_ref() {
             if let Ok(mut cache) = self.cache.lock() {
                 if let Some(cached_matches) = cache.get(identity) {
-                    tracing::trace!(
-                        target: "scanner",
-                        file = %path,
-                        matches = cached_matches.len(),
-                        "YARA cache hit"
-                    );
-                    return Ok(cached_matches);
+                    if let Some(identity_guard) = identity_guard.as_ref() {
+                        if file_identity::unchanged(identity_guard, Path::new(path), &identity.file)
+                        {
+                            tracing::trace!(
+                                target: "scanner",
+                                file = %path,
+                                matches = cached_matches.len(),
+                                "YARA cache hit"
+                            );
+                            return Ok(cached_matches);
+                        }
+                    }
                 }
             }
         }
 
-        let mut scanner = XScanner::new(&self.rules);
-        let scan_results = scanner
-            .scan_file(path)
-            .with_context(|| format!("YARA scan failed for {path}"))?;
-        let matches = collect_yara_matches(scan_results, match_debug);
+        let matches = scan(path)?;
 
-        if let Some(identity) = identity {
-            if let Ok(mut cache) = self.cache.lock() {
-                cache.insert(identity, matches.clone());
+        if let (Some(identity), Some(identity_guard)) = (identity, identity_guard) {
+            if file_identity::unchanged(&identity_guard, Path::new(path), &identity.file) {
+                if let Ok(mut cache) = self.cache.lock() {
+                    cache.insert(identity, matches.clone());
+                }
             }
         }
 
@@ -556,6 +561,11 @@ fn capture_process_identity(
 mod tests {
     use super::*;
 
+    fn test_file_identity() -> FileIdentity {
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        file_identity::from_file(file.as_file()).expect("stable file identity")
+    }
+
     #[test]
     fn test_scanner_creation() {
         // Test that we can create a scanner even with an empty/missing directory
@@ -634,9 +644,7 @@ mod tests {
             ttl_secs: 60,
         };
         let identity = YaraFileIdentity {
-            path: r"c:\temp\sample.exe".to_string(),
-            size: 1337,
-            mtime_nanos: 42,
+            file: test_file_identity(),
             match_debug: MatchDebugLevel::Off,
         };
         let expected = vec![YaraRuleMatch {
@@ -663,19 +671,139 @@ mod tests {
             ttl_secs: 60,
         };
         let identity = YaraFileIdentity {
-            path: r"c:\temp\sample.exe".to_string(),
-            size: 1337,
-            mtime_nanos: 42,
+            file: test_file_identity(),
             match_debug: MatchDebugLevel::Off,
         };
         let updated = YaraFileIdentity {
-            path: r"c:\temp\sample.exe".to_string(),
-            size: 2048,
-            mtime_nanos: 43,
+            file: test_file_identity(),
             match_debug: MatchDebugLevel::Off,
         };
 
         cache.insert(identity, Vec::new());
         assert!(cache.get(&updated).is_none());
+    }
+
+    #[test]
+    fn test_yara_scan_cache_hits_for_unchanged_file() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"clean!").expect("write sample");
+        let scanner = Scanner::empty();
+
+        scanner
+            .scan_file_cached(path.to_str().unwrap(), MatchDebugLevel::Off, |_| {
+                Ok(Vec::new())
+            })
+            .expect("initial scan");
+        scanner
+            .scan_file_cached(path.to_str().unwrap(), MatchDebugLevel::Off, |_| {
+                panic!("unchanged file should use cached result")
+            })
+            .expect("cached scan");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_yara_scan_cache_misses_after_same_metadata_replacement() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"clean!").expect("write sample");
+        let original_mtime = fs::metadata(&path)
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+        let scanner = Scanner::empty();
+
+        scanner
+            .scan_file_cached(path.to_str().unwrap(), MatchDebugLevel::Off, |_| {
+                Ok(Vec::new())
+            })
+            .expect("initial scan");
+
+        let replacement = tempdir.path().join("replacement.bin");
+        fs::write(&replacement, b"evil!!").expect("write replacement");
+        fs::File::options()
+            .write(true)
+            .open(&replacement)
+            .expect("open replacement")
+            .set_times(fs::FileTimes::new().set_modified(original_mtime))
+            .expect("preserve mtime");
+        fs::rename(&replacement, &path).expect("replace sample");
+
+        let matches = scanner
+            .scan_file_cached(path.to_str().unwrap(), MatchDebugLevel::Off, |_| {
+                Ok(vec![YaraRuleMatch {
+                    rule: "Malicious".to_string(),
+                    metadata_id: None,
+                    tags: Vec::new(),
+                    namespace: None,
+                    strings: Vec::new(),
+                }])
+            })
+            .expect("replacement scan");
+        assert_eq!(matches[0].rule, "Malicious");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_yara_scan_detects_same_metadata_replacement() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let rules_dir = tempdir.path().join("rules");
+        fs::create_dir(&rules_dir).expect("create rules directory");
+        fs::write(
+            rules_dir.join("malicious.yar"),
+            r#"rule Malicious { strings: $marker = "evil!!" condition: $marker }"#,
+        )
+        .expect("write rule");
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"clean!").expect("write clean sample");
+        let original_mtime = fs::metadata(&path)
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+        let scanner = Scanner::new(&rules_dir).expect("compile scanner");
+
+        assert!(scanner
+            .scan_file(path.to_str().unwrap(), MatchDebugLevel::Off)
+            .expect("scan clean sample")
+            .is_empty());
+
+        let replacement = tempdir.path().join("replacement.bin");
+        fs::write(&replacement, b"evil!!").expect("write malicious replacement");
+        fs::File::options()
+            .write(true)
+            .open(&replacement)
+            .expect("open replacement")
+            .set_times(fs::FileTimes::new().set_modified(original_mtime))
+            .expect("preserve mtime");
+        fs::rename(&replacement, &path).expect("replace sample");
+
+        let matches = scanner
+            .scan_file(path.to_str().unwrap(), MatchDebugLevel::Off)
+            .expect("scan malicious replacement");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].rule, "Malicious");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_yara_scan_does_not_cache_file_changed_during_scan() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"clean!").expect("write sample");
+        let scanner = Scanner::empty();
+
+        scanner
+            .scan_file_cached(
+                path.to_str().unwrap(),
+                MatchDebugLevel::Off,
+                |scanned_path| {
+                    fs::write(scanned_path, b"evil!!").expect("mutate during scan");
+                    Ok(Vec::new())
+                },
+            )
+            .expect("scan mutated file");
+
+        assert!(scanner.cache.lock().unwrap().entries.is_empty());
     }
 }
