@@ -14,7 +14,29 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-const WORKER_DEBUG_LOG_WINDOW_SECS: u64 = 30;
+const WORKER_LOG_WINDOW_SECS: u64 = 30;
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct YaraScanCounters {
+    failed: u64,
+    skipped: u64,
+    clean: u64,
+    matched: u64,
+}
+
+impl YaraScanCounters {
+    fn record_result<T, E>(&mut self, result: &Result<Vec<T>, E>) {
+        match result {
+            Ok(matches) if matches.is_empty() => self.clean += 1,
+            Ok(_) => self.matched += 1,
+            Err(_) => self.failed += 1,
+        }
+    }
+
+    fn record_skip(&mut self) {
+        self.skipped += 1;
+    }
+}
 
 pub fn build_yara_match_details(
     match_debug: MatchDebugLevel,
@@ -200,10 +222,12 @@ pub fn spawn_yara_file_worker(
             "YARA worker thread started and waiting for files to scan"
         );
         let mut scan_error_limiter =
-            LogRateLimiter::new(Duration::from_secs(WORKER_DEBUG_LOG_WINDOW_SECS));
+            LogRateLimiter::new(Duration::from_secs(WORKER_LOG_WINDOW_SECS));
+        let mut counters = YaraScanCounters::default();
 
         while let Some((path, pid)) = rx.blocking_recv() {
             if scanner::is_path_allowlisted(&path, &allowlist_paths) {
+                counters.record_skip();
                 tracing::trace!(
                     target: "scanner",
                     pid = pid,
@@ -221,7 +245,9 @@ pub fn spawn_yara_file_worker(
             );
 
             let scanner = detectors.yara();
-            match scanner.scan_file(&path, match_debug) {
+            let scan_result = scanner.scan_file(&path, match_debug);
+            counters.record_result(&scan_result);
+            match scan_result {
                 Ok(matches) => {
                     if !matches.is_empty() {
                         let rule_names: Vec<String> =
@@ -259,12 +285,13 @@ pub fn spawn_yara_file_worker(
                 Err(err) => {
                     let decision = scan_error_limiter.should_emit("scan_error");
                     if decision.should_emit {
-                        debug!(
+                        warn!(
                             target: "scanner",
                             pid = pid,
                             file = %path,
                             error = %err,
                             suppressed = decision.suppressed_since_last_emit,
+                            failed_scans_total = counters.failed,
                             "YARA worker scan failure"
                         );
                     }
@@ -272,7 +299,14 @@ pub fn spawn_yara_file_worker(
             }
         }
 
-        info!(target: "scanner", "YARA worker thread shutting down");
+        info!(
+            target: "scanner",
+            failed_scans_total = counters.failed,
+            skipped_scans_total = counters.skipped,
+            clean_scans_total = counters.clean,
+            matched_scans_total = counters.matched,
+            "YARA worker thread shutting down"
+        );
     })
 }
 
@@ -289,9 +323,13 @@ pub fn spawn_yara_memory_worker(
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         info!(target: "scanner", "YARA memory worker started");
+        let mut scan_error_limiter =
+            LogRateLimiter::new(Duration::from_secs(WORKER_LOG_WINDOW_SECS));
+        let mut counters = YaraScanCounters::default();
         while let Some(job) = rx.blocking_recv() {
             std::thread::sleep(Duration::from_millis(cfg.delay_ms));
             if let Err(reason) = validate_process_identity(&job.expected_identity) {
+                counters.record_skip();
                 debug!(
                     target: "scanner",
                     pid = job.expected_identity.pid,
@@ -305,28 +343,41 @@ pub fn spawn_yara_memory_worker(
             let chunks = match memory::read_process_memory_chunks(job.expected_identity.pid, &cfg) {
                 Ok(chunks) => chunks,
                 Err(err) => {
-                    tracing::trace!(
-                        target: "scanner",
-                        pid = job.expected_identity.pid,
-                        image = %job.expected_identity.image,
-                        error = %err,
-                        "YARA memory scan skipped"
-                    );
+                    counters.failed += 1;
+                    let decision = scan_error_limiter.should_emit("memory_read_error");
+                    if decision.should_emit {
+                        warn!(
+                            target: "scanner",
+                            pid = job.expected_identity.pid,
+                            image = %job.expected_identity.image,
+                            error = %err,
+                            suppressed = decision.suppressed_since_last_emit,
+                            failed_scans_total = counters.failed,
+                            "YARA memory read failure"
+                        );
+                    }
                     continue;
                 }
             };
 
             let scanner = detectors.yara();
             for chunk in &chunks {
-                let matches = match scanner.scan_bytes(&chunk.bytes, match_debug) {
+                let scan_result = scanner.scan_bytes(&chunk.bytes, match_debug);
+                counters.record_result(&scan_result);
+                let matches = match scan_result {
                     Ok(matches) => matches,
                     Err(err) => {
-                        tracing::trace!(
-                            target: "scanner",
-                            pid = job.expected_identity.pid,
-                            error = %err,
-                            "YARA memory chunk scan failed"
-                        );
+                        let decision = scan_error_limiter.should_emit("memory_scan_error");
+                        if decision.should_emit {
+                            warn!(
+                                target: "scanner",
+                                pid = job.expected_identity.pid,
+                                error = %err,
+                                suppressed = decision.suppressed_since_last_emit,
+                                failed_scans_total = counters.failed,
+                                "YARA memory chunk scan failure"
+                            );
+                        }
                         continue;
                     }
                 };
@@ -360,6 +411,37 @@ pub fn spawn_yara_memory_worker(
             }
         }
 
-        info!(target: "scanner", "YARA memory worker shutting down");
+        info!(
+            target: "scanner",
+            failed_scans_total = counters.failed,
+            skipped_scans_total = counters.skipped,
+            clean_scans_total = counters.clean,
+            matched_scans_total = counters.matched,
+            "YARA memory worker shutting down"
+        );
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::YaraScanCounters;
+
+    #[test]
+    fn yara_scan_counters_distinguish_every_outcome() {
+        let mut counters = YaraScanCounters::default();
+        counters.record_skip();
+        counters.record_result(&Ok::<Vec<u8>, &str>(Vec::new()));
+        counters.record_result(&Ok::<Vec<u8>, &str>(vec![1]));
+        counters.record_result(&Err::<Vec<u8>, &str>("scan failed"));
+
+        assert_eq!(
+            counters,
+            YaraScanCounters {
+                failed: 1,
+                skipped: 1,
+                clean: 1,
+                matched: 1,
+            }
+        );
+    }
 }

@@ -338,31 +338,15 @@ impl Scanner {
             }
         }
 
-        let mut matches = Vec::new();
-        let mut scan_ok = false;
         let mut scanner = XScanner::new(&self.rules);
+        let scan_results = scanner
+            .scan_file(path)
+            .with_context(|| format!("YARA scan failed for {path}"))?;
+        let matches = collect_yara_matches(scan_results, match_debug);
 
-        match scanner.scan_file(path) {
-            Ok(scan_results) => {
-                scan_ok = true;
-                matches = collect_yara_matches(scan_results, match_debug);
-            }
-            Err(e) => {
-                // File locking issues are common in EDR; keep these at trace to avoid debug spam.
-                tracing::trace!(
-                    target: "scanner",
-                    file = %path,
-                    error = %e,
-                    "Skipping YARA scan"
-                );
-            }
-        }
-
-        if scan_ok {
-            if let Some(identity) = identity {
-                if let Ok(mut cache) = self.cache.lock() {
-                    cache.insert(identity, matches.clone());
-                }
+        if let Some(identity) = identity {
+            if let Ok(mut cache) = self.cache.lock() {
+                cache.insert(identity, matches.clone());
             }
         }
 
@@ -380,17 +364,8 @@ impl Scanner {
         }
 
         let mut scanner = XScanner::new(&self.rules);
-        match scanner.scan(data) {
-            Ok(scan_results) => Ok(collect_yara_matches(scan_results, match_debug)),
-            Err(err) => {
-                tracing::trace!(
-                    target: "scanner",
-                    error = %err,
-                    "Skipping YARA memory chunk"
-                );
-                Ok(Vec::new())
-            }
-        }
+        let scan_results = scanner.scan(data).context("YARA memory scan failed")?;
+        Ok(collect_yara_matches(scan_results, match_debug))
     }
 }
 
