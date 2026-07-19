@@ -79,7 +79,7 @@ async fn run_macos_edr(
     log_startup_banner("macOS ESF");
 
     // 3. Shared state
-    let process_cache = Arc::new(ProcessCache::new());
+    let process_cache = Arc::new(ProcessCache::with_max_entries(cfg.process.max_entries));
     let sid_cache = Arc::new(SidCache::new()); // no-op on macOS; kept for Normalizer compat
     let dns_cache = Arc::new(DnsCache::new());
     let connection_aggregator = Arc::new(ConnectionAggregator::with_limits_and_window(
