@@ -176,6 +176,59 @@ fn distinct_rules_tracked_and_flushed_independently() {
 }
 
 #[test]
+fn distinct_process_subjects_keep_independent_rollups() {
+    let dir = tempfile::tempdir().expect("tmpdir");
+    let out = dir.path().join("alerts.ndjson");
+    let (sink, dedup, _guard) = setup(&out, 60);
+
+    let mut a = make_alert("Suspicious Curl", "/usr/bin/curl");
+    let mut b = a.clone();
+    if let EventFields::ProcessCreation(fields) = &mut a.event.fields {
+        fields.command_line = Some("curl https://first.example".to_string());
+        fields.process_id = Some("101".to_string());
+    }
+    if let EventFields::ProcessCreation(fields) = &mut b.event.fields {
+        fields.command_line = Some("curl https://second.example".to_string());
+        fields.process_id = Some("202".to_string());
+    }
+
+    sink.write_alert(&a);
+    sink.write_alert(&a);
+    sink.write_alert(&b);
+    sink.write_alert(&b);
+    dedup.flush_all(&sink);
+
+    drop(sink);
+    drop(_guard);
+
+    let lines = read_json_lines(&out);
+    assert_eq!(
+        lines.len(),
+        4,
+        "each subject must emit live and rollup alerts"
+    );
+
+    let mut rollup_subjects: Vec<(&str, u64)> = lines
+        .iter()
+        .filter_map(|line| {
+            Some((
+                line.get("process.command_line")?.as_str()?,
+                line.get("event.count")?.as_u64()?,
+            ))
+        })
+        .collect();
+    rollup_subjects.sort_unstable();
+    assert_eq!(
+        rollup_subjects,
+        vec![
+            ("curl https://first.example", 2),
+            ("curl https://second.example", 2),
+        ],
+        "each rollup must retain the subject of its suppressed event"
+    );
+}
+
+#[test]
 fn no_rollup_for_alerts_that_occurred_only_once() {
     let dir = tempfile::tempdir().expect("tmpdir");
     let out = dir.path().join("alerts.ndjson");
