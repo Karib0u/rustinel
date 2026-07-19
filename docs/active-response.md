@@ -125,6 +125,10 @@ rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
 
 ### Sigma Demo
 
+The bundled `whoami` rules verify Sigma detection and the response safety path.
+The system `whoami` executable is inside the default trusted path allowlist, so
+the expected response log is `Active response skipped: allowlisted`.
+
 Windows:
 
 ```powershell
@@ -137,4 +141,5 @@ Linux:
 whoami
 ```
 
-These are safe ways to validate the alert-to-response pipeline with the bundled demo rules before introducing custom high-severity content.
+Use the YARA demo above, or another long-running executable outside the trusted
+path allowlist, when validating dry-run or process termination behavior.

@@ -29,7 +29,7 @@ Field rendering varies by logger, but the message text is representative:
 9:00 PM INFO  rustinel: Loading Sigma rules
 9:00:01 PM INFO  rustinel: YARA scanner initialized
 9:00:05 PM INFO  engine: Sigma detection triggered
-9:00:05 PM INFO  response: Active response would terminate process pid=4242 image="/usr/bin/whoami" dry_run=true
+9:00:05 PM INFO  response: Active response would terminate process pid=4242 image="/tmp/test-process" dry_run=true
 ```
 
 ## Security Alerts
