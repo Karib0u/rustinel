@@ -151,6 +151,47 @@ fn yara_disk_scan_matches_marker_and_rejects_clean_temp_file() {
 }
 
 #[test]
+fn yara_disk_scan_reports_missing_file_as_failure() {
+    let fixture = YaraFixture::new();
+    let scanner = load_scanner(&fixture);
+    let missing = fixture.sample_dir().join("missing.bin");
+
+    let result = scanner.scan_file(&missing.to_string_lossy(), MatchDebugLevel::Off);
+
+    let error = result.expect_err("missing file must not be reported as a clean scan");
+    assert!(
+        error.to_string().contains("YARA scan failed"),
+        "failure should retain scan context: {error:#}"
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn yara_disk_scan_reports_unreadable_file_as_failure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+
+    let fixture = YaraFixture::new();
+    let scanner = load_scanner(&fixture);
+    let unreadable = fixture.write_clean_sample();
+    let original_permissions = std::fs::metadata(&unreadable)
+        .expect("read sample metadata")
+        .permissions();
+    let mut unreadable_permissions = original_permissions.clone();
+    unreadable_permissions.set_mode(0o000);
+    std::fs::set_permissions(&unreadable, unreadable_permissions).expect("make sample unreadable");
+
+    let result = scanner.scan_file(&unreadable.to_string_lossy(), MatchDebugLevel::Off);
+
+    std::fs::set_permissions(&unreadable, original_permissions)
+        .expect("restore sample permissions");
+    result.expect_err("unreadable file must not be reported as a clean scan");
+}
+
+#[test]
 fn yara_disk_scan_full_debug_includes_string_offsets_for_temp_file() {
     let fixture = YaraFixture::new();
     let scanner = load_scanner(&fixture);
