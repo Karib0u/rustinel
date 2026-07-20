@@ -10,6 +10,8 @@ pub(crate) mod dns;
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(any(windows, test))]
+mod network_events;
 #[cfg(windows)]
 pub mod windows;
 

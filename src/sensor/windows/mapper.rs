@@ -29,17 +29,11 @@ fn action_code_for_record(
 ) -> u8 {
     match category {
         EventCategory::Process | EventCategory::ImageLoad => record.opcode(),
-        EventCategory::Network => match record.event_id() {
-            12 => 12,
-            13 => 13,
-            14 => 14,
-            id if id >= 15 => 15,
-            _ => match action {
-                SensorAction::Disconnect => 13,
-                SensorAction::Accept => 14,
-                SensorAction::Connect => 12,
-                _ => 0,
-            },
+        EventCategory::Network => match action {
+            SensorAction::Connect => 12,
+            SensorAction::Disconnect => 13,
+            SensorAction::Accept => 15,
+            _ => 0,
         },
         // The manifest-based Kernel-File provider emits events with opcode 0,
         // so the action code comes from the routed action, not the opcode.
