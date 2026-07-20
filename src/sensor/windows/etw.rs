@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,6 +17,9 @@ use crate::models::{
     DnsQueryFields, EventCategory, FileEventFields, ImageLoadFields, NetworkConnectionFields,
     PowerShellScriptFields, ProcessCreationFields, RegistryEventFields, ServiceCreationFields,
     TaskCreationFields, WmiEventFields,
+};
+use crate::sensor::network_events::{
+    classify_kernel_network_event, decode_etw_ipv4, decode_etw_port, NetworkAddressFamily,
 };
 use crate::sensor::{Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorPayload};
 use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line};
@@ -237,14 +240,9 @@ impl EtwRouting {
 
         let category = *self.guid_to_category.get(&provider_guid)?;
         let action = match category {
-            EventCategory::Network => match record.event_id() {
-                10 | 11 => return None,
-                12 => SensorAction::Connect,
-                13 => SensorAction::Disconnect,
-                14 => SensorAction::Accept,
-                id if id >= 15 => SensorAction::Connect,
-                _ => return None,
-            },
+            EventCategory::Network => {
+                classify_kernel_network_event(record.event_id())?.connection_action()?
+            }
             EventCategory::File => kernel_file_action(record.event_id()),
             EventCategory::Registry => match record.opcode() {
                 36 => SensorAction::Create,
@@ -582,21 +580,17 @@ fn decode_registry(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEv
 
 fn decode_network(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::network_connection_mappings();
-    let transport = match record.event_id() {
-        12..=14 => Some("tcp".to_string()),
-        id if id >= 15 => Some("udp".to_string()),
-        _ => None,
-    };
+    let route = classify_kernel_network_event(record.event_id())?;
 
     let fields = NetworkConnectionFields {
-        destination_ip: try_get_ip(parser, "daddr")
-            .or_else(|| try_get_ip(parser, "DestinationAddress"))
-            .or_else(|| try_get_ip(parser, "RemoteAddress"))
-            .or_else(|| try_get_ip(parser, "dstaddr")),
-        source_ip: try_get_ip(parser, "saddr")
-            .or_else(|| try_get_ip(parser, "SourceAddress"))
-            .or_else(|| try_get_ip(parser, "LocalAddress"))
-            .or_else(|| try_get_ip(parser, "srcaddr")),
+        destination_ip: try_get_ip(parser, "daddr", route.address_family)
+            .or_else(|| try_get_ip(parser, "DestinationAddress", route.address_family))
+            .or_else(|| try_get_ip(parser, "RemoteAddress", route.address_family))
+            .or_else(|| try_get_ip(parser, "dstaddr", route.address_family)),
+        source_ip: try_get_ip(parser, "saddr", route.address_family)
+            .or_else(|| try_get_ip(parser, "SourceAddress", route.address_family))
+            .or_else(|| try_get_ip(parser, "LocalAddress", route.address_family))
+            .or_else(|| try_get_ip(parser, "srcaddr", route.address_family)),
         destination_port: try_get_port(parser, "dport")
             .or_else(|| try_get_port(parser, "DestinationPort"))
             .or_else(|| try_get_port(parser, "RemotePort"))
@@ -614,7 +608,7 @@ fn decode_network(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEve
             parser,
             mappings.get_etw_field("DestinationHostname")?,
         ),
-        protocol: transport,
+        protocol: Some(route.protocol.as_str().to_string()),
     };
 
     Some(DecodedEtwEvent {
@@ -828,21 +822,35 @@ fn try_get_uint_as_u64(parser: &Parser, property_name: &str) -> Option<u64> {
 
 fn try_get_port(parser: &Parser, property_name: &str) -> Option<String> {
     if let Ok(value) = parser.try_parse::<u16>(property_name) {
-        return Some(u16::from_be(value).to_string());
+        return Some(decode_etw_port(value).to_string());
     }
     if let Ok(value) = parser.try_parse::<u32>(property_name) {
-        return Some(u16::from_be(value as u16).to_string());
+        return Some(decode_etw_port(value as u16).to_string());
     }
     None
 }
 
-fn try_get_ip(parser: &Parser, property_name: &str) -> Option<String> {
-    if let Ok(ip) = parser.try_parse::<IpAddr>(property_name) {
-        return Some(ip.to_string());
-    }
-    if let Ok(addr) = parser.try_parse::<u32>(property_name) {
-        let ipv4 = Ipv4Addr::from(addr.to_be_bytes());
-        return Some(ipv4.to_string());
+fn try_get_ip(
+    parser: &Parser,
+    property_name: &str,
+    address_family: NetworkAddressFamily,
+) -> Option<String> {
+    match address_family {
+        NetworkAddressFamily::Ipv4 => {
+            if let Ok(addr) = parser.try_parse::<u32>(property_name) {
+                return Some(decode_etw_ipv4(addr).to_string());
+            }
+        }
+        NetworkAddressFamily::Ipv6 => {
+            if let Ok(IpAddr::V6(addr)) = parser.try_parse::<IpAddr>(property_name) {
+                return Some(addr.to_string());
+            }
+        }
+        NetworkAddressFamily::Unspecified => {
+            if let Ok(ip) = parser.try_parse::<IpAddr>(property_name) {
+                return Some(ip.to_string());
+            }
+        }
     }
     try_get_string(parser, property_name)
 }
