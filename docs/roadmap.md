@@ -1,53 +1,90 @@
 # Roadmap
 
-This page summarizes the active GitHub backlog. Priorities may change, and an
-open issue is not a release commitment. Follow the linked issue for current
-scope, discussion, and acceptance criteria.
+This roadmap describes the direction of Rustinel development and groups the
+current GitHub backlog into planned release themes. It is a living document:
+the linked issues contain the current scope, discussion, and acceptance
+criteria, and release contents may change as the work progresses.
 
-## Immediate Correctness
+## v1.3.0: Stability and platform support
 
-- [#164: stop connection aggregation from permanently suppressing detection](https://github.com/Karib0u/rustinel/issues/164)
-- [#35: revalidate process identity before YARA memory scans](https://github.com/Karib0u/rustinel/issues/35)
-- [#32: capture `sendmsg` and `sendmmsg` DNS queries on Linux](https://github.com/Karib0u/rustinel/issues/32)
+The v1.3.0 release focuses on stability across process, network, YARA, and
+configuration handling on supported platforms. It includes improvements to:
 
-## Telemetry Fidelity
+- process cache bounds and process identity validation before memory scans
+- YARA and hash cache handling when files are replaced
+- reporting YARA scan failures separately from clean results
+- Windows network routing and network aggregation
+- Linux DNS capture through `sendmsg` and `sendmmsg`
+- alert and log file permissions
+- process and network configuration
 
-- [#166: route Windows Kernel-Network events by operation and protocol](https://github.com/Karib0u/rustinel/issues/166)
-- [#168: preserve absolute Linux file paths and report truncation](https://github.com/Karib0u/rustinel/issues/168)
-- [#142: capture Linux process arguments in the kernel](https://github.com/Karib0u/rustinel/issues/142)
-- [#140: add telemetry drop counters and backpressure visibility](https://github.com/Karib0u/rustinel/issues/140)
-- [#141: report rules that have no active backing collector](https://github.com/Karib0u/rustinel/issues/141)
+## v1.3.1: Detection correctness
 
-## Detection Reliability
+This patch release addresses focused correctness gaps in rule evaluation,
+severity handling, deduplication, and configuration test isolation.
 
-- [#165: prevent distinct event subjects from sharing a deduplication key](https://github.com/Karib0u/rustinel/issues/165)
-- [#160: correct deduplication rollup counts](https://github.com/Karib0u/rustinel/issues/160)
-- [#170: align deduplication window behavior with its documented semantics](https://github.com/Karib0u/rustinel/issues/170)
-- [#167: harden YARA and IOC caches against file replacement](https://github.com/Karib0u/rustinel/issues/167)
-- [#169: distinguish YARA scan failures from clean results](https://github.com/Karib0u/rustinel/issues/169)
-- [#161: close the Unicode case-insensitive Sigma matching gap](https://github.com/Karib0u/rustinel/issues/161)
-- [#162: add YARA scan timeouts and file-size limits](https://github.com/Karib0u/rustinel/issues/162)
+| Issue | Focus |
+|---|---|
+| [#179: report unsupported RSigma correlations and filters](https://github.com/Karib0u/rustinel/issues/179) | Report correlations and filters that RSigma parses but the runtime silently ignores. |
+| [#183: prevent low-severity rules from hiding higher-severity matches](https://github.com/Karib0u/rustinel/issues/183) | Ensure low-severity rules cannot hide higher-severity matches. |
+| [#160: correct event.count over-counting](https://github.com/Karib0u/rustinel/issues/160) | Correct `event.count` over-counting in deduplication rollups. |
+| [#171: isolate configuration tests from managed host state](https://github.com/Karib0u/rustinel/issues/171) | Keep configuration tests independent from real managed host configuration. |
 
-## Engineering Quality
+## v1.4.0: Telemetry and detection model improvements
 
-- [#159: bound the process cache](https://github.com/Karib0u/rustinel/issues/159)
-- [#163: restrict alert and log file permissions](https://github.com/Karib0u/rustinel/issues/163)
-- [#135: add a SigmaHQ corpus smoke test in CI](https://github.com/Karib0u/rustinel/issues/135)
-- [#136: expand direct matcher edge-case tests](https://github.com/Karib0u/rustinel/issues/136)
-- [#137: cover alert construction and field-mapping degradation](https://github.com/Karib0u/rustinel/issues/137)
-- [#138: migrate away from unmaintained `serde_yaml`](https://github.com/Karib0u/rustinel/issues/138)
-- [#139: avoid AGPL `evalexpr` releases](https://github.com/Karib0u/rustinel/issues/139)
-- [#171: isolate configuration tests from managed host state](https://github.com/Karib0u/rustinel/issues/171)
+This release expands the telemetry available to rules and improves the safety,
+diagnostics, and compatibility of detection and alerting.
 
-## Longer-Term Direction
+| Issue | Focus |
+|---|---|
+| [#168: preserve absolute Linux file identity](https://github.com/Karib0u/rustinel/issues/168) | Preserve absolute Linux file identity and explicitly report truncated paths. |
+| [#162: add YARA scan timeouts and file-size controls](https://github.com/Karib0u/rustinel/issues/162) | Add YARA scan timeouts and maximum file-size controls. |
+| [#140: expose telemetry counters](https://github.com/Karib0u/rustinel/issues/140) | Expose received, dropped, and high-water telemetry counters. |
+| [#142: capture Linux argv in the kernel](https://github.com/Karib0u/rustinel/issues/142) | Capture Linux argv in the kernel for short-lived processes. |
+| [#161: define non-ASCII Sigma matching](https://github.com/Karib0u/rustinel/issues/161) | Fix or explicitly define non-ASCII case-insensitive Sigma matching. |
+| [#170: align deduplication window behavior](https://github.com/Karib0u/rustinel/issues/170) | Align deduplication window behavior with its documented semantics. |
+| [#141: report rules without backing collectors](https://github.com/Karib0u/rustinel/issues/141) | Report rules that cannot fire because no collector provides their telemetry. |
+| [#135: add a pinned SigmaHQ corpus smoke test](https://github.com/Karib0u/rustinel/issues/135) | Add a pinned SigmaHQ corpus smoke test. |
+| [#136: add backend-neutral Sigma edge-case coverage](https://github.com/Karib0u/rustinel/issues/136) | Add backend-neutral Sigma modifier and edge-case coverage. |
+| [#137: test alert construction and degradation](https://github.com/Karib0u/rustinel/issues/137) | Test alert construction and incomplete-event degradation behavior. |
+| [#182: preserve Sigma metadata and severity](https://github.com/Karib0u/rustinel/issues/182) | Preserve Sigma metadata, ATT&CK tags, references, and severity semantics. |
+| [#138: replace unmaintained serde_yaml](https://github.com/Karib0u/rustinel/issues/138) | Replace unmaintained `serde_yaml` after the corpus baseline exists. |
 
-- [#143: design correlation and temporal rule support](https://github.com/Karib0u/rustinel/issues/143)
-- [#145: replace macOS `/dev/bpf` capture with NetworkExtension](https://github.com/Karib0u/rustinel/issues/145)
-- [#146: expand Linux file telemetry](https://github.com/Karib0u/rustinel/issues/146)
-- [#147: add periodic YARA memory sweeps](https://github.com/Karib0u/rustinel/issues/147)
-- [#148: add Linux container context](https://github.com/Karib0u/rustinel/issues/148)
-- [#149: make RSigma the default backend and stage built-in removal](https://github.com/Karib0u/rustinel/issues/149)
-- [#111: add safe atomic rules pack updates](https://github.com/Karib0u/rustinel/issues/111)
+## v1.5.0: RSigma transition
+
+This release is intended to make RSigma the default evaluation backend while
+retaining the built-in backend as a documented fallback. The transition is
+covered by capability, debugging, documentation, and licensing work.
+
+| Issue | Focus |
+|---|---|
+| [#190: test RSigma runtime capabilities](https://github.com/Karib0u/rustinel/issues/190) | Test every advertised RSigma-specific capability through the runtime adapter. |
+| [#189: restore RSigma match-debug parity](https://github.com/Karib0u/rustinel/issues/189) | Restore RSigma match-debug parity with the built-in backend. |
+| [#191: reconcile Sigma capability documentation](https://github.com/Karib0u/rustinel/issues/191) | Reconcile parser, library, and runtime capability documentation. |
+| [#149: make RSigma the default backend](https://github.com/Karib0u/rustinel/issues/149) | Make RSigma the default while retaining a documented built-in fallback. |
+| [#139: resolve the evaluator licensing strategy](https://github.com/Karib0u/rustinel/issues/139) | Resolve or close the evaluator licensing strategy based on the built-in backend decision. |
+
+The built-in backend is expected to remain available throughout the v1.x
+series. Its removal, if it becomes appropriate, is reserved for a future
+major release.
+
+## Longer-term product and platform work
+
+The following work depends on the foundations above or requires additional
+platform design. These items remain part of the active backlog without a
+committed release target.
+
+| Issue | Focus |
+|---|---|
+| [#184: add per-rule compatibility diagnostics](https://github.com/Karib0u/rustinel/issues/184) | Build per-rule compatibility diagnostics after #141, #179, and #191. Split the epic first. |
+| [#146: expand Linux file telemetry](https://github.com/Karib0u/rustinel/issues/146) | Add chmod, chown, truncate, and link telemetry after #168. |
+| [#111: add atomic rules-pack updates](https://github.com/Karib0u/rustinel/issues/111) | Add safe atomic rules-pack updates and rollback. |
+| [#148: add Linux container and cgroup context](https://github.com/Karib0u/rustinel/issues/148) | Add container and cgroup context to Linux process events. |
+| [#147: evaluate periodic YARA memory sweeps](https://github.com/Karib0u/rustinel/issues/147) | Evaluate bounded periodic YARA memory sweeps after #162. |
+| [#143: design stateful Sigma correlation](https://github.com/Karib0u/rustinel/issues/143) | Design stateful Sigma correlation and temporal evaluation. |
+| [#195: add optional all-matches mode](https://github.com/Karib0u/rustinel/issues/195) | Add optional all-matches mode after #183 and the backend decision. |
+| [#151: evaluate cargo-nextest](https://github.com/Karib0u/rustinel/issues/151) | Adopt cargo-nextest only if CI measurements justify it. |
+| [#145: replace macOS BPF capture](https://github.com/Karib0u/rustinel/issues/145) | Replace macOS BPF capture only after resolving Apple entitlement and distribution requirements. |
 
 The complete backlog is available in
 [GitHub Issues](https://github.com/Karib0u/rustinel/issues).
