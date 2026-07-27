@@ -30,7 +30,7 @@ evalexpr = "11.3.1"
 # Optional RSigma library backend (enabled by the `rsigma-engine` feature):
 # parsing (rsigma-parser) and stateless evaluation (rsigma-eval).
 rsigma-parser = { version = "0.19", optional = true }
-rsigma-eval = { version = "0.18", optional = true }
+rsigma-eval = { version = "0.19", optional = true }
 
 # Network and encoding utilities for Sigma
 ipnetwork = "0.21.1"

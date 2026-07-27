@@ -24,6 +24,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
 dependencies = [
  "cfg-if",
+ "const-random",
  "getrandom 0.3.4",
  "once_cell",
  "version_check",
@@ -3071,9 +3072,9 @@ dependencies = [
 
 [[package]]
 name = "rsigma-eval"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce5f81538a985b5f1bfedc7f119551c2025c2b036331a28fc6ad295a14d190d5"
+checksum = "59b1d3e0932eafcc59d5ebe244a6f7237ae16064fd01f7961b785dc390dc5afb"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3083,29 +3084,11 @@ dependencies = [
  "ipnet",
  "log",
  "regex",
- "rsigma-parser 0.18.0",
+ "rsigma-parser",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "yaml_serde",
-]
-
-[[package]]
-name = "rsigma-parser"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c1b3e83f8d0252395e4ebe4296fac8ca4a94fb9fb7ba27790b54ec9837ae443"
-dependencies = [
- "globset",
- "log",
- "pest",
- "pest_derive",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "yaml_serde",
- "yamlpatch",
- "yamlpath",
 ]
 
 [[package]]
@@ -3195,7 +3178,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rsigma-eval",
- "rsigma-parser 0.19.0",
+ "rsigma-parser",
  "semver",
  "serde",
  "serde_json",
