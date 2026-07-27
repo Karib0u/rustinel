@@ -3083,7 +3083,7 @@ dependencies = [
  "ipnet",
  "log",
  "regex",
- "rsigma-parser",
+ "rsigma-parser 0.18.0",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3095,6 +3095,24 @@ name = "rsigma-parser"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c1b3e83f8d0252395e4ebe4296fac8ca4a94fb9fb7ba27790b54ec9837ae443"
+dependencies = [
+ "globset",
+ "log",
+ "pest",
+ "pest_derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "yaml_serde",
+ "yamlpatch",
+ "yamlpath",
+]
+
+[[package]]
+name = "rsigma-parser"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94fcf7a62b8e584dd3dd8435abfd11f1af6b4e33e0f9cc18150e01274f5e7eba"
 dependencies = [
  "globset",
  "log",
@@ -3177,7 +3195,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rsigma-eval",
- "rsigma-parser",
+ "rsigma-parser 0.19.0",
  "semver",
  "serde",
  "serde_json",
