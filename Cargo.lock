@@ -3072,9 +3072,9 @@ dependencies = [
 
 [[package]]
 name = "rsigma-eval"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59b1d3e0932eafcc59d5ebe244a6f7237ae16064fd01f7961b785dc390dc5afb"
+checksum = "ee77a2e8d23bd8bcc6b7512031b2d91bd9d7b72fa3bb1328090618a68f3d1184"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3084,6 +3084,21 @@ dependencies = [
  "ipnet",
  "log",
  "regex",
+ "rsigma-ir",
+ "rsigma-parser",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "yaml_serde",
+]
+
+[[package]]
+name = "rsigma-ir"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a484c9b1992f9a5f1b56a40556b98bf9c4005665f72528681fcfb5d3700550d6"
+dependencies = [
+ "ciborium",
  "rsigma-parser",
  "serde",
  "serde_json",
@@ -3093,9 +3108,9 @@ dependencies = [
 
 [[package]]
 name = "rsigma-parser"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94fcf7a62b8e584dd3dd8435abfd11f1af6b4e33e0f9cc18150e01274f5e7eba"
+checksum = "61cdf056039cc0bd824d8204ceec9f39211d61033d5fe272ebb8b94b404f6bf6"
 dependencies = [
  "globset",
  "log",
