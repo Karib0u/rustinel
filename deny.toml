@@ -2,7 +2,7 @@
 ignore = [
     { id = "RUSTSEC-2023-0071", reason = "rsa is pulled transitively by yara-x. No fixed rsa release is available, and rustinel does not use yara-x for attacker observable private key RSA operations." },
     { id = "RUSTSEC-2025-0141", reason = "bincode is pulled transitively by yara-x. This is tracked as an upstream maintenance advisory until yara-x removes or replaces it." },
-    { id = "RUSTSEC-2026-0222", reason = "yara-x creates a single Wasmtime engine, so the cross-engine type-index mix-up described by this advisory is not reachable. See https://github.com/VirusTotal/yara-x/issues/726." },
+  { id = "RUSTSEC-2026-0222", reason = "yara-x 1.19.0 creates a single Wasmtime engine, so the cross-engine type-index mix-up described by this advisory is not reachable. See https://github.com/VirusTotal/yara-x/issues/726." },
 ]
 
 [licenses]
