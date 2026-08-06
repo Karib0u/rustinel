@@ -47,6 +47,7 @@ diagnostics, and compatibility of detection and alerting.
 | [#135: add a pinned SigmaHQ corpus smoke test](https://github.com/Karib0u/rustinel/issues/135) | Add a pinned SigmaHQ corpus smoke test. |
 | [#136: add backend-neutral Sigma edge-case coverage](https://github.com/Karib0u/rustinel/issues/136) | Add backend-neutral Sigma modifier and edge-case coverage. |
 | [#137: test alert construction and degradation](https://github.com/Karib0u/rustinel/issues/137) | Test alert construction and incomplete-event degradation behavior. |
+| [#222: update alert output to ECS 9.5.0](https://github.com/Karib0u/rustinel/issues/222) | Move alert output to ECS 9.5.0 before the ECS model changes in #182. |
 | [#182: preserve Sigma metadata and severity](https://github.com/Karib0u/rustinel/issues/182) | Preserve Sigma metadata, ATT&CK tags, references, and severity semantics. |
 | [#138: replace unmaintained serde_yaml](https://github.com/Karib0u/rustinel/issues/138) | Replace unmaintained `serde_yaml` after the corpus baseline exists. |
 
@@ -67,6 +68,23 @@ covered by capability, debugging, documentation, and licensing work.
 The built-in backend is expected to remain available throughout the v1.x
 series. Its removal, if it becomes appropriate, is reserved for a future
 major release.
+
+## v1.6.0: Alert delivery and integration
+
+Rustinel currently emits alerts to a single rolling NDJSON file, so every
+integration has to discover the current file, poll it, and parse it. This
+release adds destinations beyond that file. Both items share one
+multi-destination sink abstraction: whichever lands first introduces it, and
+the NDJSON file remains the source of truth in either case.
+
+| Issue | Focus |
+|---|---|
+| [#221: add a generic webhook output sink](https://github.com/Karib0u/rustinel/issues/221) | Push ECS alerts to configurable HTTP endpoints with bounded queuing and retries. |
+| [#220: emit to native OS log sinks](https://github.com/Karib0u/rustinel/issues/220) | Route alerts and operational logs to the Windows Event Log, the systemd journal or syslog, and macOS unified logging. |
+
+The webhook sink is sequenced first: it is one implementation rather than
+three, it covers the integration use case that prompted both issues, and it
+exercises the sink abstraction that the native sinks then reuse.
 
 ## Longer-term product and platform work
 
