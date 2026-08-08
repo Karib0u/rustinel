@@ -123,15 +123,15 @@ See [Configuration](configuration.md).
 
 ### Does hot reload require a restart?
 
-No. If `reload.enabled = true`, Rustinel watches Sigma, YARA, and IOC directories/files for changes and reloads them automatically (falling back to a 60-second polling check if the watcher setup fails).
+No. If `reload.enabled = true`, Rustinel watches Sigma, YARA, and IOC directories/files, as well as the active configuration file itself, for changes and reloads them automatically (falling back to a 60-second polling check if the watcher setup fails).
 
 A restart is still useful when you change deployment layout, supervisor configuration, privileges, or the binary itself.
 
 ### What exactly hot reloads?
 
-Sigma, YARA, and configured IOC files reload automatically. Sigma is recursive;
+Sigma, YARA, configured IOC files, and active response configuration settings reload automatically. Sigma is recursive;
 YARA reads only the top-level configured directory. Invalid reloads keep the
-last valid detector active. See
+last valid detector/configuration active. See
 [Troubleshooting](troubleshooting.md#hot-reload-problems) for failure behavior.
 
 ### Do Sigma and YARA load subdirectories the same way?

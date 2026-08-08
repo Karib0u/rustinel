@@ -114,8 +114,8 @@ an empty `logs/` directory.
 
 Install a released pack with `rustinel rules install <PACK>`. Managed packs are
 activated atomically under the platform rules directory. Local edits to active
-Sigma, YARA, and IOC files are watched when `reload.enabled = true` (the
-default), with rapid changes grouped by `reload.debounce_ms`.
+Sigma, YARA, IOC files, and the agent's configuration file itself are watched when `reload.enabled = true` (the
+default), with rapid changes grouped by `reload.debounce_ms`. Config file changes trigger a hot-swap of the active response configuration dynamically.
 
 After editing a rule, check the operational log for a successful reload and
 trigger a known event. A rejected reload leaves the last valid in-memory rules
