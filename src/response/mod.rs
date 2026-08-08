@@ -8,9 +8,9 @@ use crate::models::{Alert, AlertSeverity, DetectionEngine, EventFields};
 use crate::utils::{
     hash_command_line, normalize_path_for_comparison, validate_process_identity, ProcessIdentity,
 };
+use arc_swap::ArcSwap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use arc_swap::ArcSwap;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -172,7 +172,6 @@ struct PreparedConfig {
     source: Arc<ResponseConfig>,
     enabled: bool,
     prevention_enabled: bool,
-    min_severity: AlertSeverity,
     allowlist_images: Vec<String>,
     allowlist_paths: Vec<String>,
 }
@@ -183,7 +182,6 @@ impl PreparedConfig {
             source: Arc::clone(raw),
             enabled: raw.enabled,
             prevention_enabled: raw.prevention_enabled,
-            min_severity: parse_min_severity(&raw.min_severity),
             allowlist_images: normalize_allowlist_images(&raw.allowlist_images),
             allowlist_paths: normalize_allowlist_paths(&raw.allowlist_paths),
         }
@@ -763,15 +761,17 @@ mod tests {
 
         tracing::subscriber::with_default(subscriber, || {
             rt.block_on(async {
-                let cfg = ResponseConfig {
-                    enabled: true,
-                    prevention_enabled: true,
-                    min_severity: "low".to_string(),
-                    channel_capacity: 4,
-                    allowlist_images: vec![],
-                    allowlist_paths: vec!["/usr/bin/".to_string()],
-                };
-                let (engine, worker) = ResponseEngine::new(&cfg);
+                let cfg = std::sync::Arc::new(arc_swap::ArcSwap::from(std::sync::Arc::new(
+                    ResponseConfig {
+                        enabled: true,
+                        prevention_enabled: true,
+                        min_severity: "low".to_string(),
+                        channel_capacity: 4,
+                        allowlist_images: vec![],
+                        allowlist_paths: vec!["/usr/bin/".to_string()],
+                    },
+                )));
+                let (engine, worker) = ResponseEngine::new(cfg);
 
                 engine.handle_alert(&test_process_alert(Some("4242"), Some("/usr/bin/sleep")));
                 drop(engine);

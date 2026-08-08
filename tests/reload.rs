@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use common::{dns_query_event, process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
-    config::{ReloadConfig, ScannerConfig, ResponseConfig},
+    config::{ReloadConfig, ResponseConfig, ScannerConfig},
     engine::{Engine, SigmaEngineKind},
     ioc::IocEngine,
     models::MatchDebugLevel,
@@ -293,7 +293,8 @@ async fn test_reload_poller_fallback_polling() {
 
     // Spawning the poller with a non-existent path will trigger the watcher failure
     // and cause it to fall back to the 100ms polling loop (in test configuration)
-    let handle = rustinel::reload::spawn_reload_poller(scanner_cfg, ioc_cfg, reload_cfg, None, reload_tx);
+    let handle =
+        rustinel::reload::spawn_reload_poller(scanner_cfg, ioc_cfg, reload_cfg, None, reload_tx);
 
     // Give it a moment to initialize and fail watcher setup
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -492,7 +493,8 @@ min_severity = "high"
     .unwrap();
 
     // Verify we can load it initially
-    let cfg = rustinel::config::AppConfig::from_config_path(Some(config_file_path.clone())).unwrap();
+    let cfg =
+        rustinel::config::AppConfig::from_config_path(Some(config_file_path.clone())).unwrap();
     assert!(!cfg.response.enabled);
     assert!(!cfg.response.prevention_enabled);
     assert_eq!(cfg.response.min_severity, "high");

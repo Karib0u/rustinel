@@ -413,7 +413,9 @@ impl AppConfig {
 
     pub fn resolve_config_path(config_path: Option<PathBuf>) -> Option<PathBuf> {
         let options = ConfigLoadOptions::from_runtime(config_path);
-        options.selected_config().map(|selected| absolute_config_path(selected.path))
+        options
+            .selected_config()
+            .map(|selected| absolute_config_path(selected.path))
     }
 
     pub fn from_options(options: ConfigLoadOptions) -> Result<Self, config::ConfigError> {
@@ -696,7 +698,8 @@ mod tests {
             managed_config: std::path::PathBuf::new(),
             exe_config: None,
             cwd_config: std::path::PathBuf::new(),
-        }).unwrap();
+        })
+        .unwrap();
         assert!(cfg.scanner.sigma_enabled);
         assert_eq!(cfg.logging.level, "info");
         assert!(cfg.logging.filter.is_none());
@@ -720,7 +723,8 @@ mod tests {
             managed_config: std::path::PathBuf::new(),
             exe_config: None,
             cwd_config: std::path::PathBuf::from("config.toml"),
-        }).unwrap();
+        })
+        .unwrap();
         let cwd = std::env::current_dir().expect("current dir");
         assert_eq!(cfg.scanner.sigma_rules_path, cwd.join("rules/sigma"));
         assert_eq!(cfg.scanner.yara_rules_path, cwd.join("rules/yara"));

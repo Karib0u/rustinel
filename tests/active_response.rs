@@ -86,7 +86,9 @@ fn response_config(
     }
 }
 
-fn shared_response_config(cfg: ResponseConfig) -> std::sync::Arc<arc_swap::ArcSwap<ResponseConfig>> {
+fn shared_response_config(
+    cfg: ResponseConfig,
+) -> std::sync::Arc<arc_swap::ArcSwap<ResponseConfig>> {
     std::sync::Arc::new(arc_swap::ArcSwap::from(std::sync::Arc::new(cfg)))
 }
 

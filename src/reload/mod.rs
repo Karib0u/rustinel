@@ -372,7 +372,8 @@ pub fn spawn_reload_poller(
                 if let Some(cfg_path) = &config_path {
                     let normalized = normalize_path(cfg_path);
                     if let Some(parent) = normalized.parent() {
-                        watch_targets.push((parent.to_path_buf(), notify::RecursiveMode::NonRecursive));
+                        watch_targets
+                            .push((parent.to_path_buf(), notify::RecursiveMode::NonRecursive));
                     }
                 }
 
