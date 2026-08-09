@@ -24,7 +24,10 @@ pub struct Alert {
 }
 
 /// Alert severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The variants are ordered from least to most severe, so the derived `Ord`
+/// ranks severities directly (`Low < Medium < High < Critical`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum AlertSeverity {
     Low,
     Medium,

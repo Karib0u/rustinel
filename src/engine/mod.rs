@@ -126,6 +126,58 @@ impl RuleLogicErrorLogLevel {
     }
 }
 
+/// Ranking key for the default one-Sigma-alert-per-event policy.
+///
+/// Several rules can match the same event, and Rustinel emits a single Sigma
+/// alert, so the backends must agree on which match wins. The policy is:
+///
+/// 1. Highest normalized severity (`critical > high > medium > low`).
+/// 2. On equal severity, rules carrying an `id` win over rules without one.
+/// 3. Then the lexicographically smallest rule id, and finally the smallest
+///    rule title, both compared as byte order.
+///
+/// The tie-breaker deliberately never consults rule load order or directory
+/// traversal order, so the emitted alert is identical no matter how the
+/// ruleset was loaded. The best match is the *smallest* `MatchRank`; a fully
+/// equal rank keeps the first candidate seen.
+///
+/// Emitting every matching rule is tracked separately by issue #195.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct MatchRank<'a> {
+    /// Reversed so that a higher severity yields a smaller rank.
+    severity: std::cmp::Reverse<AlertSeverity>,
+    /// `0` for rules with an id, `1` for rules without, then the id itself.
+    rule_id: (u8, &'a str),
+    rule_title: &'a str,
+}
+
+impl<'a> MatchRank<'a> {
+    pub(crate) fn new(
+        severity: AlertSeverity,
+        rule_id: Option<&'a str>,
+        rule_title: &'a str,
+    ) -> Self {
+        Self {
+            severity: std::cmp::Reverse(severity),
+            rule_id: match rule_id {
+                Some(id) => (0, id),
+                None => (1, ""),
+            },
+            rule_title,
+        }
+    }
+}
+
+/// Normalize a Sigma `level` string into an alert severity.
+pub(crate) fn severity_from_sigma_level(level: Option<&str>) -> AlertSeverity {
+    match level {
+        Some("critical") => AlertSeverity::Critical,
+        Some("high") => AlertSeverity::High,
+        Some("medium") => AlertSeverity::Medium,
+        _ => AlertSeverity::Low,
+    }
+}
+
 const MAX_SIGMA_MATCHES: usize = 16;
 const MAX_SIGMA_KEYWORD_MATCHES: usize = 8;
 const MAX_MATCH_VALUE_LEN: usize = 160;

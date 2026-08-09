@@ -12,7 +12,7 @@ All detection hits are written as ECS NDJSON alerts. The same alerts can also fe
 
 | Detector | Input | Execution path | Alert behavior |
 | --- | --- | --- | --- |
-| Sigma | Every normalized event | Inline in `SigmaDetectionHandler` | At most one Sigma alert per event |
+| Sigma | Every normalized event | Inline in `SigmaDetectionHandler` | At most one Sigma alert per event, see [Match Selection](#match-selection) |
 | YARA | Process-start executable path | Background worker via `YaraEventHandler` | One alert per matching YARA rule |
 | IOC domains / IPs / paths | Every normalized event | Inline in `SigmaDetectionHandler` | Zero or more alerts per event |
 | IOC hashes | Process-start executable path | Background worker | Zero or more alerts per file |
@@ -78,6 +78,26 @@ Array matching and `sigma-version` are proposed Sigma Enhancement Proposals ([SE
 - Known Linux service families that are not implemented yet are marked as deferred instead of unknown.
 - Unknown logsource shapes are skipped.
 - Known but inactive collectors can still load for compatibility, but they will not match until the sensor emits that telemetry family.
+
+### Match Selection
+
+Rustinel emits at most one Sigma alert per event. When several rules match the
+same event, both backends apply the same selection policy:
+
+1. The highest normalized severity wins: `critical` > `high` > `medium` > `low`.
+   Rules without a `level`, or with a level outside that set, normalize to `low`.
+2. On equal severity, a rule carrying an `id` wins over one without.
+3. Then the lexicographically smallest rule `id` wins, and finally the smallest
+   `title`.
+
+A broad low-severity rule therefore cannot shadow a more specific critical rule.
+The tie-breaker never consults rule load order or directory traversal order, so
+the emitted alert is the same whichever order the ruleset was loaded in.
+
+Selecting the best match means every candidate rule for the event's logsources
+is evaluated rather than stopping at the first hit. Reporting every matching
+rule instead of one is tracked separately by
+[issue #195](https://github.com/Karib0u/rustinel/issues/195).
 
 ### Supported Logsource Families
 
