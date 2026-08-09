@@ -345,11 +345,17 @@ impl Engine {
 
     /// Check an event against loaded rules with the built-in matcher.
     /// OPTIMIZED: Uses zero-copy field access instead of HashMap creation
+    ///
+    /// Every candidate rule is evaluated and the winner is chosen by
+    /// [`MatchRank`], so a broad low-severity rule can never shadow a more
+    /// specific high-severity one.
     pub(crate) fn check_event_builtin(&self, event: &NormalizedEvent) -> Option<Alert> {
         let candidate_logsources = Self::sigma_logsources_for_event(event);
 
         // PERFORMANCE: Pass event directly - no HashMap allocation!
         // This eliminates 10,000+ heap allocations per second
+
+        let mut best: Option<(MatchRank<'_>, &CompiledRule, HashMap<String, bool>)> = None;
 
         for logsource in candidate_logsources {
             let Some(rules) = self.rules_by_logsource.get(&logsource) else {
@@ -412,39 +418,40 @@ impl Engine {
                 if is_match {
                     tracing::trace!("✓ Rule '{}' MATCHED!", compiled_rule.rule.title);
 
-                    // Create alert
-                    let severity = match compiled_rule.rule.level.as_deref() {
-                        Some("critical") => AlertSeverity::Critical,
-                        Some("high") => AlertSeverity::High,
-                        Some("medium") => AlertSeverity::Medium,
-                        _ => AlertSeverity::Low,
-                    };
+                    let rank = MatchRank::new(
+                        severity_from_sigma_level(compiled_rule.rule.level.as_deref()),
+                        compiled_rule.rule.id.as_deref(),
+                        &compiled_rule.rule.title,
+                    );
 
-                    let rule_id = compiled_rule
-                        .rule
-                        .id
+                    if best
                         .as_ref()
-                        .map(|id| format!("sigma::{}", id));
-                    return Some(Alert {
-                        severity,
-                        rule_name: compiled_rule.rule.title.clone(),
-                        rule_description: compiled_rule.rule.description.clone(),
-                        rule_id,
-                        engine: DetectionEngine::Sigma,
-                        event: event.clone(),
-                        match_details: self.build_sigma_match_details(
-                            event,
-                            compiled_rule,
-                            &selection_results,
-                        ),
-                    });
+                        .is_none_or(|(best_rank, _, _)| rank < *best_rank)
+                    {
+                        best = Some((rank, compiled_rule, selection_results));
+                    }
                 } else {
                     tracing::trace!("✗ Rule '{}' did NOT match", compiled_rule.rule.title);
                 }
             }
         }
 
-        None
+        let (_, compiled_rule, selection_results) = best?;
+        let rule_id = compiled_rule
+            .rule
+            .id
+            .as_ref()
+            .map(|id| format!("sigma::{}", id));
+
+        Some(Alert {
+            severity: severity_from_sigma_level(compiled_rule.rule.level.as_deref()),
+            rule_name: compiled_rule.rule.title.clone(),
+            rule_description: compiled_rule.rule.description.clone(),
+            rule_id,
+            engine: DetectionEngine::Sigma,
+            event: event.clone(),
+            match_details: self.build_sigma_match_details(event, compiled_rule, &selection_results),
+        })
     }
 
     pub(crate) fn sigma_logsources_for_event(event: &NormalizedEvent) -> Vec<LogSourceKey> {

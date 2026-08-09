@@ -21,7 +21,7 @@ use rsigma_parser::{
     parse_sigma_yaml, Level as RsLevel, LogSource as RsLogSource, SigmaRule as RsRule,
 };
 
-use super::{Engine, LogSourceKey, RuleLoadDecision};
+use super::{Engine, LogSourceKey, MatchRank, RuleLoadDecision};
 use crate::engine::rsigma_adapter::RsigmaEvent;
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, MatchDebugLevel, MatchDetails, NormalizedEvent,
@@ -111,6 +111,15 @@ fn severity_from_level(level: Option<RsLevel>) -> AlertSeverity {
     }
 }
 
+/// Rank a detection under the shared single-alert selection policy.
+fn result_rank(result: &EvaluationResult) -> MatchRank<'_> {
+    MatchRank::new(
+        severity_from_level(result.header.level),
+        result.header.rule_id.as_deref(),
+        &result.header.rule_title,
+    )
+}
+
 fn matcher_kind_str(kind: MatcherKind) -> &'static str {
     match kind {
         MatcherKind::Exact => "exact",
@@ -177,23 +186,37 @@ impl Engine {
     ///
     /// Routes the event to candidate logsources exactly as the built-in
     /// backend, then evaluates the RSigma engine for each candidate bucket and
-    /// maps the first detection to an [`Alert`].
+    /// maps the best detection to an [`Alert`].
+    ///
+    /// "Best" is the same [`MatchRank`] policy the built-in backend applies, so
+    /// a low-severity rule cannot shadow a higher-severity match on either
+    /// backend, and the outcome does not depend on rule load order.
     pub(crate) fn check_event_rsigma(&self, event: &NormalizedEvent) -> Option<Alert> {
         let candidate_logsources = Self::sigma_logsources_for_event(event);
         let adapter = RsigmaEvent::new(event);
+        let mut best: Option<EvaluationResult> = None;
 
         for logsource in candidate_logsources {
             let Some(engine) = self.rsigma.engines.get(&logsource) else {
                 continue;
             };
 
-            let results = engine.evaluate(&adapter);
-            if let Some(result) = results.into_iter().find(EvaluationResult::is_detection) {
-                return Some(self.rsigma_alert(result, event));
+            for result in engine
+                .evaluate(&adapter)
+                .into_iter()
+                .filter(EvaluationResult::is_detection)
+            {
+                let is_better = match &best {
+                    Some(current) => result_rank(&result) < result_rank(current),
+                    None => true,
+                };
+                if is_better {
+                    best = Some(result);
+                }
             }
         }
 
-        None
+        best.map(|result| self.rsigma_alert(result, event))
     }
 
     fn rsigma_alert(&self, result: EvaluationResult, event: &NormalizedEvent) -> Alert {
