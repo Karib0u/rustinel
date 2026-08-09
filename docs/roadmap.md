@@ -86,6 +86,43 @@ The webhook sink is sequenced first: it is one implementation rather than
 three, it covers the integration use case that prompted both issues, and it
 exercises the sink abstraction that the native sinks then reuse.
 
+## v1.7.0: Telemetry capture and replay
+
+Rustinel normalizes every sensor event into a single model, then discards it
+unless a rule matches. The only way to see that model today is a `TRACE`
+operational log, which is filtered, interleaved with unrelated output, and has
+no format stability. This release makes normalized telemetry a product output
+in its own right: a capture stream that records every event entering the
+detection engines, whether or not anything matched.
+
+The capture point is after normalization and before detection, so the recorded
+events are exactly what Sigma, IOC, and YARA receive. The capture stream stays
+separate from the alert sinks in #221 and #220; those deliver detections, while
+capture is high-volume, host-local, and serves analysis rather than alerting.
+
+| Issue | Focus |
+|---|---|
+| [#228: write normalized events to an NDJSON file](https://github.com/Karib0u/rustinel/issues/228) | Add a bounded, non-blocking `EventSink` capturing every normalized event, disabled by default. |
+| [#229: add a time-boxed capture command](https://github.com/Karib0u/rustinel/issues/229) | Run `rustinel capture --duration 10m` to collect events plus provenance metadata in one command. |
+| [#230: replay captured telemetry offline](https://github.com/Karib0u/rustinel/issues/230) | Re-evaluate a capture against Sigma and IOC with no sensor and no privileges. |
+
+The items are strictly sequential. #228 is the only one that ships value on its
+own and is the one worth building first; #229 is a thin workflow wrapper over
+it, and #230 should not start before there are captures worth replaying. #230
+also owns a correctness prerequisite: `NormalizedEvent` does not round-trip
+losslessly today, so replay would silently mis-evaluate rules until that is
+fixed.
+
+Rotation, compression, and a custom capture archive format are deliberately
+excluded. A size cap and a directory of plain NDJSON and JSON files cover the
+malware-analysis and rule-authoring workflows, and remain readable with
+ordinary tools.
+
+The counters in #140 and this capture stream reinforce each other: #140 makes
+telemetry loss quantifiable, and capture makes the retained telemetry
+inspectable. Capture also gives the collector and normalization fixes in #168,
+#226, #142, and #146 a direct way to verify their output.
+
 ## Longer-term product and platform work
 
 The following work depends on the foundations above or requires additional
