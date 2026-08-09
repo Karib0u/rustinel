@@ -47,6 +47,7 @@ diagnostics, and compatibility of detection and alerting.
 | [#135: add a pinned SigmaHQ corpus smoke test](https://github.com/Karib0u/rustinel/issues/135) | Add a pinned SigmaHQ corpus smoke test. |
 | [#136: add backend-neutral Sigma edge-case coverage](https://github.com/Karib0u/rustinel/issues/136) | Add backend-neutral Sigma modifier and edge-case coverage. |
 | [#137: test alert construction and degradation](https://github.com/Karib0u/rustinel/issues/137) | Test alert construction and incomplete-event degradation behavior. |
+| [#222: update alert output to ECS 9.5.0](https://github.com/Karib0u/rustinel/issues/222) | Move alert output to ECS 9.5.0 before the ECS model changes in #182. |
 | [#182: preserve Sigma metadata and severity](https://github.com/Karib0u/rustinel/issues/182) | Preserve Sigma metadata, ATT&CK tags, references, and severity semantics. |
 | [#138: replace unmaintained serde_yaml](https://github.com/Karib0u/rustinel/issues/138) | Replace unmaintained `serde_yaml` after the corpus baseline exists. |
 
@@ -67,6 +68,60 @@ covered by capability, debugging, documentation, and licensing work.
 The built-in backend is expected to remain available throughout the v1.x
 series. Its removal, if it becomes appropriate, is reserved for a future
 major release.
+
+## v1.6.0: Alert delivery and integration
+
+Rustinel currently emits alerts to a single rolling NDJSON file, so every
+integration has to discover the current file, poll it, and parse it. This
+release adds destinations beyond that file. Both items share one
+multi-destination sink abstraction: whichever lands first introduces it, and
+the NDJSON file remains the source of truth in either case.
+
+| Issue | Focus |
+|---|---|
+| [#221: add a generic webhook output sink](https://github.com/Karib0u/rustinel/issues/221) | Push ECS alerts to configurable HTTP endpoints with bounded queuing and retries. |
+| [#220: emit to native OS log sinks](https://github.com/Karib0u/rustinel/issues/220) | Route alerts and operational logs to the Windows Event Log, the systemd journal or syslog, and macOS unified logging. |
+
+The webhook sink is sequenced first: it is one implementation rather than
+three, it covers the integration use case that prompted both issues, and it
+exercises the sink abstraction that the native sinks then reuse.
+
+## v1.7.0: Telemetry capture and replay
+
+Rustinel normalizes every sensor event into a single model, then discards it
+unless a rule matches. The only way to see that model today is a `TRACE`
+operational log, which is filtered, interleaved with unrelated output, and has
+no format stability. This release makes normalized telemetry a product output
+in its own right: a capture stream that records every event entering the
+detection engines, whether or not anything matched.
+
+The capture point is after normalization and before detection, so the recorded
+events are exactly what Sigma, IOC, and YARA receive. The capture stream stays
+separate from the alert sinks in #221 and #220; those deliver detections, while
+capture is high-volume, host-local, and serves analysis rather than alerting.
+
+| Issue | Focus |
+|---|---|
+| [#228: write normalized events to an NDJSON file](https://github.com/Karib0u/rustinel/issues/228) | Add a bounded, non-blocking `EventSink` capturing every normalized event, disabled by default. |
+| [#229: add a time-boxed capture command](https://github.com/Karib0u/rustinel/issues/229) | Run `rustinel capture --duration 10m` to collect events plus provenance metadata in one command. |
+| [#230: replay captured telemetry offline](https://github.com/Karib0u/rustinel/issues/230) | Re-evaluate a capture against Sigma and IOC with no sensor and no privileges. |
+
+The items are strictly sequential. #228 is the only one that ships value on its
+own and is the one worth building first; #229 is a thin workflow wrapper over
+it, and #230 should not start before there are captures worth replaying. #230
+also owns a correctness prerequisite: `NormalizedEvent` does not round-trip
+losslessly today, so replay would silently mis-evaluate rules until that is
+fixed.
+
+Rotation, compression, and a custom capture archive format are deliberately
+excluded. A size cap and a directory of plain NDJSON and JSON files cover the
+malware-analysis and rule-authoring workflows, and remain readable with
+ordinary tools.
+
+The counters in #140 and this capture stream reinforce each other: #140 makes
+telemetry loss quantifiable, and capture makes the retained telemetry
+inspectable. Capture also gives the collector and normalization fixes in #168,
+#226, #142, and #146 a direct way to verify their output.
 
 ## Longer-term product and platform work
 
