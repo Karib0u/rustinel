@@ -316,16 +316,31 @@ fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
 
 // ── Event builders ───────────────────────────────────────────────────────────
 
+/// Pick the image path for an exec event.
+///
+/// The tracepoint carries `bprm->filename`, i.e. the literal string userspace
+/// passed to `execve()` — `./malware` stays `./malware`. Downstream consumers
+/// (YARA queueing, the allowlist, Sigma `Image` rules, IOC path regexes) all
+/// need a real path, so prefer `/proc/<pid>/exe`, which is absolute,
+/// symlink-resolved, and immune to the caller's `chdir`. The raw kernel string
+/// stays as a fallback for short-lived processes that exit before the userspace
+/// ring drain gets to `/proc`.
+fn resolve_exec_image(proc_exe: Option<&str>, raw_filename: &str) -> Option<String> {
+    proc_exe
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| Some(raw_filename.to_string()).filter(|value| !value.is_empty()))
+}
+
 fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
     let user = resolved_linux_user(ev.uid);
     match ev.kind {
         PROCESS_EVENT_EXEC => {
             let details = query_process_details(ev.pid);
-            let image = match bytes_to_string(&ev.image) {
-                value if !value.is_empty() => Some(value),
-                _ => details.as_ref().and_then(|value| value.image.clone()),
-            };
-            let image = image?;
+            let image = resolve_exec_image(
+                details.as_ref().and_then(|value| value.image.as_deref()),
+                &bytes_to_string(&ev.image),
+            )?;
 
             let now = SystemTime::now();
             Some(SensorEvent {
@@ -727,11 +742,16 @@ mod tests {
             .expect("raw dns event should normalize")
     }
 
+    /// Never a live pid: above every possible `/proc/sys/kernel/pid_max`, so
+    /// `query_process_details` is guaranteed to come back empty and the builder
+    /// falls back to the raw tracepoint filename.
+    const DEAD_PID: u32 = u32::MAX;
+
     #[test]
     fn build_process_exec_event_emits_start() {
         let raw = ProcessEvent {
             kind: PROCESS_EVENT_EXEC,
-            pid: 42,
+            pid: DEAD_PID,
             uid: 1000,
             _pad: 0,
             comm: fixed("bash"),
@@ -746,10 +766,57 @@ mod tests {
         match event.payload {
             SensorPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), Some("/usr/bin/bash"));
-                assert_eq!(fields.process_id.as_deref(), Some("42"));
+                assert_eq!(
+                    fields.process_id.as_deref(),
+                    Some(DEAD_PID.to_string().as_str())
+                );
             }
             other => panic!("unexpected payload: {:?}", other),
         }
+    }
+
+    #[test]
+    fn build_process_exec_event_resolves_relative_image_from_proc() {
+        let expected = std::fs::read_link("/proc/self/exe")
+            .expect("current process should expose /proc/self/exe");
+        let raw = ProcessEvent {
+            kind: PROCESS_EVENT_EXEC,
+            pid: std::process::id(),
+            uid: 1000,
+            _pad: 0,
+            comm: fixed("rustinel"),
+            // What the kernel records when a binary is run as `./rustinel`.
+            image: fixed("./rustinel"),
+        };
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert_eq!(fields.image.as_deref(), expected.to_str());
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_exec_image_prefers_proc_exe_over_raw_filename() {
+        assert_eq!(
+            resolve_exec_image(Some("/tmp/malware"), "./malware").as_deref(),
+            Some("/tmp/malware")
+        );
+    }
+
+    #[test]
+    fn resolve_exec_image_falls_back_to_raw_filename() {
+        assert_eq!(
+            resolve_exec_image(None, "./malware").as_deref(),
+            Some("./malware")
+        );
+        assert_eq!(
+            resolve_exec_image(Some(""), "/usr/bin/bash").as_deref(),
+            Some("/usr/bin/bash")
+        );
+        assert_eq!(resolve_exec_image(None, ""), None);
     }
 
     #[test]

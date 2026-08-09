@@ -111,6 +111,7 @@ macOS telemetry comes from two sources: Endpoint Security (ESF) for process and 
 Per-platform process field notes:
 
 - On Linux, the kernel exec event carries only `Image`, `ProcessId`, and `User`; `CommandLine`, `ParentImage`, `ParentProcessId`, `ParentCommandLine`, and `CurrentDirectory` are enriched from `/proc/<pid>` and may be absent for very short-lived processes.
+- `Image` is resolved from `/proc/<pid>/exe`, so it is absolute and symlink-resolved even when the binary was launched with a relative path (`./payload`). Short-lived processes that exit before enrichment fall back to the raw `execve()` argument, which may be relative and is capped at 128 bytes.
 - On macOS, ESF exec events carry `CommandLine` (argv), `ParentImage`, `ParentProcessId`, and `CurrentDirectory` natively. `ParentCommandLine` is **not** provided by ESF exec events, and `IntegrityLevel` / `LogonId` / `LogonGuid` are Windows-only.
 
 DNS field availability differs by platform:

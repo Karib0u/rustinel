@@ -345,7 +345,17 @@ fn read_proc_cmdline(pid: u32) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn read_proc_link(pid: u32, name: &str) -> Option<String> {
     let path = fs::read_link(format!("/proc/{pid}/{name}")).ok()?;
-    Some(path.to_string_lossy().into_owned())
+    let path = path.to_string_lossy();
+    Some(strip_deleted_suffix(&path).to_string())
+}
+
+/// Drop the ` (deleted)` marker the kernel appends to `/proc/<pid>` links when
+/// the target has been unlinked. Detections match on the path the process was
+/// started from, so keeping the marker would break `endswith` rules and hand
+/// the scanner a path it can never open.
+#[cfg(target_os = "linux")]
+fn strip_deleted_suffix(path: &str) -> &str {
+    path.strip_suffix(" (deleted)").unwrap_or(path)
 }
 
 #[cfg(target_os = "linux")]
@@ -378,6 +388,16 @@ mod tests {
         assert!(details.parent_process_id.is_some());
         assert!(details.current_directory.is_some());
         assert!(details.start_time.is_some());
+    }
+
+    #[test]
+    fn strip_deleted_suffix_only_trims_the_kernel_marker() {
+        assert_eq!(
+            strip_deleted_suffix("/tmp/malware (deleted)"),
+            "/tmp/malware"
+        );
+        assert_eq!(strip_deleted_suffix("/tmp/malware"), "/tmp/malware");
+        assert_eq!(strip_deleted_suffix("/tmp/(deleted)"), "/tmp/(deleted)");
     }
 
     #[test]

@@ -65,7 +65,10 @@ The Linux sensor covers process, network, file, and DNS.
   empty command line - the dominant Linux gap, since most Linux Sigma rules match
   `CommandLine`.
 - **Paths are truncated.** The image path is capped at 128 bytes and `comm` at
-  16, which can break `Image|endswith` matches.
+  16, which can break `Image|endswith` matches. This only affects processes that
+  exit before enrichment: `Image` normally comes from `/proc/<pid>/exe`, which is
+  absolute, symlink-resolved, and untruncated. The raw kernel `execve()` argument
+  is the fallback, and it is both truncated and possibly relative.
 - **DNS is UDP port 53 only.** DNS-over-TCP, DoH (443), and DoT (853) are
   invisible; long query names are dropped, QTYPE is limited to
   A/NS/CNAME/PTR/TXT/AAAA, and answers (`QueryResults`) aren't parsed.
