@@ -553,3 +553,138 @@ min_severity = "low"
     drop(tx);
     handle.abort();
 }
+
+fn build_critical_process_alert(pid: u32, image: &str) -> rustinel::models::Alert {
+    use rustinel::models::*;
+    use rustinel::sensor::Platform;
+    Alert {
+        severity: AlertSeverity::Critical,
+        rule_name: "TestCriticalRule".to_string(),
+        rule_description: None,
+        rule_id: None,
+        engine: DetectionEngine::Yara,
+        event: NormalizedEvent {
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            platform: Platform::Linux,
+            provider: "test".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some(image.to_string()),
+                process_id: Some(pid.to_string()),
+                process_start_time: None,
+                command_line: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                target_image: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                logon_id: None,
+                logon_guid: None,
+            }),
+            process_context: None,
+        },
+        match_details: None,
+    }
+}
+
+#[tokio::test]
+async fn test_config_reload_decision_disabled_to_terminate() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_file_path = dir.path().join("config.toml");
+
+    // Start with response disabled
+    std::fs::write(
+        &config_file_path,
+        r#"
+[response]
+enabled = false
+prevention_enabled = false
+min_severity = "critical"
+"#,
+    )
+    .unwrap();
+
+    let cfg =
+        rustinel::config::AppConfig::from_config_path(Some(config_file_path.clone())).unwrap();
+    let response_config = Arc::new(arc_swap::ArcSwap::from(Arc::new(cfg.response)));
+
+    let sigma = SigmaFixture::new();
+    let yara = YaraFixture::new();
+    let ioc = common::IocFixture::new();
+
+    let store = DetectorStore::new(
+        Arc::new(Engine::new_for_platform(host_platform())),
+        Arc::new(Scanner::empty()),
+        Arc::new(IocEngine::load(&ioc.config())),
+    );
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handle = spawn_reload_worker(
+        Arc::clone(&store),
+        scanner_cfg(&sigma, &yara),
+        ioc.config(),
+        ReloadConfig {
+            enabled: true,
+            debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
+        },
+        "info".to_string(),
+        MatchDebugLevel::Off,
+        SigmaEngineKind::Builtin,
+        Some(config_file_path.clone()),
+        response_config.clone(),
+        rx,
+    );
+
+    // Build a ResponseEngine sharing the same ArcSwap config
+    let (response_engine, response_worker) =
+        rustinel::response::ResponseEngine::new(response_config.clone());
+
+    // Build a critical-severity alert with a non-protected PID and image
+    let alert = build_critical_process_alert(9999, "/tmp/evil");
+
+    // Before reload: response is disabled
+    let decision_before = response_engine.decision_for_alert(&alert);
+    assert_eq!(
+        decision_before,
+        rustinel::response::ResponseDecision::Disabled
+    );
+
+    // Write updated config: enable response + prevention
+    std::fs::write(
+        &config_file_path,
+        r#"
+[response]
+enabled = true
+prevention_enabled = true
+min_severity = "critical"
+"#,
+    )
+    .unwrap();
+
+    tx.send(ReloadTarget::Config).expect("send reload config");
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // After reload: decision should be Terminate
+    let decision_after = response_engine.decision_for_alert(&alert);
+    assert!(
+        matches!(
+            decision_after,
+            rustinel::response::ResponseDecision::Terminate { pid: 9999, .. }
+        ),
+        "expected Terminate, got: {:?}",
+        decision_after,
+    );
+
+    drop(tx);
+    response_worker.abort();
+    handle.abort();
+}

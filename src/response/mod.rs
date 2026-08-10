@@ -70,8 +70,12 @@ impl ResponseEngine {
         let worker_cfg = cfg.clone();
 
         let handle = tokio::spawn(async move {
+            let initial = worker_cfg.load();
             info!(
                 target: TARGET_RESPONSE,
+                enabled = initial.enabled,
+                prevention_enabled = initial.prevention_enabled,
+                min_severity = %initial.min_severity,
                 "Active response worker started"
             );
 

@@ -276,13 +276,17 @@ pub fn spawn_reload_worker(
                         let started = Instant::now();
                         match crate::config::AppConfig::from_config_path(config_path.clone()) {
                             Ok(new_cfg) => {
-                                response_config.store(Arc::new(new_cfg.response));
+                                let resp = &new_cfg.response;
                                 info!(
                                     target: "reload",
                                     component = "config",
+                                    enabled = resp.enabled,
+                                    prevention_enabled = resp.prevention_enabled,
+                                    min_severity = %resp.min_severity,
                                     elapsed_ms = started.elapsed().as_millis() as u64,
-                                    "Configuration and Active Response settings hot-reloaded"
+                                    "Active response settings hot-reloaded"
                                 );
+                                response_config.store(Arc::new(new_cfg.response));
                             }
                             Err(err) => {
                                 warn!(

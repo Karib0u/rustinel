@@ -205,14 +205,14 @@ These defaults feed `allowlist.paths`, which then propagate to active response, 
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `enabled` | `true` | Enable local file-based hot reload for Sigma, YARA, IOC files, and active response config |
+| `enabled` | `true` | Enable local file-based hot reload for Sigma, YARA, and IOC files. Active response settings (`[response]` section) also reload when the config file changes; other sections (e.g. `channel_capacity`) require a restart |
 | `debounce_ms` | `2000` | Coalescing/debounce delay in milliseconds before rebuilding detectors or applying config changes |
 
 Reload notes:
 
 - The reload mechanism uses event-based filesystem watching (such as `inotify` on Linux) to monitor directories/files, as well as the active configuration file, and trigger reloads near-instantly when changes occur.
 - `reload.debounce_ms` is the coalescing window used to group multiple rapid write operations into a single reload event.
-- When the configuration file is modified, the agent dynamically reloads and hot-swaps the active response settings (such as enablement, prevention mode, minimum severity levels, and allowlists) without requiring a restart.
+- When the configuration file is modified, the agent hot-swaps the `[response]` section settings (enablement, prevention mode, minimum severity, and allowlists) without requiring a restart. Other config sections and `response.channel_capacity` take effect only at startup.
 - If the event-based watcher cannot be initialized, the agent automatically falls back to a 60-second polling cycle (logging the warning `"inotify is not available for the rules directory"`).
 - For Sigma and YARA, empty rulesets/scanners are allowed and will be swapped in (effectively disabling detections if no rules exist). For IOCs, empty indicator sets are rejected to keep the last known good set live.
 
