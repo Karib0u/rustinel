@@ -54,6 +54,10 @@ match_debug = "off"         # off | summary | full (attach match details to aler
 #   rollup alert carrying event.count.  The first occurrence always emits
 #   immediately - there is no detection latency penalty.
 #
+#   event.count on the rollup is the number of *suppressed* repeats (the first
+#   occurrence is already its own line, which carries no event.count).  Summing
+#   event.count across lines - absent meaning 1 - gives the true event volume.
+#
 #   Disable for high-fidelity environments where every individual event matters.
 [dedup]
 enabled = true

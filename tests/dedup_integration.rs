@@ -71,6 +71,15 @@ fn setup(
     (sink, dedup, guard)
 }
 
+/// Total event volume the emitted lines represent, the way a SIEM would sum it:
+/// `event.count` when present, 1 otherwise.
+fn total_event_count(lines: &[Value]) -> u64 {
+    lines
+        .iter()
+        .map(|line| line.get("event.count").and_then(Value::as_u64).unwrap_or(1))
+        .sum()
+}
+
 fn read_json_lines(path: &std::path::Path) -> Vec<Value> {
     let contents = std::fs::read_to_string(path).expect("read output");
     contents
@@ -129,18 +138,23 @@ fn repeated_alerts_suppressed_and_rollup_emitted_on_flush() {
         lines.len()
     );
 
-    // Line 0: the live alert (no event.count)
+    // Line 0: the live alert (no event.count — an absent count means 1)
     assert!(
         lines[0].get("event.count").is_none(),
         "live alert must not carry event.count"
     );
 
-    // Line 1: the rollup
+    // Line 1: the rollup, covering only the suppressed repeats.
     assert_eq!(
-        lines[1]["event.count"], 5,
-        "rollup must carry event.count = 5 (all occurrences)"
+        lines[1]["event.count"], 4,
+        "rollup must carry event.count = 4 (the suppressed repeats only)"
     );
     assert_eq!(lines[1]["rule.name"], "Suspicious Shell");
+    assert_eq!(
+        total_event_count(&lines),
+        5,
+        "summed event.count must equal the 5 real events, not 6"
+    );
 }
 
 #[test]
@@ -171,8 +185,16 @@ fn distinct_rules_tracked_and_flushed_independently() {
         .collect();
     assert_eq!(rollups.len(), 2, "two rollup lines (one per rule)");
     for rollup in rollups {
-        assert_eq!(rollup["event.count"], 2, "each rollup has count=2");
+        assert_eq!(
+            rollup["event.count"], 1,
+            "each rollup covers the single suppressed repeat"
+        );
     }
+    assert_eq!(
+        total_event_count(&lines),
+        4,
+        "two occurrences per rule, four events in total"
+    );
 }
 
 #[test]
@@ -221,10 +243,44 @@ fn distinct_process_subjects_keep_independent_rollups() {
     assert_eq!(
         rollup_subjects,
         vec![
-            ("curl https://first.example", 2),
-            ("curl https://second.example", 2),
+            ("curl https://first.example", 1),
+            ("curl https://second.example", 1),
         ],
         "each rollup must retain the subject of its suppressed event"
+    );
+}
+
+#[test]
+fn summed_event_count_matches_real_volume_across_windows() {
+    let dir = tempfile::tempdir().expect("tmpdir");
+    let out = dir.path().join("alerts.ndjson");
+    // 0-second window: every flush closes the current window immediately.
+    let (sink, dedup, _guard) = setup(&out, 0);
+
+    let alert = make_alert("Suspicious Shell", "/usr/bin/bash");
+    const BURSTS: usize = 3;
+    const PER_BURST: usize = 4;
+    for _ in 0..BURSTS {
+        for _ in 0..PER_BURST {
+            sink.write_alert(&alert);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        dedup.flush_expired(&sink);
+    }
+
+    drop(sink);
+    drop(_guard);
+
+    let lines = read_json_lines(&out);
+    assert_eq!(
+        lines.len(),
+        BURSTS * 2,
+        "each window emits one live alert and one rollup"
+    );
+    assert_eq!(
+        total_event_count(&lines),
+        (BURSTS * PER_BURST) as u64,
+        "summed event.count must equal the real event volume across all windows"
     );
 }
 
