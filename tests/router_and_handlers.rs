@@ -36,14 +36,16 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
     let output = tempdir.path().join("alerts.ndjson");
     let file = std::fs::File::create(&output).expect("create alert output");
     let (writer, guard) = tracing_appender::non_blocking(file);
-    let (response, response_handle) = rustinel::response::ResponseEngine::new(&ResponseConfig {
-        enabled: false,
-        prevention_enabled: false,
-        min_severity: "critical".to_string(),
-        channel_capacity: 4,
-        allowlist_images: Vec::new(),
-        allowlist_paths: Vec::new(),
-    });
+    let (response, response_handle) = rustinel::response::ResponseEngine::new(std::sync::Arc::new(
+        arc_swap::ArcSwap::from(std::sync::Arc::new(ResponseConfig {
+            enabled: false,
+            prevention_enabled: false,
+            min_severity: "critical".to_string(),
+            channel_capacity: 4,
+            allowlist_images: Vec::new(),
+            allowlist_paths: Vec::new(),
+        })),
+    ));
 
     let harness = TestNormalizer::new(false);
     let handler = SigmaDetectionHandler {

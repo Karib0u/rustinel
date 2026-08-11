@@ -86,6 +86,12 @@ fn response_config(
     }
 }
 
+fn shared_response_config(
+    cfg: ResponseConfig,
+) -> std::sync::Arc<arc_swap::ArcSwap<ResponseConfig>> {
+    std::sync::Arc::new(arc_swap::ArcSwap::from(std::sync::Arc::new(cfg)))
+}
+
 fn decision_for(cfg: ResponseConfig, alert: &Alert) -> ResponseDecision {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -93,7 +99,7 @@ fn decision_for(cfg: ResponseConfig, alert: &Alert) -> ResponseDecision {
         .expect("tokio runtime");
 
     rt.block_on(async {
-        let (engine, worker) = ResponseEngine::new(&cfg);
+        let (engine, worker) = ResponseEngine::new(shared_response_config(cfg));
         let decision = engine.decision_for_alert(alert);
         drop(engine);
         worker.abort();
@@ -119,7 +125,7 @@ fn response_dry_run_no_panic() {
         .expect("tokio runtime");
 
     rt.block_on(async {
-        let (engine, worker) = ResponseEngine::new(&cfg);
+        let (engine, worker) = ResponseEngine::new(shared_response_config(cfg.clone()));
         let alert = build_yara_alert(99_999_999, "C:\\test\\fake.exe");
         engine.handle_alert(&alert);
 
@@ -148,7 +154,7 @@ fn response_engine_skips_below_min_severity() {
         .expect("tokio runtime");
 
     rt.block_on(async {
-        let (engine, worker) = ResponseEngine::new(&cfg);
+        let (engine, worker) = ResponseEngine::new(shared_response_config(cfg.clone()));
         let mut alert = build_yara_alert(99_999_999, "C:\\test\\fake.exe");
         alert.severity = AlertSeverity::Low;
         alert.engine = DetectionEngine::Sigma;
@@ -346,7 +352,7 @@ fn response_dry_run_does_not_kill_child() {
         .expect("tokio runtime");
 
     rt.block_on(async {
-        let (engine, worker) = ResponseEngine::new(&cfg);
+        let (engine, worker) = ResponseEngine::new(shared_response_config(cfg.clone()));
         let alert = build_yara_alert(pid, exe);
         engine.handle_alert(&alert);
 
@@ -398,7 +404,7 @@ fn response_reaction_terminates_child_process() {
         .expect("tokio runtime");
 
     rt.block_on(async {
-        let (engine, worker) = ResponseEngine::new(&cfg);
+        let (engine, worker) = ResponseEngine::new(shared_response_config(cfg.clone()));
         let alert = build_yara_alert(pid, exe);
         engine.handle_alert(&alert);
 
