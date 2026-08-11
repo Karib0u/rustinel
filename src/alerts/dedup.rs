@@ -4,6 +4,14 @@
 //! and emits a single rollup alert with `event.count` at window close.  The first
 //! occurrence always emits immediately, so there is zero added latency for novel alerts.
 //!
+//! # Counting semantics
+//! `event.count` follows ECS: it is the number of events the *document* represents.
+//! The live first-occurrence line represents exactly one event and therefore carries
+//! no `event.count` (absent means 1).  The rollup represents only the repeats that
+//! were suppressed, so it carries `count - 1`.  Summing `event.count` across every
+//! emitted line (treating a missing field as 1) yields the true number of matching
+//! events — a burst of N identical alerts totals N, not N + 1.
+//!
 //! # Identity
 //! Every key contains the detection engine, rule ID (or rule name fallback), event
 //! dataset/action/code, and a canonical subject fingerprint. The fingerprint includes
@@ -22,6 +30,10 @@
 //! Each key starts a *tumbling* window anchored to the first emission.  Once
 //! `now - first_seen >= window` the entry is expired during the next flush tick,
 //! at which point a rollup alert is written (if count > 1) and the slot is freed.
+//!
+//! # Metrics
+//! Counters are logged periodically by the flush worker (and once more at shutdown)
+//! so dedup activity stays observable on a long-running agent.
 
 use crate::models::ecs::EcsAlert;
 use crate::models::Alert;
@@ -225,8 +237,9 @@ impl Deduplicator {
         true
     }
 
-    /// Flush entries whose window has expired.  Emits a rollup alert with
-    /// `event.count` for any entry that had more than one occurrence.
+    /// Flush entries whose window has expired.  Emits a rollup alert carrying the
+    /// number of suppressed repeats in `event.count` for any entry that had more
+    /// than one occurrence.
     pub fn flush_expired(&self, sink: &super::AlertSink) {
         let now = Instant::now();
         let expired = self.drain_expired(now);
@@ -261,12 +274,9 @@ impl Deduplicator {
 
     fn emit_rollups(&self, entries: Vec<DedupEntry>, sink: &super::AlertSink) {
         for entry in entries {
-            if entry.count <= 1 {
-                // Already emitted on first occurrence, so nothing more to do.
+            let Some(ecs) = rollup_alert(&entry) else {
                 continue;
-            }
-            let mut ecs = EcsAlert::from(&entry.sample);
-            ecs.event_count = Some(entry.count);
+            };
             self.counters
                 .aggregated_total
                 .fetch_add(1, Ordering::Relaxed);
@@ -274,10 +284,17 @@ impl Deduplicator {
         }
     }
 
+    /// Cumulative `(suppressed_total, aggregated_total)` counters.
+    fn totals(&self) -> (u64, u64) {
+        (
+            self.counters.suppressed_total.load(Ordering::Relaxed),
+            self.counters.aggregated_total.load(Ordering::Relaxed),
+        )
+    }
+
     /// Log current metrics to the operational log.
     pub fn log_metrics(&self) {
-        let suppressed = self.counters.suppressed_total.load(Ordering::Relaxed);
-        let aggregated = self.counters.aggregated_total.load(Ordering::Relaxed);
+        let (suppressed, aggregated) = self.totals();
         let pending = self.table.lock().unwrap().len();
         info!(
             target: "dedup",
@@ -289,9 +306,27 @@ impl Deduplicator {
     }
 }
 
-/// Spawn a background task that ticks every `tick_interval` and flushes expired
-/// dedup entries.  The returned handle should be aborted on shutdown, after which
-/// the caller should call `flush_all` directly.
+/// How often the flush worker logs dedup counters while the agent is running.
+const METRICS_LOG_INTERVAL: Duration = Duration::from_secs(300);
+
+/// Build the rollup alert for an expired entry.
+///
+/// `event.count` is the number of *suppressed* repeats (`count - 1`): the first
+/// occurrence was already written as its own line and must not be counted twice.
+/// Returns `None` for a single occurrence, which needs no rollup at all.
+fn rollup_alert(entry: &DedupEntry) -> Option<EcsAlert> {
+    let suppressed = entry.count.saturating_sub(1);
+    if suppressed == 0 {
+        return None;
+    }
+    let mut ecs = EcsAlert::from(&entry.sample);
+    ecs.event_count = Some(suppressed);
+    Some(ecs)
+}
+
+/// Spawn a background task that ticks every `tick_interval`, flushes expired
+/// dedup entries, and periodically logs dedup metrics.  The returned handle should
+/// be aborted on shutdown, after which the caller should call `flush_all` directly.
 pub fn spawn_flush_worker(
     dedup: std::sync::Arc<Deduplicator>,
     sink: super::AlertSink,
@@ -301,9 +336,22 @@ pub fn spawn_flush_worker(
         let mut interval = tokio::time::interval(tick_interval);
         // The first tick fires immediately; skip it to avoid an early no-op flush.
         interval.tick().await;
+        let mut last_metrics = Instant::now();
+        let mut last_totals = dedup.totals();
         loop {
             interval.tick().await;
             dedup.flush_expired(&sink);
+            // Metrics are otherwise only visible at shutdown, which hides dedup
+            // activity for the whole life of a long-running agent.  Stay quiet
+            // while nothing is being deduplicated.
+            if last_metrics.elapsed() >= METRICS_LOG_INTERVAL {
+                last_metrics = Instant::now();
+                let totals = dedup.totals();
+                if totals != last_totals {
+                    dedup.log_metrics();
+                    last_totals = totals;
+                }
+            }
         }
     })
 }
@@ -487,14 +535,51 @@ mod tests {
         assert_eq!(dedup.counters.suppressed_total.load(Ordering::Relaxed), 2);
 
         // With a 0-second window the entry is already expired.
-        let sink = null_sink();
         std::thread::sleep(Duration::from_millis(10)); // ensure duration_since > 0
-        dedup.flush_expired(&sink);
+        let expired = dedup.drain_expired(Instant::now());
+        assert_eq!(expired.len(), 1, "the single key must have expired");
+        let rollup = rollup_alert(&expired[0]).expect("rollup for a repeated alert");
+        assert_eq!(
+            rollup.event_count,
+            Some(2),
+            "rollup counts the suppressed repeats only; the first occurrence \
+             was already emitted as its own line"
+        );
 
+        let sink = null_sink();
+        dedup.emit_rollups(expired, &sink);
         assert_eq!(
             dedup.counters.aggregated_total.load(Ordering::Relaxed),
             1,
             "one rollup alert should have been emitted"
+        );
+    }
+
+    #[test]
+    fn rollup_count_plus_live_alert_equals_real_event_count() {
+        let dedup = Deduplicator::new(0, 1000);
+        let alert = make_alert("Rule A", "/usr/bin/curl");
+        let ecs = EcsAlert::from(&alert);
+
+        const BURST: u64 = 7;
+        let mut emitted_live = 0u64;
+        for _ in 0..BURST {
+            if dedup.record(&ecs, &alert) {
+                emitted_live += 1;
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(10));
+        let expired = dedup.drain_expired(Instant::now());
+        let rolled_up: u64 = expired
+            .iter()
+            .filter_map(|entry| rollup_alert(entry)?.event_count)
+            .sum();
+
+        assert_eq!(
+            emitted_live + rolled_up,
+            BURST,
+            "summed event.count across emitted lines must equal the real event count"
         );
     }
 
@@ -509,6 +594,19 @@ mod tests {
 
         assert_eq!(dedup.table.lock().unwrap().len(), 2);
 
+        // Rule A saw 2 occurrences → rollup carrying the 1 suppressed repeat;
+        // Rule B saw 1 → no rollup at all.
+        let counts: Vec<Option<u64>> = {
+            let table = dedup.table.lock().unwrap();
+            let mut counts: Vec<Option<u64>> = table
+                .values()
+                .map(|entry| rollup_alert(entry).and_then(|ecs| ecs.event_count))
+                .collect();
+            counts.sort_unstable();
+            counts
+        };
+        assert_eq!(counts, vec![None, Some(1)]);
+
         let sink = null_sink();
         dedup.flush_all(&sink);
 
@@ -517,7 +615,7 @@ mod tests {
             0,
             "table must be empty after flush_all"
         );
-        // Rule A had count=2 → rollup emitted; Rule B had count=1 → no rollup
+        // Only Rule A produced a rollup.
         assert_eq!(dedup.counters.aggregated_total.load(Ordering::Relaxed), 1);
     }
 

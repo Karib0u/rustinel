@@ -250,7 +250,9 @@ Propagation behavior:
 
 Alert deduplication collapses repeated identical alerts within a sliding window into a single rollup alert. The **first occurrence always emits immediately** - there is no added detection latency for novel alerts. Only repeats of the same alert within the window are suppressed.
 
-A rollup alert is written at window close carrying `event.count` with the total number of occurrences (including the first).
+A rollup alert is written at window close carrying `event.count` with the number of **suppressed repeats** — that is, the occurrences that were *not* written as their own line. This follows the ECS definition of `event.count` (the number of events a document represents): the live first-occurrence line represents exactly one event and carries no `event.count` at all, so summing `event.count` across every emitted line — counting a missing field as `1`, as SIEMs do — yields the true event volume.
+
+A burst of 5 identical alerts therefore produces 2 lines: the live alert (no `event.count`, implicitly 1) and a rollup with `event.count = 4`, totalling 5.
 
 The dedup key is `(engine, rule_name, process.executable, process.parent.executable, user.name)`.
 
@@ -262,7 +264,7 @@ The dedup key is `(engine, rule_name, process.executable, process.parent.executa
 
 Set `enabled = false` for high-fidelity environments where every individual alert event matters.
 
-**Dedup metrics** are written to the operational log at shutdown:
+**Dedup metrics** are written to the operational log every 5 minutes while dedup activity is happening, and once more at shutdown:
 
 ```
 dedup: suppressed_total=1420 aggregated_rollup_alerts=38 pending_keys=0
