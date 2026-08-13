@@ -186,6 +186,57 @@ fn kernel_file_action(event_id: u16) -> SensorAction {
     }
 }
 
+/// IRP_MJ_CREATE disposition values (top byte of CreateOptions).
+///
+/// The disposition controls whether the I/O manager creates a new file,
+/// opens an existing one, or some combination of both.
+const FILE_DISPOSITION_SUPERSEDE: u32 = 0;
+const FILE_DISPOSITION_OPEN: u32 = 1;
+const FILE_DISPOSITION_CREATE: u32 = 2;
+const FILE_DISPOSITION_OPEN_IF: u32 = 3;
+const FILE_DISPOSITION_OVERWRITE: u32 = 4;
+const FILE_DISPOSITION_OVERWRITE_IF: u32 = 5;
+
+/// Refine a [`SensorAction::Create`] for Kernel-File Event ID 12 based on
+/// the `CreateOptions` disposition.
+///
+/// Event ID 12 corresponds to `IRP_MJ_CREATE`, which fires for **every** file
+/// handle request — including plain opens and attribute queries.  Without
+/// inspecting the disposition we would misclassify reads as file creations.
+///
+/// Returns:
+/// * `Some(action)` — the (possibly adjusted) action for this event.
+/// * `None` — the event should be dropped (pure open / read).
+fn refine_file_create_action(parser: &Parser, action: SensorAction) -> Option<SensorAction> {
+    if action != SensorAction::Create {
+        return Some(action);
+    }
+
+    let create_options = parser.try_parse::<u32>("CreateOptions").ok()?;
+    let disposition = (create_options >> 24) & 0xFF;
+
+    match disposition {
+        // Pure open of an existing file — never creates.  Drop the event
+        // to match Sysmon behaviour (Sysmon does not emit FileCreate for
+        // plain opens).
+        FILE_DISPOSITION_OPEN => None,
+
+        // Overwrite of an existing file — the file already exists so this
+        // is a modification, not a creation.
+        FILE_DISPOSITION_OVERWRITE => Some(SensorAction::Modify),
+
+        // SUPERSEDE, CREATE, OPEN_IF, OVERWRITE_IF can all result in a
+        // new file being created.
+        FILE_DISPOSITION_SUPERSEDE
+        | FILE_DISPOSITION_CREATE
+        | FILE_DISPOSITION_OPEN_IF
+        | FILE_DISPOSITION_OVERWRITE_IF => Some(SensorAction::Create),
+
+        // Unknown disposition — keep as Create to be safe.
+        _ => Some(SensorAction::Create),
+    }
+}
+
 /// DeletePath, RenamePath, and SetLinkPath carry their path in `FilePath`;
 /// the remaining file events use `FileName`.
 fn kernel_file_path_property(event_id: u16) -> &'static str {
@@ -402,6 +453,15 @@ fn decode_record(
         }
     };
     let parser = Parser::create(record, &schema);
+
+    // For file events, refine the action based on the IRP_MJ_CREATE
+    // disposition so that pure opens (reads / attribute queries) are
+    // dropped rather than misclassified as file creations.
+    let action = if category == EventCategory::File {
+        refine_file_create_action(&parser, action)?
+    } else {
+        action
+    };
 
     let decoded = match category {
         EventCategory::Process => decode_process(&parser, record, action),

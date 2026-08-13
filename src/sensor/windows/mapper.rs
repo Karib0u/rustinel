@@ -96,7 +96,7 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
             _ => raw_event_id,
         },
         EventCategory::File => match action_code {
-            64 | 65 => 11,
+            64 => 11,
             70 | 72 => 23,
             _ => raw_event_id,
         },
@@ -167,5 +167,18 @@ mod tests {
     #[test]
     fn network_udp_connect_maps_to_sysmon_3() {
         assert_eq!(map_to_sysmon_id(EventCategory::Network, 15, 999), 3);
+    }
+
+    #[test]
+    fn file_modify_does_not_map_to_sysmon_11() {
+        let code = file_action_code(SensorAction::Modify);
+        assert_eq!(code, 65);
+        // Modify must NOT map to Sysmon ID 11 (FileCreate); it should
+        // fall through to its raw_event_id (65) which routes to
+        // file_change in the detection engine.
+        assert_eq!(
+            map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
+            65
+        );
     }
 }
