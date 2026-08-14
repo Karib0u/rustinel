@@ -82,6 +82,18 @@ sudo ./rustinel setup --yes
 ./rustinel doctor
 ```
 
+**Docker** - build the Alpine image and run the Linux sensor as a container:
+
+```bash
+docker compose up -d --build
+docker compose exec rustinel rustinel doctor
+```
+
+eBPF telemetry is kernel-wide, so the container observes the whole host. It
+needs the host PID namespace, `tracefs`, and eBPF capabilities - all set in
+`docker-compose.yml`. See [Docker](docs/docker.md) for the detection scope and
+the `docker run` equivalent.
+
 With the agent running, trigger the bundled demo rule:
 
 ```bash
@@ -179,6 +191,9 @@ sudo ./target/release/rustinel run
 
 macOS requires the app-like signed bundle described in [Getting Started](https://docs.rustinel.io/getting-started/).
 
+For a container build, `docker build -t rustinel:local .` produces the Alpine
+image described in [Docker](docs/docker.md), for `linux/amd64` or `linux/arm64`.
+
 ---
 
 ## Documentation
@@ -190,6 +205,7 @@ macOS requires the app-like signed bundle described in [Getting Started](https:/
 [Detection](https://docs.rustinel.io/detection/) |
 [Architecture](https://docs.rustinel.io/architecture/) |
 [Operations](https://docs.rustinel.io/operations/) |
+[Docker](https://docs.rustinel.io/docker/) |
 [Troubleshooting](https://docs.rustinel.io/troubleshooting/) |
 [FAQ](https://docs.rustinel.io/faq/) |
 [Detection rules](https://github.com/Karib0u/rustinel-rules) |

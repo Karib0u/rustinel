@@ -65,6 +65,7 @@ nav = [
         { "Configuration" = "configuration.md" },
         { "CLI" = "cli.md" },
         { "Operations" = "operations.md" },
+        { "Docker" = "docker.md" },
         { "Active Response" = "active-response.md" },
         { "Output" = "output.md" },
     ] },

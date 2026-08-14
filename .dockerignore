@@ -1,0 +1,45 @@
+# Build artifacts
+target/
+ebpf/target/
+**/*.rs.bk
+
+# Keep ebpf/rustinel-ebpf.o: the image build reuses it when present.
+
+# VCS and CI
+.git/
+.github/
+.gitignore
+
+# Editors and local tooling
+.vscode/
+.idea/
+.claude/
+.codex/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docs site and media (not needed to build the binary)
+docs/
+site/
+zensical.toml
+examples/
+
+# Local runtime output
+logs/
+*.log
+tmp/
+temp/
+
+# Container files that are not build inputs
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Misc
+*.profraw
+*.profdata
+*.pyc
+__pycache__/
+repomix-output.xml

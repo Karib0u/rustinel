@@ -1,0 +1,71 @@
+# Rustinel configuration for the container image.
+#
+# Baked into the image at /etc/rustinel/config.toml, which is the managed Linux
+# configuration path, so the agent finds it without --config. Paths are absolute
+# because the container working directory is not the layout root.
+#
+# Override by bind-mounting your own file over /etc/rustinel/config.toml, or per
+# setting with EDR__ environment variables (for example
+# EDR__LOGGING__LEVEL=debug).
+
+# 1. Feature Toggles & Rules
+[scanner]
+sigma_enabled = true
+sigma_rules_path = "/var/lib/rustinel/rules/current/sigma"
+yara_enabled = true
+yara_rules_path = "/var/lib/rustinel/rules/current/yara"
+
+[reload]
+enabled = true
+debounce_ms = 2000
+
+# 2. Operational Logging (The Agent's internal health)
+[logging]
+level = "info"
+directory = "/var/log/rustinel"
+filename = "rustinel.log"
+# `rustinel run` streams to stdout as well, so `docker logs` works out of the box.
+console_output = false
+
+# 3. Security Alerts (The Detection Output)
+[alerts]
+directory = "/var/log/rustinel"
+filename = "alerts.json"
+match_debug = "off"
+
+# 3a. Alert Deduplication
+[dedup]
+enabled = true
+window_secs = 60
+max_entries = 10000
+
+# 4. Active Response (Optional Prevention)
+#    Termination needs the host PID namespace (`--pid host`) and CAP_KILL.
+#    Left disabled by default: a container that can kill host processes is a
+#    deliberate decision, not a default.
+[response]
+enabled = false
+prevention_enabled = false
+min_severity = "critical"
+channel_capacity = 128
+
+# 5. Process Metadata Cache
+[process]
+max_entries = 65536
+
+# 6. Network Connection Metrics
+[network]
+aggregation_enabled = true
+aggregation_max_entries = 20000
+aggregation_window_secs = 60
+aggregation_interval_buffer_size = 50
+
+# 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
+[ioc]
+enabled = true
+hashes_path = "/var/lib/rustinel/rules/current/ioc/hashes.txt"
+ips_path = "/var/lib/rustinel/rules/current/ioc/ips.txt"
+domains_path = "/var/lib/rustinel/rules/current/ioc/domains.txt"
+paths_regex_path = "/var/lib/rustinel/rules/current/ioc/paths_regex.txt"
+default_severity = "high"
+max_file_size_mb = 50

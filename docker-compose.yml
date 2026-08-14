@@ -1,0 +1,67 @@
+# Rustinel agent on Docker (Alpine image).
+#
+# The eBPF sensor needs host-level access: the host PID namespace for /proc
+# enrichment, tracefs for tracepoint and kprobe attachment, and eBPF
+# capabilities. See docs/docker.md for what each setting is for and for the
+# detection scope this deployment gives you.
+#
+#   docker compose up -d --build
+#   docker compose exec rustinel rustinel doctor
+#   docker compose logs -f
+
+services:
+  rustinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Set to runtime-debian for the glibc image; see docs/docker.md.
+      target: runtime
+    image: rustinel:local
+    container_name: rustinel
+    restart: unless-stopped
+    command: ["run"]
+
+    # Host PID namespace: process enrichment reads /proc/<pid>/exe and
+    # /proc/<pid>/cmdline for PIDs reported by the kernel.
+    pid: host
+
+    # eBPF telemetry is kernel-wide, but host networking keeps socket metadata
+    # lookups in the same network namespace as the traffic being observed.
+    network_mode: host
+
+    cap_add:
+      - BPF # load and attach eBPF programs
+      - PERFMON # tracepoint and perf event access
+      - NET_ADMIN # socket metadata and network program attachment
+      - SYS_RESOURCE # raise the memlock limit for eBPF maps
+      - SYS_PTRACE # read /proc/<pid>/exe and cmdline of other users' processes
+      - DAC_READ_SEARCH # read files for YARA scans and IOC hashing
+    security_opt:
+      - apparmor=unconfined
+    ulimits:
+      memlock: -1
+
+    volumes:
+      # Tracepoint and kprobe attachment. Use /sys/kernel/debug/tracing instead
+      # on hosts that do not expose the standalone tracefs mount.
+      - /sys/kernel/tracing:/sys/kernel/tracing
+      # Optional: pinned eBPF maps and programs.
+      - /sys/fs/bpf:/sys/fs/bpf
+      # Resolve host UIDs to user names in alerts.
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+      # Configuration: uncomment to override the config baked into the image.
+      # - ./docker/config.toml:/etc/rustinel/config.toml:ro
+      # Detection content and alert output.
+      - rustinel-rules:/var/lib/rustinel/rules
+      - rustinel-logs:/var/log/rustinel
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  rustinel-rules:
+  rustinel-logs:

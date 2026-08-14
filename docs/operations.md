@@ -50,6 +50,17 @@ bundled `com.rustinel.agent.plist` LaunchDaemon expects this
 `/usr/local/var/rustinel` layout. See [Getting Started](getting-started.md) for
 Full Disk Access setup and [Development](development.md) for signing details.
 
+### Container
+
+```text
+/usr/local/bin/rustinel              # the agent
+/etc/rustinel/config.toml            # configuration
+/var/lib/rustinel/rules/current/     # sigma/, yara/, ioc/
+/var/log/rustinel/                   # operational log and alerts
+```
+
+The container image uses the managed Linux layout. See [Docker](docker.md).
+
 Use absolute paths in `config.toml` once you move beyond the default repo layout.
 
 ## Managed Setup

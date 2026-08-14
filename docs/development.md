@@ -8,6 +8,7 @@
 | Linux userspace build | Rust 1.92+ |
 | Linux eBPF object build | nightly Rust, `rust-src`, `bpf-linker` |
 | macOS userspace build | Rust 1.92+, Xcode Command Line Tools |
+| Container image build | Docker with BuildKit |
 
 ## Fastest Local Build Paths
 
@@ -39,6 +40,16 @@ cd ..
 ```
 
 `build.rs` watches `ebpf/src`, `ebpf/Cargo.toml`, and `ebpf/rustinel-ebpf.o`. On Linux builds it embeds either the prebuilt object or a freshly compiled one.
+
+### Container Build
+
+`docker build -t rustinel:local .` runs the same two steps in separate stages
+and needs no local toolchain. The eBPF object is built on a glibc image because
+`bpf-linker` needs the shared LLVM library that only glibc Rust toolchains ship;
+the userspace binary and the final image are Alpine/musl. A prebuilt
+`ebpf/rustinel-ebpf.o` in the build context is reused as-is. `linux/amd64` and
+`linux/arm64` are both supported, and `--target runtime-debian` produces a glibc
+image. See [Docker](docker.md).
 
 ## Recommended Dev Runs
 

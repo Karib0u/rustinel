@@ -109,6 +109,8 @@ The scripts only download published release binaries. For version selection,
 custom installation directories, manual archives, and upgrade procedures, see
 [Operations and Upgrade Guide](operations.md).
 
+To run the Linux sensor as a container instead, see [Docker](docker.md).
+
 ## Keep Rustinel Running
 
 After the portable test succeeds, install the managed layout and native service:
@@ -157,6 +159,7 @@ Source builds require Rust 1.92 and platform build tools. See
 ## Next Steps
 
 - [Configuration](configuration.md): move rule paths, logs, and allowlists out of the default layout.
+- [Docker](docker.md): run the Linux sensor from the Alpine container image.
 - [SIEM Demos](siem-demos.md): ship first alerts to Elastic or Splunk.
 - [Operations and Upgrade Guide](operations.md): install layouts, services, and upgrades.
 - [CLI Reference](cli.md): service commands and runtime examples.

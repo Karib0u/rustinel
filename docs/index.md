@@ -17,6 +17,7 @@ Visit the [official Rustinel site](https://rustinel.io/) for the main project ho
 - [Getting Started](getting-started.md): install and run Rustinel
 - [SIEM Demos](siem-demos.md): ship first alerts to Elastic or Splunk
 - [Configuration](configuration.md): configure telemetry, rules, alerts, and response
+- [Docker](docker.md): run the Linux sensor from the Alpine container image
 - [Detection](detection.md): understand Sigma, YARA, and IOC matching
 - [Architecture](architecture.md): understand how Rustinel works internally
 - [Benchmarking](benchmarking.md): collect repeatable performance and latency evidence
