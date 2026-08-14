@@ -53,6 +53,8 @@ diagnostics, and compatibility of detection and alerting.
 | Issue | Focus |
 |---|---|
 | [#168: preserve absolute Linux file identity](https://github.com/Karib0u/rustinel/issues/168) | Preserve absolute Linux file identity and explicitly report truncated paths. |
+| [#238: resolve Windows Kernel-File paths](https://github.com/Karib0u/rustinel/issues/238) | Attribute pathless Kernel-File events, stop name-cache events surfacing as `file_change`, and make truncation observable. |
+| [#239: align file Modify normalization across platforms](https://github.com/Karib0u/rustinel/issues/239) | Give a file modification the same Sigma category on Linux, macOS, and Windows. |
 | [#142: capture Linux argv in the kernel](https://github.com/Karib0u/rustinel/issues/142) | Capture Linux argv in the kernel for short-lived processes. |
 | [#162: add YARA scan timeouts and file-size controls](https://github.com/Karib0u/rustinel/issues/162) | Add YARA scan timeouts and maximum file-size controls. |
 | [#140: expose telemetry counters](https://github.com/Karib0u/rustinel/issues/140) | Expose received, dropped, and high-water telemetry counters. |
@@ -69,13 +71,21 @@ Path identity comes first: #168 is the file-event form of the process-image
 defect fixed in #226, and #142 covers the same collector, so the three are
 cheapest to reason about close together.
 
+File identity is the same problem on Windows: #238 is the Kernel-File form of
+#168, since events carrying write semantics arrive with no path at all and the
+events that do carry paths are name-cache bookkeeping. #239 follows it rather
+than leading, because #238 settles what `file_change` means — writes, or the
+creation-time changes the Sigma category actually denotes — and converging the
+platforms on a definition that #238 then revises would mean doing it twice.
+
 The webhook sink is included here rather than later because it is the one
 backlog item with an identified external consumer waiting on it. It also
 introduces the multi-destination sink abstraction that the native sinks in
 #220 reuse.
 
 This is the largest release on the roadmap. If it needs to be cut, #136 and
-#137 move to v1.5.0 without blocking anything else.
+#137 move to v1.5.0 without blocking anything else, and #239 moves with #238
+since it is a small follow-on to that work rather than an independent item.
 
 ## v1.5.0: RSigma transition and telemetry capture
 
