@@ -59,10 +59,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # bpf-linker links against a specific LLVM, so it has to match the LLVM
+      # the nightly toolchain ships. Both pins move together — bumping one
+      # without the other breaks this job.
       - name: Setup nightly Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-08-11
           components: rust-src
           cache: false
 
@@ -71,7 +74,7 @@ jobs:
           lookup-only: true
 
       - name: Install bpf-linker
-        run: command -v bpf-linker >/dev/null 2>&1 || cargo install bpf-linker
+        run: command -v bpf-linker >/dev/null 2>&1 || cargo install bpf-linker --version 0.10.4 --locked
 
       - name: Build eBPF object
         run: |
