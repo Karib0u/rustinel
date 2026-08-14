@@ -108,7 +108,7 @@ rule instead of one is tracked separately by
 | `file_event` | Yes | Yes | Yes | Base file family |
 | `file_create` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `file_delete` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
-| `file_change` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
+| `file_change` | Yes | Yes | No | Derived from file event ID / opcode. On Windows the events routed here are Kernel-File name-cache entries and writes that arrive without a path, rather than content changes ([#238](https://github.com/Karib0u/rustinel/issues/238)); on macOS a modification is reported as `file_create`, so this category never matches ([#239](https://github.com/Karib0u/rustinel/issues/239)) |
 | `file_rename` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `dns_query` | Yes | Yes | Yes | Generic `category: dns` and `service: dns`, `category: network` are also supported |
 | `registry_event` / `registry_*` | Yes | No | No | Windows only |
