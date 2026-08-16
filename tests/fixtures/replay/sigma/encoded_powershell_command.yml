@@ -1,0 +1,23 @@
+title: Rustinel Replay Fixture - Encoded PowerShell Command
+id: 6f0d5a2c-7b41-4f2e-9d0a-1c8f3ab5e410
+status: test
+description: >
+  Fires on the benign encoded PowerShell launch in the checked-in replay
+  fixture. It exists to prove that replaying the fixture recording still
+  produces this alert, so it is deliberately narrow and is not meant for
+  production rule packs.
+references:
+  - https://github.com/Karib0u/rustinel/issues/230
+author: Rustinel
+date: 2026/08/16
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains: '-EncodedCommand'
+  condition: selection
+falsepositives:
+  - Administrative scripts that legitimately pass encoded commands
+level: medium

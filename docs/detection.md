@@ -12,9 +12,9 @@ All detection hits are written as ECS NDJSON alerts. The same alerts can also fe
 
 | Detector | Input | Execution path | Alert behavior |
 | --- | --- | --- | --- |
-| Sigma | Every normalized event | Inline in `SigmaDetectionHandler` | At most one Sigma alert per event, see [Match Selection](#match-selection) |
+| Sigma | Every normalized event | Inline in the shared `EventDetectors` service | At most one Sigma alert per event, see [Match Selection](#match-selection) |
 | YARA | Process-start executable path | Background worker via `YaraEventHandler` | One alert per matching YARA rule |
-| IOC domains / IPs / paths | Every normalized event | Inline in `SigmaDetectionHandler` | Zero or more alerts per event |
+| IOC domains / IPs / paths | Every normalized event | Inline in the shared `EventDetectors` service | Zero or more alerts per event |
 | IOC hashes | Process-start executable path | Background worker | Zero or more alerts per file |
 
 ## Sigma
@@ -288,3 +288,64 @@ Example:
 | Sigma | Uses the rule `level` with `critical`, `high`, and `medium` mapped explicitly; everything else becomes Low |
 | YARA | Every match is Critical |
 | IOC | Uses `ioc.default_severity` |
+
+## Replay
+
+`rustinel replay` runs the event-based detectors over a recording instead of over
+a live sensor stream. It calls the same `EventDetectors` service the live
+pipeline calls, so there is no second matching implementation to drift: a
+replayed event is evaluated by exactly the code that would have seen it live.
+
+What differs is only what a recording can support, and what a lab must not do:
+
+| Detector path | Replay |
+| --- | --- |
+| Sigma | Evaluated, routed by the platform recorded in the manifest |
+| IOC domains / IPs / paths | Evaluated |
+| YARA | Skipped and reported as skipped: the file behind the event is not in the recording |
+| IOC hashes | Skipped, for the same reason |
+| Active response | Never invoked, whatever the configuration says |
+| Deduplication | Off, so every match is reported |
+| Hot reload | Off, so a finite replay is reproducible |
+
+See the [CLI reference](cli.md#replay) for the command and
+[Output Format](output.md#replay-results) for the result formats.
+
+### Replay Regression Workflow
+
+The repository carries a golden fixture so that a change to normalization,
+serialization, or matching cannot quietly stop a rule from firing:
+
+```text
+tests/fixtures/replay/
++-- windows-powershell-fixture.ps1     benign behavior generator
++-- windows-powershell.ndjson          the recording
++-- windows-powershell.manifest.json   its manifest
++-- sigma/                             the rules the recording must fire
+```
+
+`tests/replay_fixture.rs` replays the recording against those rules on every
+platform in ordinary CI, with no sensors and no privileges, and asserts that both
+rules fire in the recorded order. The recording is a Windows capture, so it also
+proves that a recording replays away from the platform that produced it.
+
+To develop a rule against your own behavior:
+
+```bash
+# On a lab endpoint, with the sample ready to run in another window
+sudo rustinel capture --output /tmp/lab/run-42.ndjson
+# ... run the sample, then Ctrl-C ...
+
+# Anywhere, as often as the rules change
+rustinel replay /tmp/lab/run-42.ndjson --config /tmp/candidate.toml
+```
+
+To regenerate the checked-in fixture recording:
+
+1. On a Windows lab endpoint, start `rustinel capture --output windows-powershell.ndjson`.
+2. Run `windows-powershell-fixture.ps1`, then stop the capture with Ctrl-C.
+3. Confirm the manifest reads `"status": "complete"`.
+4. Copy both files into `tests/fixtures/replay/`, replacing the previous pair.
+   Never edit a recording by hand: the manifest checksum is verified on every
+   replay, and an edited payload is rejected.
+5. Run `cargo test --test replay_fixture`.

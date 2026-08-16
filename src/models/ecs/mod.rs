@@ -11,7 +11,7 @@ mod network;
 mod registry;
 mod user;
 
-pub use alert::{DnsAnswer, EcsAlert};
+pub use alert::{DnsAnswer, EcsAlert, ReplayProvenance};
 
 use crate::models::{Alert, EventFields};
 use event::{
@@ -132,6 +132,7 @@ impl From<&Alert> for EcsAlert {
             related_ip: None,
             related_user: None,
             edr_match: alert.match_details.clone(),
+            edr_replay: None,
         };
 
         // Map internal fields to ECS based on event type

@@ -204,6 +204,26 @@ pub fn init_operational_logging(
     app_guard
 }
 
+/// Initialize logging to stderr only, touching no log directory.
+///
+/// Used by `rustinel replay`, which must run unprivileged on a host that has
+/// never had Rustinel installed. Opening the managed log directory would either
+/// fail or create operational logs for a session that observed nothing. stderr
+/// keeps diagnostics — a rule that failed to compile, say — out of the replay
+/// report on stdout.
+pub fn init_replay_logging(cfg: &config::AppConfig) {
+    let layer = fmt::layer()
+        .with_writer(std::io::stderr)
+        .compact()
+        .with_ansi(console_ansi_supported())
+        .with_target(true)
+        .with_filter(build_log_filter(&cfg.logging));
+
+    // A replay running inside a process that already has a subscriber keeps
+    // that one; this is best-effort diagnostics, not a reason to fail.
+    let _ = tracing_subscriber::registry().with(layer).try_init();
+}
+
 /// Windows terminals other than Windows Terminal render ANSI escapes literally.
 #[cfg(windows)]
 fn console_ansi_supported() -> bool {
