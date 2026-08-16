@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -24,6 +24,7 @@ use crate::sensor::network_events::{
 use crate::sensor::{Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorPayload};
 use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line};
 
+use super::file_paths::FilePathCache;
 use super::{field_maps, mapper};
 
 /// Fixed trace session name for stopping the trace on shutdown.
@@ -53,11 +54,19 @@ impl EtwProviders {
 
     // Keyword names follow the Microsoft-Windows-Kernel-File manifest.
     const KERNEL_FILE_KEYWORD_FILENAME: u64 = 0x0010;
+    /// Enables Cleanup (13), Close (14), Read (15), SetInformation (17), and
+    /// the query paths. Needed for two things that are otherwise impossible:
+    /// `Close`, which is when a `FileObject` may be released from the path
+    /// index, and `SetInformation`, which is the only report of truncation or
+    /// of a creation-time change. It also turns on high-volume read and query
+    /// events, so [`kernel_file_route`] drops those before the schema lookup.
+    const KERNEL_FILE_KEYWORD_FILEIO: u64 = 0x0020;
     const KERNEL_FILE_KEYWORD_CREATE: u64 = 0x0080;
     const KERNEL_FILE_KEYWORD_WRITE: u64 = 0x0200;
     const KERNEL_FILE_KEYWORD_DELETE_PATH: u64 = 0x0400;
     const KERNEL_FILE_KEYWORD_RENAME_SETLINK_PATH: u64 = 0x0800;
     const FILE_KEYWORDS: u64 = Self::KERNEL_FILE_KEYWORD_FILENAME
+        | Self::KERNEL_FILE_KEYWORD_FILEIO
         | Self::KERNEL_FILE_KEYWORD_CREATE
         | Self::KERNEL_FILE_KEYWORD_WRITE
         | Self::KERNEL_FILE_KEYWORD_DELETE_PATH
@@ -170,19 +179,92 @@ impl EtwProviders {
 }
 
 /// Microsoft-Windows-Kernel-File manifest event IDs.
+const KERNEL_FILE_EVENT_NAME_CREATE: u16 = 10;
+const KERNEL_FILE_EVENT_NAME_DELETE: u16 = 11;
 const KERNEL_FILE_EVENT_CREATE: u16 = 12;
+const KERNEL_FILE_EVENT_CLOSE: u16 = 14;
+const KERNEL_FILE_EVENT_WRITE: u16 = 16;
+const KERNEL_FILE_EVENT_SET_INFORMATION: u16 = 17;
 const KERNEL_FILE_EVENT_DELETE_PATH: u16 = 26;
 const KERNEL_FILE_EVENT_RENAME_PATH: u16 = 27;
 const KERNEL_FILE_EVENT_SET_LINK_PATH: u16 = 28;
 
+/// `FILE_INFORMATION_CLASS` values seen on `SetInformation` (event ID 17).
+///
+/// The event reports only which class was set, never the values written, so
+/// these tell us *that* a timestamp or a file size changed but not to what.
+const FILE_BASIC_INFORMATION: u64 = 4;
+const FILE_ALLOCATION_INFORMATION: u64 = 19;
+const FILE_END_OF_FILE_INFORMATION: u64 = 20;
+
+/// What a Microsoft-Windows-Kernel-File event is good for.
+///
+/// Previously every unrecognised event ID fell into a `_ => Modify` catch-all,
+/// which quietly turned the provider's name-cache bookkeeping into telemetry:
+/// one `CreateNew` produced a create *and* a spurious change event. Routing is
+/// now an allowlist, so an event nobody has looked at is dropped rather than
+/// labelled a modification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KernelFileRoute {
+    /// Emit telemetry under this action.
+    Emit(SensorAction),
+    /// Carries a name; record it and emit nothing. These are the index the
+    /// provider publishes so consumers can resolve the pathless events.
+    Index,
+    /// A closed handle: drop its `FileObject` from the index.
+    EvictObject,
+    /// A name leaving the kernel's name cache: drop its `FileKey`.
+    EvictKey,
+    /// Action depends on the `InfoClass`, which needs the parsed event.
+    SetInformation,
+}
+
 /// The manifest provider emits file events with opcode 0, so routing must use
 /// manifest event IDs rather than MOF FileIo opcodes.
-fn kernel_file_action(event_id: u16) -> SensorAction {
+///
+/// `None` means "not interesting" — checked before the schema lookup, so the
+/// high-volume `Read` (15), `QueryInformation` (22), and `FSCTL` (23) events
+/// that the `FILEIO` keyword also enables cost only a match on an integer.
+fn kernel_file_route(event_id: u16) -> Option<KernelFileRoute> {
     match event_id {
-        KERNEL_FILE_EVENT_CREATE => SensorAction::Create,
-        KERNEL_FILE_EVENT_DELETE_PATH => SensorAction::Delete,
-        KERNEL_FILE_EVENT_RENAME_PATH => SensorAction::Rename,
-        _ => SensorAction::Modify,
+        KERNEL_FILE_EVENT_CREATE => Some(KernelFileRoute::Emit(SensorAction::Create)),
+        KERNEL_FILE_EVENT_WRITE => Some(KernelFileRoute::Emit(SensorAction::Modify)),
+        KERNEL_FILE_EVENT_DELETE_PATH => Some(KernelFileRoute::Emit(SensorAction::Delete)),
+        KERNEL_FILE_EVENT_RENAME_PATH | KERNEL_FILE_EVENT_SET_LINK_PATH => {
+            Some(KernelFileRoute::Emit(SensorAction::Rename))
+        }
+        KERNEL_FILE_EVENT_SET_INFORMATION => Some(KernelFileRoute::SetInformation),
+        KERNEL_FILE_EVENT_NAME_CREATE => Some(KernelFileRoute::Index),
+        KERNEL_FILE_EVENT_NAME_DELETE => Some(KernelFileRoute::EvictKey),
+        KERNEL_FILE_EVENT_CLOSE => Some(KernelFileRoute::EvictObject),
+        // Deliberately unrouted, with the reason recorded so a future reader
+        // does not have to re-derive it:
+        //   13 Cleanup     — precedes Close; Close is the eviction point
+        //   15 Read        — not a modification
+        //   18 SetDelete   — duplicate of 26 DeletePath, which carries the path
+        //   19 Rename      — duplicate of 27 RenamePath, which carries the path
+        //   22/23/32/34    — query and control paths, no state change
+        _ => None,
+    }
+}
+
+/// Resolve `SetInformation` (event ID 17) to an action via its `InfoClass`.
+///
+/// This is the event that makes truncation and timestamp manipulation visible
+/// at all; both were previously uncollected because the keyword was not
+/// enabled. Returns `None` for the many other information classes, which are
+/// ordinary metadata updates.
+fn set_information_action(parser: &Parser) -> Option<SensorAction> {
+    match try_get_uint_as_u64(parser, "InfoClass")? {
+        // Timestamps and attributes. This is the closest analogue to Sysmon
+        // Event ID 2 (file creation time changed), i.e. timestomping, which is
+        // what Sigma's `file_change` category actually denotes.
+        FILE_BASIC_INFORMATION => Some(SensorAction::Set),
+        // Setting the allocation size or end-of-file position: truncation.
+        // Truncate-to-zero of an existing file is a common wiper and
+        // ransomware pattern and produced no event at all before this.
+        FILE_ALLOCATION_INFORMATION | FILE_END_OF_FILE_INFORMATION => Some(SensorAction::Modify),
+        _ => None,
     }
 }
 
@@ -237,19 +319,27 @@ fn refine_file_create_action(parser: &Parser, action: SensorAction) -> Option<Se
     }
 }
 
-/// DeletePath, RenamePath, and SetLinkPath carry their path in `FilePath`;
-/// the remaining file events use `FileName`.
-fn kernel_file_path_property(event_id: u16) -> &'static str {
-    match event_id {
-        KERNEL_FILE_EVENT_DELETE_PATH
-        | KERNEL_FILE_EVENT_RENAME_PATH
-        | KERNEL_FILE_EVENT_SET_LINK_PATH => "FilePath",
-        _ => "FileName",
+/// Shared state the ETW callback carries across events.
+///
+/// The path index has to outlive a single event: the naming event and the
+/// write it explains are different records, often seconds apart.
+struct EtwState {
+    routing: EtwRouting,
+    file_paths: Mutex<FilePathCache>,
+}
+
+impl EtwState {
+    fn new() -> Self {
+        Self {
+            routing: EtwRouting::new(),
+            file_paths: Mutex::new(FilePathCache::new()),
+        }
     }
 }
 
 struct EtwRouting {
     kernel_process_guid: GUID,
+    kernel_file_guid: GUID,
     guid_to_category: HashMap<GUID, EventCategory>,
 }
 
@@ -273,6 +363,7 @@ impl EtwRouting {
 
         Self {
             kernel_process_guid: EtwProviders::kernel_process().guid,
+            kernel_file_guid: EtwProviders::kernel_file().guid,
             guid_to_category,
         }
     }
@@ -294,7 +385,9 @@ impl EtwRouting {
             EventCategory::Network => {
                 classify_kernel_network_event(record.event_id())?.connection_action()?
             }
-            EventCategory::File => kernel_file_action(record.event_id()),
+            // Kernel-File needs the path index and so has its own pipeline;
+            // `decode_record` diverts it before reaching here.
+            EventCategory::File => return None,
             EventCategory::Registry => match record.opcode() {
                 36 => SensorAction::Create,
                 38 | 41 => SensorAction::Delete,
@@ -351,7 +444,7 @@ impl Sensor for EtwSensor {
         let _ = stop_trace_by_name(TRACE_SESSION_NAME);
 
         let mut trace_builder = UserTrace::new().named(TRACE_SESSION_NAME.to_string());
-        let routing = Arc::new(EtwRouting::new());
+        let state = Arc::new(EtwState::new());
         let dropped_events = Arc::clone(&self.dropped_events);
 
         for provider_def in EtwProviders::all() {
@@ -360,14 +453,14 @@ impl Sensor for EtwSensor {
                 provider_def.name, provider_def.guid, provider_def.keywords
             );
 
-            let routing = Arc::clone(&routing);
+            let state = Arc::clone(&state);
             let tx = tx.clone();
             let dropped_events = Arc::clone(&dropped_events);
             let provider = Provider::by_guid(provider_def.guid)
                 .level(4)
                 .any(provider_def.keywords)
                 .add_callback(move |record, schema_locator| {
-                    let Some(event) = decode_record(record, schema_locator, &routing) else {
+                    let Some(event) = decode_record(record, schema_locator, &state) else {
                         return;
                     };
 
@@ -437,9 +530,13 @@ impl Sensor for EtwSensor {
 fn decode_record(
     record: &EventRecord,
     schema_locator: &SchemaLocator,
-    routing: &EtwRouting,
+    state: &EtwState,
 ) -> Option<SensorEvent> {
-    let (category, action) = routing.route(record)?;
+    if record.provider_id() == state.routing.kernel_file_guid {
+        return decode_kernel_file_record(record, schema_locator, state);
+    }
+
+    let (category, action) = state.routing.route(record)?;
     let schema = match schema_locator.event_schema(record) {
         Ok(schema) => schema,
         Err(err) => {
@@ -454,19 +551,10 @@ fn decode_record(
     };
     let parser = Parser::create(record, &schema);
 
-    // For file events, refine the action based on the IRP_MJ_CREATE
-    // disposition so that pure opens (reads / attribute queries) are
-    // dropped rather than misclassified as file creations.
-    let action = if category == EventCategory::File {
-        refine_file_create_action(&parser, action)?
-    } else {
-        action
-    };
-
     let decoded = match category {
         EventCategory::Process => decode_process(&parser, record, action),
         EventCategory::Network => decode_network(&parser, record),
-        EventCategory::File => decode_file(&parser, record),
+        EventCategory::File => unreachable!("kernel-file records are diverted above"),
         EventCategory::Registry => decode_registry(&parser, record),
         EventCategory::Dns => decode_dns(&parser, record),
         EventCategory::ImageLoad => decode_image_load(&parser, record),
@@ -587,28 +675,120 @@ fn decode_process(
     })
 }
 
-fn decode_file(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+/// Decode a Microsoft-Windows-Kernel-File record, resolving its path.
+///
+/// Kernel-File is handled apart from the other providers because it is the
+/// only one whose events cannot be understood in isolation: the write events
+/// name their target by kernel pointer and rely on an index the consumer
+/// builds from earlier naming events.
+fn decode_kernel_file_record(
+    record: &EventRecord,
+    schema_locator: &SchemaLocator,
+    state: &EtwState,
+) -> Option<SensorEvent> {
+    // Checked before the schema lookup: the FILEIO keyword needed for Close
+    // and SetInformation also delivers every read and query on the machine,
+    // and decoding those would be pure overhead.
+    let route = kernel_file_route(record.event_id())?;
+
+    let schema = match schema_locator.event_schema(record) {
+        Ok(schema) => schema,
+        Err(err) => {
+            trace!(
+                "Failed to get Kernel-File schema for event {}: {:?}",
+                record.event_id(),
+                err
+            );
+            return None;
+        }
+    };
+    let parser = Parser::create(record, &schema);
+
+    let file_object = try_get_uint_as_u64(&parser, "FileObject");
+    let file_key = try_get_uint_as_u64(&parser, "FileKey");
+    // DeletePath, RenamePath, and SetLinkPath carry `FilePath`; Create and the
+    // name-cache events carry `FileName`.
+    let named_path = try_get_string_any(&parser, &["FilePath", "FileName"]);
+
+    // Any event carrying a name feeds the index, including the ones that also
+    // produce telemetry — a Create both reports a creation and teaches us the
+    // path for the writes that follow on that handle.
+    if let Some(path) = named_path.as_deref() {
+        state
+            .file_paths
+            .lock()
+            .expect("file path index mutex poisoned")
+            .learn(file_object, file_key, path);
+    }
+
+    let action = match route {
+        KernelFileRoute::Index => return None,
+        KernelFileRoute::EvictObject => {
+            if let Some(object) = file_object {
+                state
+                    .file_paths
+                    .lock()
+                    .expect("file path index mutex poisoned")
+                    .forget_object(object);
+            }
+            return None;
+        }
+        KernelFileRoute::EvictKey => {
+            if let Some(key) = file_key {
+                state
+                    .file_paths
+                    .lock()
+                    .expect("file path index mutex poisoned")
+                    .forget_key(key);
+            }
+            return None;
+        }
+        // Event ID 12 fires for every handle request, including plain opens;
+        // the disposition says whether anything was actually created.
+        KernelFileRoute::Emit(SensorAction::Create) => {
+            refine_file_create_action(&parser, SensorAction::Create)?
+        }
+        KernelFileRoute::Emit(action) => action,
+        KernelFileRoute::SetInformation => set_information_action(&parser)?,
+    };
+
+    // A file event with no path cannot match a rule — essentially every file
+    // rule keys on TargetFilename — so an unresolvable event is dropped rather
+    // than sent on to occupy space in a bounded channel.
+    let raw_path = match named_path {
+        Some(path) => path,
+        None => state
+            .file_paths
+            .lock()
+            .expect("file path index mutex poisoned")
+            .resolve(file_object, file_key)?
+            .to_string(),
+    };
+
     let mappings = field_maps::file_event_mappings();
     let fields = FileEventFields {
         source_filename: None,
-        target_filename: try_get_string_any(
-            parser,
-            &[
-                kernel_file_path_property(record.event_id()),
-                mappings.get_etw_field("TargetFilename")?,
-            ],
-        )
-        .map(|path| convert_nt_to_dos(&path)),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
-        image: try_get_string(parser, mappings.get_etw_field("Image")?)
+        target_filename: Some(convert_nt_to_dos(&raw_path)),
+        process_id: try_get_uint(&parser, mappings.get_etw_field("ProcessId")?),
+        image: try_get_string(&parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
-        creation_utc_time: try_get_string(parser, mappings.get_etw_field("CreationUtcTime")?),
-        previous_creation_utc_time: try_get_string(parser, "PreviousCreationTime"),
-        user: try_get_string(parser, mappings.get_etw_field("User")?),
+        // Kernel-File reports which information class was set, never the
+        // values, so unlike Sysmon Event ID 2 these stay empty on Windows.
+        creation_utc_time: try_get_string(&parser, mappings.get_etw_field("CreationUtcTime")?),
+        previous_creation_utc_time: try_get_string(&parser, "PreviousCreationTime"),
+        user: try_get_string(&parser, mappings.get_etw_field("User")?),
     };
 
-    Some(DecodedEtwEvent {
-        pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
+    let pid = parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id()));
+    let normalization = mapper::normalization_for_record(EventCategory::File, action, record);
+
+    Some(SensorEvent {
+        platform: Platform::Windows,
+        provider: "etw",
+        action,
+        normalization,
+        pid,
+        timestamp: filetime_to_system_time(record.raw_timestamp()),
         process_start_key: None,
         payload: SensorPayload::File(fields),
     })
@@ -925,19 +1105,56 @@ mod tests {
 
     #[test]
     fn kernel_file_event_ids_route_to_actions() {
-        assert_eq!(kernel_file_action(12), SensorAction::Create);
-        assert_eq!(kernel_file_action(16), SensorAction::Modify);
-        assert_eq!(kernel_file_action(26), SensorAction::Delete);
-        assert_eq!(kernel_file_action(27), SensorAction::Rename);
+        use KernelFileRoute::Emit;
+        assert_eq!(kernel_file_route(12), Some(Emit(SensorAction::Create)));
+        assert_eq!(kernel_file_route(16), Some(Emit(SensorAction::Modify)));
+        assert_eq!(kernel_file_route(26), Some(Emit(SensorAction::Delete)));
+        assert_eq!(kernel_file_route(27), Some(Emit(SensorAction::Rename)));
+        assert_eq!(kernel_file_route(28), Some(Emit(SensorAction::Rename)));
     }
 
     #[test]
-    fn kernel_file_path_events_read_file_path() {
-        assert_eq!(kernel_file_path_property(12), "FileName");
-        assert_eq!(kernel_file_path_property(16), "FileName");
-        assert_eq!(kernel_file_path_property(26), "FilePath");
-        assert_eq!(kernel_file_path_property(27), "FilePath");
-        assert_eq!(kernel_file_path_property(28), "FilePath");
+    fn name_cache_events_are_index_maintenance_not_telemetry() {
+        // Measured on Windows 11: one CreateNew emits both a Create (12) and a
+        // NameCreate (10). Treating 10 as telemetry produced a spurious change
+        // event per file creation, and a rename produced three events.
+        assert_eq!(kernel_file_route(10), Some(KernelFileRoute::Index));
+        assert_eq!(kernel_file_route(11), Some(KernelFileRoute::EvictKey));
+        assert_eq!(kernel_file_route(14), Some(KernelFileRoute::EvictObject));
+    }
+
+    #[test]
+    fn unexamined_kernel_file_events_are_dropped_not_called_modifications() {
+        // The old `_ => Modify` catch-all labelled every one of these a file
+        // modification. 18 and 19 are the pathless duplicates of DeletePath
+        // (26) and RenamePath (27); the rest are reads and queries.
+        for event_id in [13, 15, 18, 19, 20, 21, 22, 23, 30, 32, 34, 99] {
+            assert_eq!(
+                kernel_file_route(event_id),
+                None,
+                "event {event_id} must not be routed"
+            );
+        }
+    }
+
+    #[test]
+    fn set_information_needs_its_info_class() {
+        assert_eq!(
+            kernel_file_route(17),
+            Some(KernelFileRoute::SetInformation),
+            "the action depends on InfoClass, which needs the parsed event"
+        );
+    }
+
+    #[test]
+    fn file_keywords_enable_close_and_set_information() {
+        // FILEIO is what delivers Close (14) and SetInformation (17); without
+        // it the path index can never release a handle and truncation and
+        // creation-time changes are never collected at all.
+        assert_ne!(
+            EtwProviders::FILE_KEYWORDS & EtwProviders::KERNEL_FILE_KEYWORD_FILEIO,
+            0
+        );
     }
 
     #[test]

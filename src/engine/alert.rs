@@ -619,15 +619,28 @@ impl Engine {
         subsets
     }
 
+    /// Map a file event to its Sigma logsource categories.
+    ///
+    /// `file_change` corresponds to Sysmon Event ID 2, *file creation time
+    /// changed* — timestomping — not "the file was written". Rules in that
+    /// category are written against timestamp manipulation, so routing plain
+    /// writes there makes any rule that keys only on `TargetFilename` fire on
+    /// ordinary file activity. Writes are therefore reported under the base
+    /// `file_event` family only.
+    ///
+    /// The numbering comes from `sensor::FILE_EVENT_NORMALIZATION`, which is
+    /// the single table every platform sensor maps its file actions through.
     pub(crate) fn sigma_file_categories_for_event(event: &NormalizedEvent) -> Vec<&'static str> {
         match event.event_id {
+            2 => vec!["file_event", "file_change"],
             11 => vec!["file_event", "file_create"],
             23 => vec!["file_delete"],
-            65 => vec!["file_event", "file_change"],
+            65 => vec!["file_event"],
             71 => vec!["file_event", "file_rename"],
             _ => match event.opcode {
+                2 => vec!["file_event", "file_change"],
                 64 => vec!["file_event", "file_create"],
-                65 | 80 => vec!["file_event", "file_change"],
+                65 | 80 => vec!["file_event"],
                 70 | 72 => vec!["file_delete"],
                 71 => vec!["file_event", "file_rename"],
                 _ => vec!["file_event"],

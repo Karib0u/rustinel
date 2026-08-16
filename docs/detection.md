@@ -110,7 +110,7 @@ rule instead of one is tracked separately by
 | `file_event` | Yes | Yes | Yes | Base file family |
 | `file_create` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `file_delete` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
-| `file_change` | Yes | Yes | Yes | Derived from file event ID / opcode. On Windows the events routed here are Kernel-File name-cache entries and writes that arrive without a path, rather than content changes, so a rule keyed on `TargetFilename` still cannot match there ([#238](https://github.com/Karib0u/rustinel/issues/238)) |
+| `file_change` | Yes | No | No | Timestamp or attribute changes only — see [File Event Numbering](#file-event-numbering). Not populated on Linux or macOS, whose sensors do not yet report metadata changes ([#146](https://github.com/Karib0u/rustinel/issues/146)) |
 | `file_rename` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `dns_query` | Yes | Yes | Yes | Generic `category: dns` and `service: dns`, `category: network` are also supported |
 | `registry_event` / `registry_*` | Yes | No | No | Windows only |
@@ -128,22 +128,34 @@ Every sensor routes its native file telemetry through one shared table, so the
 same logical action carries the same identifiers — and therefore lands in the
 same categories — on all three platforms:
 
-| Action | `event_id` | `action_code` | Categories |
-| --- | --- | --- | --- |
-| Create | 11 | 64 | `file_event`, `file_create` |
-| Modify | 65 | 65 | `file_event`, `file_change` |
-| Delete | 23 | 70 | `file_delete` |
-| Rename | 71 | 71 | `file_event`, `file_rename` |
+| Action | Meaning | `event_id` | `action_code` | Categories |
+| --- | --- | --- | --- | --- |
+| Create | File created | 11 | 64 | `file_event`, `file_create` |
+| Set | Timestamps or attributes changed | 2 | 2 | `file_event`, `file_change` |
+| Modify | Content written or truncated | 65 | 65 | `file_event` |
+| Delete | File deleted | 23 | 70 | `file_delete` |
+| Rename | File renamed or hard-linked | 71 | 71 | `file_event`, `file_rename` |
 
 The identifiers are Sysmon-compatible where Sysmon has an equivalent event
-(11 = FileCreate, 23 = FileDelete). Sysmon has no file-modify or file-rename
-event, so those reuse the action code as the `event_id`. A delete is
-deliberately not a member of `file_event`.
+(2 = FileCreateTime, 11 = FileCreate, 23 = FileDelete). Sysmon has no
+file-modify or file-rename event, so those reuse the action code as the
+`event_id`. A delete is deliberately not a member of `file_event`.
 
-Note that `file_change` here means "the file was modified", which is broader
-than Sysmon Event ID 2 (file creation time changed). Whether generic writes
-belong in this category, or whether it should be narrowed to timestomping, is
-still open in [#238](https://github.com/Karib0u/rustinel/issues/238).
+**`file_change` means timestomping, not "was written".** The category
+corresponds to Sysmon Event ID 2, *file creation time changed*. Rules published
+in it are written against timestamp manipulation, so routing ordinary writes
+there would make any rule that keys only on `TargetFilename` — which is most of
+them — fire on routine file activity. Writes are reported under the base
+`file_event` family instead.
+
+On Windows this is derived from Kernel-File `SetInformation` (event ID 17): an
+information class of `FileBasicInformation` is reported as `Set`, while
+`FileAllocationInformation` and `FileEndOfFileInformation` are truncation and
+are reported as `Modify`. One caveat for rule authors: the provider reports
+*which* information class was set but never the values written, so
+`CreationUtcTime` and `PreviousCreationUtcTime` stay empty. A `file_change`
+rule that matches on those fields will not fire; one that matches on
+`TargetFilename` and `Image` will.
 
 ### Field Model
 
