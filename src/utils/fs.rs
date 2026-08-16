@@ -4,6 +4,9 @@
 //! are owner-only. On Windows the managed install layout carries the ACLs and
 //! these helpers are no-ops.
 
+// `fs` is only reachable from the Unix implementations below; the Windows
+// no-ops would leave it unused.
+#[cfg(unix)]
 use std::fs;
 use std::io;
 use std::path::Path;

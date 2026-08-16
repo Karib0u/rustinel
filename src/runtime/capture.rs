@@ -166,6 +166,11 @@ impl CaptureSession {
     ///
     /// Removes the empty recording this session just created rather than
     /// leaving an artifact that looks like a failed capture of something.
+    ///
+    /// Only the eBPF and ESF runtimes learn about a failed start synchronously;
+    /// an ETW session reports it by ending, which the Windows runtime handles
+    /// with [`Self::mark_incomplete`] instead.
+    #[cfg(not(windows))]
     pub(crate) async fn abandon(self, sensor_worker: JoinHandle<()>) {
         drop(self.router);
         let _ = sensor_worker.await;
