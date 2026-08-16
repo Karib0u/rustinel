@@ -21,7 +21,7 @@ use rsigma_parser::{
     parse_sigma_yaml, Level as RsLevel, LogSource as RsLogSource, SigmaRule as RsRule,
 };
 
-use super::{Engine, LogSourceKey, MatchRank, RuleLoadDecision};
+use super::{Engine, LogSourceKey, MatchRank, RuleLoadDecision, UnsupportedRuleKind};
 use crate::engine::rsigma_adapter::RsigmaEvent;
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, MatchDebugLevel, MatchDetails, NormalizedEvent,
@@ -148,6 +148,13 @@ fn value_to_string(value: &serde_json::Value) -> Option<String> {
     }
 }
 
+fn document_identity(id: Option<&str>, title: &str) -> String {
+    match id {
+        Some(id) => format!("id '{id}', title '{title}'"),
+        None => format!("title '{title}'"),
+    }
+}
+
 impl Engine {
     /// RSigma variant of the single-file rule loader.
     ///
@@ -163,6 +170,23 @@ impl Engine {
         for error in &collection.errors {
             self.failed_rules
                 .push((path.display().to_string(), error.clone()));
+        }
+
+        for correlation in &collection.correlations {
+            self.record_unsupported_rule(
+                path,
+                UnsupportedRuleKind::Correlation,
+                document_identity(correlation.id.as_deref(), &correlation.title),
+                "RSigma correlation documents are parsed but stateful correlation evaluation is not integrated into Rustinel; support remains tracked by issue #143",
+            );
+        }
+        for filter in &collection.filters {
+            self.record_unsupported_rule(
+                path,
+                UnsupportedRuleKind::Filter,
+                document_identity(filter.id.as_deref(), &filter.title),
+                "RSigma filter documents are parsed but filter application is not integrated into Rustinel's stateless event matcher",
+            );
         }
 
         let match_detail = match_detail_level(self.match_debug);
