@@ -5,6 +5,7 @@
 
 mod alert;
 mod condition;
+mod detect;
 mod handler;
 mod loader;
 mod logsource;
@@ -20,6 +21,7 @@ mod rsigma_adapter;
 #[cfg(feature = "rsigma-engine")]
 mod rsigma_backend;
 
+pub use detect::EventDetectors;
 pub use handler::{DetectionPipeline, NormalizedEventHandler};
 pub(crate) use logsource::{current_platform, platform_product, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};

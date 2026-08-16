@@ -50,6 +50,17 @@ pub enum Platform {
     MacOS,
 }
 
+impl Platform {
+    /// The lowercase platform name, matching how it is serialized.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Linux => "linux",
+            Self::MacOS => "macos",
+        }
+    }
+}
+
 /// High-level action emitted by a sensor event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -14,6 +14,7 @@ use tracing::{debug, info};
 
 use crate::alerts::AlertSink;
 use crate::capture::CaptureSink;
+use crate::engine::EventDetectors;
 use crate::normalizer::Normalizer;
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
@@ -127,43 +128,31 @@ impl SensorEventHandler for NormalizedEventHandler {
                     }
                 }
 
-                let sigma = detection.detectors.sigma();
-                if let Some(mut alert) = sigma.check_event(&normalized_event) {
+                // The same detector service replay runs, over the same event.
+                let detectors = EventDetectors::snapshot(&detection.detectors);
+                let alerts = detectors.evaluate(&normalized_event);
+                if alerts.is_empty() {
+                    tracing::trace!(target: TARGET_ENGINE, "No rule matched this event");
+                }
+
+                for mut alert in alerts {
+                    // Alert-only enrichment: live has the process cache and the
+                    // originating PID, so it can fill in context the canonical
+                    // event does not carry.
                     self.normalizer
                         .enrich_process_context(&mut alert.event, event.pid.unwrap_or(0));
 
                     info!(
                         target: TARGET_ENGINE,
+                        engine = ?alert.engine,
                         rule = %alert.rule_name,
                         severity = ?alert.severity,
                         category = ?alert.event.category,
-                        "Sigma detection triggered"
+                        "Detection triggered"
                     );
 
                     detection.alert_sink.write_alert(&alert);
                     detection.response_engine.handle_alert(&alert);
-                } else {
-                    tracing::trace!(target: TARGET_ENGINE, "No Sigma rule matched this event");
-                }
-
-                let ioc_engine = detection.detectors.ioc();
-                let ioc_matches = ioc_engine.check_event(&normalized_event);
-                if !ioc_matches.is_empty() {
-                    for ioc_match in ioc_matches {
-                        let mut alert =
-                            ioc_engine.build_alert_for_match(&ioc_match, &normalized_event);
-                        self.normalizer
-                            .enrich_process_context(&mut alert.event, event.pid.unwrap_or(0));
-                        info!(
-                            target: TARGET_ENGINE,
-                            rule = %alert.rule_name,
-                            severity = ?alert.severity,
-                            category = ?alert.event.category,
-                            "IOC detection triggered"
-                        );
-                        detection.alert_sink.write_alert(&alert);
-                        detection.response_engine.handle_alert(&alert);
-                    }
                 }
             }
             None => {
