@@ -1,4 +1,6 @@
 use crate::cli::{Cli, Commands};
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+use crate::runtime::capture::CaptureOptions;
 
 #[cfg(windows)]
 pub fn run() -> anyhow::Result<()> {
@@ -29,6 +31,13 @@ pub fn run() -> anyhow::Result<()> {
             cli.config,
             sigma_engine.map(|engine| engine.kind()),
         ),
+        Some(Commands::Capture { output }) => {
+            crate::runtime::windows::run_capture(CaptureOptions {
+                output,
+                log_level: cli.log_level,
+                config_path: cli.config,
+            })
+        }
         None => crate::runtime::windows::run_console(true, cli.log_level, cli.config, None),
         Some(Commands::Doctor { .. }) => unreachable!("doctor is handled before service dispatch"),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
@@ -83,6 +92,11 @@ pub fn run() -> anyhow::Result<()> {
             cli.config,
             sigma_engine.map(|engine| engine.kind()),
         ),
+        Some(Commands::Capture { output }) => crate::runtime::linux::run_capture(CaptureOptions {
+            output,
+            log_level: cli.log_level,
+            config_path: cli.config,
+        }),
         None => crate::runtime::linux::run(true, cli.log_level, cli.config, None),
     }
 }
@@ -121,6 +135,11 @@ pub fn run() -> anyhow::Result<()> {
             cli.config,
             sigma_engine.map(|engine| engine.kind()),
         ),
+        Some(Commands::Capture { output }) => crate::runtime::macos::run_capture(CaptureOptions {
+            output,
+            log_level: cli.log_level,
+            config_path: cli.config,
+        }),
         None => crate::runtime::macos::run(true, cli.log_level, cli.config, None),
     }
 }

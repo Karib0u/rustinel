@@ -13,7 +13,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -139,6 +139,8 @@ pub struct CaptureRecorder {
     /// shutdown.
     tx: Option<mpsc::Sender<String>>,
     worker: JoinHandle<PayloadDigest>,
+    /// Set for loss the sink cannot observe, such as a sensor dying mid-session.
+    forced_incomplete: Arc<AtomicBool>,
 }
 
 /// What the writer task observed about the payload it produced.
@@ -191,7 +193,23 @@ impl CaptureRecorder {
             counters,
             tx: Some(tx),
             worker,
+            forced_incomplete: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Mark the recording as incomplete for a reason the sink cannot see.
+    ///
+    /// Event loss inside the capture pipeline is already counted, but a sensor
+    /// that stops feeding events produces a recording that looks lossless while
+    /// missing everything after the failure.
+    pub fn mark_incomplete(&self, reason: &str) {
+        if !self.forced_incomplete.swap(true, Ordering::Relaxed) {
+            warn!(
+                target: TARGET_CAPTURE,
+                reason,
+                "Recording will be marked incomplete"
+            );
+        }
     }
 
     /// Sink handle for the event pipeline.
@@ -229,7 +247,10 @@ impl CaptureRecorder {
             .context("capture writer task failed to complete")?;
 
         let events = self.counters.snapshot();
-        let status = if events.lost == 0 && !digest.write_failed {
+        let status = if events.lost == 0
+            && !digest.write_failed
+            && !self.forced_incomplete.load(Ordering::Relaxed)
+        {
             CaptureStatus::Complete
         } else {
             CaptureStatus::Incomplete

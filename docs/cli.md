@@ -48,6 +48,50 @@ Notes:
 - `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
+### `capture`
+
+Record endpoint behavior to a file that can be replayed against detectors later.
+
+```text
+rustinel capture [--config <PATH>] [--output <PATH>] [--log-level <LEVEL>]
+```
+
+Capture is passive. It starts the same sensors as `run` and records every
+normalized event, but evaluates no rules, writes no alerts, and never invokes
+active response. Rustinel does not launch the activity being observed: start
+capture first, run the sample yourself, then press Ctrl-C.
+
+```powershell
+# In a disposable VM
+rustinel capture
+# ... run the sample, script, or Atomic test in another window ...
+# Ctrl-C
+```
+
+```bash
+sudo ./rustinel capture --output /tmp/lab/run-42.ndjson
+```
+
+Behavior:
+
+- Requires the same privileges as `run`, and fails with the same preflight errors.
+- Without `--output`, the recording is written to
+  `<capture.directory>/rustinel-capture-<UTC timestamp>.ndjson`, creating the
+  directory if needed. `--output` overrides that path entirely.
+- Each recording has a manifest sidecar next to it, named after the recording
+  with a `.manifest.json` extension.
+- Ctrl-C drains queued events and finalizes the manifest as `complete`. A
+  capture that is killed, or that lost events, stays `incomplete` and is
+  rejected by replay by default.
+- Progress and final counts go to stderr. Event payloads are never printed.
+- Recordings can be replayed on any platform: a Windows recording replays on
+  Linux and vice versa.
+
+Recordings contain full command lines, file paths, network destinations, and
+user names for all observed activity, so handle them as sensitive artifacts.
+See [Output Format](output.md#behavioral-recordings) for the stream and manifest
+layout.
+
 ### `doctor`
 
 Run read-only preflight and health checks without starting the agent.

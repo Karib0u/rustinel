@@ -5,6 +5,7 @@ use crate::memory::MemoryScanConfig;
 use crate::normalizer::Normalizer;
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
+use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::{init_logging, log_startup_banner};
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
@@ -163,6 +164,106 @@ fn spawn_shutdown_handler(
     })
 }
 
+/// ETW providers require an elevated token. Shared by `run` and `capture` so
+/// both fail with the same clear preflight error.
+fn ensure_administrator_privileges() -> anyhow::Result<()> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_ok() {
+            let mut elevation = TOKEN_ELEVATION::default();
+            let mut return_length = 0u32;
+
+            if GetTokenInformation(
+                token,
+                TokenElevation,
+                Some(&mut elevation as *mut _ as *mut _),
+                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                &mut return_length,
+            )
+            .is_ok()
+            {
+                if elevation.TokenIsElevated == 0 {
+                    error!("❌ ERROR: This application requires Administrator privileges!");
+                    error!("   Please run as Administrator to access ETW providers.");
+                    return Err(anyhow::anyhow!(
+                        "Insufficient privileges - Administrator access required"
+                    ));
+                } else {
+                    info!("✓ Running with Administrator privileges");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Windows capture runtime: the same ETW session as `run`, recording normalized
+/// events instead of evaluating them.
+pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
+    let runtime = Builder::new_multi_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let context = CaptureContext::load(&options, "Windows ETW")?;
+        ensure_administrator_privileges()?;
+        let session = context.start_recording(&options, Platform::Windows)?;
+
+        // Cold start: seed the process cache so early events resolve parents.
+        match crate::platform::windows::snapshot_processes(session.process_cache()) {
+            Ok(count) => info!(
+                "✓ Process Cache initialized with {} existing processes",
+                count
+            ),
+            Err(e) => warn!(
+                "Failed to snapshot processes: {}. Cache will populate from ETW events.",
+                e
+            ),
+        }
+
+        let (sensor_tx, sensor_worker) = session.sensor_channel();
+        let sensor = Arc::new(EtwSensor::new());
+        let sensor_for_trace = Arc::clone(&sensor);
+        let mut trace_handle =
+            tokio::task::spawn_blocking(move || sensor_for_trace.start(sensor_tx));
+
+        // An ETW session that ends on its own takes the recording with it:
+        // everything after that point is missing, which the capture sink cannot
+        // see, so the recording has to be marked incomplete explicitly.
+        let mut sensor_failure = None;
+        tokio::select! {
+            _ = CaptureSession::wait_for_shutdown() => {
+                sensor.shutdown();
+                if let Err(err) = (&mut trace_handle).await {
+                    error!("Failed to join ETW sensor thread: {}", err);
+                }
+            }
+            result = &mut trace_handle => {
+                let reason = match result {
+                    Ok(Ok(())) => "ETW session closed unexpectedly".to_string(),
+                    Ok(Err(err)) => format!("ETW session failed: {err:#}"),
+                    Err(err) => format!("ETW sensor thread did not finish cleanly: {err}"),
+                };
+                error!("🚨 {}", reason);
+                session.mark_incomplete(&reason);
+                sensor.shutdown();
+                sensor_failure = Some(anyhow::anyhow!(reason));
+            }
+        }
+
+        session.finish(sensor_worker).await?;
+
+        match sensor_failure {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    })
+}
+
 async fn run_edr(
     shutdown_mode: ShutdownMode,
     console_output_override: Option<bool>,
@@ -220,41 +321,7 @@ async fn run_edr(
     );
 
     // Verify running with appropriate privileges
-    {
-        use windows::Win32::Foundation::HANDLE;
-        use windows::Win32::Security::{
-            GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
-        };
-        use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-
-        unsafe {
-            let mut token = HANDLE::default();
-            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_ok() {
-                let mut elevation = TOKEN_ELEVATION::default();
-                let mut return_length = 0u32;
-
-                if GetTokenInformation(
-                    token,
-                    TokenElevation,
-                    Some(&mut elevation as *mut _ as *mut _),
-                    std::mem::size_of::<TOKEN_ELEVATION>() as u32,
-                    &mut return_length,
-                )
-                .is_ok()
-                {
-                    if elevation.TokenIsElevated == 0 {
-                        error!("❌ ERROR: This application requires Administrator privileges!");
-                        error!("   Please run as Administrator to access ETW providers.");
-                        return Err(anyhow::anyhow!(
-                            "Insufficient privileges - Administrator access required"
-                        ));
-                    } else {
-                        info!("✓ Running with Administrator privileges");
-                    }
-                }
-            }
-        }
-    }
+    ensure_administrator_privileges()?;
 
     // Initialize modules
     info!("Initializing modules...");
