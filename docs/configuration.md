@@ -248,7 +248,9 @@ Propagation behavior:
 
 ### Deduplication
 
-Alert deduplication collapses repeated identical alerts within a sliding window into a single rollup alert. The **first occurrence always emits immediately** - there is no added detection latency for novel alerts. Only repeats of the same alert within the window are suppressed.
+Alert deduplication collapses repeated identical alerts within a fixed window anchored to the first occurrence into a single rollup alert. The **first occurrence always emits immediately** - there is no added detection latency for novel alerts. Repeats do not extend the window; an alert after the window closes starts a new window and emits immediately.
+
+Long-running activity is split into successive fixed windows, so each window is flushed and reported independently.
 
 A rollup alert is written at window close carrying `event.count` with the number of **suppressed repeats** — that is, the occurrences that were *not* written as their own line. This follows the ECS definition of `event.count` (the number of events a document represents): the live first-occurrence line represents exactly one event and carries no `event.count` at all, so summing `event.count` across every emitted line — counting a missing field as `1`, as SIEMs do — yields the true event volume.
 
@@ -259,7 +261,7 @@ The dedup key is `(engine, rule_name, process.executable, process.parent.executa
 | Option | Default | Description |
 | --- | --- | --- |
 | `enabled` | `true` | Enable alert deduplication |
-| `window_secs` | `60` | Window length in seconds; identical alerts within this window are aggregated |
+| `window_secs` | `60` | Fixed window length in seconds, measured from the first occurrence; repeats do not extend it |
 | `max_entries` | `10000` | Maximum distinct alert keys tracked simultaneously (memory cap) |
 
 Set `enabled = false` for high-fidelity environments where every individual alert event matters.

@@ -18,8 +18,9 @@ configuration test isolation. Each item causes Rustinel to report something and
 to report it wrongly.
 
 Deduplication work stays together: the window semantics and the rollup counters
-are settled in one pass, so the sliding-window fix follows the `event.count`
-over-counting fix in the same subsystem rather than in a later release.
+are settled in one pass, so the window-semantics decision follows the
+`event.count` over-counting fix in the same subsystem rather than in a later
+release.
 
 ## v1.4.0: Normalized-event capture and replay
 
