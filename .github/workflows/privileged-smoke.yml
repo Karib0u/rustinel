@@ -31,6 +31,9 @@ jobs:
         run: cargo test --locked --test yara_memory -- --include-ignored
       - name: Run ignored active response smoke tests
         run: cargo test --locked --test active_response -- --include-ignored
+      # Ctrl-C delivery is signal-based, so the capture smoke test is Unix-only.
+      - name: Run ignored capture smoke tests
+        run: cargo test --locked --test capture_command -- --include-ignored
 
   windows-privileged-smoke:
     name: Privileged Smoke (Windows)

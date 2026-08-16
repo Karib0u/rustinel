@@ -3,6 +3,7 @@
 //! Exposes core modules for use by binaries and tests.
 
 pub mod alerts;
+pub mod capture;
 pub mod cli;
 pub mod config;
 pub mod doctor;

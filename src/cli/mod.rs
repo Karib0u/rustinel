@@ -75,6 +75,16 @@ pub enum Commands {
         #[arg(long, value_enum, value_name = "ENGINE")]
         sigma_engine: Option<SigmaEngineArg>,
     },
+    /// Record endpoint behavior to a replayable file without evaluating detections
+    ///
+    /// Capture is passive: start it first, then run the sample, script, or test
+    /// you want to record, and press Ctrl-C when the session is complete.
+    Capture {
+        /// Recording path.
+        /// Defaults to <capture.directory>/rustinel-capture-<UTC timestamp>.ndjson
+        #[arg(long, value_name = "PATH")]
+        output: Option<std::path::PathBuf>,
+    },
     /// Check configuration, paths, and runtime prerequisites
     Doctor {
         /// Emit structured JSON output
@@ -271,6 +281,45 @@ mod tests {
             }
             _ => panic!("expected setup command"),
         }
+    }
+
+    #[test]
+    fn capture_defaults_to_a_generated_output_path() {
+        let cli = Cli::try_parse_from(["rustinel", "capture"]).expect("capture should parse");
+
+        match cli.command {
+            Some(Commands::Capture { output }) => assert_eq!(output, None),
+            _ => panic!("expected capture command"),
+        }
+    }
+
+    #[test]
+    fn capture_accepts_an_explicit_output_path() {
+        let cli =
+            Cli::try_parse_from(["rustinel", "capture", "--output", "/tmp/lab/run-42.ndjson"])
+                .expect("capture should parse");
+
+        match cli.command {
+            Some(Commands::Capture { output }) => {
+                assert_eq!(
+                    output,
+                    Some(std::path::PathBuf::from("/tmp/lab/run-42.ndjson"))
+                );
+            }
+            _ => panic!("expected capture command"),
+        }
+    }
+
+    #[test]
+    fn capture_accepts_the_global_config_flag() {
+        let cli = Cli::try_parse_from(["rustinel", "capture", "--config", "/tmp/rustinel.toml"])
+            .expect("capture should parse");
+
+        assert_eq!(
+            cli.config,
+            Some(std::path::PathBuf::from("/tmp/rustinel.toml"))
+        );
+        assert!(matches!(cli.command, Some(Commands::Capture { .. })));
     }
 
     #[test]

@@ -1,9 +1,10 @@
 # Output Format
 
-Rustinel emits two outputs:
+Rustinel emits three outputs:
 
 - Operational logs for runtime state and troubleshooting
 - ECS NDJSON alerts for detections
+- Behavioral recordings, written only by `rustinel capture`
 
 ## Operational Logs
 
@@ -130,6 +131,65 @@ Format:
 | Task | `edr.task` |
 
 The full field set depends on event type and platform. Windows alerts can include PE metadata, registry details, PowerShell content, and service or task context. Linux and macOS alerts currently focus on process, network, file, and DNS fields.
+
+## Behavioral Recordings
+
+A recording is the endpoint-behavior analogue of a packet capture: the normalized
+events Rustinel's detectors consume, saved so the same activity can be evaluated
+again later without re-running the sample that produced it. Recordings are
+produced only by `rustinel capture`; an ordinary `run` never writes one.
+
+Location:
+
+- Default: `captures/rustinel-capture-<UTC timestamp>.ndjson`, configurable with
+  `capture.directory`
+
+A recording is two files:
+
+| File | Content |
+| --- | --- |
+| `<name>.ndjson` | The payload: one normalized event per line, in observed order |
+| `<name>.manifest.json` | The sidecar describing the payload and whether it is complete |
+
+The payload holds canonical normalized events, recorded immediately after
+normalization. It is not alert output: no rule ever ran against these events,
+and they carry no alert-only process-context enrichment. Repeated events are
+kept as-is, because capture does not deduplicate.
+
+```json
+{"timestamp":"2026-08-16T09:12:44Z","platform":"windows","provider":"etw","category":"Process","event_id":1,"opcode":1,"fields":{"Image":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","CommandLine":"powershell.exe -EncodedCommand ...","ProcessId":"6132","ParentImage":"C:\\Windows\\explorer.exe"}}
+```
+
+The manifest records what the payload contains and whether it can be trusted:
+
+```json
+{
+  "schema_version": 1,
+  "payload": "rustinel-capture-20260816T091240Z.ndjson",
+  "rustinel_version": "1.3.0",
+  "platform": "windows",
+  "started_at": "2026-08-16T09:12:40Z",
+  "ended_at": "2026-08-16T09:14:02Z",
+  "status": "complete",
+  "events": { "received": 1841, "written": 1841, "lost": 0 },
+  "payload_bytes": 612884,
+  "payload_sha256": "9f2c…"
+}
+```
+
+`status` is the field that matters. The manifest is written as `incomplete` when
+the session starts and is only rewritten as `complete` at clean shutdown with
+every received event accounted for. A recording is therefore `incomplete`
+whenever the process was killed before it could finalize, or events were lost
+because the writer could not keep up. `received` always equals
+`written + lost`, so loss is visible rather than implied.
+
+Recordings are as sensitive as alerts, and often more so: they contain full
+command lines, file paths, network destinations, and user names for *all*
+observed activity, not only what a rule matched. They are written owner-only
+(`0600`, in a `0700` directory on Unix) and are kept separate from alert and
+operational log output. Treat sharing a recording the way you would treat
+sharing a memory dump from the same host.
 
 ## SIEM Shipping
 

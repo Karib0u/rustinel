@@ -39,11 +39,11 @@ Production note:
 
 ## Managed Layouts
 
-| Platform | Config | Rules | Logs and alerts |
-| --- | --- | --- | --- |
-| Windows | `C:\ProgramData\Rustinel\config.toml` | `C:\ProgramData\Rustinel\rules` | `C:\ProgramData\Rustinel\logs` |
-| Linux | `/etc/rustinel/config.toml` | `/var/lib/rustinel/rules` | `/var/log/rustinel` |
-| macOS | `/Library/Application Support/Rustinel/config.toml` | `/Library/Application Support/Rustinel/rules` | `/Library/Logs/Rustinel` |
+| Platform | Config | Rules | Logs and alerts | Recordings |
+| --- | --- | --- | --- | --- |
+| Windows | `C:\ProgramData\Rustinel\config.toml` | `C:\ProgramData\Rustinel\rules` | `C:\ProgramData\Rustinel\logs` | `C:\ProgramData\Rustinel\captures` |
+| Linux | `/etc/rustinel/config.toml` | `/var/lib/rustinel/rules` | `/var/log/rustinel` | `/var/lib/rustinel/captures` |
+| macOS | `/Library/Application Support/Rustinel/config.toml` | `/Library/Application Support/Rustinel/rules` | `/Library/Logs/Rustinel` | `/Library/Application Support/Rustinel/captures` |
 
 ## Example `config.toml`
 
@@ -84,6 +84,9 @@ enabled = true
 window_secs = 60
 max_entries = 10000
 
+[capture]
+directory = "captures"
+
 [response]
 enabled = false
 prevention_enabled = false
@@ -112,10 +115,10 @@ max_file_size_mb = 50
 
 Use Windows path prefixes on Windows and Unix path prefixes on Linux.
 
-On Unix, Rustinel restricts configured log and alert directories to mode `0700`
-and their rolling files to `0600`. This prevents other local users from reading
-operational context or alert details. Windows continues to use the owning
-account's configured ACLs.
+On Unix, Rustinel restricts configured log, alert, and recording directories to
+mode `0700` and their files to `0600`. This prevents other local users from
+reading operational context, alert details, or recorded endpoint behavior.
+Windows continues to use the owning account's configured ACLs.
 
 ## Platform-Aware Defaults
 
@@ -140,6 +143,7 @@ account's configured ACLs.
 | `dedup.enabled` | `true` |
 | `dedup.window_secs` | `60` |
 | `dedup.max_entries` | `10000` |
+| `capture.directory` | `captures` |
 | `response.enabled` | `false` |
 | `response.prevention_enabled` | `false` |
 | `response.min_severity` | `critical` |
@@ -271,6 +275,22 @@ Set `enabled = false` for high-fidelity environments where every individual aler
 ```
 dedup: suppressed_total=1420 aggregated_rollup_alerts=38 pending_keys=0
 ```
+
+### Capture
+
+Behavioral recordings are written only by `rustinel capture`; an ordinary `run`
+never touches this directory.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `directory` | `captures` | Parent directory for recordings, unless `capture --output` gives an explicit path |
+
+Recordings hold normalized events for *all* observed activity, including full
+command lines, file paths, network destinations, and user names — they are more
+revealing than alert output, which only contains what a rule matched. Keep them
+out of shared directories and off general-purpose log shipping. See
+[Output Format](output.md#behavioral-recordings) for the stream and manifest
+layout.
 
 ### Active Response
 

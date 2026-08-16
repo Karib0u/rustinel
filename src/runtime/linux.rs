@@ -1,10 +1,11 @@
 use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
-use crate::engine::{Engine, SigmaDetectionHandler};
+use crate::engine::{DetectionPipeline, Engine, NormalizedEventHandler};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
 use crate::normalizer::Normalizer;
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
+use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::{init_logging, log_startup_banner};
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
@@ -31,6 +32,29 @@ pub fn run(
         config_path,
         sigma_engine,
     ))
+}
+
+/// Linux capture runtime: the same eBPF sensor as `run`, recording normalized
+/// events instead of evaluating them.
+pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
+    let runtime = Builder::new_multi_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let context = CaptureContext::load(&options, "Linux eBPF")?;
+        let session = context.start_recording(&options, Platform::Linux)?;
+        let (sensor_tx, sensor_worker) = session.sensor_channel();
+
+        let sensor = Arc::new(EbpfSensor::new());
+        info!("Starting eBPF sensor...");
+        if let Err(e) = sensor.start(sensor_tx) {
+            error!("eBPF sensor failed to start: {:#}", e);
+            session.abandon(sensor_worker).await;
+            return Err(e);
+        }
+
+        CaptureSession::wait_for_shutdown().await;
+        sensor.shutdown();
+        session.finish(sensor_worker).await
+    })
 }
 
 /// Linux eBPF EDR main loop. Mirrors `run_edr` but replaces ETW with the
@@ -262,13 +286,15 @@ async fn run_linux_edr(
     ));
 
     // 12. Detection handlers + router
-    let sigma_handler = SigmaDetectionHandler {
-        normalizer: Arc::clone(&normalizer),
-        detectors: Arc::clone(&detectors),
-        ioc_hash_tx,
-        alert_sink: alert_sink.clone(),
-        response_engine: response_engine.clone(),
-    };
+    let sigma_handler = NormalizedEventHandler::detecting(
+        Arc::clone(&normalizer),
+        DetectionPipeline {
+            detectors: Arc::clone(&detectors),
+            ioc_hash_tx,
+            alert_sink: alert_sink.clone(),
+            response_engine: response_engine.clone(),
+        },
+    );
 
     let yara_handler = if cfg.scanner.yara_enabled {
         let yara_handler = YaraEventHandler {
