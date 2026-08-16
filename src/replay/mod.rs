@@ -194,8 +194,11 @@ impl Replay {
             for alert in self.detectors.evaluate(&event) {
                 report.alerts += 1;
                 match alert.engine {
+                    // Exhaustive on purpose: a detector added later has to
+                    // decide how a replay counts it. YARA cannot appear here,
+                    // because replay never runs it.
+                    DetectionEngine::Sigma | DetectionEngine::Yara => report.sigma_alerts += 1,
                     DetectionEngine::Ioc => report.ioc_alerts += 1,
-                    _ => report.sigma_alerts += 1,
                 }
                 writer.alert(report.alerts as usize, &alert)?;
             }

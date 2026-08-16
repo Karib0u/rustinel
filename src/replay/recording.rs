@@ -177,7 +177,8 @@ fn verify(
     if actual != expected {
         bail!(
             "recording {} does not match its manifest checksum (expected {}, found {}); it has \
-             been modified or truncated since capture",
+             been modified or truncated since capture, or copied through something that \
+             rewrote its line endings — move recordings as binary files",
             payload_path.display(),
             expected,
             actual
