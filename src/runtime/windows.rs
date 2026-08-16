@@ -1,5 +1,5 @@
 use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
-use crate::engine::{Engine, SigmaDetectionHandler};
+use crate::engine::{DetectionPipeline, Engine, NormalizedEventHandler};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
 use crate::normalizer::Normalizer;
@@ -513,14 +513,16 @@ async fn run_edr(
     info!("✓ ETW sensor initialized");
     info!("✓ Normalizer initialized");
 
-    // Create Sigma detection handler
-    let sigma_handler = SigmaDetectionHandler {
-        normalizer: Arc::clone(&normalizer),
-        detectors: Arc::clone(&detectors),
-        ioc_hash_tx,
-        alert_sink: alert_sink.clone(),
-        response_engine: response_engine.clone(),
-    };
+    // Create the normalized-event handler in live detection mode
+    let sigma_handler = NormalizedEventHandler::detecting(
+        Arc::clone(&normalizer),
+        DetectionPipeline {
+            detectors: Arc::clone(&detectors),
+            ioc_hash_tx,
+            alert_sink: alert_sink.clone(),
+            response_engine: response_engine.clone(),
+        },
+    );
 
     // Create YARA event handler
     let yara_handler = if cfg.scanner.yara_enabled {

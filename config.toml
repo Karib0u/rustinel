@@ -89,6 +89,13 @@ aggregation_max_entries = 20000
 aggregation_window_secs = 60
 aggregation_interval_buffer_size = 50
 
+# 6a. Behavioral Recording (rustinel capture)
+#   Recordings hold normalized events - command lines, file paths, destinations,
+#   and user names - so treat them like alert output: they are written
+#   owner-only and kept apart from alert and operational logs.
+[capture]
+directory = "captures"      # default parent for rustinel-capture-<UTC timestamp>.ndjson
+
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
 enabled = true

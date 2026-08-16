@@ -53,6 +53,7 @@ pub struct InstallLayout {
     pub ioc_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub alerts_dir: PathBuf,
+    pub captures_dir: PathBuf,
 }
 
 impl InstallLayout {
@@ -67,18 +68,21 @@ impl InstallLayout {
                 ioc_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\current\ioc"),
                 logs_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
                 alerts_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
+                captures_dir: PathBuf::from(r"C:\ProgramData\Rustinel\captures"),
             },
             InstallPlatform::Linux => Self::from_roots(
                 platform,
                 PathBuf::from("/etc/rustinel/config.toml"),
                 PathBuf::from("/var/lib/rustinel/rules"),
                 PathBuf::from("/var/log/rustinel"),
+                PathBuf::from("/var/lib/rustinel/captures"),
             ),
             InstallPlatform::Macos => Self::from_roots(
                 platform,
                 PathBuf::from("/Library/Application Support/Rustinel/config.toml"),
                 PathBuf::from("/Library/Application Support/Rustinel/rules"),
                 PathBuf::from("/Library/Logs/Rustinel"),
+                PathBuf::from("/Library/Application Support/Rustinel/captures"),
             ),
         }
     }
@@ -97,6 +101,7 @@ impl InstallLayout {
             ioc_dir: rules_dir.join("ioc"),
             alerts_dir: logs_dir.clone(),
             logs_dir,
+            captures_dir: root.join("captures"),
         }
     }
 
@@ -110,6 +115,7 @@ impl InstallLayout {
         cfg.scanner.yara_rules_path = self.yara_rules_dir.clone();
         cfg.logging.directory = self.logs_dir.clone();
         cfg.alerts.directory = self.alerts_dir.clone();
+        cfg.capture.directory = self.captures_dir.clone();
         cfg.ioc.hashes_path = layout_join(self.platform, &self.ioc_dir, "hashes.txt");
         cfg.ioc.ips_path = layout_join(self.platform, &self.ioc_dir, "ips.txt");
         cfg.ioc.domains_path = layout_join(self.platform, &self.ioc_dir, "domains.txt");
@@ -122,6 +128,7 @@ impl InstallLayout {
         config_file: PathBuf,
         rules_dir: PathBuf,
         logs_dir: PathBuf,
+        captures_dir: PathBuf,
     ) -> Self {
         let current_dir = layout_join(platform, &rules_dir, "current");
         let ioc_dir = layout_join(platform, &current_dir, "ioc");
@@ -134,6 +141,7 @@ impl InstallLayout {
             ioc_dir,
             alerts_dir: logs_dir.clone(),
             logs_dir,
+            captures_dir,
         }
     }
 }
@@ -289,6 +297,7 @@ pub struct AppConfig {
     pub ioc: IocConfig,
     pub reload: ReloadConfig,
     pub dedup: DedupConfig,
+    pub capture: CaptureConfig,
 }
 
 /// Scanner configuration (Sigma and YARA rules)
@@ -401,6 +410,15 @@ pub struct DedupConfig {
     pub max_entries: usize,
 }
 
+/// Behavioral recording configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct CaptureConfig {
+    /// Directory holding behavioral recordings written by `rustinel capture`.
+    /// Kept apart from alert and operational log output, and restricted to the
+    /// owner because recordings describe endpoint activity in detail.
+    pub directory: PathBuf,
+}
+
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
@@ -496,7 +514,9 @@ impl AppConfig {
             // Alert deduplication
             .set_default("dedup.enabled", true)?
             .set_default("dedup.window_secs", 60i64)?
-            .set_default("dedup.max_entries", 10000i64)?;
+            .set_default("dedup.max_entries", 10000i64)?
+            // Behavioral recording
+            .set_default("capture.directory", "captures")?;
 
         let builder = match selected_config {
             Some(path) => builder.add_source(config::File::from(path).required(true)),
@@ -542,6 +562,12 @@ impl AppConfig {
             &mut self.alerts.directory,
             base_dir,
             "ALERTS__DIRECTORY",
+            environment,
+        );
+        resolve_path_from_config(
+            &mut self.capture.directory,
+            base_dir,
+            "CAPTURE__DIRECTORY",
             environment,
         );
         resolve_path_from_config(
@@ -737,6 +763,9 @@ impl Default for AppConfig {
                 enabled: true,
                 window_secs: 60,
                 max_entries: 10_000,
+            },
+            capture: CaptureConfig {
+                directory: PathBuf::from("captures"),
             },
         };
 
