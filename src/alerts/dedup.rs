@@ -1,4 +1,4 @@
-//! Sliding-window alert deduplication.
+//! Fixed-window alert deduplication.
 //!
 //! The deduplicator groups repeated identical alerts within a configurable time window
 //! and emits a single rollup alert with `event.count` at window close.  The first
@@ -27,8 +27,9 @@
 //! `None`, which is distinct from a present value but stable across repeated alerts.
 //!
 //! # Window semantics
-//! Each key starts a *tumbling* window anchored to the first emission.  Once
-//! `now - first_seen >= window` the entry is expired during the next flush tick,
+//! Each key starts a fixed window anchored to the first emission.  Repeats do not
+//! move the window.  Once `now - first_seen >= window` the entry is expired during
+//! the next flush tick,
 //! at which point a rollup alert is written (if count > 1) and the slot is freed.
 //!
 //! # Metrics
@@ -172,6 +173,7 @@ impl DedupKey {
 
 /// State tracked per unique alert key.
 struct DedupEntry {
+    /// Start of the fixed window. Repeats do not move this timestamp.
     first_seen: Instant,
     count: u64,
     /// A clone of the original internal `Alert` so we can rebuild a complete ECS
@@ -210,6 +212,10 @@ impl Deduplicator {
     /// Record an alert.  Returns `true` if the caller should emit the alert now
     /// (first occurrence), `false` if it was suppressed.
     pub fn record(&self, ecs: &EcsAlert, alert: &Alert) -> bool {
+        self.record_at(Instant::now(), ecs, alert)
+    }
+
+    fn record_at(&self, now: Instant, ecs: &EcsAlert, alert: &Alert) -> bool {
         let key = DedupKey::from_ecs(ecs);
         let mut table = self.table.lock().unwrap();
 
@@ -229,7 +235,7 @@ impl Deduplicator {
         table.insert(
             key,
             DedupEntry {
-                first_seen: Instant::now(),
+                first_seen: now,
                 count: 1,
                 sample: alert.clone(),
             },
@@ -454,6 +460,29 @@ mod tests {
             "third hit must return false (suppress)"
         );
         assert_eq!(dedup.counters.suppressed_total.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn fixed_window_does_not_extend_on_repeats() {
+        let dedup = Deduplicator::new(60, 1000);
+        let alert = make_alert("Rule A", "/usr/bin/curl");
+        let ecs = EcsAlert::from(&alert);
+        let start = Instant::now();
+
+        assert!(dedup.record_at(start, &ecs, &alert));
+        assert!(!dedup.record_at(start + Duration::from_secs(59), &ecs, &alert));
+
+        let expired = dedup.drain_expired(start + Duration::from_secs(60));
+        assert_eq!(expired.len(), 1, "the first-seen window must expire");
+        assert_eq!(
+            expired[0].count, 2,
+            "the repeat belongs to the first window"
+        );
+
+        assert!(
+            dedup.record_at(start + Duration::from_secs(60), &ecs, &alert),
+            "an alert after the fixed window must start a new window"
+        );
     }
 
     #[test]

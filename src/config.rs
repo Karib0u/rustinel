@@ -393,9 +393,9 @@ pub struct ReloadConfig {
 /// Alert deduplication / aggregation configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct DedupConfig {
-    /// Enable sliding-window alert deduplication
+    /// Enable fixed-window alert deduplication anchored to first occurrence
     pub enabled: bool,
-    /// Window length in seconds; repeated identical alerts are collapsed within this window
+    /// Window length in seconds; repeats do not extend the first-seen window
     pub window_secs: u64,
     /// Maximum number of distinct alert keys to track simultaneously
     pub max_entries: usize,
