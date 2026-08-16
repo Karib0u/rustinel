@@ -117,6 +117,9 @@ async fn run_linux_edr(
                 skipped_unknown_logsource_rules = stats.skipped_unknown_logsource_rules,
                 skipped_product_rules = stats.skipped_product_rules,
                 inactive_collector_rules = stats.inactive_collector_rules,
+                unsupported_rules = stats.unsupported_rules.len(),
+                unsupported_correlation_rules = stats.unsupported_correlation_rules,
+                unsupported_filter_rules = stats.unsupported_filter_rules,
                 "Sigma engine initialized"
             );
             for (logsource, count) in stats.rules_by_logsource {

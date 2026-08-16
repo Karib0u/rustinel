@@ -49,22 +49,24 @@ cargo build --release --features rsigma-engine
 
 ### Engine Conformance
 
-The built-in engine implements the stateless subset of the Sigma specification that covers typical field-matching rules. The RSigma engine implements the full specification plus experimental features. Both agree on the common surface: the modifiers listed under [Supported Modifiers](#supported-modifiers), wildcards, keyword search, list-as-OR and map-as-AND selections, and `1 of` and `all of` conditions.
+The built-in engine implements the stateless subset of the Sigma specification that covers typical field-matching rules. The RSigma parser and evaluator cover a broader stateless surface. Rustinel does not currently integrate stateful correlation evaluation or filter application into its RSigma runtime. Each parsed correlation or filter document is therefore reported as unsupported with its source path, identity, and reason, and the counts are included in startup and reload summaries. Stateful correlation support remains tracked by [issue #143](https://github.com/Karib0u/rustinel/issues/143).
 
-The built-in engine does not implement the following, whereas RSigma does. Run such rulesets under `--sigma-engine rsigma`:
+Both backends agree on the common surface: the modifiers listed under [Supported Modifiers](#supported-modifiers), wildcards, keyword search, list-as-OR and map-as-AND selections, and `1 of` and `all of` conditions.
 
-| Sigma feature | Built-in | RSigma |
+The built-in engine does not implement the following. RSigma provides broader stateless support, while stateful correlation and filter documents are reported as unsupported. Run rulesets that rely on the stateless RSigma features under `--sigma-engine rsigma`:
+
+| Sigma feature | Built-in runtime | RSigma runtime |
 | --- | --- | --- |
 | `N of` condition quantifiers such as `2 of selection*` | No (only `1 of` and `all of`) | Yes |
 | Array-scope quantifiers `field[any]` and `field[all]`, and element-scope blocks ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212)) | No | Yes |
-| Correlations (`event_count`, `value_count`, `temporal`, `temporal_ordered`, `value_sum`, `value_avg`, `value_percentile`, `value_median`) | No | Yes |
-| Filter rules | No | Yes |
-| Collection actions `reset` and `repeat` (`global` is supported by both) | No | Yes |
+| Correlations (`event_count`, `value_count`, `temporal`, `temporal_ordered`, `value_sum`, `value_avg`, `value_percentile`, `value_median`) | No | No, reported unsupported |
+| Filter rules | No | No, reported unsupported |
+| Collection actions `reset` and `repeat` (`global` is supported by both) | No | Yes for stateless rule documents |
 | `expand` modifier and `%placeholder%` expansion | No | Yes |
 | `sigma-version` aware evaluation ([SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) | No | Yes |
 | Full rule-object metadata (status, date, author, references, falsepositives, related, fields, custom attributes) | Dropped | Preserved |
 
-On an unsupported construct the built-in engine may skip the rule at load, fail to match, or mis-evaluate a complex condition, so rulesets that rely on these features should run under the RSigma engine.
+On an unsupported construct the built-in engine may skip the rule at load, fail to match, or mis-evaluate a complex condition. The RSigma runtime reports parsed correlation and filter documents as unsupported rather than evaluating them. Rulesets that rely on stateful features should wait for the integration tracked by issue #143.
 
 Array matching and `sigma-version` are proposed Sigma Enhancement Proposals ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212) and [SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) targeting the next major Sigma release; RSigma is their reference implementation and supports them ahead of standardization.
 
