@@ -110,7 +110,7 @@ rule instead of one is tracked separately by
 | `file_event` | Yes | Yes | Yes | Base file family |
 | `file_create` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `file_delete` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
-| `file_change` | Yes | Yes | No | Derived from file event ID / opcode. On Windows the events routed here are Kernel-File name-cache entries and writes that arrive without a path, rather than content changes ([#238](https://github.com/Karib0u/rustinel/issues/238)); on macOS a modification is reported as `file_create`, so this category never matches ([#239](https://github.com/Karib0u/rustinel/issues/239)) |
+| `file_change` | Yes | Yes | Yes | Derived from file event ID / opcode. On Windows the events routed here are Kernel-File name-cache entries and writes that arrive without a path, rather than content changes, so a rule keyed on `TargetFilename` still cannot match there ([#238](https://github.com/Karib0u/rustinel/issues/238)) |
 | `file_rename` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `dns_query` | Yes | Yes | Yes | Generic `category: dns` and `service: dns`, `category: network` are also supported |
 | `registry_event` / `registry_*` | Yes | No | No | Windows only |
@@ -121,6 +121,29 @@ rule instead of one is tracked separately by
 | `task_creation` | Yes | No | No | Windows only |
 
 macOS telemetry comes from two sources: Endpoint Security (ESF) for process and file events (`provider: esf`), and `/dev/bpf` packet capture for network and DNS (`provider: bpf`). Its coverage mirrors Linux; the Windows-only families above are not collected on macOS.
+
+#### File Event Numbering
+
+Every sensor routes its native file telemetry through one shared table, so the
+same logical action carries the same identifiers — and therefore lands in the
+same categories — on all three platforms:
+
+| Action | `event_id` | `action_code` | Categories |
+| --- | --- | --- | --- |
+| Create | 11 | 64 | `file_event`, `file_create` |
+| Modify | 65 | 65 | `file_event`, `file_change` |
+| Delete | 23 | 70 | `file_delete` |
+| Rename | 71 | 71 | `file_event`, `file_rename` |
+
+The identifiers are Sysmon-compatible where Sysmon has an equivalent event
+(11 = FileCreate, 23 = FileDelete). Sysmon has no file-modify or file-rename
+event, so those reuse the action code as the `event_id`. A delete is
+deliberately not a member of `file_event`.
+
+Note that `file_change` here means "the file was modified", which is broader
+than Sysmon Event ID 2 (file creation time changed). Whether generic writes
+belong in this category, or whether it should be narrowed to timestomping, is
+still open in [#238](https://github.com/Karib0u/rustinel/issues/238).
 
 ### Field Model
 

@@ -56,16 +56,12 @@ fn action_code_for_record(
 }
 
 /// Maps a routed file action to the platform-shared action code scheme
-/// (64 = create, 65 = modify, 70 = delete, 71 = rename) used by the Linux
-/// and macOS sensors as well.
+/// (64 = create, 65 = modify, 70 = delete, 71 = rename), read from the same
+/// [`crate::sensor::FILE_EVENT_NORMALIZATION`] table the Linux and macOS
+/// sensors use.
 fn file_action_code(action: SensorAction) -> u8 {
-    match action {
-        SensorAction::Create => 64,
-        SensorAction::Delete => 70,
-        SensorAction::Rename => 71,
-        SensorAction::Modify => 65,
-        _ => 0,
-    }
+    SensorNormalization::for_file_action(action)
+        .map_or(0, |normalization| normalization.action_code)
 }
 
 fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &EventRecord) -> u16 {
@@ -95,10 +91,13 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
             10 => 7,
             _ => raw_event_id,
         },
+        // 72 has no entry in the shared table: no sensor emits it, but it is
+        // accepted here as an alias for delete because the engine's opcode
+        // fallback treats it as one.
         EventCategory::File => match action_code {
-            64 => 11,
-            70 | 72 => 23,
-            _ => raw_event_id,
+            72 => 23,
+            code => SensorNormalization::for_file_action_code(code)
+                .map_or(raw_event_id, |normalization| normalization.event_id),
         },
         EventCategory::Registry => match action_code {
             36 | 38 | 41 => 12,
@@ -121,7 +120,7 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
 mod tests {
     use super::{file_action_code, map_to_sysmon_id};
     use crate::models::EventCategory;
-    use crate::sensor::SensorAction;
+    use crate::sensor::{SensorAction, FILE_EVENT_NORMALIZATION};
 
     #[test]
     fn process_start_maps_to_sysmon_1() {
@@ -135,10 +134,15 @@ mod tests {
 
     #[test]
     fn file_actions_map_to_shared_action_codes() {
-        assert_eq!(file_action_code(SensorAction::Create), 64);
-        assert_eq!(file_action_code(SensorAction::Modify), 65);
-        assert_eq!(file_action_code(SensorAction::Delete), 70);
-        assert_eq!(file_action_code(SensorAction::Rename), 71);
+        for (action, expected) in FILE_EVENT_NORMALIZATION {
+            let code = file_action_code(*action);
+            assert_eq!(code, expected.action_code, "action code for {action:?}");
+            assert_eq!(
+                map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
+                expected.event_id,
+                "event id for {action:?}"
+            );
+        }
     }
 
     #[test]
@@ -173,9 +177,9 @@ mod tests {
     fn file_modify_does_not_map_to_sysmon_11() {
         let code = file_action_code(SensorAction::Modify);
         assert_eq!(code, 65);
-        // Modify must NOT map to Sysmon ID 11 (FileCreate); it should
-        // fall through to its raw_event_id (65) which routes to
-        // file_change in the detection engine.
+        // Modify must NOT map to Sysmon ID 11 (FileCreate); the shared table
+        // gives it event ID 65, which routes to file_change in the detection
+        // engine. Reporting it under 11 is the macOS bug from issue #239.
         assert_eq!(
             map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
             65

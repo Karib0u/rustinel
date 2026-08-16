@@ -2,9 +2,14 @@
 mod common;
 
 use common::{
-    dns_query_event, file_create_event, network_connect_event, process_start_event, TestNormalizer,
+    dns_query_event, file_create_event, file_event, network_connect_event, process_start_event,
+    test_file_path, TestNormalizer,
 };
-use rustinel::{engine::Engine, models::EventFields, sensor::Platform};
+use rustinel::{
+    engine::Engine,
+    models::EventFields,
+    sensor::{Platform, SensorAction, SensorNormalization, FILE_EVENT_NORMALIZATION},
+};
 
 #[cfg(target_os = "linux")]
 fn write_cstr<const N: usize>(dst: &mut [u8; N], value: &str) {
@@ -163,6 +168,112 @@ fn equivalent_windows_and_linux_events_normalize_to_shared_sigma_fields() {
                 assert_eq!(w.record_type, l.record_type);
             }
             _ => panic!("event shape mismatch"),
+        }
+    }
+}
+
+/// Every Sigma file category the engine can route an event into.
+const ALL_FILE_CATEGORIES: &[&str] = &[
+    "file_event",
+    "file_create",
+    "file_change",
+    "file_delete",
+    "file_rename",
+];
+
+/// The single table for the file action to Sigma category mapping.
+///
+/// Sensors used to carry a private copy of the numbering behind this and had
+/// drifted apart on `Modify` (issue #239): macOS reported it under FileCreate
+/// (11), so macOS writes were evaluated against `file_create` rules while the
+/// same operation on Linux matched `file_change`. Asserting the mapping here,
+/// for every platform from one table, is what stops that recurring.
+const FILE_ACTION_CATEGORIES: &[(SensorAction, &[&str])] = &[
+    (SensorAction::Create, &["file_event", "file_create"]),
+    (SensorAction::Modify, &["file_event", "file_change"]),
+    (SensorAction::Delete, &["file_delete"]),
+    (SensorAction::Rename, &["file_event", "file_rename"]),
+];
+
+/// An engine holding exactly one rule, in `category`, that matches any file
+/// event carrying a `.txt` target. Membership in `category` is then simply
+/// whether the rule fires.
+fn engine_for_category(fixture: &common::SigmaFixture, category: &str) -> Engine {
+    fixture.write_rule(
+        "category-probe.yml",
+        &format!(
+            r#"title: File Category Probe
+logsource:
+  category: {category}
+detection:
+  selection:
+    TargetFilename|endswith: ".txt"
+  condition: selection
+level: medium
+"#
+        ),
+    );
+
+    let mut engine = Engine::new_for_platform(Platform::Linux);
+    engine
+        .load_rules(fixture.rules_dir())
+        .expect("load category probe rule");
+    engine
+}
+
+#[test]
+fn file_actions_carry_the_shared_normalization_on_every_platform() {
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+        for (action, expected) in FILE_EVENT_NORMALIZATION {
+            let event = file_event(platform, *action, None, Some(test_file_path(platform)));
+            assert_eq!(
+                event.normalization, *expected,
+                "{action:?} normalization on {platform:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn same_file_action_yields_same_sigma_categories_on_every_platform() {
+    // The category table and the sensor numbering table must cover the same
+    // actions, or an action could gain a normalization without ever having its
+    // category pinned down.
+    assert_eq!(
+        FILE_ACTION_CATEGORIES.len(),
+        FILE_EVENT_NORMALIZATION.len(),
+        "every normalized file action needs a category expectation"
+    );
+
+    for (action, expected_categories) in FILE_ACTION_CATEGORIES {
+        assert!(
+            SensorNormalization::for_file_action(*action).is_some(),
+            "{action:?} has a category expectation but no shared normalization"
+        );
+
+        for category in ALL_FILE_CATEGORIES {
+            let should_match = expected_categories.contains(category);
+
+            for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+                let fixture = common::SigmaFixture::new();
+                let engine = engine_for_category(&fixture, category);
+                let normalized = TestNormalizer::new(false)
+                    .normalizer
+                    .normalize(&file_event(
+                        platform,
+                        *action,
+                        None,
+                        Some(test_file_path(platform)),
+                    ))
+                    .expect("file event normalizes");
+
+                assert_eq!(
+                    engine.check_event(&normalized).is_some(),
+                    should_match,
+                    "{action:?} on {platform:?} should {} match `{category}`",
+                    if should_match { "" } else { "not" },
+                );
+            }
         }
     }
 }
