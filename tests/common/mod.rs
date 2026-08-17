@@ -171,8 +171,6 @@ pub fn file_create_event(platform: Platform) -> SensorEvent {
     file_event(
         platform,
         SensorAction::Create,
-        11,
-        64,
         None,
         Some(test_file_path(platform)),
     )
@@ -182,8 +180,15 @@ pub fn file_delete_event(platform: Platform) -> SensorEvent {
     file_event(
         platform,
         SensorAction::Delete,
-        23,
-        70,
+        None,
+        Some(test_file_path(platform)),
+    )
+}
+
+pub fn file_modify_event(platform: Platform) -> SensorEvent {
+    file_event(
+        platform,
+        SensorAction::Modify,
         None,
         Some(test_file_path(platform)),
     )
@@ -193,8 +198,6 @@ pub fn file_rename_event(platform: Platform) -> SensorEvent {
     file_event(
         platform,
         SensorAction::Rename,
-        71,
-        71,
         Some(test_file_path(platform)),
         Some(renamed_test_file_path(platform)),
     )
@@ -223,11 +226,11 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
     }
 }
 
-fn file_event(
+/// Build a file event whose numbering comes from the shared sensor table, so
+/// fixtures cannot encode a mapping that no sensor actually emits.
+pub fn file_event(
     platform: Platform,
     action: SensorAction,
-    event_id: u16,
-    action_code: u8,
     source_filename: Option<&str>,
     target_filename: Option<&str>,
 ) -> SensorEvent {
@@ -235,10 +238,8 @@ fn file_event(
         platform,
         provider: provider_for(platform),
         action,
-        normalization: SensorNormalization {
-            event_id,
-            action_code,
-        },
+        normalization: SensorNormalization::for_file_action(action)
+            .expect("file action is in the shared table"),
         pid: Some(TEST_PID),
         timestamp: test_time(),
         process_start_key: None,
