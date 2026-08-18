@@ -202,20 +202,19 @@ pub mod mapping {
     }
 
     pub fn file_event_to_sensor(event: &FileEvent) -> SensorEvent {
-        let (action, event_id, action_code) = match event.kind {
-            2 => (SensorAction::Delete, 23, 70),
-            3 => (SensorAction::Rename, 71, 71),
-            4 => (SensorAction::Modify, 11, 65),
-            _ => (SensorAction::Create, 11, 64),
+        let action = match event.kind {
+            2 => SensorAction::Delete,
+            3 => SensorAction::Rename,
+            4 => SensorAction::Modify,
+            _ => SensorAction::Create,
         };
+        let normalization = SensorNormalization::for_file_action(action)
+            .expect("file actions are covered by the shared file normalization table");
         SensorEvent {
             platform: Platform::Linux,
             provider: PROVIDER,
             action,
-            normalization: SensorNormalization {
-                event_id,
-                action_code,
-            },
+            normalization,
             pid: Some(event.pid),
             timestamp: SystemTime::now(),
             process_start_key: None,
