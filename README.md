@@ -234,8 +234,10 @@ The flake packages the prebuilt musl binary from GitHub releases. When a
 new rustinel release is published, update `version` and `hashes` in
 [`nix/package.nix`](nix/package.nix) — the file contains step-by-step
 instructions for recomputing the SRI hashes with `nix-prefetch-url`. A CI
-check (`.github/workflows/nix.yml`) runs `nix flake check` on every PR to
-catch stale or mismatched hashes.
+check (`.github/workflows/nix.yml`) runs `nix flake check`, builds the
+native x86_64 package, and fetches + verifies the aarch64 release archive's
+SRI hash on every PR, so a stale or mismatched hash for either architecture
+fails CI.
 
 ---
 

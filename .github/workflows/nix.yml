@@ -30,8 +30,16 @@ jobs:
       - name: Check flake
         run: nix flake check --no-build
 
-      - name: Build package
+      - name: Build package (native x86_64)
         run: nix build .#rustinel --print-out-paths
+
+      - name: Verify aarch64 source archive (fetch + SRI hash check)
+        # Fetches the aarch64 release archive using the local stdenv's
+        # fetchurl (no QEMU/emulation needed) and verifies its SRI hash.
+        # fetchurl only needs bash + curl, so it builds on an x86_64 runner
+        # even though the archive targets aarch64. A broken URL or a stale
+        # hash fails CI.
+        run: nix build .#rustinel-aarch64-src --print-out-paths
 
       - name: Verify binary
         run: nix run .#rustinel -- --version

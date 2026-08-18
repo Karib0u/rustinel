@@ -29,6 +29,11 @@
           packages.default = rustinel;
           packages.rustinel = rustinel;
 
+          # Fetch + verify the aarch64 release archive using the local
+          # stdenv's fetchurl (no QEMU needed). Used by CI on x86_64 runners
+          # to catch a broken URL or stale hash for the non-native arch.
+          packages.rustinel-aarch64-src = rustinel.passthru.srcFor "aarch64-linux";
+
           devShells.default = pkgs.callPackage ./nix/shell.nix { };
 
           formatter = pkgs.nixfmt-tree;
