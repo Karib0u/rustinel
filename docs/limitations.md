@@ -55,6 +55,15 @@ are unavailable.
 - **No injection or driver-load visibility.** No equivalent of CreateRemoteThread,
   ProcessAccess, named-pipe, or driver-load providers - injection-based TTPs leave
   little telemetry.
+- **Writes through handles opened before startup are invisible (silent risk).**
+  Kernel-File reports writes by kernel pointer, not by path, so the sensor learns
+  each handle's path from the `Create` that opened it. A handle already open when
+  the sensor starts was never seen being named, so writes through it cannot be
+  attributed and are dropped rather than reported without a path. Long-lived
+  holders - database files, service logs - stay unobserved until the handle is
+  closed and reopened, which for some services means until the next reboot.
+  The count is logged as `unresolved_file_events`, so the size of the gap is
+  visible even though the events themselves are not.
 
 ## Linux (eBPF)
 

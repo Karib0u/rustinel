@@ -188,9 +188,14 @@ const ALL_FILE_CATEGORIES: &[&str] = &[
 /// (11), so macOS writes were evaluated against `file_create` rules while the
 /// same operation on Linux matched `file_change`. Asserting the mapping here,
 /// for every platform from one table, is what stops that recurring.
+///
+/// `Set` — the file's timestamps or attributes were changed — is what Sigma's
+/// `file_change` denotes (Sysmon Event ID 2). A plain `Modify` is a write and
+/// stays in the base family only (issue #238).
 const FILE_ACTION_CATEGORIES: &[(SensorAction, &[&str])] = &[
     (SensorAction::Create, &["file_event", "file_create"]),
-    (SensorAction::Modify, &["file_event", "file_change"]),
+    (SensorAction::Set, &["file_event", "file_change"]),
+    (SensorAction::Modify, &["file_event"]),
     (SensorAction::Delete, &["file_delete"]),
     (SensorAction::Rename, &["file_event", "file_rename"]),
 ];

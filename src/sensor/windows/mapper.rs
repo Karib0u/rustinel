@@ -178,8 +178,10 @@ mod tests {
         let code = file_action_code(SensorAction::Modify);
         assert_eq!(code, 65);
         // Modify must NOT map to Sysmon ID 11 (FileCreate); the shared table
-        // gives it event ID 65, which routes to file_change in the detection
-        // engine. Reporting it under 11 is the macOS bug from issue #239.
+        // gives a write its own event ID 65, which routes to the base
+        // `file_event` family. Reporting it under 11 was the macOS bug from
+        // issue #239; routing it to `file_change` was the mis-categorisation
+        // settled in #238.
         assert_eq!(
             map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
             65

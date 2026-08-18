@@ -132,14 +132,26 @@ pub struct SensorNormalization {
 /// keeps the same logical action in the same category on every platform.
 ///
 /// The identifiers are Sysmon-compatible where Sysmon has an equivalent event
-/// (11 = FileCreate, 23 = FileDelete). Sysmon has no file-modify or file-rename
-/// event, so those reuse the action code as the `event_id`.
+/// (2 = FileCreateTime, 11 = FileCreate, 23 = FileDelete). Sysmon has no
+/// file-modify or file-rename event, so those reuse the action code as the
+/// `event_id`.
+///
+/// [`SensorAction::Set`] means the file's metadata was set — its timestamps or
+/// attributes — which is what Sigma's `file_change` category denotes. A plain
+/// write is [`SensorAction::Modify`] and is deliberately *not* `file_change`.
 pub const FILE_EVENT_NORMALIZATION: &[(SensorAction, SensorNormalization)] = &[
     (
         SensorAction::Create,
         SensorNormalization {
             event_id: 11,
             action_code: 64,
+        },
+    ),
+    (
+        SensorAction::Set,
+        SensorNormalization {
+            event_id: 2,
+            action_code: 2,
         },
     ),
     (
