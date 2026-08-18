@@ -1,6 +1,6 @@
 //! Alert sink for ECS NDJSON output.
 //!
-//! Writes ECS alerts as one JSON object per line, with optional sliding-window
+//! Writes ECS alerts as one JSON object per line, with optional fixed-window
 //! deduplication that collapses repeated identical alerts into a single rollup
 //! carrying `event.count` — the number of repeats it suppressed, so that the live
 //! first occurrence is not counted twice.  See [`dedup`] for the full semantics.

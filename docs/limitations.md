@@ -17,7 +17,7 @@ This page documents Rustinel's known limitations for the current release.
 | Registry value *data* is never captured; `Details` holds the value *name* instead | Windows |
 | Process events carry no hashes (`Hashes` / `Imphash`) | Windows |
 | Command line is lost for short-lived processes | Windows | Linux |
-| No correlation, aggregation, or temporal rules | Engine |
+| No stateful correlation or filter evaluation; unsupported documents are reported at load time | Engine |
 | Rules are silently inert when no collector backs their logsource | Engine |
 | Telemetry is dropped under burst load (no backpressure) | Pipeline |
 
@@ -105,11 +105,14 @@ macOS support is experimental and detection-only.
 
 ## Detection engine (Sigma)
 
-- **No correlation, aggregation, or temporal rules (silent risk).** Each event is
-  matched independently - no state, window, count, or throttle. Sigma correlation
-  (`event_count`, `value_count`, `temporal`, `temporal_ordered`) and legacy
-  aggregations (`| count() by ...`, `near`) are unsupported, so brute-force,
-  beaconing, and "N events in M minutes" detections can't be expressed.
+- **No stateful correlation or filter evaluation (explicit runtime boundary).**
+  Each event is matched independently - no state, window, count, or throttle.
+  Sigma correlation (`event_count`, `value_count`, `temporal`,
+  `temporal_ordered`) and legacy aggregations (`| count() by ...`, `near`) are
+  unsupported, so brute-force, beaconing, and "N events in M minutes"
+  detections can't be expressed. Sigma filter documents are not applied. The
+  RSigma parser recognizes both document types, but Rustinel reports them as
+  unsupported with source context and counts them in load and reload summaries.
 - **Unsupported modifiers reject the whole rule.** A rule using a modifier
   outside the supported set (e.g. `|expand`, `|gzip`, `|minlength`) is dropped at
   load, not partially matched.

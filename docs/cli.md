@@ -48,6 +48,100 @@ Notes:
 - `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
+### `capture`
+
+Record endpoint behavior to a file that can be replayed against detectors later.
+
+```text
+rustinel capture [--config <PATH>] [--output <PATH>] [--log-level <LEVEL>]
+```
+
+Capture is passive. It starts the same sensors as `run` and records every
+normalized event, but evaluates no rules, writes no alerts, and never invokes
+active response. Rustinel does not launch the activity being observed: start
+capture first, run the sample yourself, then press Ctrl-C.
+
+```powershell
+# In a disposable VM
+rustinel capture
+# ... run the sample, script, or Atomic test in another window ...
+# Ctrl-C
+```
+
+```bash
+sudo ./rustinel capture --output /tmp/lab/run-42.ndjson
+```
+
+Behavior:
+
+- Requires the same privileges as `run`, and fails with the same preflight errors.
+- Without `--output`, the recording is written to
+  `<capture.directory>/rustinel-capture-<UTC timestamp>.ndjson`, creating the
+  directory if needed. `--output` overrides that path entirely.
+- Each recording has a manifest sidecar next to it, named after the recording
+  with a `.manifest.json` extension.
+- Ctrl-C drains queued events and finalizes the manifest as `complete`. A
+  capture that is killed, or that lost events, stays `incomplete` and is
+  rejected by `rustinel replay`.
+- Progress and final counts go to stderr. Event payloads are never printed.
+- Recordings can be replayed on any platform: a Windows recording replays on
+  Linux and vice versa.
+
+Recordings contain full command lines, file paths, network destinations, and
+user names for all observed activity, so handle them as sensitive artifacts.
+See [Output Format](output.md#behavioral-recordings) for the stream and manifest
+layout.
+
+### `replay`
+
+Evaluate a recording against the detectors, offline.
+
+```text
+rustinel replay <RECORDING> [--config <PATH>] [--output <PATH>] [--log-level <LEVEL>]
+```
+
+Replay is the detection-development loop: capture a behavior once, then edit
+rules or configuration and evaluate the same event stream as often as you like,
+without re-running the sample and without an endpoint.
+
+```bash
+# The default: a console alert list
+rustinel replay /tmp/lab/run-42.ndjson
+
+# Compare a candidate rule set against the same behavior
+rustinel replay /tmp/lab/run-42.ndjson --config /tmp/candidate.toml
+
+# Machine-readable results
+rustinel replay /tmp/lab/run-42.ndjson --output /tmp/lab/run-42.alerts.ndjson
+```
+
+Behavior:
+
+- Needs no sensors, no elevated privileges, and no particular platform. A
+  Windows recording replays on Linux or macOS and the other way round; Sigma
+  logsource routing follows the platform recorded in the manifest, not the host.
+- Uses the current configured detector set. `--config <PATH>` selects a different
+  configuration, which is how two rule sets are compared over one recording.
+- Loads detectors once. Hot reload is off, so a finite replay is reproducible.
+- Processes events sequentially in recorded order, at full speed, with no
+  wall-clock delays. Recorded timestamps are preserved in the alerts.
+- Evaluates Sigma and the inline IOC checks (IP, domain, path). YARA and hash
+  IOC checks are skipped, and said to be skipped, because a recording holds
+  events rather than the files behind them.
+- Never invokes active response, whatever `response.enabled` says, and never
+  deduplicates: every detector match is reported.
+- Writes a console alert list by default. `--output <PATH>` writes ECS NDJSON
+  instead, owner-only, with an `edr.replay` object on every alert. Replay refuses
+  to write into the configured alert directory.
+- Rejects recordings that are incomplete, corrupted, missing their manifest, or
+  written with a capture schema this build does not understand, and exits
+  non-zero with the reason.
+
+Two replays of one recording against one configuration produce identical output,
+so a change in results is a change in detection. See
+[Detection](detection.md#replay-regression-workflow) for the regression workflow
+and [Output Format](output.md#replay-results) for the result formats.
+
 ### `doctor`
 
 Run read-only preflight and health checks without starting the agent.

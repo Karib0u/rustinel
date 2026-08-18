@@ -53,6 +53,7 @@ pub struct InstallLayout {
     pub ioc_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub alerts_dir: PathBuf,
+    pub captures_dir: PathBuf,
 }
 
 impl InstallLayout {
@@ -67,18 +68,21 @@ impl InstallLayout {
                 ioc_dir: PathBuf::from(r"C:\ProgramData\Rustinel\rules\current\ioc"),
                 logs_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
                 alerts_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
+                captures_dir: PathBuf::from(r"C:\ProgramData\Rustinel\captures"),
             },
             InstallPlatform::Linux => Self::from_roots(
                 platform,
                 PathBuf::from("/etc/rustinel/config.toml"),
                 PathBuf::from("/var/lib/rustinel/rules"),
                 PathBuf::from("/var/log/rustinel"),
+                PathBuf::from("/var/lib/rustinel/captures"),
             ),
             InstallPlatform::Macos => Self::from_roots(
                 platform,
                 PathBuf::from("/Library/Application Support/Rustinel/config.toml"),
                 PathBuf::from("/Library/Application Support/Rustinel/rules"),
                 PathBuf::from("/Library/Logs/Rustinel"),
+                PathBuf::from("/Library/Application Support/Rustinel/captures"),
             ),
         }
     }
@@ -97,6 +101,7 @@ impl InstallLayout {
             ioc_dir: rules_dir.join("ioc"),
             alerts_dir: logs_dir.clone(),
             logs_dir,
+            captures_dir: root.join("captures"),
         }
     }
 
@@ -110,6 +115,7 @@ impl InstallLayout {
         cfg.scanner.yara_rules_path = self.yara_rules_dir.clone();
         cfg.logging.directory = self.logs_dir.clone();
         cfg.alerts.directory = self.alerts_dir.clone();
+        cfg.capture.directory = self.captures_dir.clone();
         cfg.ioc.hashes_path = layout_join(self.platform, &self.ioc_dir, "hashes.txt");
         cfg.ioc.ips_path = layout_join(self.platform, &self.ioc_dir, "ips.txt");
         cfg.ioc.domains_path = layout_join(self.platform, &self.ioc_dir, "domains.txt");
@@ -122,6 +128,7 @@ impl InstallLayout {
         config_file: PathBuf,
         rules_dir: PathBuf,
         logs_dir: PathBuf,
+        captures_dir: PathBuf,
     ) -> Self {
         let current_dir = layout_join(platform, &rules_dir, "current");
         let ioc_dir = layout_join(platform, &current_dir, "ioc");
@@ -134,6 +141,7 @@ impl InstallLayout {
             ioc_dir,
             alerts_dir: logs_dir.clone(),
             logs_dir,
+            captures_dir,
         }
     }
 }
@@ -289,6 +297,7 @@ pub struct AppConfig {
     pub ioc: IocConfig,
     pub reload: ReloadConfig,
     pub dedup: DedupConfig,
+    pub capture: CaptureConfig,
 }
 
 /// Scanner configuration (Sigma and YARA rules)
@@ -393,12 +402,21 @@ pub struct ReloadConfig {
 /// Alert deduplication / aggregation configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct DedupConfig {
-    /// Enable sliding-window alert deduplication
+    /// Enable fixed-window alert deduplication anchored to first occurrence
     pub enabled: bool,
-    /// Window length in seconds; repeated identical alerts are collapsed within this window
+    /// Window length in seconds; repeats do not extend the first-seen window
     pub window_secs: u64,
     /// Maximum number of distinct alert keys to track simultaneously
     pub max_entries: usize,
+}
+
+/// Behavioral recording configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct CaptureConfig {
+    /// Directory holding behavioral recordings written by `rustinel capture`.
+    /// Kept apart from alert and operational log output, and restricted to the
+    /// owner because recordings describe endpoint activity in detail.
+    pub directory: PathBuf,
 }
 
 impl AppConfig {
@@ -419,6 +437,15 @@ impl AppConfig {
     }
 
     pub fn from_options(options: ConfigLoadOptions) -> Result<Self, config::ConfigError> {
+        Self::from_options_with_environment(options, None)
+    }
+
+    // `None` preserves runtime environment discovery. Tests can provide a
+    // controlled map without mutating the process environment.
+    fn from_options_with_environment(
+        options: ConfigLoadOptions,
+        environment: Option<config::Map<String, String>>,
+    ) -> Result<Self, config::ConfigError> {
         let selected_config = options
             .selected_config()
             .map(|selected| absolute_config_path(selected.path));
@@ -487,60 +514,109 @@ impl AppConfig {
             // Alert deduplication
             .set_default("dedup.enabled", true)?
             .set_default("dedup.window_secs", 60i64)?
-            .set_default("dedup.max_entries", 10000i64)?;
+            .set_default("dedup.max_entries", 10000i64)?
+            // Behavioral recording
+            .set_default("capture.directory", "captures")?;
 
         let builder = match selected_config {
             Some(path) => builder.add_source(config::File::from(path).required(true)),
             None => builder,
         };
-        let s = builder
-            .add_source(config::Environment::with_prefix("EDR").separator("__"))
-            .build()?;
+        let environment_source = config::Environment::with_prefix("EDR")
+            .separator("__")
+            .source(environment.clone());
+        let s = builder.add_source(environment_source).build()?;
 
         let mut cfg: Self = s.try_deserialize()?;
         if let Some(config_dir) = config_dir {
-            cfg.resolve_relative_paths(&config_dir);
+            cfg.resolve_relative_paths(&config_dir, environment.as_ref());
         }
         cfg.apply_allowlist_fallbacks();
         Ok(cfg)
     }
 
-    fn resolve_relative_paths(&mut self, base_dir: &Path) {
+    fn resolve_relative_paths(
+        &mut self,
+        base_dir: &Path,
+        environment: Option<&config::Map<String, String>>,
+    ) {
         resolve_path_from_config(
             &mut self.scanner.sigma_rules_path,
             base_dir,
             "SCANNER__SIGMA_RULES_PATH",
+            environment,
         );
         resolve_path_from_config(
             &mut self.scanner.yara_rules_path,
             base_dir,
             "SCANNER__YARA_RULES_PATH",
+            environment,
         );
-        resolve_path_from_config(&mut self.logging.directory, base_dir, "LOGGING__DIRECTORY");
-        resolve_path_from_config(&mut self.alerts.directory, base_dir, "ALERTS__DIRECTORY");
-        resolve_path_from_config(&mut self.ioc.hashes_path, base_dir, "IOC__HASHES_PATH");
-        resolve_path_from_config(&mut self.ioc.ips_path, base_dir, "IOC__IPS_PATH");
-        resolve_path_from_config(&mut self.ioc.domains_path, base_dir, "IOC__DOMAINS_PATH");
+        resolve_path_from_config(
+            &mut self.logging.directory,
+            base_dir,
+            "LOGGING__DIRECTORY",
+            environment,
+        );
+        resolve_path_from_config(
+            &mut self.alerts.directory,
+            base_dir,
+            "ALERTS__DIRECTORY",
+            environment,
+        );
+        resolve_path_from_config(
+            &mut self.capture.directory,
+            base_dir,
+            "CAPTURE__DIRECTORY",
+            environment,
+        );
+        resolve_path_from_config(
+            &mut self.ioc.hashes_path,
+            base_dir,
+            "IOC__HASHES_PATH",
+            environment,
+        );
+        resolve_path_from_config(
+            &mut self.ioc.ips_path,
+            base_dir,
+            "IOC__IPS_PATH",
+            environment,
+        );
+        resolve_path_from_config(
+            &mut self.ioc.domains_path,
+            base_dir,
+            "IOC__DOMAINS_PATH",
+            environment,
+        );
         resolve_path_from_config(
             &mut self.ioc.paths_regex_path,
             base_dir,
             "IOC__PATHS_REGEX_PATH",
+            environment,
         );
-        resolve_path_list_from_config(&mut self.allowlist.paths, base_dir, "ALLOWLIST__PATHS");
+        resolve_path_list_from_config(
+            &mut self.allowlist.paths,
+            base_dir,
+            "ALLOWLIST__PATHS",
+            environment,
+        );
         resolve_path_list_from_config(
             &mut self.response.allowlist_paths,
             base_dir,
             "RESPONSE__ALLOWLIST_PATHS",
+            environment,
         );
         resolve_path_list_from_config(
             &mut self.scanner.yara_allowlist_paths,
             base_dir,
             "SCANNER__YARA_ALLOWLIST_PATHS",
+            environment,
         );
         resolve_path_list_from_config(
             &mut self.ioc.hash_allowlist_paths,
             base_dir,
             "IOC__HASH_ALLOWLIST_PATHS",
+            environment,
         );
     }
 
@@ -565,9 +641,24 @@ fn resolve_path(path: &mut PathBuf, base_dir: &Path) {
     }
 }
 
-fn resolve_path_from_config(path: &mut PathBuf, base_dir: &Path, env_key: &str) {
-    if std::env::var_os(format!("EDR__{env_key}")).is_none() {
+fn resolve_path_from_config(
+    path: &mut PathBuf,
+    base_dir: &Path,
+    env_key: &str,
+    environment: Option<&config::Map<String, String>>,
+) {
+    if !environment_contains(environment, env_key) {
         resolve_path(path, base_dir);
+    }
+}
+
+fn environment_contains(environment: Option<&config::Map<String, String>>, env_key: &str) -> bool {
+    let key = format!("EDR__{env_key}");
+    match environment {
+        Some(values) => values
+            .keys()
+            .any(|candidate| candidate.eq_ignore_ascii_case(&key)),
+        None => std::env::var_os(key).is_some(),
     }
 }
 
@@ -591,8 +682,13 @@ fn resolve_path_list(paths: &mut [String], base_dir: &Path) {
     }
 }
 
-fn resolve_path_list_from_config(paths: &mut [String], base_dir: &Path, env_key: &str) {
-    if std::env::var_os(format!("EDR__{env_key}")).is_none() {
+fn resolve_path_list_from_config(
+    paths: &mut [String],
+    base_dir: &Path,
+    env_key: &str,
+    environment: Option<&config::Map<String, String>>,
+) {
+    if !environment_contains(environment, env_key) {
         resolve_path_list(paths, base_dir);
     }
 }
@@ -668,6 +764,9 @@ impl Default for AppConfig {
                 window_secs: 60,
                 max_entries: 10_000,
             },
+            capture: CaptureConfig {
+                directory: PathBuf::from("captures"),
+            },
         };
 
         cfg.apply_allowlist_fallbacks();
@@ -692,14 +791,7 @@ mod tests {
 
     #[test]
     fn test_config_loads_defaults() {
-        let cfg = AppConfig::from_options(ConfigLoadOptions {
-            explicit_config: None,
-            env_config: None,
-            managed_config: std::path::PathBuf::new(),
-            exe_config: None,
-            cwd_config: std::path::PathBuf::new(),
-        })
-        .unwrap();
+        let cfg = AppConfig::default();
         assert!(cfg.scanner.sigma_enabled);
         assert_eq!(cfg.logging.level, "info");
         assert!(cfg.logging.filter.is_none());
@@ -717,22 +809,49 @@ mod tests {
 
     #[test]
     fn test_config_paths() {
-        let cfg = AppConfig::from_options(ConfigLoadOptions {
-            explicit_config: None,
-            env_config: None,
-            managed_config: std::path::PathBuf::new(),
-            exe_config: None,
-            cwd_config: std::path::PathBuf::from("config.toml"),
-        })
+        let temp = tempfile::tempdir().expect("tempdir");
+        let explicit = temp.path().join("explicit.toml");
+        let managed = temp.path().join("managed.toml");
+        std::fs::write(
+            &explicit,
+            r#"
+[scanner]
+sigma_rules_path = "rules/sigma"
+yara_rules_path = "rules/yara"
+
+[ioc]
+hashes_path = "rules/ioc/hashes.txt"
+ips_path = "rules/ioc/ips.txt"
+paths_regex_path = "rules/ioc/paths_regex.txt"
+"#,
+        )
+        .expect("write explicit config");
+        std::fs::write(
+            &managed,
+            "[scanner]\nsigma_rules_path = \"managed-sigma\"\n",
+        )
+        .expect("write managed config");
+
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: Some(explicit.clone()),
+                env_config: None,
+                managed_config: managed,
+                exe_config: Some(temp.path().join("missing-exe.toml")),
+                cwd_config: temp.path().join("missing-cwd.toml"),
+            },
+            Some(config::Map::new()),
+        )
         .unwrap();
-        let cwd = std::env::current_dir().expect("current dir");
-        assert_eq!(cfg.scanner.sigma_rules_path, cwd.join("rules/sigma"));
-        assert_eq!(cfg.scanner.yara_rules_path, cwd.join("rules/yara"));
-        assert_eq!(cfg.ioc.hashes_path, cwd.join("rules/ioc/hashes.txt"));
-        assert_eq!(cfg.ioc.ips_path, cwd.join("rules/ioc/ips.txt"));
+        let config_dir = explicit.parent().expect("config directory");
+
+        assert_eq!(cfg.scanner.sigma_rules_path, config_dir.join("rules/sigma"));
+        assert_eq!(cfg.scanner.yara_rules_path, config_dir.join("rules/yara"));
+        assert_eq!(cfg.ioc.hashes_path, config_dir.join("rules/ioc/hashes.txt"));
+        assert_eq!(cfg.ioc.ips_path, config_dir.join("rules/ioc/ips.txt"));
         assert_eq!(
             cfg.ioc.paths_regex_path,
-            cwd.join("rules/ioc/paths_regex.txt")
+            config_dir.join("rules/ioc/paths_regex.txt")
         );
     }
 
@@ -759,6 +878,7 @@ mod tests {
         std::fs::create_dir_all(&env_dir).expect("env dir");
         let explicit = explicit_dir.join("custom.toml");
         let env_config = env_dir.join("config.toml");
+        let managed = temp.path().join("managed.toml");
 
         std::fs::write(
             &explicit,
@@ -783,14 +903,18 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         )
         .expect("write explicit config");
         std::fs::write(&env_config, "[logging]\nlevel = \"debug\"\n").expect("write env config");
+        std::fs::write(&managed, "[logging]\nlevel = \"warn\"\n").expect("write managed config");
 
-        let cfg = AppConfig::from_options(ConfigLoadOptions {
-            explicit_config: Some(explicit.clone()),
-            env_config: Some(env_config),
-            managed_config: temp.path().join("managed.toml"),
-            exe_config: Some(temp.path().join("exe.toml")),
-            cwd_config: temp.path().join("cwd.toml"),
-        })
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: Some(explicit.clone()),
+                env_config: Some(env_config),
+                managed_config: managed,
+                exe_config: Some(temp.path().join("exe.toml")),
+                cwd_config: temp.path().join("cwd.toml"),
+            },
+            Some(config::Map::new()),
+        )
         .expect("load config");
 
         assert_eq!(cfg.logging.level, "trace");
@@ -817,35 +941,44 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         std::fs::write(&exe, "[logging]\nlevel = \"debug\"\n").expect("write exe config");
         std::fs::write(&cwd, "[logging]\nlevel = \"trace\"\n").expect("write cwd config");
 
-        let cfg = AppConfig::from_options(ConfigLoadOptions {
-            explicit_config: None,
-            env_config: None,
-            managed_config: managed.clone(),
-            exe_config: Some(exe.clone()),
-            cwd_config: cwd.clone(),
-        })
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: None,
+                env_config: None,
+                managed_config: managed.clone(),
+                exe_config: Some(exe.clone()),
+                cwd_config: cwd.clone(),
+            },
+            Some(config::Map::new()),
+        )
         .expect("load managed config");
         assert_eq!(cfg.logging.level, "warn");
 
         std::fs::remove_file(&managed).expect("remove managed config");
-        let cfg = AppConfig::from_options(ConfigLoadOptions {
-            explicit_config: None,
-            env_config: None,
-            managed_config: managed,
-            exe_config: Some(exe.clone()),
-            cwd_config: cwd.clone(),
-        })
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: None,
+                env_config: None,
+                managed_config: managed,
+                exe_config: Some(exe.clone()),
+                cwd_config: cwd.clone(),
+            },
+            Some(config::Map::new()),
+        )
         .expect("load exe config");
         assert_eq!(cfg.logging.level, "debug");
 
         std::fs::remove_file(&exe).expect("remove exe config");
-        let cfg = AppConfig::from_options(ConfigLoadOptions {
-            explicit_config: None,
-            env_config: None,
-            managed_config: temp.path().join("missing-managed.toml"),
-            exe_config: Some(exe),
-            cwd_config: cwd,
-        })
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: None,
+                env_config: None,
+                managed_config: temp.path().join("missing-managed.toml"),
+                exe_config: Some(exe),
+                cwd_config: cwd,
+            },
+            Some(config::Map::new()),
+        )
         .expect("load cwd config");
         assert_eq!(cfg.logging.level, "trace");
     }
@@ -858,13 +991,16 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         std::fs::write(&env_config, "[logging]\nlevel = \"debug\"\n").expect("write env config");
         std::fs::write(&managed, "[logging]\nlevel = \"warn\"\n").expect("write managed config");
 
-        let cfg = AppConfig::from_options(ConfigLoadOptions {
-            explicit_config: None,
-            env_config: Some(env_config),
-            managed_config: managed,
-            exe_config: None,
-            cwd_config: temp.path().join("cwd.toml"),
-        })
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: None,
+                env_config: Some(env_config),
+                managed_config: managed,
+                exe_config: None,
+                cwd_config: temp.path().join("cwd.toml"),
+            },
+            Some(config::Map::new()),
+        )
         .expect("load env config");
 
         assert_eq!(cfg.logging.level, "debug");
@@ -931,12 +1067,24 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
 
     #[test]
     fn env_overrides_sigma_engine() {
-        // Mutates process env, scoped to this test and restored below. No other
-        // test asserts scanner.sigma_engine through AppConfig::new(), so setting
-        // it here cannot make a parallel test flaky.
-        std::env::set_var("EDR__SCANNER__SIGMA_ENGINE", "rsigma");
-        let cfg = AppConfig::new().expect("config should load");
-        std::env::remove_var("EDR__SCANNER__SIGMA_ENGINE");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut environment = config::Map::new();
+        environment.insert(
+            "EDR__SCANNER__SIGMA_ENGINE".to_string(),
+            "rsigma".to_string(),
+        );
+
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: None,
+                env_config: None,
+                managed_config: temp.path().join("missing-managed.toml"),
+                exe_config: None,
+                cwd_config: temp.path().join("missing-cwd.toml"),
+            },
+            Some(environment),
+        )
+        .expect("config should load");
         assert_eq!(cfg.scanner.sigma_engine, "rsigma");
     }
 

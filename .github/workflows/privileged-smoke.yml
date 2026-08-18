@@ -24,13 +24,16 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build memory target
         run: cargo build --locked --example memory_target
       - name: Run ignored YARA memory smoke tests
         run: cargo test --locked --test yara_memory -- --include-ignored
       - name: Run ignored active response smoke tests
         run: cargo test --locked --test active_response -- --include-ignored
+      # Ctrl-C delivery is signal-based, so the capture smoke test is Unix-only.
+      - name: Run ignored capture smoke tests
+        run: cargo test --locked --test capture_command -- --include-ignored
 
   windows-privileged-smoke:
     name: Privileged Smoke (Windows)
@@ -42,7 +45,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build memory target
         run: cargo build --locked --example memory_target
       - name: Run ignored YARA memory smoke tests

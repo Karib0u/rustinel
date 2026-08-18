@@ -75,6 +75,30 @@ pub enum Commands {
         #[arg(long, value_enum, value_name = "ENGINE")]
         sigma_engine: Option<SigmaEngineArg>,
     },
+    /// Record endpoint behavior to a replayable file without evaluating detections
+    ///
+    /// Capture is passive: start it first, then run the sample, script, or test
+    /// you want to record, and press Ctrl-C when the session is complete.
+    Capture {
+        /// Recording path.
+        /// Defaults to <capture.directory>/rustinel-capture-<UTC timestamp>.ndjson
+        #[arg(long, value_name = "PATH")]
+        output: Option<std::path::PathBuf>,
+    },
+    /// Evaluate a recording against the detectors, offline
+    ///
+    /// Replay needs no sensors, no privileges, and no particular platform: a
+    /// recording made on one endpoint can be replayed anywhere, as often as the
+    /// rules being developed against it change.
+    Replay {
+        /// Recording to replay, as written by `rustinel capture`.
+        /// Its manifest sidecar must sit next to it.
+        #[arg(value_name = "RECORDING")]
+        recording: std::path::PathBuf,
+        /// Write ECS NDJSON alerts here instead of a console alert list
+        #[arg(long, value_name = "PATH")]
+        output: Option<std::path::PathBuf>,
+    },
     /// Check configuration, paths, and runtime prerequisites
     Doctor {
         /// Emit structured JSON output
@@ -270,6 +294,104 @@ mod tests {
                 assert!(catalog_url.ends_with("/index.json"));
             }
             _ => panic!("expected setup command"),
+        }
+    }
+
+    #[test]
+    fn capture_defaults_to_a_generated_output_path() {
+        let cli = Cli::try_parse_from(["rustinel", "capture"]).expect("capture should parse");
+
+        match cli.command {
+            Some(Commands::Capture { output }) => assert_eq!(output, None),
+            _ => panic!("expected capture command"),
+        }
+    }
+
+    #[test]
+    fn capture_accepts_an_explicit_output_path() {
+        let cli =
+            Cli::try_parse_from(["rustinel", "capture", "--output", "/tmp/lab/run-42.ndjson"])
+                .expect("capture should parse");
+
+        match cli.command {
+            Some(Commands::Capture { output }) => {
+                assert_eq!(
+                    output,
+                    Some(std::path::PathBuf::from("/tmp/lab/run-42.ndjson"))
+                );
+            }
+            _ => panic!("expected capture command"),
+        }
+    }
+
+    #[test]
+    fn capture_accepts_the_global_config_flag() {
+        let cli = Cli::try_parse_from(["rustinel", "capture", "--config", "/tmp/rustinel.toml"])
+            .expect("capture should parse");
+
+        assert_eq!(
+            cli.config,
+            Some(std::path::PathBuf::from("/tmp/rustinel.toml"))
+        );
+        assert!(matches!(cli.command, Some(Commands::Capture { .. })));
+    }
+
+    #[test]
+    fn replay_requires_a_recording() {
+        let err = match Cli::try_parse_from(["rustinel", "replay"]) {
+            Ok(_) => panic!("replay without a recording should fail"),
+            Err(err) => err,
+        };
+
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument,
+            "the recording is the whole input to a replay"
+        );
+    }
+
+    #[test]
+    fn replay_defaults_to_console_output() {
+        let cli = Cli::try_parse_from(["rustinel", "replay", "/tmp/lab/run-42.ndjson"])
+            .expect("replay should parse");
+
+        match cli.command {
+            Some(Commands::Replay { recording, output }) => {
+                assert_eq!(
+                    recording,
+                    std::path::PathBuf::from("/tmp/lab/run-42.ndjson")
+                );
+                assert_eq!(output, None);
+            }
+            _ => panic!("expected replay command"),
+        }
+    }
+
+    #[test]
+    fn replay_accepts_an_ecs_output_path_and_a_config_override() {
+        let cli = Cli::try_parse_from([
+            "rustinel",
+            "replay",
+            "/tmp/lab/run-42.ndjson",
+            "--output",
+            "/tmp/lab/run-42.alerts.ndjson",
+            "--config",
+            "/tmp/candidate.toml",
+        ])
+        .expect("replay should parse");
+
+        assert_eq!(
+            cli.config,
+            Some(std::path::PathBuf::from("/tmp/candidate.toml"))
+        );
+        match cli.command {
+            Some(Commands::Replay { output, .. }) => {
+                assert_eq!(
+                    output,
+                    Some(std::path::PathBuf::from("/tmp/lab/run-42.alerts.ndjson"))
+                );
+            }
+            _ => panic!("expected replay command"),
         }
     }
 

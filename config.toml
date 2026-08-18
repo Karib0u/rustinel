@@ -50,9 +50,9 @@ filename = "alerts.json"    # Will contain newline-delimited JSON (NDJSON)
 match_debug = "off"         # off | summary | full (attach match details to alerts.json)
 
 # 3a. Alert Deduplication
-#   Collapses repeated identical alerts within a sliding window into a single
-#   rollup alert carrying event.count.  The first occurrence always emits
-#   immediately - there is no detection latency penalty.
+#   Collapses repeated identical alerts within a fixed window anchored to the
+#   first occurrence into a single rollup alert carrying event.count.  The first
+#   occurrence always emits immediately - there is no detection latency penalty.
 #
 #   event.count on the rollup is the number of *suppressed* repeats (the first
 #   occurrence is already its own line, which carries no event.count).  Summing
@@ -88,6 +88,13 @@ aggregation_enabled = true
 aggregation_max_entries = 20000
 aggregation_window_secs = 60
 aggregation_interval_buffer_size = 50
+
+# 6a. Behavioral Recording (rustinel capture)
+#   Recordings hold normalized events - command lines, file paths, destinations,
+#   and user names - so treat them like alert output: they are written
+#   owner-only and kept apart from alert and operational logs.
+[capture]
+directory = "captures"      # default parent for rustinel-capture-<UTC timestamp>.ndjson
 
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]

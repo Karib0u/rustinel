@@ -41,11 +41,9 @@ use super::events::{
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
 const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
 const EVENT_ID_NETWORK_CONNECT: u16 = 3;
-const EVENT_ID_FILE_CREATE: u16 = 11;
-const EVENT_ID_FILE_DELETE: u16 = 23;
-const EVENT_ID_FILE_CHANGE: u16 = 65;
-const EVENT_ID_FILE_RENAME: u16 = 71;
 const EVENT_ID_DNS_QUERY: u16 = 22;
+// File event IDs come from `SensorNormalization::for_file_action`, the shared
+// table in `crate::sensor`, so they cannot drift from the other platforms.
 
 const PROCESS_EVENT_EXEC: u32 = 1;
 const PROCESS_EVENT_EXIT: u32 = 2;
@@ -509,13 +507,15 @@ fn build_file_event(ev: &FileEvent) -> Option<SensorEvent> {
         return None;
     }
 
-    let (action, event_id, action_code) = match ev.kind {
-        1 => (SensorAction::Create, EVENT_ID_FILE_CREATE, 64u8),
-        2 => (SensorAction::Delete, EVENT_ID_FILE_DELETE, 70u8),
-        3 => (SensorAction::Rename, EVENT_ID_FILE_RENAME, 71u8),
-        4 => (SensorAction::Modify, EVENT_ID_FILE_CHANGE, 65u8),
+    let action = match ev.kind {
+        1 => SensorAction::Create,
+        2 => SensorAction::Delete,
+        3 => SensorAction::Rename,
+        4 => SensorAction::Modify,
         _ => return None,
     };
+    let normalization = SensorNormalization::for_file_action(action)
+        .expect("file actions are covered by the shared file normalization table");
 
     let user = resolved_linux_user(ev.uid);
     let comm = bytes_to_string(&ev.comm);
@@ -530,10 +530,7 @@ fn build_file_event(ev: &FileEvent) -> Option<SensorEvent> {
         platform: Platform::Linux,
         provider: "ebpf",
         action,
-        normalization: SensorNormalization {
-            event_id,
-            action_code,
-        },
+        normalization,
         pid: Some(ev.pid),
         timestamp: SystemTime::now(),
         process_start_key: None,
@@ -955,7 +952,10 @@ mod tests {
 
         let event = build_file_event(&raw).expect("delete file event should build");
         assert_eq!(event.action, SensorAction::Delete);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_DELETE);
+        assert_eq!(
+            event.normalization,
+            SensorNormalization::for_file_action(SensorAction::Delete).unwrap()
+        );
 
         match event.payload {
             SensorPayload::File(fields) => {
@@ -1016,7 +1016,10 @@ mod tests {
 
         let event = build_file_event(&raw).expect("rename file event should build");
         assert_eq!(event.action, SensorAction::Rename);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_RENAME);
+        assert_eq!(
+            event.normalization,
+            SensorNormalization::for_file_action(SensorAction::Rename).unwrap()
+        );
 
         match event.payload {
             SensorPayload::File(fields) => {

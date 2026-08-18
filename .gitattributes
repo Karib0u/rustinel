@@ -1,0 +1,5 @@
+# A behavioral recording is a byte-exact artifact: its SHA-256 is written into
+# the capture manifest and verified on every `rustinel replay`. Git must never
+# translate its line endings, or a checkout on Windows would be rejected as a
+# corrupted recording.
+*.ndjson -text

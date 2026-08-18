@@ -153,7 +153,10 @@ pub fn spawn_reload_worker(
                         match engine.load_rules(&scanner_cfg.sigma_rules_path) {
                             Ok(()) => {
                                 let stats = engine.stats();
-                                if stats.rule_files_found > 0 && stats.total_rules == 0 {
+                                if stats.rule_files_found > 0
+                                    && stats.total_rules == 0
+                                    && stats.unsupported_rules.is_empty()
+                                {
                                     warn!(
                                         target: "reload",
                                         path = ?scanner_cfg.sigma_rules_path,
@@ -170,11 +173,22 @@ pub fn spawn_reload_worker(
                                         "Some Sigma rules failed to compile, but loading the working rules"
                                     );
                                 }
+                                if !stats.unsupported_rules.is_empty() {
+                                    warn!(
+                                        target: "reload",
+                                        path = ?scanner_cfg.sigma_rules_path,
+                                        unsupported = ?stats.unsupported_rules,
+                                        "Some Sigma documents are unsupported by the active runtime"
+                                    );
+                                }
                                 store.swap_sigma(Arc::new(engine));
                                 info!(
                                     target: "reload",
                                     component = "sigma",
                                     total_rules = stats.total_rules,
+                                    unsupported_rules = stats.unsupported_rules.len(),
+                                    unsupported_correlation_rules = stats.unsupported_correlation_rules,
+                                    unsupported_filter_rules = stats.unsupported_filter_rules,
                                     elapsed_ms = started.elapsed().as_millis() as u64,
                                     "Sigma rules hot-reloaded"
                                 );

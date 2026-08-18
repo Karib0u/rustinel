@@ -165,6 +165,76 @@ pub fn init_logging(
     (app_guard, alert_guard, AlertSink::new(alert_writer))
 }
 
+/// Initialize operational logging only, without the alert pipeline.
+///
+/// Used by `rustinel capture`, which never emits alerts: initializing the alert
+/// appender would create an alert file for a session that has nothing to write
+/// to it, blurring the line between recordings and detection output.
+pub fn init_operational_logging(
+    cfg: &config::AppConfig,
+) -> tracing_appender::non_blocking::WorkerGuard {
+    let (app_writer, app_guard) =
+        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
+    let base_filter = build_log_filter(&cfg.logging);
+
+    let app_layer = fmt::layer()
+        .with_writer(app_writer)
+        .compact()
+        .with_ansi(false)
+        .with_target(true)
+        .with_filter(base_filter.clone());
+
+    let console_layer = if cfg.logging.console_output {
+        Some(
+            fmt::layer()
+                .compact()
+                .with_ansi(console_ansi_supported())
+                .with_target(true)
+                .with_filter(base_filter),
+        )
+    } else {
+        None
+    };
+
+    tracing_subscriber::registry()
+        .with(app_layer)
+        .with(console_layer)
+        .init();
+
+    app_guard
+}
+
+/// Initialize logging to stderr only, touching no log directory.
+///
+/// Used by `rustinel replay`, which must run unprivileged on a host that has
+/// never had Rustinel installed. Opening the managed log directory would either
+/// fail or create operational logs for a session that observed nothing. stderr
+/// keeps diagnostics — a rule that failed to compile, say — out of the replay
+/// report on stdout.
+pub fn init_replay_logging(cfg: &config::AppConfig) {
+    let layer = fmt::layer()
+        .with_writer(std::io::stderr)
+        .compact()
+        .with_ansi(console_ansi_supported())
+        .with_target(true)
+        .with_filter(build_log_filter(&cfg.logging));
+
+    // A replay running inside a process that already has a subscriber keeps
+    // that one; this is best-effort diagnostics, not a reason to fail.
+    let _ = tracing_subscriber::registry().with(layer).try_init();
+}
+
+/// Windows terminals other than Windows Terminal render ANSI escapes literally.
+#[cfg(windows)]
+fn console_ansi_supported() -> bool {
+    std::env::var("WT_SESSION").is_ok()
+}
+
+#[cfg(not(windows))]
+fn console_ansi_supported() -> bool {
+    true
+}
+
 fn build_daily_writer(
     label: &str,
     directory: &Path,

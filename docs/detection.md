@@ -12,9 +12,9 @@ All detection hits are written as ECS NDJSON alerts. The same alerts can also fe
 
 | Detector | Input | Execution path | Alert behavior |
 | --- | --- | --- | --- |
-| Sigma | Every normalized event | Inline in `SigmaDetectionHandler` | At most one Sigma alert per event, see [Match Selection](#match-selection) |
+| Sigma | Every normalized event | Inline in the shared `EventDetectors` service | At most one Sigma alert per event, see [Match Selection](#match-selection) |
 | YARA | Process-start executable path | Background worker via `YaraEventHandler` | One alert per matching YARA rule |
-| IOC domains / IPs / paths | Every normalized event | Inline in `SigmaDetectionHandler` | Zero or more alerts per event |
+| IOC domains / IPs / paths | Every normalized event | Inline in the shared `EventDetectors` service | Zero or more alerts per event |
 | IOC hashes | Process-start executable path | Background worker | Zero or more alerts per file |
 
 ## Sigma
@@ -49,22 +49,24 @@ cargo build --release --features rsigma-engine
 
 ### Engine Conformance
 
-The built-in engine implements the stateless subset of the Sigma specification that covers typical field-matching rules. The RSigma engine implements the full specification plus experimental features. Both agree on the common surface: the modifiers listed under [Supported Modifiers](#supported-modifiers), wildcards, keyword search, list-as-OR and map-as-AND selections, and `1 of` and `all of` conditions.
+The built-in engine implements the stateless subset of the Sigma specification that covers typical field-matching rules. The RSigma parser and evaluator cover a broader stateless surface. Rustinel does not currently integrate stateful correlation evaluation or filter application into its RSigma runtime. Each parsed correlation or filter document is therefore reported as unsupported with its source path, identity, and reason, and the counts are included in startup and reload summaries. Stateful correlation support remains tracked by [issue #143](https://github.com/Karib0u/rustinel/issues/143).
 
-The built-in engine does not implement the following, whereas RSigma does. Run such rulesets under `--sigma-engine rsigma`:
+Both backends agree on the common surface: the modifiers listed under [Supported Modifiers](#supported-modifiers), wildcards, keyword search, list-as-OR and map-as-AND selections, and `1 of` and `all of` conditions.
 
-| Sigma feature | Built-in | RSigma |
+The built-in engine does not implement the following. RSigma provides broader stateless support, while stateful correlation and filter documents are reported as unsupported. Run rulesets that rely on the stateless RSigma features under `--sigma-engine rsigma`:
+
+| Sigma feature | Built-in runtime | RSigma runtime |
 | --- | --- | --- |
 | `N of` condition quantifiers such as `2 of selection*` | No (only `1 of` and `all of`) | Yes |
 | Array-scope quantifiers `field[any]` and `field[all]`, and element-scope blocks ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212)) | No | Yes |
-| Correlations (`event_count`, `value_count`, `temporal`, `temporal_ordered`, `value_sum`, `value_avg`, `value_percentile`, `value_median`) | No | Yes |
-| Filter rules | No | Yes |
-| Collection actions `reset` and `repeat` (`global` is supported by both) | No | Yes |
+| Correlations (`event_count`, `value_count`, `temporal`, `temporal_ordered`, `value_sum`, `value_avg`, `value_percentile`, `value_median`) | No | No, reported unsupported |
+| Filter rules | No | No, reported unsupported |
+| Collection actions `reset` and `repeat` (`global` is supported by both) | No | Yes for stateless rule documents |
 | `expand` modifier and `%placeholder%` expansion | No | Yes |
 | `sigma-version` aware evaluation ([SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) | No | Yes |
 | Full rule-object metadata (status, date, author, references, falsepositives, related, fields, custom attributes) | Dropped | Preserved |
 
-On an unsupported construct the built-in engine may skip the rule at load, fail to match, or mis-evaluate a complex condition, so rulesets that rely on these features should run under the RSigma engine.
+On an unsupported construct the built-in engine may skip the rule at load, fail to match, or mis-evaluate a complex condition. The RSigma runtime reports parsed correlation and filter documents as unsupported rather than evaluating them. Rulesets that rely on stateful features should wait for the integration tracked by issue #143.
 
 Array matching and `sigma-version` are proposed Sigma Enhancement Proposals ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212) and [SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) targeting the next major Sigma release; RSigma is their reference implementation and supports them ahead of standardization.
 
@@ -108,7 +110,7 @@ rule instead of one is tracked separately by
 | `file_event` | Yes | Yes | Yes | Base file family |
 | `file_create` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `file_delete` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
-| `file_change` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
+| `file_change` | Yes | Yes | Yes | Derived from file event ID / opcode. On Windows the events routed here are Kernel-File name-cache entries and writes that arrive without a path, rather than content changes, so a rule keyed on `TargetFilename` still cannot match there ([#238](https://github.com/Karib0u/rustinel/issues/238)) |
 | `file_rename` | Yes | Yes | Yes | Derived from file event ID / opcode (ESF event type on macOS) |
 | `dns_query` | Yes | Yes | Yes | Generic `category: dns` and `service: dns`, `category: network` are also supported |
 | `registry_event` / `registry_*` | Yes | No | No | Windows only |
@@ -119,6 +121,29 @@ rule instead of one is tracked separately by
 | `task_creation` | Yes | No | No | Windows only |
 
 macOS telemetry comes from two sources: Endpoint Security (ESF) for process and file events (`provider: esf`), and `/dev/bpf` packet capture for network and DNS (`provider: bpf`). Its coverage mirrors Linux; the Windows-only families above are not collected on macOS.
+
+#### File Event Numbering
+
+Every sensor routes its native file telemetry through one shared table, so the
+same logical action carries the same identifiers — and therefore lands in the
+same categories — on all three platforms:
+
+| Action | `event_id` | `action_code` | Categories |
+| --- | --- | --- | --- |
+| Create | 11 | 64 | `file_event`, `file_create` |
+| Modify | 65 | 65 | `file_event`, `file_change` |
+| Delete | 23 | 70 | `file_delete` |
+| Rename | 71 | 71 | `file_event`, `file_rename` |
+
+The identifiers are Sysmon-compatible where Sysmon has an equivalent event
+(11 = FileCreate, 23 = FileDelete). Sysmon has no file-modify or file-rename
+event, so those reuse the action code as the `event_id`. A delete is
+deliberately not a member of `file_event`.
+
+Note that `file_change` here means "the file was modified", which is broader
+than Sysmon Event ID 2 (file creation time changed). Whether generic writes
+belong in this category, or whether it should be narrowed to timestomping, is
+still open in [#238](https://github.com/Karib0u/rustinel/issues/238).
 
 ### Field Model
 
@@ -286,3 +311,64 @@ Example:
 | Sigma | Uses the rule `level` with `critical`, `high`, and `medium` mapped explicitly; everything else becomes Low |
 | YARA | Every match is Critical |
 | IOC | Uses `ioc.default_severity` |
+
+## Replay
+
+`rustinel replay` runs the event-based detectors over a recording instead of over
+a live sensor stream. It calls the same `EventDetectors` service the live
+pipeline calls, so there is no second matching implementation to drift: a
+replayed event is evaluated by exactly the code that would have seen it live.
+
+What differs is only what a recording can support, and what a lab must not do:
+
+| Detector path | Replay |
+| --- | --- |
+| Sigma | Evaluated, routed by the platform recorded in the manifest |
+| IOC domains / IPs / paths | Evaluated |
+| YARA | Skipped and reported as skipped: the file behind the event is not in the recording |
+| IOC hashes | Skipped, for the same reason |
+| Active response | Never invoked, whatever the configuration says |
+| Deduplication | Off, so every match is reported |
+| Hot reload | Off, so a finite replay is reproducible |
+
+See the [CLI reference](cli.md#replay) for the command and
+[Output Format](output.md#replay-results) for the result formats.
+
+### Replay Regression Workflow
+
+The repository carries a golden fixture so that a change to normalization,
+serialization, or matching cannot quietly stop a rule from firing:
+
+```text
+tests/fixtures/replay/
++-- windows-powershell-fixture.ps1     benign behavior generator
++-- windows-powershell.ndjson          the recording
++-- windows-powershell.manifest.json   its manifest
++-- sigma/                             the rules the recording must fire
+```
+
+`tests/replay_fixture.rs` replays the recording against those rules on every
+platform in ordinary CI, with no sensors and no privileges, and asserts that both
+rules fire in the recorded order. The recording is a Windows capture, so it also
+proves that a recording replays away from the platform that produced it.
+
+To develop a rule against your own behavior:
+
+```bash
+# On a lab endpoint, with the sample ready to run in another window
+sudo rustinel capture --output /tmp/lab/run-42.ndjson
+# ... run the sample, then Ctrl-C ...
+
+# Anywhere, as often as the rules change
+rustinel replay /tmp/lab/run-42.ndjson --config /tmp/candidate.toml
+```
+
+To regenerate the checked-in fixture recording:
+
+1. On a Windows lab endpoint, start `rustinel capture --output windows-powershell.ndjson`.
+2. Run `windows-powershell-fixture.ps1`, then stop the capture with Ctrl-C.
+3. Confirm the manifest reads `"status": "complete"`.
+4. Copy both files into `tests/fixtures/replay/`, replacing the previous pair.
+   Never edit a recording by hand: the manifest checksum is verified on every
+   replay, and an edited payload is rejected.
+5. Run `cargo test --test replay_fixture`.

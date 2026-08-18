@@ -5,6 +5,7 @@
 
 mod alert;
 mod condition;
+mod detect;
 mod handler;
 mod loader;
 mod logsource;
@@ -20,13 +21,14 @@ mod rsigma_adapter;
 #[cfg(feature = "rsigma-engine")]
 mod rsigma_backend;
 
-pub use handler::SigmaDetectionHandler;
+pub use detect::EventDetectors;
+pub use handler::{DetectionPipeline, NormalizedEventHandler};
 pub(crate) use logsource::{current_platform, platform_product, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};
 pub(crate) use matcher::{FieldPattern, NumericOp, PatternMatcher};
 pub(crate) use rule::CompiledRule;
 pub use rule::{Detection, FieldCriterion, Selection, SigmaRule};
-pub use stats::EngineStats;
+pub use stats::{EngineStats, UnsupportedRule, UnsupportedRuleKind};
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
@@ -202,6 +204,9 @@ pub struct Engine {
     /// Failed rule paths and error messages (for diagnostics)
     failed_rules: Vec<(String, String)>,
 
+    /// Parsed documents that the active runtime cannot evaluate.
+    unsupported_rules: Vec<UnsupportedRule>,
+
     /// Rules skipped at load time due to unsupported logsource product.
     skipped_product_rules: usize,
 
@@ -298,6 +303,7 @@ impl Engine {
             rule_count: 0,
             rule_files_found: 0,
             failed_rules: Vec::new(),
+            unsupported_rules: Vec::new(),
             skipped_product_rules: 0,
             skipped_deferred_rules: 0,
             skipped_unknown_logsource_rules: 0,
@@ -325,6 +331,22 @@ impl Engine {
             #[cfg(not(feature = "rsigma-engine"))]
             SigmaEngineKind::Rsigma => self.check_event_builtin(event),
         }
+    }
+
+    #[cfg(feature = "rsigma-engine")]
+    pub(crate) fn record_unsupported_rule(
+        &mut self,
+        source_path: &Path,
+        kind: UnsupportedRuleKind,
+        identity: impl Into<String>,
+        reason: impl Into<String>,
+    ) {
+        self.unsupported_rules.push(UnsupportedRule {
+            source_path: source_path.display().to_string(),
+            kind,
+            identity: identity.into(),
+            reason: reason.into(),
+        });
     }
 }
 
