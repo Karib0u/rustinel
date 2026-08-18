@@ -650,3 +650,107 @@ impl Engine {
         categories
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ProcessCreationFields;
+
+    fn process_event(image: String) -> NormalizedEvent {
+        NormalizedEvent {
+            timestamp: "2026-08-16T12:00:00Z".to_string(),
+            platform: Platform::Windows,
+            provider: "test".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: crate::models::EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some(image),
+                command_line: None,
+                process_id: None,
+                process_start_time: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                target_image: None,
+                logon_id: None,
+                logon_guid: None,
+            }),
+            process_context: None,
+        }
+    }
+
+    fn engine_with_image_rule(match_debug: MatchDebugLevel) -> Engine {
+        let mut engine = Engine::new_for_platform_with_logging_level_and_match_debug(
+            Platform::Windows,
+            "warn",
+            match_debug,
+            SigmaEngineKind::Builtin,
+        );
+        let rule: SigmaRule = serde_yaml::from_str(
+            r#"
+title: Test image rule
+id: test-image-rule
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|contains: tool.exe
+  condition: selection
+level: high
+"#,
+        )
+        .expect("test rule parses");
+        let compiled = engine.compile_rule(rule).expect("test rule compiles");
+        engine
+            .rules_by_logsource
+            .entry(compiled.logsource.clone())
+            .or_default()
+            .push(compiled);
+        engine
+    }
+
+    #[test]
+    fn alert_without_match_details_remains_complete() {
+        let engine = engine_with_image_rule(MatchDebugLevel::Off);
+        let event = process_event(r"C:\Program Files\Example\tool.exe".to_string());
+
+        let alert = engine
+            .check_event_builtin(&event)
+            .expect("matching event produces an alert");
+
+        assert_eq!(alert.rule_name, "Test image rule");
+        assert_eq!(alert.rule_id.as_deref(), Some("sigma::test-image-rule"));
+        assert_eq!(alert.severity, AlertSeverity::High);
+        assert!(alert.match_details.is_none());
+        assert_eq!(alert.event.get_field("Image"), event.get_field("Image"));
+    }
+
+    #[test]
+    fn full_match_details_truncate_long_unicode_values_safely() {
+        let engine = engine_with_image_rule(MatchDebugLevel::Full);
+        let image = format!(r"C:\{}\tool.exe", "é".repeat(MAX_MATCH_VALUE_LEN));
+
+        let alert = engine
+            .check_event_builtin(&process_event(image))
+            .expect("matching event produces an alert");
+        let details = alert.match_details.expect("full details are present");
+        let sigma = details.sigma.expect("Sigma details are present");
+        let value = sigma.matches[0]
+            .value
+            .as_deref()
+            .expect("full details include the matched value");
+
+        assert!(value.ends_with("..."));
+        assert!(value.len() <= MAX_MATCH_VALUE_LEN);
+        assert!(details.summary.ends_with("(truncated)"));
+    }
+}

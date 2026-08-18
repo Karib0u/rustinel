@@ -1083,4 +1083,85 @@ mod round_trip_tests {
             assert_eq!(event.get_field(field), Some("/bin/zsh"));
         }
     }
+
+    #[test]
+    fn absent_process_identity_fields_are_not_synthesized() {
+        let event = NormalizedEvent {
+            timestamp: "2026-08-16T12:00:00Z".to_string(),
+            platform: Platform::Windows,
+            provider: "etw".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+                command_line: None,
+                process_id: None,
+                process_start_time: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                target_image: None,
+                logon_id: None,
+                logon_guid: None,
+            }),
+            process_context: None,
+        };
+
+        for field in ["ProcessId", "ParentProcessId", "User"] {
+            assert_eq!(event.get_field(field), None, "{field} should stay absent");
+            assert!(
+                event
+                    .all_field_values_with_keys()
+                    .iter()
+                    .all(|(key, _)| *key != field),
+                "{field} should not appear in flattened fields"
+            );
+        }
+    }
+
+    #[test]
+    fn unusual_paths_are_preserved_verbatim_in_field_views() {
+        let image = r"\\?\C:\Program Files\ユニコード\tool.exe ";
+        let current_directory = r"\\server\share\folder.with.dots\..\leaf";
+        let mut event = file_event();
+        event.category = EventCategory::Process;
+        event.event_id = 1;
+        event.event_id_string = "1".to_string();
+        event.opcode = 1;
+        event.fields = EventFields::ProcessCreation(ProcessCreationFields {
+            image: Some(image.to_string()),
+            command_line: None,
+            process_id: None,
+            process_start_time: None,
+            parent_process_id: None,
+            parent_image: None,
+            parent_command_line: None,
+            current_directory: Some(current_directory.to_string()),
+            integrity_level: None,
+            user: None,
+            original_file_name: None,
+            product: None,
+            description: None,
+            target_image: None,
+            logon_id: None,
+            logon_guid: None,
+        });
+
+        assert_eq!(event.get_field("Image"), Some(image));
+        assert_eq!(event.get_field("CurrentDirectory"), Some(current_directory));
+        assert!(event
+            .all_field_values_with_keys()
+            .contains(&("Image", image)));
+        assert!(event
+            .all_field_values_with_keys()
+            .contains(&("CurrentDirectory", current_directory)));
+    }
 }
