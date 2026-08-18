@@ -37,12 +37,23 @@ const DEFAULT_CAPACITY: usize = 8192;
 /// process from growing this without limit. Tracking recency would cost a
 /// touch on every event on the hot path to improve a case that should not
 /// happen in the first place.
+/// A live index entry, tagged with the queue slot that owns it.
+struct Entry {
+    path: String,
+    /// Which `order` slot may evict this entry. Kernel pointers are recycled,
+    /// so a key can be inserted, forgotten, and inserted again; without this
+    /// tag the slot left behind by the first insert would evict the second.
+    seq: u64,
+}
+
 struct BoundedIndex {
-    entries: HashMap<u64, String>,
-    /// Insertion order, used to pick the eviction victim. May contain keys
-    /// already removed by `forget`; those are skipped when popped.
-    order: VecDeque<u64>,
+    entries: HashMap<u64, Entry>,
+    /// `(key, seq)` in insertion order, used to pick the eviction victim. A
+    /// slot whose key is gone, or whose `seq` no longer matches the live entry,
+    /// is stale and is discarded rather than acted on.
+    order: VecDeque<(u64, u64)>,
     capacity: usize,
+    next_seq: u64,
 }
 
 impl BoundedIndex {
@@ -51,35 +62,57 @@ impl BoundedIndex {
             entries: HashMap::new(),
             order: VecDeque::new(),
             capacity,
+            next_seq: 0,
         }
     }
 
     fn insert(&mut self, key: u64, path: &str) {
-        // Re-inserting a live key updates the path in place; pushing the key
-        // again would let one busy handle fill `order` with duplicates.
-        if self.entries.insert(key, path.to_string()).is_none() {
-            self.order.push_back(key);
+        if let Some(entry) = self.entries.get_mut(&key) {
+            // Re-inserting a live key updates the path but keeps its queue
+            // slot; pushing again would let one busy handle fill `order` with
+            // duplicates of itself.
+            entry.path.clear();
+            entry.path.push_str(path);
+        } else {
+            let seq = self.next_seq;
+            // Unreachable in practice at u64 width, but this runs in an ETW
+            // callback where a debug overflow panic would take the sensor down.
+            self.next_seq = self.next_seq.wrapping_add(1);
+            self.entries.insert(
+                key,
+                Entry {
+                    path: path.to_string(),
+                    seq,
+                },
+            );
+            self.order.push_back((key, seq));
         }
 
         while self.entries.len() > self.capacity {
             match self.order.pop_front() {
-                Some(oldest) => {
-                    self.entries.remove(&oldest);
+                Some((oldest, seq)) => {
+                    // Only evict when this slot still describes the live entry.
+                    // A slot orphaned by forget-then-reinsert must not remove
+                    // the newer entry that reused the key.
+                    if self.entries.get(&oldest).is_some_and(|e| e.seq == seq) {
+                        self.entries.remove(&oldest);
+                    }
                 }
                 None => break,
             }
         }
 
-        // `forget` leaves tombstones behind. Compact once they could otherwise
-        // grow the queue without bound.
+        // `forget` and key reuse both leave stale slots behind. Compact once
+        // they could otherwise grow the queue without bound.
         if self.order.len() > self.capacity.saturating_mul(2) {
             let entries = &self.entries;
-            self.order.retain(|key| entries.contains_key(key));
+            self.order
+                .retain(|(key, seq)| entries.get(key).is_some_and(|e| e.seq == *seq));
         }
     }
 
     fn get(&self, key: u64) -> Option<&str> {
-        self.entries.get(&key).map(String::as_str)
+        self.entries.get(&key).map(|entry| entry.path.as_str())
     }
 
     fn forget(&mut self, key: u64) {
@@ -239,6 +272,61 @@ mod tests {
         }
         assert_eq!(index.len(), 1);
         assert_eq!(index.order.len(), 1, "no duplicate ordering entries");
+    }
+
+    #[test]
+    fn reused_key_survives_eviction_of_its_own_stale_slot() {
+        // The kernel recycles FILE_OBJECT addresses, so this is the ordinary
+        // handle lifecycle: Create names a handle, Close releases it, and a
+        // later Create names the same pointer value again. The slot the first
+        // insert left in the ordering queue must not evict the second entry.
+        // Other handles must be indexed between the forget and the reinsert.
+        // That puts the orphaned slot ahead of theirs in the queue, so acting
+        // on it evicts the reused key while genuinely older entries survive.
+        let mut index = BoundedIndex::with_capacity(4);
+
+        index.insert(0xAAAA, "/old/path.txt");
+        index.forget(0xAAAA);
+
+        index.insert(0xB, "/b.txt");
+        index.insert(0xC, "/c.txt");
+        index.insert(0xD, "/d.txt");
+
+        index.insert(0xAAAA, "/new/path.txt");
+
+        // One more entry puts the index over capacity and runs a single
+        // eviction. The victim should be 0xB, the oldest live entry.
+        index.insert(0xE, "/e.txt");
+
+        assert_eq!(
+            index.get(0xAAAA),
+            Some("/new/path.txt"),
+            "a reinserted key must not be evicted by the slot its previous \
+             incarnation left behind"
+        );
+        assert_eq!(index.get(0xB), None, "the oldest live entry is the victim");
+    }
+
+    #[test]
+    fn ordering_queue_stays_bounded_when_one_key_is_reused() {
+        // Compaction only drops slots whose key is absent, so before the seq
+        // tag a hot recycled handle grew `order` without limit even though the
+        // index held a single live entry.
+        let capacity = 16;
+        let mut index = BoundedIndex::with_capacity(capacity);
+
+        for _ in 0..10_000 {
+            index.insert(0xBBBB, "/hot.txt");
+            index.forget(0xBBBB);
+        }
+        index.insert(0xBBBB, "/hot.txt");
+
+        assert_eq!(index.len(), 1);
+        assert!(
+            index.order.len() <= capacity * 2 + 1,
+            "ordering queue grew to {} slots for a single live key",
+            index.order.len()
+        );
     }
 
     #[test]

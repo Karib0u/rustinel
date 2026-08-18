@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use ferrisetw::parser::Parser;
-use ferrisetw::provider::Provider;
+use ferrisetw::provider::{EventFilter, Provider};
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::trace::{stop_trace_by_name, TraceTrait, UserTrace};
 use ferrisetw::{EventRecord, GUID};
@@ -178,6 +178,16 @@ impl EtwProviders {
     }
 }
 
+/// The event IDs [`kernel_file_route`] accepts, pushed down to the provider as a
+/// scope filter so the rest are never written into the session at all.
+///
+/// This does not measurably reduce sensor CPU — the unrouted events were already
+/// rejected on an integer match before the schema lookup — but it roughly halves
+/// the ETW buffer volume the kernel moves on our behalf, which is worth having
+/// for free. Kept in sync with `kernel_file_route` by
+/// `filter_matches_routing_allowlist`; a drift would silently delete detections.
+const KERNEL_FILE_ROUTED_EVENT_IDS: [u16; 9] = [10, 11, 12, 14, 16, 17, 26, 27, 28];
+
 /// Microsoft-Windows-Kernel-File manifest event IDs.
 const KERNEL_FILE_EVENT_NAME_CREATE: u16 = 10;
 const KERNEL_FILE_EVENT_NAME_DELETE: u16 = 11;
@@ -326,6 +336,13 @@ fn refine_file_create_action(parser: &Parser, action: SensorAction) -> Option<Se
 struct EtwState {
     routing: EtwRouting,
     file_paths: Mutex<FilePathCache>,
+    /// File events dropped because neither identifier resolved to a path.
+    ///
+    /// Handles opened before the sensor started were never indexed, so writes
+    /// through them cannot be attributed until the handle is reopened. Dropping
+    /// them is the right policy — a pathless event matches no rule — but without
+    /// a count there is no way to tell a quiet endpoint from a blind one.
+    unresolved_file_events: AtomicU64,
 }
 
 impl EtwState {
@@ -333,7 +350,19 @@ impl EtwState {
         Self {
             routing: EtwRouting::new(),
             file_paths: Mutex::new(FilePathCache::new()),
+            unresolved_file_events: AtomicU64::new(0),
         }
+    }
+
+    /// The path index is derived state, so a poisoned lock is recoverable and
+    /// recovering is the only safe option: this runs inside an ETW callback
+    /// invoked by the OS, and unwinding across that boundary would take the
+    /// sensor down. Losing path resolution for the life of the process because
+    /// one callback panicked is a worse failure than a stale cache entry.
+    fn paths(&self) -> MutexGuard<'_, FilePathCache> {
+        self.file_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -456,7 +485,7 @@ impl Sensor for EtwSensor {
             let state = Arc::clone(&state);
             let tx = tx.clone();
             let dropped_events = Arc::clone(&dropped_events);
-            let provider = Provider::by_guid(provider_def.guid)
+            let mut provider_builder = Provider::by_guid(provider_def.guid)
                 .level(4)
                 .any(provider_def.keywords)
                 .add_callback(move |record, schema_locator| {
@@ -479,8 +508,18 @@ impl Sensor for EtwSensor {
                             trace!("Sensor event channel closed; dropping ETW event");
                         }
                     }
-                })
-                .build();
+                });
+
+            // Only Kernel-File is filtered: the FILEIO keyword it needs for
+            // Close and SetInformation also turns on every read and query on
+            // the machine, and none of those are routed.
+            if provider_def.guid == EtwProviders::kernel_file().guid {
+                provider_builder = provider_builder.add_filter(EventFilter::ByEventIds(
+                    KERNEL_FILE_ROUTED_EVENT_IDS.to_vec(),
+                ));
+            }
+
+            let provider = provider_builder.build();
 
             trace_builder = trace_builder.enable(provider);
         }
@@ -714,32 +753,20 @@ fn decode_kernel_file_record(
     // produce telemetry — a Create both reports a creation and teaches us the
     // path for the writes that follow on that handle.
     if let Some(path) = named_path.as_deref() {
-        state
-            .file_paths
-            .lock()
-            .expect("file path index mutex poisoned")
-            .learn(file_object, file_key, path);
+        state.paths().learn(file_object, file_key, path);
     }
 
     let action = match route {
         KernelFileRoute::Index => return None,
         KernelFileRoute::EvictObject => {
             if let Some(object) = file_object {
-                state
-                    .file_paths
-                    .lock()
-                    .expect("file path index mutex poisoned")
-                    .forget_object(object);
+                state.paths().forget_object(object);
             }
             return None;
         }
         KernelFileRoute::EvictKey => {
             if let Some(key) = file_key {
-                state
-                    .file_paths
-                    .lock()
-                    .expect("file path index mutex poisoned")
-                    .forget_key(key);
+                state.paths().forget_key(key);
             }
             return None;
         }
@@ -757,12 +784,22 @@ fn decode_kernel_file_record(
     // than sent on to occupy space in a bounded channel.
     let raw_path = match named_path {
         Some(path) => path,
-        None => state
-            .file_paths
-            .lock()
-            .expect("file path index mutex poisoned")
-            .resolve(file_object, file_key)?
-            .to_string(),
+        None => match state.paths().resolve(file_object, file_key) {
+            Some(path) => path.to_string(),
+            None => {
+                // Counted rather than silently discarded: this is the sensor's
+                // blind spot, and its size is the only way to know whether an
+                // endpoint is quiet or unobserved.
+                let unresolved = state.unresolved_file_events.fetch_add(1, Ordering::Relaxed) + 1;
+                if unresolved == 1 || unresolved.is_multiple_of(1000) {
+                    warn!(
+                        unresolved_file_events = unresolved,
+                        "Dropping file event whose path could not be resolved"
+                    );
+                }
+                return None;
+            }
+        },
     };
 
     let mappings = field_maps::file_event_mappings();
@@ -775,7 +812,10 @@ fn decode_kernel_file_record(
         // Kernel-File reports which information class was set, never the
         // values, so unlike Sysmon Event ID 2 these stay empty on Windows.
         creation_utc_time: try_get_string(&parser, mappings.get_etw_field("CreationUtcTime")?),
-        previous_creation_utc_time: try_get_string(&parser, "PreviousCreationTime"),
+        previous_creation_utc_time: try_get_string(
+            &parser,
+            mappings.get_etw_field("PreviousCreationUtcTime")?,
+        ),
         user: try_get_string(&parser, mappings.get_etw_field("User")?),
     };
 
@@ -1102,6 +1142,22 @@ fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_matches_routing_allowlist() {
+        // The provider-side filter is an allowlist: an ID that routes but is
+        // missing here never reaches the callback at all, which would delete a
+        // detection with no error, no dropped-event counter, and nothing in the
+        // log. Derive the expected set from the router so the two cannot drift.
+        let routed: Vec<u16> = (0u16..=64)
+            .filter(|id| kernel_file_route(*id).is_some())
+            .collect();
+        assert_eq!(
+            routed,
+            KERNEL_FILE_ROUTED_EVENT_IDS.to_vec(),
+            "provider filter and kernel_file_route disagree"
+        );
+    }
 
     #[test]
     fn kernel_file_event_ids_route_to_actions() {

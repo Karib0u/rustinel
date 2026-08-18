@@ -157,6 +157,17 @@ are reported as `Modify`. One caveat for rule authors: the provider reports
 rule that matches on those fields will not fire; one that matches on
 `TargetFilename` and `Image` will.
 
+**File events that cannot be resolved to a path are dropped.** Kernel-File
+identifies the target of a write or a metadata change by kernel pointer rather
+than by name, so the path is recovered from the earlier event that named the
+handle. When that lookup misses — most often because the handle was already open
+before the sensor started — the event is dropped rather than emitted without a
+`TargetFilename`, since a file event with no path cannot match a rule. This is a
+bounded, deliberate drop of a low-value event class, and it is counted: the
+running total is logged as `unresolved_file_events`, so the size of the gap is
+observable even though the events are not. See
+[Limitations](limitations.md#windows-etw).
+
 ### Field Model
 
 - Sigma evaluates the shared `NormalizedEvent` model with Sysmon-style field names.

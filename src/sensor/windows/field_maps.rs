@@ -57,6 +57,7 @@ static FILE_EVENT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
         ("ProcessId", "ProcessID"),
         ("Image", "ImageName"),
         ("CreationUtcTime", "CreationTime"),
+        ("PreviousCreationUtcTime", "PreviousCreationTime"),
         ("User", "UserName"),
     ])
 });
