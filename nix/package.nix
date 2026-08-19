@@ -120,8 +120,11 @@ stdenv.mkDerivation {
     # Let `nix run` / `nix build` discover the runtime config without a NixOS
     # module. RUSTINEL_CONFIG takes precedence over managed / next-to-exe /
     # CWD discovery and does not require the file to pre-exist.
+    # --set-default preserves any user-provided RUSTINEL_CONFIG (e.g. from a
+    # --config override or a custom env), only falling back to the generated
+    # config when the variable is unset.
     wrapProgram $out/bin/rustinel \
-      --set RUSTINEL_CONFIG $out/share/rustinel/config.toml
+      --set-default RUSTINEL_CONFIG $out/share/rustinel/config.toml
 
     runHook postInstall
   '';
