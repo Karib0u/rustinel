@@ -77,9 +77,14 @@ jobs:
         run: command -v bpf-linker >/dev/null 2>&1 || cargo install bpf-linker --version 0.10.4 --locked
 
       - name: Build eBPF object
+        env:
+          SOURCE_DATE_EPOCH: "0"
+          ZERO_AR_DATE: "1"
         run: |
           cd ebpf
-          cargo build --release
+          SYSROOT=$(rustc +nightly-2026-08-11 --print sysroot)
+          RUSTFLAGS="--remap-path-prefix=$(pwd)=/build --remap-path-prefix=${SYSROOT}=/rustc" \
+            cargo +nightly-2026-08-11 build --release
           cp target/bpfel-unknown-none/release/rustinel-ebpf rustinel-ebpf.o
 
       - name: Upload eBPF artifact

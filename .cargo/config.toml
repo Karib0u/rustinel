@@ -2,11 +2,15 @@
 # YARA-X only needs to regenerate this source when developing its built-in modules.
 # Keeping it disabled avoids read-only filesystem failures during normal project builds.
 YRX_REGENERATE_MODULES_RS = "false"
+# Disable incremental compilation unconditionally for deterministic output.
+CARGO_INCREMENTAL = "0"
 
 [target.x86_64-pc-windows-msvc]
 # Increase stack size for large YARA rulesets.
 # Windows default is 1MB; we raise it to 16MB for large rule compilations.
-rustflags = ["-C", "link-args=/STACK:16777216"]
+# /Brepro tells the MSVC linker to produce deterministic PE headers
+# (no timestamps, no random GUIDs) — essential for reproducible Windows builds.
+rustflags = ["-C", "link-args=/STACK:16777216,/Brepro"]
 
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-C", "link-args=-Wl,--stack,16777216"]

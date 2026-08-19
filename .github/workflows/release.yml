@@ -7,6 +7,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # ── Reproducible Builds ──────────────────────────────
+  SOURCE_DATE_EPOCH: 0
+  ZERO_AR_DATE: 1
+  CARGO_INCREMENTAL: 0
 
 permissions:
   contents: read
@@ -49,6 +53,11 @@ jobs:
       - name: Add target
         run: rustup target add x86_64-unknown-linux-musl
 
+      - name: Set reproducibility flags
+        run: |
+          SYSROOT=$(rustc --print sysroot)
+          echo "RUSTFLAGS=--remap-path-prefix=$(pwd)=/build --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=${SYSROOT}=/rustc" >> "$GITHUB_ENV"
+
       - name: Build
         run: cargo build --locked --release --features rsigma-engine --target x86_64-unknown-linux-musl
 
@@ -84,6 +93,11 @@ jobs:
         with:
           tool: cross
 
+      - name: Set reproducibility flags
+        run: |
+          SYSROOT=$(rustc --print sysroot)
+          echo "RUSTFLAGS=--remap-path-prefix=$(pwd)=/build --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=${SYSROOT}=/rustc" >> "$GITHUB_ENV"
+
       - name: Build
         run: cross build --locked --release --features rsigma-engine --target aarch64-unknown-linux-musl
 
@@ -104,9 +118,15 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           cache: false
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
+      - name: Set reproducibility flags (Windows)
+        shell: pwsh
+        run: |
+          $sysroot = rustc --print sysroot
+          $cwd = (Get-Location).Path
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { "$env:USERPROFILE\.cargo" }
+          $flags = "--remap-path-prefix=$cwd=/build --remap-path-prefix=$cargoHome=/cargo --remap-path-prefix=$sysroot=/rustc"
+          "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
+
       - run: cargo build --locked --release --features rsigma-engine
 
       - name: Verify binary
@@ -148,6 +168,10 @@ jobs:
       - run: rustup target add "$TARGET"
         env:
           TARGET: ${{ matrix.target }}
+      - name: Set reproducibility flags
+        run: |
+          SYSROOT=$(rustc --print sysroot)
+          echo "RUSTFLAGS=--remap-path-prefix=$(pwd)=/build --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=${SYSROOT}=/rustc" >> "$GITHUB_ENV"
       - run: cargo build --locked --release --features rsigma-engine --target "$TARGET"
         env:
           TARGET: ${{ matrix.target }}

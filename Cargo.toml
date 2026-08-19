@@ -110,3 +110,14 @@ criterion = "0.8"
 [[bench]]
 name = "sigma_backend"
 harness = false
+
+[profile.release]
+# ── Reproducible Builds ─────────────────────────────────────────
+# These settings eliminate non-determinism in LLVM code generation.
+# Combined with rust-toolchain.toml and --remap-path-prefix in CI,
+# builds from the same commit on any runner will produce bit-for-bit
+# identical binaries.
+codegen-units = 1   # Prevents non-deterministic CGU thread partitioning
+lto = "fat"         # Monolithic LTO avoids ThinLTO thread merge variance
+incremental = false # Disables fingerprint-based incremental caching
+
