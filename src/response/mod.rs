@@ -131,7 +131,9 @@ impl ResponseEngine {
             identity: extract_process_identity(alert),
         };
 
-        if let Err(err) = self.tx.try_send(task) {
+        if let Err(err) =
+            crate::telemetry::try_send(crate::telemetry::ChannelId::ActiveResponse, &self.tx, task)
+        {
             warn!(
                 target: TARGET_RESPONSE,
                 error = %err,

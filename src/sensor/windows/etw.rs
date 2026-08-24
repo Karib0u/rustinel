@@ -444,14 +444,12 @@ struct DecodedEtwEvent {
 /// Windows ETW sensor implementation.
 pub struct EtwSensor {
     shutdown: Arc<AtomicBool>,
-    dropped_events: Arc<AtomicU64>,
 }
 
 impl EtwSensor {
     pub fn new() -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
-            dropped_events: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -474,7 +472,6 @@ impl Sensor for EtwSensor {
 
         let mut trace_builder = UserTrace::new().named(TRACE_SESSION_NAME.to_string());
         let state = Arc::new(EtwState::new());
-        let dropped_events = Arc::clone(&self.dropped_events);
 
         for provider_def in EtwProviders::all() {
             info!(
@@ -484,7 +481,6 @@ impl Sensor for EtwSensor {
 
             let state = Arc::clone(&state);
             let tx = tx.clone();
-            let dropped_events = Arc::clone(&dropped_events);
             let mut provider_builder = Provider::by_guid(provider_def.guid)
                 .level(4)
                 .any(provider_def.keywords)
@@ -493,20 +489,16 @@ impl Sensor for EtwSensor {
                         return;
                     };
 
-                    match tx.try_send(event) {
-                        Ok(()) => {}
-                        Err(TrySendError::Full(_)) => {
-                            let dropped = dropped_events.fetch_add(1, Ordering::Relaxed) + 1;
-                            if dropped == 1 || dropped.is_multiple_of(100) {
-                                warn!(
-                                    dropped_events = dropped,
-                                    "Sensor event channel full; dropping ETW event"
-                                );
-                            }
-                        }
-                        Err(TrySendError::Closed(_)) => {
-                            trace!("Sensor event channel closed; dropping ETW event");
-                        }
+                    // Blocking inside an ETW callback stalls the trace
+                    // session and loses events in the kernel buffer instead,
+                    // so overflow is shed. The telemetry counters record both
+                    // outcomes and emit the rate-limited cumulative warning.
+                    if let Err(TrySendError::Closed(_)) = crate::telemetry::try_send(
+                        crate::telemetry::ChannelId::SensorEvents,
+                        &tx,
+                        event,
+                    ) {
+                        trace!("Sensor event channel closed; dropping ETW event");
                     }
                 });
 

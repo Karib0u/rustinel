@@ -31,6 +31,7 @@ Before changing config or rules, check these first:
 | Active response does not kill | dry-run mode, severity below threshold, allowlist hit, missing PID or image |
 | Alerts are missing details | `alerts.match_debug = "off"` |
 | Logs mention dropped events or full queues | sensor backpressure, YARA/IOC/response queues saturated |
+| Not sure whether events were lost at all | run `rustinel doctor` and read the `pipeline_telemetry` check |
 
 ## Startup Failures
 
@@ -352,20 +353,57 @@ The response engine skips:
 
 ## Dropped Events And Full Queues
 
+### Did this endpoint lose telemetry, and how much?
+
+Start with `rustinel doctor` rather than the logs:
+
+```bash
+rustinel doctor
+```
+
+The `pipeline_telemetry` check answers directly:
+
+```text
+  [WARN] pipeline_telemetry: 12600 events were dropped under load (snapshot from 2026-08-24T09:30:00Z)
+      detail: sensor_events: 12500 dropped of 412500 offered (3.03%), peak depth 8192/8192; ioc_hash: 100 dropped of 1000 offered (10.00%), peak depth 8192/8192
+```
+
+A `PASS` on this check means nothing was shed - the counters are cumulative for
+the agent run, so a pass is a real answer, not an absence of evidence. The
+`Pipeline channels` block above the checks lists every channel with its
+accepted, dropped, and peak-depth totals, and `rustinel doctor --json` carries
+the same numbers under `telemetry` for collection.
+
+The counts come from `telemetry.json` in `logging.directory`, refreshed every
+`telemetry.snapshot_interval_secs` and once more at shutdown. If it is missing,
+the agent has not run yet, or `telemetry.enabled` is `false` - doctor says
+which. See [Pipeline Telemetry](configuration.md#pipeline-telemetry).
+
+**Read the numbers this way.** `sensor_events` is the widest gap: those events
+never reached any detector, so any rule that would have matched them did not
+fire. Drops on `yara_file_scan`, `yara_memory_scan`, or `ioc_hash` are narrower
+- Sigma still evaluated the event, but that specific scan never ran. A peak
+depth equal to capacity means the channel actually saturated; a peak well below
+capacity with drops recorded means the saturation was brief and bursty.
+
+A backed-up YARA queue is usually event volume rather than one stuck scan:
+`scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold
+its worker.
+
 ### I see “dropping event” or “queue full” in logs
 
 These messages mean the agent is under backpressure somewhere in the pipeline.
-
-Common log lines include:
+Each bounded channel logs a cumulative line at most once a minute:
 
 ```text
-Sensor event channel full; dropping ETW event
-eBPF sensor: event channel full, dropping event
-bpf sensor: event channel full, dropping event
+Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 accepted_total=1841204 suppressed_warnings=1202
 YARA queue full; dropping scan job
 IOC hash queue full; dropping job
 Active response queue full, dropping task
 ```
+
+`dropped_total` is cumulative for the agent run, so the last such line for a
+channel is its running total - there is no need to add the lines up.
 
 What to do:
 
@@ -374,6 +412,8 @@ What to do:
 - widen trusted-path exclusions where appropriate
 - avoid scanning large trusted software trees unnecessarily
 - watch system load while reproducing the issue
+
+Re-run `rustinel doctor` after tuning to confirm the drop count stopped growing.
 
 If the problem is persistent, capture the relevant log excerpt before tuning.
 

@@ -92,7 +92,9 @@ impl CaptureSink {
             }
         };
 
-        if let Err(err) = self.tx.try_send(line) {
+        if let Err(err) =
+            crate::telemetry::try_send(crate::telemetry::ChannelId::CaptureWriter, &self.tx, line)
+        {
             let reason = match err {
                 mpsc::error::TrySendError::Full(_) => "queue full",
                 mpsc::error::TrySendError::Closed(_) => "writer stopped",
