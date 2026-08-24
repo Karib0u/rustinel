@@ -13,6 +13,9 @@ members = ["."]
 default-members = ["."]
 resolver = "2"
 
+[lints.rust]
+warnings = "deny"
+
 [features]
 # Opt-in RSigma library backend: swaps Rustinel's built-in Sigma matcher for
 # rsigma-parser + rsigma-eval while keeping Rustinel-owned normalization,
