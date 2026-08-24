@@ -299,6 +299,30 @@ sudo env RUSTINEL_EBPF_OBJECT=$PWD/ebpf/rustinel-ebpf.o ./target/release/rustine
 
 This is useful for development because it avoids rebuilding the full userspace binary after every eBPF-only change.
 
+## Monitoring Telemetry Loss
+
+Sensor channels are bounded and shed events under burst load, which produces a
+detection gap rather than a slowdown. Rustinel counts what it sheds, so the gap
+is measurable:
+
+```bash
+rustinel doctor
+```
+
+The `pipeline_telemetry` check reports the per-channel drop totals, and
+`rustinel doctor --json` exposes them under `telemetry` for a monitoring agent
+to collect:
+
+```bash
+rustinel doctor --json | jq '.telemetry.channels[] | select(.dropped > 0)'
+```
+
+Treat a growing `sensor_events` drop count as a coverage problem, not a
+performance one: those events never reached any detector. Counts are cumulative
+for an agent run and reset when it restarts. See
+[Pipeline Telemetry](configuration.md#pipeline-telemetry) and
+[Dropped Events And Full Queues](troubleshooting.md#dropped-events-and-full-queues).
+
 ## Safe Upgrade Checklist
 
 1. Back up `config.toml` and your custom `rules/`.
@@ -307,3 +331,4 @@ This is useful for development because it avoids rebuilding the full userspace b
 4. Restart the process or service.
 5. Confirm new startup logs in `rustinel.log.<date>`.
 6. Trigger a known benign rule such as the bundled `whoami` Sigma rule.
+7. Run `rustinel doctor` and confirm `pipeline_telemetry` reports no new drops.

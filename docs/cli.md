@@ -161,7 +161,14 @@ sudo rustinel doctor --config /etc/rustinel/config.toml
 Doctor reports `pass`, `warn`, or `fail` for configuration discovery and parsing,
 resolved paths, writable log and alert directories, installed rules pack state,
 pack compatibility and checksum metadata, Sigma, YARA, and IOC parsing, native
-service state, active-response safety, and platform telemetry prerequisites.
+service state, active-response safety, platform telemetry prerequisites, and
+pipeline drop counters.
+
+The `pipeline_telemetry` check reports how much telemetry the agent shed under
+load, per channel, from the snapshot the running agent writes - so a detection
+gap can be sized without searching the operational log. `--json` carries the
+raw per-channel counters under `telemetry`. See
+[Pipeline Telemetry](configuration.md#pipeline-telemetry).
 
 Exit codes are intended for automation:
 
