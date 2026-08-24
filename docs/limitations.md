@@ -69,10 +69,16 @@ are unavailable.
 
 The Linux sensor covers process, network, file, and DNS.
 
-- **Process argv isn't captured in the kernel (silent risk).** Command line is read
-  from `/proc/<pid>/cmdline` in userspace, so short-lived processes yield an
-  empty command line - the dominant Linux gap, since most Linux Sigma rules match
-  `CommandLine`.
+- **Kernel-captured argv is bounded.** Argv is snapshotted in eBPF at
+  `execve`/`execveat` entry, so a process that exits before userspace drains the
+  ring still reports its command line. The capture is capped at 512 bytes total,
+  32 arguments, and 127 bytes per argument; past any of those the event is
+  flagged truncated and the loader falls back to `/proc/<pid>/cmdline`, which is
+  complete but only readable while the process is alive. A command line longer
+  than the caps *and* a process that exits first is the remaining gap, and it
+  yields a truncated command line rather than an empty one. A process that
+  changes its own argv after `execve` (`setproctitle`) reports what it was
+  launched with, not what `/proc` would show later.
 - **Paths are truncated.** The image path is capped at 128 bytes and `comm` at
   16, which can break `Image|endswith` matches. This only affects processes that
   exit before enrichment: `Image` normally comes from `/proc/<pid>/exe`, which is

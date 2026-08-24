@@ -96,6 +96,15 @@ impl Sensor for EbpfSensor {
 
         attach_tracepoint(&mut bpf, "handle_exec", "sched", "sched_process_exec")?;
         attach_tracepoint(&mut bpf, "handle_exit", "sched", "sched_process_exit")?;
+        // argv is only reachable while `execve` is still running, so it is
+        // snapshotted at syscall entry and joined to the exec event above.
+        attach_tracepoint(&mut bpf, "handle_execve", "syscalls", "sys_enter_execve")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_execveat",
+            "syscalls",
+            "sys_enter_execveat",
+        )?;
         attach_tracepoint(&mut bpf, "handle_connect", "syscalls", "sys_enter_connect")?;
         attach_tracepoint(&mut bpf, "handle_openat", "syscalls", "sys_enter_openat")?;
         attach_kprobe(&mut bpf, "handle_vfs_create", "vfs_create")?;
@@ -330,6 +339,25 @@ fn resolve_exec_image(proc_exe: Option<&str>, raw_filename: &str) -> Option<Stri
         .or_else(|| Some(raw_filename.to_string()).filter(|value| !value.is_empty()))
 }
 
+/// Pick the command line for an exec event.
+///
+/// The kernel capture is authoritative when it is complete: it is the argv
+/// this exec was called with, taken before the process could exit or exec
+/// again. `/proc/<pid>/cmdline` is only consulted when the kernel capture is
+/// missing or hit its bounds — and the truncated kernel value is still better
+/// than nothing when `/proc` has already gone away.
+fn resolve_command_line(
+    kernel: Option<String>,
+    truncated: bool,
+    proc_cmdline: Option<String>,
+) -> Option<String> {
+    match kernel {
+        Some(value) if !truncated => Some(value),
+        Some(value) => proc_cmdline.or(Some(value)),
+        None => proc_cmdline,
+    }
+}
+
 fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
     let user = resolved_linux_user(ev.uid);
     match ev.kind {
@@ -364,9 +392,13 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     product: None,
                     description: None,
                     target_image: None,
-                    command_line: details
-                        .as_ref()
-                        .and_then(|value| value.command_line.clone()),
+                    command_line: resolve_command_line(
+                        ev.kernel_command_line(),
+                        ev.args_truncated != 0,
+                        details
+                            .as_ref()
+                            .and_then(|value| value.command_line.clone()),
+                    ),
                     process_id: Some(ev.pid.to_string()),
                     process_start_time: None,
                     parent_process_id: details
@@ -663,8 +695,39 @@ mod tests {
     use crate::ioc::{IocEngine, IocKind};
     use crate::models::EventFields;
     use crate::normalizer::Normalizer;
+    use crate::sensor::linux::events::ARGV_CAPACITY;
     use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
     use std::sync::Arc;
+
+    /// Build a `ProcessEvent` the way the kernel would, with no argv capture.
+    /// Tests that exercise argv override `args*` explicitly.
+    fn raw_process_event(kind: u32, pid: u32, image: &str) -> ProcessEvent {
+        ProcessEvent {
+            kind,
+            pid,
+            uid: 1000,
+            _pad: 0,
+            comm: fixed("bash"),
+            image: fixed(image),
+            args_len: 0,
+            args_count: 0,
+            args_truncated: 0,
+            _pad1: [0u8; 3],
+            args: [0u8; ARGV_CAPACITY],
+        }
+    }
+
+    /// Pack argv the way `read_argv` does: NUL-separated, `args_len` bytes.
+    fn packed_argv(args: &[&str]) -> ([u8; ARGV_CAPACITY], u16, u16) {
+        let mut buf = [0u8; ARGV_CAPACITY];
+        let mut offset = 0usize;
+        for arg in args {
+            let bytes = arg.as_bytes();
+            buf[offset..offset + bytes.len()].copy_from_slice(bytes);
+            offset += bytes.len() + 1;
+        }
+        (buf, offset as u16, args.len() as u16)
+    }
 
     fn fixed<const N: usize>(value: &str) -> [u8; N] {
         let mut buf = [0u8; N];
@@ -745,14 +808,7 @@ mod tests {
 
     #[test]
     fn build_process_exec_event_emits_start() {
-        let raw = ProcessEvent {
-            kind: PROCESS_EVENT_EXEC,
-            pid: DEAD_PID,
-            uid: 1000,
-            _pad: 0,
-            comm: fixed("bash"),
-            image: fixed("/usr/bin/bash"),
-        };
+        let raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
 
         let event = build_process_event(&raw).expect("process exec should build");
         assert_eq!(event.action, SensorAction::Start);
@@ -775,15 +831,9 @@ mod tests {
     fn build_process_exec_event_resolves_relative_image_from_proc() {
         let expected = std::fs::read_link("/proc/self/exe")
             .expect("current process should expose /proc/self/exe");
-        let raw = ProcessEvent {
-            kind: PROCESS_EVENT_EXEC,
-            pid: std::process::id(),
-            uid: 1000,
-            _pad: 0,
-            comm: fixed("rustinel"),
-            // What the kernel records when a binary is run as `./rustinel`.
-            image: fixed("./rustinel"),
-        };
+        // `./rustinel` is what the kernel records when a binary is run
+        // relatively.
+        let raw = raw_process_event(PROCESS_EVENT_EXEC, std::process::id(), "./rustinel");
 
         let event = build_process_event(&raw).expect("process exec should build");
         match event.payload {
@@ -792,6 +842,85 @@ mod tests {
             }
             other => panic!("unexpected payload: {:?}", other),
         }
+    }
+
+    #[test]
+    fn build_process_exec_event_uses_kernel_argv_for_a_dead_process() {
+        // DEAD_PID has no `/proc` entry — exactly the short-lived case where
+        // userspace enrichment loses the command line.
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/bin/true");
+        let (args, args_len, args_count) = packed_argv(&["/bin/true", "--quiet"]);
+        raw.args = args;
+        raw.args_len = args_len;
+        raw.args_count = args_count;
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert_eq!(fields.command_line.as_deref(), Some("/bin/true --quiet"));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn kernel_command_line_ignores_bytes_past_args_len() {
+        let (mut args, args_len, args_count) = packed_argv(&["/bin/ls", "-la"]);
+        // Stale bytes from a previous capture must never leak into the event.
+        args[args_len as usize..args_len as usize + 5].copy_from_slice(b"stale");
+
+        let event = ProcessEvent {
+            args,
+            args_len,
+            args_count,
+            ..raw_process_event(PROCESS_EVENT_EXEC, 42, "/bin/ls")
+        };
+        assert_eq!(event.kernel_command_line().as_deref(), Some("/bin/ls -la"));
+    }
+
+    #[test]
+    fn kernel_command_line_is_none_without_a_capture() {
+        let event = raw_process_event(PROCESS_EVENT_EXEC, 42, "/bin/ls");
+        assert!(event.kernel_command_line().is_none());
+    }
+
+    #[test]
+    fn resolve_command_line_prefers_a_complete_kernel_capture() {
+        assert_eq!(
+            resolve_command_line(
+                Some("/bin/true --quiet".to_string()),
+                false,
+                Some("/bin/true".to_string()),
+            )
+            .as_deref(),
+            Some("/bin/true --quiet")
+        );
+    }
+
+    #[test]
+    fn resolve_command_line_prefers_proc_when_the_kernel_capture_is_truncated() {
+        assert_eq!(
+            resolve_command_line(
+                Some("/bin/sh -c long".to_string()),
+                true,
+                Some("/bin/sh -c long and complete".to_string()),
+            )
+            .as_deref(),
+            Some("/bin/sh -c long and complete")
+        );
+    }
+
+    #[test]
+    fn resolve_command_line_keeps_a_truncated_capture_when_proc_is_gone() {
+        assert_eq!(
+            resolve_command_line(Some("/bin/sh -c long".to_string()), true, None).as_deref(),
+            Some("/bin/sh -c long")
+        );
+        assert_eq!(
+            resolve_command_line(None, false, Some("/bin/sh".to_string())).as_deref(),
+            Some("/bin/sh")
+        );
+        assert_eq!(resolve_command_line(None, false, None), None);
     }
 
     #[test]
@@ -817,14 +946,7 @@ mod tests {
 
     #[test]
     fn build_process_exit_event_emits_stop() {
-        let raw = ProcessEvent {
-            kind: PROCESS_EVENT_EXIT,
-            pid: 42,
-            uid: 1000,
-            _pad: 0,
-            comm: fixed("bash"),
-            image: [0u8; 128],
-        };
+        let raw = raw_process_event(PROCESS_EVENT_EXIT, 42, "");
 
         let event = build_process_event(&raw).expect("process exit should build");
         assert_eq!(event.action, SensorAction::Stop);

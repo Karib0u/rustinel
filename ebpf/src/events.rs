@@ -9,6 +9,13 @@
 //! - Fixed-size arrays for strings (null-terminated, rest zeroed).
 //! - All integer fields use explicit sizes (`u32`, `u16`, etc.).
 
+/// Maximum bytes of argv captured in the kernel for one `execve`.
+///
+/// A power of two so the verifier can bound the write offset with a mask.
+/// Anything past this is dropped and the event is flagged truncated; the
+/// userspace loader then falls back to `/proc/<pid>/cmdline`.
+pub const ARGV_CAPACITY: usize = 512;
+
 /// Process lifecycle event.
 ///
 /// - kind 1 = exec (`sched_process_exec`)
@@ -29,6 +36,18 @@ pub struct ProcessEvent {
     ///
     /// Empty for exit events.
     pub image: [u8; 128],
+    /// Number of valid bytes in `args`. Zero when no argv was captured.
+    pub args_len: u16,
+    /// Number of argv entries captured in `args`.
+    pub args_count: u16,
+    /// 1 when argv did not fit the capture limits, 0 when complete.
+    pub args_truncated: u8,
+    pub _pad1: [u8; 3],
+    /// Argv captured at `execve` entry, NUL-separated (no trailing NUL
+    /// guaranteed). Only the first `args_len` bytes are meaningful.
+    ///
+    /// Empty for exit events.
+    pub args: [u8; ARGV_CAPACITY],
 }
 
 /// Outbound connection event. Emitted by `handle_connect` on
