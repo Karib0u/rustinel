@@ -6,7 +6,7 @@ use crate::models::{
 };
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
-use crate::scanner::{self, YaraMemoryJob};
+use crate::scanner::{self, ScanError, ScanResult, YaraMemoryJob};
 use crate::sensor::Platform;
 use crate::utils::{self, validate_process_identity, LogRateLimiter};
 use std::sync::Arc;
@@ -22,14 +22,18 @@ struct YaraScanCounters {
     skipped: u64,
     clean: u64,
     matched: u64,
+    timed_out: u64,
+    oversized: u64,
 }
 
 impl YaraScanCounters {
-    fn record_result<T, E>(&mut self, result: &Result<Vec<T>, E>) {
+    fn record_result(&mut self, result: &ScanResult) {
         match result {
             Ok(matches) if matches.is_empty() => self.clean += 1,
             Ok(_) => self.matched += 1,
-            Err(_) => self.failed += 1,
+            Err(ScanError::TimedOut { .. }) => self.timed_out += 1,
+            Err(ScanError::TooLarge { .. }) => self.oversized += 1,
+            Err(ScanError::Failed(_)) => self.failed += 1,
         }
     }
 
@@ -283,16 +287,19 @@ pub fn spawn_yara_file_worker(
                     }
                 }
                 Err(err) => {
-                    let decision = scan_error_limiter.should_emit("scan_error");
+                    let decision = scan_error_limiter.should_emit(err.kind());
                     if decision.should_emit {
                         warn!(
                             target: "scanner",
                             pid = pid,
                             file = %path,
+                            outcome = err.kind(),
                             error = %err,
                             suppressed = decision.suppressed_since_last_emit,
                             failed_scans_total = counters.failed,
-                            "YARA worker scan failure"
+                            timed_out_scans_total = counters.timed_out,
+                            oversized_scans_total = counters.oversized,
+                            "YARA worker scan not completed"
                         );
                     }
                 }
@@ -305,6 +312,8 @@ pub fn spawn_yara_file_worker(
             skipped_scans_total = counters.skipped,
             clean_scans_total = counters.clean,
             matched_scans_total = counters.matched,
+            timed_out_scans_total = counters.timed_out,
+            oversized_scans_total = counters.oversized,
             "YARA worker thread shutting down"
         );
     })
@@ -367,15 +376,18 @@ pub fn spawn_yara_memory_worker(
                 let matches = match scan_result {
                     Ok(matches) => matches,
                     Err(err) => {
-                        let decision = scan_error_limiter.should_emit("memory_scan_error");
+                        let decision =
+                            scan_error_limiter.should_emit(&format!("memory_{}", err.kind()));
                         if decision.should_emit {
                             warn!(
                                 target: "scanner",
                                 pid = job.expected_identity.pid,
+                                outcome = err.kind(),
                                 error = %err,
                                 suppressed = decision.suppressed_since_last_emit,
                                 failed_scans_total = counters.failed,
-                                "YARA memory chunk scan failure"
+                                timed_out_scans_total = counters.timed_out,
+                                "YARA memory chunk scan not completed"
                             );
                         }
                         continue;
@@ -417,6 +429,7 @@ pub fn spawn_yara_memory_worker(
             skipped_scans_total = counters.skipped,
             clean_scans_total = counters.clean,
             matched_scans_total = counters.matched,
+            timed_out_scans_total = counters.timed_out,
             "YARA memory worker shutting down"
         );
     })
@@ -425,14 +438,31 @@ pub fn spawn_yara_memory_worker(
 #[cfg(test)]
 mod tests {
     use super::YaraScanCounters;
+    use crate::models::YaraRuleMatch;
+    use crate::scanner::ScanError;
+    use std::time::Duration;
+
+    fn rule_match() -> YaraRuleMatch {
+        YaraRuleMatch {
+            rule: "TestRule".to_string(),
+            metadata_id: None,
+            tags: Vec::new(),
+            namespace: None,
+            strings: Vec::new(),
+        }
+    }
 
     #[test]
     fn yara_scan_counters_distinguish_every_outcome() {
         let mut counters = YaraScanCounters::default();
         counters.record_skip();
-        counters.record_result(&Ok::<Vec<u8>, &str>(Vec::new()));
-        counters.record_result(&Ok::<Vec<u8>, &str>(vec![1]));
-        counters.record_result(&Err::<Vec<u8>, &str>("scan failed"));
+        counters.record_result(&Ok(Vec::new()));
+        counters.record_result(&Ok(vec![rule_match()]));
+        counters.record_result(&Err(ScanError::Failed(anyhow::anyhow!("scan failed"))));
+        counters.record_result(&Err(ScanError::TimedOut {
+            timeout: Duration::from_millis(10),
+        }));
+        counters.record_result(&Err(ScanError::TooLarge { size: 2, limit: 1 }));
 
         assert_eq!(
             counters,
@@ -441,6 +471,8 @@ mod tests {
                 skipped: 1,
                 clean: 1,
                 matched: 1,
+                timed_out: 1,
+                oversized: 1,
             }
         );
     }

@@ -413,7 +413,9 @@ async fn run_edr(
             "Initializing YARA Scanner"
         );
 
-        match scanner::Scanner::new(&cfg.scanner.yara_rules_path) {
+        match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
+            .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
+        {
             Ok(s) => {
                 info!(target: "rustinel", "YARA Scanner initialized successfully");
                 Arc::new(s)
