@@ -372,6 +372,7 @@ mod tests {
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: None,
+            path_truncated: None,
         });
 
         let fields = payload.into_event_fields();

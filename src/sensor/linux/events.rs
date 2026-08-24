@@ -83,18 +83,39 @@ pub struct NetworkEvent {
     pub saddr: [u8; 16],
 }
 
-/// File event. Produced by `handle_openat_exit` / `handle_unlinkat_exit`.
+/// Bytes captured for one file path, including the NUL terminator.
+///
+/// Mirrors `FILE_PATH_LEN` in `ebpf/src/events.rs`.
+pub const FILE_PATH_LEN: usize = 512;
+
+/// `path` did not fit in [`FILE_PATH_LEN`] and was cut short.
+pub const FILE_FLAG_PATH_TRUNCATED: u32 = 1 << 0;
+
+/// `aux_path` did not fit in [`FILE_PATH_LEN`] and was cut short.
+pub const FILE_FLAG_AUX_PATH_TRUNCATED: u32 = 1 << 1;
+
+/// File event. Produced by `handle_openat_exit` / `handle_unlinkat_exit` /
+/// `handle_renameat*_exit`.
 ///
 /// `kind`: 1 = create, 2 = delete, 3 = rename, 4 = change.
+///
+/// `path` and `aux_path` are raw `*at` pathname arguments and may be relative;
+/// `dfd` and `aux_dfd` are the directory descriptors they resolve against. See
+/// [`super::paths`] for the reconstruction rules.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FileEvent {
     pub kind: u32,
     pub pid: u32,
     pub uid: u32,
-    pub _pad0: u32,
-    pub path: [u8; 96],
-    pub aux_path: [u8; 96],
+    /// Bitmask of `FILE_FLAG_*` — currently path truncation.
+    pub flags: u32,
+    /// Directory descriptor `path` is relative to, or `AT_FDCWD`.
+    pub dfd: i32,
+    /// Directory descriptor `aux_path` is relative to, or `AT_FDCWD`.
+    pub aux_dfd: i32,
+    pub path: [u8; FILE_PATH_LEN],
+    pub aux_path: [u8; FILE_PATH_LEN],
     pub comm: [u8; 16],
 }
 
@@ -137,7 +158,7 @@ const _: () = assert!(
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
-    core::mem::size_of::<FileEvent>() == 224,
+    core::mem::size_of::<FileEvent>() == 1064,
     "FileEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
@@ -179,6 +200,7 @@ pub mod mapping {
         Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
     };
 
+    use super::super::paths::{resolve_at_path, truncation_marker, DirFdIndex};
     use super::{bytes_to_string, DnsEvent, FileEvent, NetworkEvent, ProcessEvent};
 
     const PROVIDER: &str = "ebpf";
@@ -252,7 +274,13 @@ pub mod mapping {
         }
     }
 
-    pub fn file_event_to_sensor(event: &FileEvent) -> SensorEvent {
+    /// Map a raw file event, rebuilding both paths from their directory
+    /// descriptors.
+    ///
+    /// `None` when the target path cannot be resolved — see
+    /// [`resolve_at_path`] for when that happens and why a raw relative name is
+    /// not an acceptable substitute.
+    pub fn file_event_to_sensor(index: &DirFdIndex, event: &FileEvent) -> Option<SensorEvent> {
         let action = match event.kind {
             2 => SensorAction::Delete,
             3 => SensorAction::Rename,
@@ -261,7 +289,15 @@ pub mod mapping {
         };
         let normalization = SensorNormalization::for_file_action(action)
             .expect("file actions are covered by the shared file normalization table");
-        SensorEvent {
+
+        let target_filename =
+            resolve_at_path(index, event.pid, event.dfd, &bytes_to_string(&event.path))?;
+        let source_filename = (action == SensorAction::Rename)
+            .then(|| bytes_to_string(&event.aux_path))
+            .filter(|value| !value.is_empty())
+            .and_then(|value| resolve_at_path(index, event.pid, event.aux_dfd, &value));
+
+        Some(SensorEvent {
             platform: Platform::Linux,
             provider: PROVIDER,
             action,
@@ -270,16 +306,17 @@ pub mod mapping {
             timestamp: SystemTime::now(),
             process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
-                source_filename: (action == SensorAction::Rename)
-                    .then(|| bytes_to_string(&event.aux_path)),
-                target_filename: Some(bytes_to_string(&event.path)),
+                path_truncated: truncation_marker(event.flags, source_filename.is_some())
+                    .map(str::to_string),
+                source_filename,
+                target_filename: Some(target_filename),
                 process_id: Some(event.pid.to_string()),
                 image: Some(bytes_to_string(&event.comm)),
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: Some(event.uid.to_string()),
             }),
-        }
+        })
     }
 
     pub fn dns_event_to_sensor(event: &DnsEvent) -> SensorEvent {

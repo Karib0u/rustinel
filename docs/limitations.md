@@ -84,6 +84,42 @@ The Linux sensor covers process, network, file, and DNS.
   exit before enrichment: `Image` normally comes from `/proc/<pid>/exe`, which is
   absolute, symlink-resolved, and untruncated. The raw kernel `execve()` argument
   is the fallback, and it is both truncated and possibly relative.
+- **File paths are capped at 511 bytes, and the overflow is marked.** File events
+  capture each path in a fixed kernel buffer. A longer path is cut and the event
+  carries `PathTruncated` (`edr.file.path_truncated` in ECS) naming which side
+  was cut, so a consumer can tell an incomplete path from a complete one. Since
+  truncation removes the end of the path, `|endswith` rules and extension IOCs
+  are the ones it defeats.
+- **File events whose path cannot be placed are dropped (bounded, counted).**
+  `openat`, `unlinkat`, and `renameat*` name their target with a directory
+  descriptor plus a name that may be relative to it, and the kernel does not
+  expose the resolved path on these tracepoints. A working-directory-relative
+  name is placed with `/proc/<pid>/cwd` when the ring is drained; a
+  descriptor-relative one with the index described below. A process that exits
+  before the drain leaves a name neither source can place, and it is dropped
+  rather than reported as if it were a path — `TargetFilename` of `passwd` would
+  match rules written for `/etc/passwd`. The running total is logged as
+  `unresolved_file_events`.
+- **Descriptors opened without `O_DIRECTORY` keep the stale-fd race (silent
+  risk).** Directory descriptors are normally named when they are opened: the
+  sensor watches `openat` with `O_DIRECTORY` or `O_PATH` and indexes the
+  resulting `(pid, fd)`, which is what `opendir(3)` and the directory readers in
+  Go, Rust, and Java all use. A descriptor the index never saw - opened before
+  the sensor started, produced by `dup` or inherited across `fork`, or opened
+  with a bare `O_RDONLY` (legal for a directory; CPython's `shutil.rmtree` does
+  exactly this) - falls back to reading `/proc/<pid>/fd/<dfd>` at drain time,
+  milliseconds after the syscall. A process that walks a tree recycles fd
+  numbers faster than that, so the answer can name a different directory, and
+  nothing observable distinguishes it from the ordinary case. Measured on a lab
+  VM, one `rmtree` produced two such paths. Widening the index to every
+  read-only open closes the gap but costs 20-29% on a file-read-heavy workload
+  (`tar -cf /dev/null /usr/share`) against ~0% for the current filter, so it is
+  not done. A descriptor reused for a *non*-directory is always caught, because
+  `/proc/<pid>/fd` reports those as `socket:[…]` rather than a path.
+- **`..` is collapsed lexically**, not by walking the filesystem, since the file
+  a delete or rename names is usually gone by the time the event is drained.
+  That differs from the kernel's resolution only when a path component is a
+  symlink.
 - **DNS is UDP port 53 only.** DNS-over-TCP, DoH (443), and DoT (853) are
   invisible; long query names are dropped, QTYPE is limited to
   A/NS/CNAME/PTR/TXT/AAAA, and answers (`QueryResults`) aren't parsed.

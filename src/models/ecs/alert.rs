@@ -220,6 +220,14 @@ pub struct EcsAlert {
     )]
     pub edr_file_previous_created: Option<String>,
 
+    /// Which of this event's paths the sensor had to cut short: `target`,
+    /// `source`, or `source,target`. Absent when `file.path` is complete.
+    #[serde(
+        rename = "edr.file.path_truncated",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_file_path_truncated: Option<String>,
+
     #[serde(
         rename = "file.pe.original_file_name",
         skip_serializing_if = "Option::is_none"

@@ -552,6 +552,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: Some(raw.user),
+            path_truncated: None,
         }),
     })
 }

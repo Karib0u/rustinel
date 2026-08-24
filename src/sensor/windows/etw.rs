@@ -821,6 +821,9 @@ fn decode_kernel_file_record(
             mappings.get_etw_field("PreviousCreationUtcTime")?,
         ),
         user: try_get_string(&parser, mappings.get_etw_field("User")?),
+        // ETW delivers whole paths or none at all; there is no capture buffer
+        // to overflow on Windows.
+        path_truncated: None,
     };
 
     let pid = parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id()));

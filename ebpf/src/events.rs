@@ -77,26 +77,56 @@ pub struct NetworkEvent {
     pub saddr: [u8; 16],
 }
 
-/// File create or delete event.
+/// Bytes captured for one file path, including the NUL terminator.
+///
+/// `PATH_MAX` is 4096, but a `FileEvent` holds two paths and one lives in a
+/// per-thread pending map slot for the duration of every `openat`, `unlinkat`,
+/// and `renameat*` call on the machine, so capturing `PATH_MAX` would cost
+/// 8 KiB per in-flight syscall. 512 covers the overwhelming majority of real
+/// paths; anything longer is flagged through [`FILE_FLAG_PATH_TRUNCATED`]
+/// rather than passed off as complete.
+pub const FILE_PATH_LEN: usize = 512;
+
+/// `path` did not fit in [`FILE_PATH_LEN`] and was cut short.
+pub const FILE_FLAG_PATH_TRUNCATED: u32 = 1 << 0;
+
+/// `aux_path` did not fit in [`FILE_PATH_LEN`] and was cut short.
+pub const FILE_FLAG_AUX_PATH_TRUNCATED: u32 = 1 << 1;
+
+/// `dfd` value meaning "resolve against the process working directory".
+pub const AT_FDCWD: i32 = -100;
+
+/// File create, delete, rename, or change event.
 ///
 /// - kind 1 = create (`openat` with `O_CREAT`, emitted on successful return)
 /// - kind 2 = delete (`unlinkat`, emitted on successful return)
 /// - kind 3 = rename (`renameat*`, emitted on successful return)
 /// - kind 4 = change (`openat` with write intent, emitted on successful return)
+///
+/// `path` and `aux_path` are the raw pathname arguments, which the `*at`
+/// syscalls allow to be relative. Each carries the directory descriptor it is
+/// relative to (`dfd` for `path`, `aux_dfd` for `aux_path`) so userspace can
+/// rebuild the absolute path; a path that is already absolute is paired with
+/// [`AT_FDCWD`] and needs no descriptor.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FileEvent {
-    /// Event kind: 1 = create, 2 = delete.
+    /// Event kind: 1 = create, 2 = delete, 3 = rename, 4 = change.
     pub kind: u32,
     /// Thread group ID.
     pub pid: u32,
     /// Effective UID.
     pub uid: u32,
-    pub _pad0: u32,
-    /// Null-terminated file path (up to 95 chars).
-    pub path: [u8; 96],
-    /// Auxiliary path used for rename old-name tracking.
-    pub aux_path: [u8; 96],
+    /// Bitmask of `FILE_FLAG_*` — currently path truncation.
+    pub flags: u32,
+    /// Directory descriptor `path` is relative to, or [`AT_FDCWD`].
+    pub dfd: i32,
+    /// Directory descriptor `aux_path` is relative to, or [`AT_FDCWD`].
+    pub aux_dfd: i32,
+    /// Null-terminated file path (target/new name for renames).
+    pub path: [u8; FILE_PATH_LEN],
+    /// Null-terminated auxiliary path (source/old name for renames).
+    pub aux_path: [u8; FILE_PATH_LEN],
     /// Null-terminated process name (`comm`, up to 15 chars).
     pub comm: [u8; 16],
 }

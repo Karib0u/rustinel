@@ -161,6 +161,7 @@ impl NormalizedEvent {
                 "User" => f.user.as_deref(),
                 "CreationUtcTime" => f.creation_utc_time.as_deref(),
                 "PreviousCreationUtcTime" => f.previous_creation_utc_time.as_deref(),
+                "PathTruncated" => f.path_truncated.as_deref(),
                 _ => None,
             },
             EventFields::NetworkConnection(f) => match key {
@@ -934,6 +935,7 @@ mod round_trip_tests {
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: None,
+                path_truncated: None,
             }),
             process_context: None,
         }
