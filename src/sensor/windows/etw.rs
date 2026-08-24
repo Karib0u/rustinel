@@ -538,12 +538,16 @@ impl Sensor for EtwSensor {
                         Ok(())
                     }
                     Err(err) => {
+                        // Stopping the trace from `shutdown()` makes `process()`
+                        // return an error by design; only a failure while the
+                        // sensor is supposed to keep running is a real one, and
+                        // it must reach the caller — logging alone buries the
+                        // ETW error code in the operational log (#256).
                         if self.shutdown.load(Ordering::Relaxed) {
                             info!("ETW sensor stopped with result: {:?}", err);
                             Ok(())
                         } else {
-                            warn!("ETW trace processing error: {:?}", err);
-                            Ok(())
+                            Err(anyhow::anyhow!("ETW trace processing failed: {:?}", err))
                         }
                     }
                 }
