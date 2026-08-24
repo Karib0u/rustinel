@@ -413,7 +413,9 @@ async fn run_edr(
             "Initializing YARA Scanner"
         );
 
-        match scanner::Scanner::new(&cfg.scanner.yara_rules_path) {
+        match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
+            .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
+        {
             Ok(s) => {
                 info!(target: "rustinel", "YARA Scanner initialized successfully");
                 Arc::new(s)
@@ -639,18 +641,15 @@ async fn run_edr(
     let sensor_clone = Arc::clone(&sensor);
 
     // We make trace_handle mutable so we can await it.
-    let mut trace_handle = tokio::task::spawn_blocking(move || {
-        if let Err(e) = sensor_clone.start(sensor_tx) {
-            error!("ETW sensor error: {}", e);
-        }
-    });
+    let mut trace_handle = tokio::task::spawn_blocking(move || sensor_clone.start(sensor_tx));
 
     // Wait for either shutdown signal or trace completion.
     tokio::select! {
         _ = shutdown_handler => {
             info!("Shutdown signal received, waiting for ETW session to close...");
             match trace_handle.await {
-                Ok(_) => info!("ETW sensor thread finished"),
+                Ok(Ok(())) => info!("ETW sensor thread finished"),
+                Ok(Err(err)) => warn!("ETW sensor exited with error during shutdown: {err:#}"),
                 Err(e) => error!("Failed to join ETW sensor thread: {}", e),
             }
         }
@@ -662,7 +661,10 @@ async fn run_edr(
             } else {
                 error!("🚨 CRITICAL: ETW sensor thread died unexpectedly!");
                 match result {
-                    Ok(_) => {
+                    Ok(Err(err)) => {
+                        error!("ETW session failed: {err:#}");
+                    }
+                    Ok(Ok(())) => {
                         error!("Trace stopped without panic (unexpected normal termination)");
                         error!("This indicates the ETW session closed unexpectedly");
                     }

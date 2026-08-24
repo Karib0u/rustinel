@@ -55,6 +55,10 @@ sigma_engine = "builtin"
 yara_enabled = true
 yara_rules_path = "rules/current/yara"
 
+# Per-scan guards. 0 disables the guard.
+# yara_scan_timeout_ms = 10000
+# yara_max_file_mb = 64
+
 # Memory scanning is off by default.
 # yara_memory_enabled = false
 # yara_memory_delay_ms = 750
@@ -196,6 +200,8 @@ These defaults feed `allowlist.paths`, which then propagate to active response, 
 | `yara_enabled` | `true` | Enable YARA scanning |
 | `yara_rules_path` | `rules/current/yara` | YARA rules directory |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped by YARA queueing and scanning |
+| `yara_scan_timeout_ms` | `10000` | Per-scan timeout for file and memory scans; `0` disables the timeout |
+| `yara_max_file_mb` | `64` | Files larger than this are reported as oversized instead of being scanned; `0` disables the guard |
 | `yara_memory_enabled` | `false` | Enable YARA memory scanning (requires `yara_enabled = true`) |
 | `yara_memory_queue_capacity` | `64` | Maximum pending memory scan jobs before new ones are dropped |
 | `yara_memory_delay_ms` | `750` | Milliseconds to wait after process start before reading memory |

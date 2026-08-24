@@ -15,6 +15,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 use crate::models::MatchDebugLevel;
+use crate::scanner::{self, ScanLimits};
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 const CONFIG_PATH_ENV: &str = "RUSTINEL_CONFIG";
@@ -311,6 +312,10 @@ pub struct ScannerConfig {
     pub yara_enabled: bool,
     pub yara_rules_path: PathBuf,
     pub yara_allowlist_paths: Vec<String>,
+    /// Per-scan timeout for file and memory scans. 0 disables the timeout.
+    pub yara_scan_timeout_ms: u64,
+    /// Maximum size of a file accepted by an on-disk scan. 0 disables the guard.
+    pub yara_max_file_mb: u64,
     pub yara_memory_enabled: bool,
     pub yara_memory_queue_capacity: usize,
     pub yara_memory_delay_ms: u64,
@@ -319,6 +324,16 @@ pub struct ScannerConfig {
     pub yara_memory_include_private: bool,
     pub yara_memory_include_image: bool,
     pub yara_memory_include_mapped: bool,
+}
+
+impl ScannerConfig {
+    /// Resource guards applied to every YARA scan.
+    pub fn yara_scan_limits(&self) -> ScanLimits {
+        ScanLimits {
+            timeout: std::time::Duration::from_millis(self.yara_scan_timeout_ms),
+            max_file_bytes: self.yara_max_file_mb.saturating_mul(1024 * 1024),
+        }
+    }
 }
 
 /// Global allowlist configuration shared across modules
@@ -463,6 +478,14 @@ impl AppConfig {
             .set_default("scanner.yara_enabled", true)?
             .set_default("scanner.yara_rules_path", "rules/current/yara")?
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
+            .set_default(
+                "scanner.yara_scan_timeout_ms",
+                scanner::DEFAULT_SCAN_TIMEOUT_MS as i64,
+            )?
+            .set_default(
+                "scanner.yara_max_file_mb",
+                scanner::DEFAULT_MAX_FILE_MB as i64,
+            )?
             .set_default("scanner.yara_memory_enabled", false)?
             .set_default("scanner.yara_memory_queue_capacity", 64i64)?
             .set_default("scanner.yara_memory_delay_ms", 750i64)?
@@ -703,6 +726,8 @@ impl Default for AppConfig {
                 yara_enabled: true,
                 yara_rules_path: PathBuf::from("rules/current/yara"),
                 yara_allowlist_paths: Vec::new(),
+                yara_scan_timeout_ms: scanner::DEFAULT_SCAN_TIMEOUT_MS,
+                yara_max_file_mb: scanner::DEFAULT_MAX_FILE_MB,
                 yara_memory_enabled: false,
                 yara_memory_queue_capacity: 64,
                 yara_memory_delay_ms: 750,
@@ -1121,6 +1146,28 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         assert!(cfg.scanner.yara_memory_include_private);
         assert!(!cfg.scanner.yara_memory_include_image);
         assert!(!cfg.scanner.yara_memory_include_mapped);
+    }
+
+    #[test]
+    fn test_yara_scan_guards_are_active_by_default() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.scanner.yara_scan_timeout_ms, 10_000);
+        assert_eq!(cfg.scanner.yara_max_file_mb, 64);
+
+        let limits = cfg.scanner.yara_scan_limits();
+        assert_eq!(limits.timeout, std::time::Duration::from_secs(10));
+        assert_eq!(limits.max_file_bytes, 64 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_yara_scan_guards_can_be_disabled() {
+        let mut cfg = AppConfig::default();
+        cfg.scanner.yara_scan_timeout_ms = 0;
+        cfg.scanner.yara_max_file_mb = 0;
+
+        let limits = cfg.scanner.yara_scan_limits();
+        assert!(limits.timeout.is_zero());
+        assert_eq!(limits.max_file_bytes, 0);
     }
 
     #[test]
