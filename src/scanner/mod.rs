@@ -597,7 +597,11 @@ impl SensorEventHandler for YaraEventHandler {
             return;
         }
 
-        match self.tx.try_send((path.to_string(), pid)) {
+        match crate::telemetry::try_send(
+            crate::telemetry::ChannelId::YaraFileScan,
+            &self.tx,
+            (path.to_string(), pid),
+        ) {
             Ok(_) => tracing::trace!(
                 target: "scanner",
                 pid = pid,
@@ -615,7 +619,11 @@ impl SensorEventHandler for YaraEventHandler {
 
         if let Some(memory_tx) = &self.memory_tx {
             let expected_identity = capture_process_identity(event, fields, pid, path);
-            match memory_tx.try_send(YaraMemoryJob { expected_identity }) {
+            match crate::telemetry::try_send(
+                crate::telemetry::ChannelId::YaraMemoryScan,
+                memory_tx,
+                YaraMemoryJob { expected_identity },
+            ) {
                 Ok(_) => tracing::trace!(
                     target: "scanner",
                     pid = pid,

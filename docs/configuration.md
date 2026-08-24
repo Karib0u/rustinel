@@ -91,6 +91,10 @@ max_entries = 10000
 [capture]
 directory = "captures"
 
+[telemetry]
+enabled = true
+snapshot_interval_secs = 30
+
 [response]
 enabled = false
 prevention_enabled = false
@@ -148,6 +152,8 @@ Windows continues to use the owning account's configured ACLs.
 | `dedup.window_secs` | `60` |
 | `dedup.max_entries` | `10000` |
 | `capture.directory` | `captures` |
+| `telemetry.enabled` | `true` |
+| `telemetry.snapshot_interval_secs` | `30` |
 | `response.enabled` | `false` |
 | `response.prevention_enabled` | `false` |
 | `response.min_severity` | `critical` |
@@ -297,6 +303,59 @@ revealing than alert output, which only contains what a rule matched. Keep them
 out of shared directories and off general-purpose log shipping. See
 [Output Format](output.md#behavioral-recordings) for the stream and manifest
 layout.
+
+### Pipeline Telemetry
+
+Every channel between a sensor and the detectors is bounded, and sheds load
+rather than blocking — blocking an ETW callback or an eBPF poll loop would lose
+the events queued behind it in the kernel instead. Shedding is therefore the
+right trade, but it means a burst produces a **detection gap** rather than a
+slowdown, and that gap is only safe to accept if it can be measured.
+
+Rustinel counts, per channel: events accepted, events dropped because the
+channel was full, events dropped because the consumer had already stopped
+(shutdown, not loss), and the deepest queue depth reached. The counters are
+always on. This section controls only whether they are published outside the
+process.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Write the counter snapshot that `rustinel doctor` reads |
+| `snapshot_interval_secs` | `30` | Refresh interval; a snapshot is also written at shutdown |
+
+The snapshot is `telemetry.json` inside `logging.directory`. It is rewritten in
+place — never appended — and holds only counts, no endpoint detail.
+
+The counted channels are:
+
+| Channel | What a drop costs |
+| --- | --- |
+| `sensor_events` | Raw sensor events never reached the detectors — the widest gap |
+| `yara_file_scan` | Files were never YARA scanned |
+| `yara_memory_scan` | Processes were never memory scanned |
+| `ioc_hash` | Process images were never hashed for IOC matching |
+| `active_response` | Response actions were never executed |
+| `capture_writer` | Events never reached a `rustinel capture` recording |
+
+Read the counters with:
+
+```bash
+rustinel doctor
+```
+
+The `pipeline_telemetry` check passes when nothing was dropped and warns with
+the per-channel totals when something was, so the size of a detection gap is a
+command rather than a log search. `rustinel doctor --json` carries the full
+per-channel numbers under `telemetry`. Setting `enabled = false` leaves the
+drop totals visible only in the operational log, and `doctor` reports that
+reduced visibility as a warning.
+
+Drops are also logged as they happen, rate-limited to one cumulative line per
+channel per minute:
+
+```
+Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 dropped_since_last_warning=1203
+```
 
 ### Active Response
 

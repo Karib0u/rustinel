@@ -159,6 +159,8 @@ Once a platform sensor emits a raw `SensorEvent`, the rest of the runtime is sha
 4. YARA scans and IOC hash calculations run off the hot path in background workers.
 5. Detection hits are written as ECS NDJSON through `AlertSink` and can also be handed to `ResponseEngine`.
 
+Every hop in that list crosses a bounded channel, and each of them sheds load rather than blocking its producer: blocking an ETW callback or an eBPF poll loop would lose the events queued behind it in the kernel instead. Shedding trades a detection gap for stability, so each channel carries atomic counters - accepted, dropped, and peak queue depth - in `src/telemetry`. The runtime publishes them to `telemetry.json` beside the logs, and `rustinel doctor` reads that snapshot, which is what makes the gap measurable from outside the process. See [Pipeline Telemetry](configuration.md#pipeline-telemetry).
+
 ## Detector Store and Hot Reload
 
 Live detector instances sit behind `DetectorStore`:

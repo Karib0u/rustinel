@@ -299,6 +299,7 @@ pub struct AppConfig {
     pub reload: ReloadConfig,
     pub dedup: DedupConfig,
     pub capture: CaptureConfig,
+    pub telemetry: TelemetryConfig,
 }
 
 /// Scanner configuration (Sigma and YARA rules)
@@ -434,6 +435,18 @@ pub struct CaptureConfig {
     pub directory: PathBuf,
 }
 
+/// Pipeline telemetry accounting configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct TelemetryConfig {
+    /// Write the pipeline drop-counter snapshot that `rustinel doctor` reads.
+    /// The in-memory counters and their rate-limited warnings are always on;
+    /// this only controls whether they are persisted for another process.
+    pub enabled: bool,
+    /// How often the snapshot is refreshed, in seconds. A shutdown snapshot is
+    /// always written regardless of where the interval fell.
+    pub snapshot_interval_secs: u64,
+}
+
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
@@ -539,7 +552,10 @@ impl AppConfig {
             .set_default("dedup.window_secs", 60i64)?
             .set_default("dedup.max_entries", 10000i64)?
             // Behavioral recording
-            .set_default("capture.directory", "captures")?;
+            .set_default("capture.directory", "captures")?
+            // Telemetry
+            .set_default("telemetry.enabled", true)?
+            .set_default("telemetry.snapshot_interval_secs", 30i64)?;
 
         let builder = match selected_config {
             Some(path) => builder.add_source(config::File::from(path).required(true)),
@@ -792,6 +808,10 @@ impl Default for AppConfig {
             capture: CaptureConfig {
                 directory: PathBuf::from("captures"),
             },
+            telemetry: TelemetryConfig {
+                enabled: true,
+                snapshot_interval_secs: 30,
+            },
         };
 
         cfg.apply_allowlist_fallbacks();
@@ -830,6 +850,8 @@ mod tests {
         assert_eq!(cfg.reload.debounce_ms, 2000);
         assert_eq!(cfg.alerts.match_debug, MatchDebugLevel::Off);
         assert_eq!(cfg.network.aggregation_window_secs, 60);
+        assert!(cfg.telemetry.enabled);
+        assert_eq!(cfg.telemetry.snapshot_interval_secs, 30);
     }
 
     #[test]

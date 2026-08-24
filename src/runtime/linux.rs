@@ -7,6 +7,7 @@ use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::{init_logging, log_startup_banner};
+use crate::runtime::telemetry::TelemetryReporter;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
 use crate::sensor::linux::EbpfSensor;
@@ -103,6 +104,9 @@ async fn run_linux_edr(
     };
 
     log_startup_banner("Linux eBPF");
+
+    // 2b. Pipeline drop counters, published for `rustinel doctor`
+    let telemetry_reporter = TelemetryReporter::start(&cfg);
 
     // 3. Shared state
     let process_cache = Arc::new(ProcessCache::with_max_entries(cfg.process.max_entries));
@@ -373,6 +377,10 @@ async fn run_linux_edr(
     if let Some(dedup) = alert_sink.dedup() {
         dedup.flush_all(&alert_sink);
         dedup.log_metrics();
+    }
+
+    if let Some(reporter) = telemetry_reporter {
+        reporter.finish().await;
     }
 
     info!("Shutdown complete");

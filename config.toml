@@ -96,6 +96,19 @@ aggregation_interval_buffer_size = 50
 [capture]
 directory = "captures"      # default parent for rustinel-capture-<UTC timestamp>.ndjson
 
+# 6b. Pipeline Telemetry Counters
+#   Every channel between a sensor and the detectors is bounded and sheds load
+#   rather than blocking, so a burst produces a detection gap instead of a
+#   slowdown. The counters below make that gap measurable: `rustinel doctor`
+#   reads the snapshot and reports how many events were dropped, per channel.
+#
+#   The counters and their rate-limited warnings are always on. This section
+#   only controls whether they are written to {logging.directory}/telemetry.json
+#   for another process to read.
+[telemetry]
+enabled = true
+snapshot_interval_secs = 30 # a snapshot is also written at shutdown
+
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
 enabled = true
