@@ -700,16 +700,15 @@ fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
+/// Queue a decoded event, accounting for a drop rather than blocking.
+///
+/// Blocking here would stall the perf-buffer poll loop and lose the events
+/// behind it in the kernel instead, so overflow is shed. The count is what
+/// makes that trade auditable — see [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
-    match tx.try_send(event) {
-        Ok(_) => {}
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-            warn!("eBPF sensor: event channel full, dropping event");
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            // Pipeline has shut down; stop logging.
-        }
-    }
+    // Both the full and closed cases are already counted; the reason is in the
+    // rate-limited warning the telemetry module emits.
+    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
 }
 
 fn resolved_linux_user(uid: u32) -> String {

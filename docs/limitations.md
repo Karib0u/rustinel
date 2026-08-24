@@ -19,7 +19,7 @@ This page documents Rustinel's known limitations for the current release.
 | Command line is lost for short-lived processes | Windows | Linux |
 | No stateful correlation or filter evaluation; unsupported documents are reported at load time | Engine |
 | Rules are silently inert when no collector backs their logsource | Engine |
-| Telemetry is dropped under burst load (no backpressure) | Pipeline |
+| Telemetry is dropped under burst load; the loss is counted, not prevented | Pipeline |
 
 ---
 
@@ -174,9 +174,21 @@ macOS support is experimental and detection-only.
 
 ## Pipeline & operations
 
-- **Telemetry is dropped under load (silent risk).** Sensor channels are bounded and
-  drop on overflow, with only a periodic warning. Under burst load you get silent
-  detection gaps, not slowdown.
+- **Telemetry is dropped under load.** Sensor channels are bounded and shed
+  events on overflow rather than blocking the producer - blocking an ETW
+  callback or an eBPF poll loop loses the events queued behind it in the kernel
+  instead. Under burst load you get a detection gap, not a slowdown, and
+  Rustinel does not replay what it shed.
+  The loss is no longer silent: every bounded channel counts events accepted,
+  events dropped, and its peak queue depth. `rustinel doctor` reports the
+  totals per channel (`pipeline_telemetry`), and `--json` carries the raw
+  numbers, so a gap can be sized without searching logs. See
+  [Pipeline Telemetry](configuration.md#pipeline-telemetry).
+  What is still missing is any form of *backpressure*: there is no adaptive
+  sampling, no priority shedding, and no way to slow a producer down. Reducing
+  event volume - narrower rules, wider trusted-path allowlists - is the only
+  mitigation; channel sizes are fixed at build time apart from
+  `response.channel_capacity` and `scanner.yara_memory_queue_capacity`.
 - **Rules catalog trust is release-bound in Phase 1.** `rustinel rules install`
   trusts HTTPS GitHub release assets from `Karib0u/rustinel-rules` and requires
   the artifact SHA-256 from the released catalog to match before activation. The
@@ -217,7 +229,8 @@ not be presented as a full commercial EDR replacement today.
 - Richer process telemetry (hashes, more reliable command line) and additional
   providers
 - Correlation / temporal rule support
-- Backpressure and load-shedding visibility
+- Real backpressure: adaptive sampling and priority shedding, rather than only
+  counting what was shed
 - Scheduled YARA memory sweeps and richer memory match metadata
 - macOS hardening toward production readiness
 - Continued documentation of operational security and limitations
