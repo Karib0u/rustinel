@@ -114,9 +114,33 @@ pub struct FileEvent {
     pub dfd: i32,
     /// Directory descriptor `aux_path` is relative to, or `AT_FDCWD`.
     pub aux_dfd: i32,
+    /// Kernel token for the indexed directory currently held in `dfd`.
+    /// Zero means the index must not be used.
+    pub dfd_token: u64,
+    /// Kernel token for the indexed directory currently held in `aux_dfd`.
+    /// Zero means the index must not be used.
+    pub aux_dfd_token: u64,
     pub path: [u8; FILE_PATH_LEN],
     pub aux_path: [u8; FILE_PATH_LEN],
     pub comm: [u8; 16],
+}
+
+/// Common prefix shared by full file events and compact index events.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FileEventHeader {
+    pub kind: u32,
+    pub pid: u32,
+}
+
+/// Compact directory-index maintenance event.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FileIndexEvent {
+    pub kind: u32,
+    pub pid: u32,
+    pub fd: i32,
+    pub _pad: u32,
 }
 
 /// DNS event. Produced by send/receive DNS syscall hooks.
@@ -158,9 +182,11 @@ const _: () = assert!(
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
-    core::mem::size_of::<FileEvent>() == 1064,
+    core::mem::size_of::<FileEvent>() == 1080,
     "FileEvent layout changed — update ebpf/src/events.rs to match"
 );
+const _: () = assert!(core::mem::size_of::<FileEventHeader>() == 8);
+const _: () = assert!(core::mem::size_of::<FileIndexEvent>() == 16);
 const _: () = assert!(
     core::mem::size_of::<DnsEvent>() == 484,
     "DnsEvent layout changed — update ebpf/src/events.rs to match"
@@ -290,12 +316,19 @@ pub mod mapping {
         let normalization = SensorNormalization::for_file_action(action)
             .expect("file actions are covered by the shared file normalization table");
 
-        let target_filename =
-            resolve_at_path(index, event.pid, event.dfd, &bytes_to_string(&event.path))?;
+        let target_filename = resolve_at_path(
+            index,
+            event.pid,
+            event.dfd,
+            event.dfd_token,
+            &bytes_to_string(&event.path),
+        )?;
         let source_filename = (action == SensorAction::Rename)
             .then(|| bytes_to_string(&event.aux_path))
             .filter(|value| !value.is_empty())
-            .and_then(|value| resolve_at_path(index, event.pid, event.aux_dfd, &value));
+            .and_then(|value| {
+                resolve_at_path(index, event.pid, event.aux_dfd, event.aux_dfd_token, &value)
+            });
 
         Some(SensorEvent {
             platform: Platform::Linux,

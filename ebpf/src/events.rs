@@ -123,12 +123,32 @@ pub struct FileEvent {
     pub dfd: i32,
     /// Directory descriptor `aux_path` is relative to, or [`AT_FDCWD`].
     pub aux_dfd: i32,
+    /// Kernel token for the indexed directory currently held in `dfd`.
+    /// Zero means userspace must use the `/proc` fallback.
+    pub dfd_token: u64,
+    /// Kernel token for the indexed directory currently held in `aux_dfd`.
+    /// Zero means userspace must use the `/proc` fallback.
+    pub aux_dfd_token: u64,
     /// Null-terminated file path (target/new name for renames).
     pub path: [u8; FILE_PATH_LEN],
     /// Null-terminated auxiliary path (source/old name for renames).
     pub aux_path: [u8; FILE_PATH_LEN],
     /// Null-terminated process name (`comm`, up to 15 chars).
     pub comm: [u8; 16],
+}
+
+/// Compact maintenance event carried on the file ring.
+///
+/// Kind 6 resets every userspace directory-index entry owned by `pid`. It is
+/// emitted on exec, thread exit, and `close_range`, in the same ring as file
+/// events so maintenance cannot be reordered across ring drains.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FileIndexEvent {
+    pub kind: u32,
+    pub pid: u32,
+    pub fd: i32,
+    pub _pad: u32,
 }
 
 /// DNS query/response event.

@@ -27,6 +27,11 @@
 //! `O_DIRECTORY | O_PATH` rather than every read-only open: measured on a lab
 //! VM, indexing every read-only open costs 20-29% on a file-read-heavy
 //! workload against ~0% for this one.
+//! Indexed descriptors carry a kernel token. `close`, `dup2`, and `dup3`
+//! invalidate it, while exec, exit, and `close_range` invalidate the process
+//! epoch.
+//! A userspace path is eligible only when the file event captured the same
+//! token, so an untracked reopen cannot consume an older `(pid, fd)` entry.
 //!
 //! sys_enter_openat tracepoint format (x86_64, 64-bit ABI):
 //!   offset  0: common_type         (u16)
@@ -62,16 +67,17 @@
 
 use aya_ebpf::{
     helpers::{
-        bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid,
+        bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_ktime_get_ns,
         bpf_probe_read_user_str_bytes,
     },
     macros::{kprobe, map, tracepoint},
-    maps::{HashMap, PerCpuArray, RingBuf},
+    maps::{HashMap, LruHashMap, PerCpuArray, RingBuf},
     programs::{ProbeContext, TracePointContext},
 };
 
 use crate::events::{
-    FileEvent, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
+    FileEvent, FileIndexEvent, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED,
+    FILE_PATH_LEN,
 };
 
 /// O_CREAT flag — create file if it does not exist.
@@ -95,6 +101,8 @@ const FILE_KIND_CHANGE: u32 = 4;
 /// Not a file event: a directory descriptor being opened, reported so userspace
 /// can name the `dfd` of later `*at` calls. Never reaches the engine.
 const FILE_KIND_DIR_OPEN: u32 = 5;
+/// Not a file event: discard every cached directory owned by this process.
+const FILE_KIND_INDEX_RESET: u32 = 6;
 
 /// Ring buffer shared with the userspace loader for file events.
 ///
@@ -129,6 +137,28 @@ static FILE_SCRATCH: PerCpuArray<FileEvent> = PerCpuArray::with_max_entries(1, 0
 /// Per-thread marker that `vfs_create` ran for the pending open.
 #[map]
 static OPENAT_CREATED: HashMap<u32, u8> = HashMap::with_max_entries(16_384, 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct TrackedDirFd {
+    token: u64,
+    epoch: u64,
+}
+
+/// Kernel-side validity state for directory descriptors reported to userspace.
+///
+/// The userspace index may contain an old `(pid, fd)` entry, but a file event
+/// carries this map's token and may use the entry only when the tokens match.
+/// A close or descriptor replacement invalidates the token before a later
+/// syscall can capture it. The map is twice the userspace index capacity so
+/// every entry userspace can retain also remains represented here.
+#[map]
+static DIR_FD_TOKENS: LruHashMap<u64, TrackedDirFd> = LruHashMap::with_max_entries(16_384, 0);
+
+/// Process epoch used to invalidate every descriptor after exec, exit, or
+/// `close_range` without walking [`DIR_FD_TOKENS`] in a BPF program.
+#[map]
+static DIR_FD_EPOCHS: LruHashMap<u32, u64> = LruHashMap::with_max_entries(16_384, 0);
 
 /// Queue a potential file-create event for `openat(O_CREAT)`.
 #[tracepoint]
@@ -185,6 +215,135 @@ pub fn handle_renameat2_exit(ctx: TracePointContext) -> u32 {
     unsafe { try_handle_renameat_exit(&ctx) }.unwrap_or(1)
 }
 
+/// Invalidate an indexed descriptor before it can be closed and reused.
+#[tracepoint]
+pub fn handle_file_close(ctx: TracePointContext) -> u32 {
+    unsafe { try_invalidate_close(&ctx) }.unwrap_or(1)
+}
+
+/// Invalidate the destination descriptor that `dup2` may replace.
+#[tracepoint]
+pub fn handle_file_dup2(ctx: TracePointContext) -> u32 {
+    unsafe { try_invalidate_dup_target(&ctx) }.unwrap_or(1)
+}
+
+/// Invalidate the destination descriptor that `dup3` may replace.
+#[tracepoint]
+pub fn handle_file_dup3(ctx: TracePointContext) -> u32 {
+    unsafe { try_invalidate_dup_target(&ctx) }.unwrap_or(1)
+}
+
+/// Reset a process index before `close_range` can recycle many descriptors.
+#[tracepoint]
+pub fn handle_file_close_range(ctx: TracePointContext) -> u32 {
+    unsafe { try_reset_dir_index(&ctx) }.unwrap_or(1)
+}
+
+/// Reset descriptor state after a successful exec.
+#[tracepoint]
+pub fn handle_file_exec(ctx: TracePointContext) -> u32 {
+    unsafe { try_reset_dir_index(&ctx) }.unwrap_or(1)
+}
+
+/// Reset descriptor state when any thread exits.
+///
+/// Clearing on every thread exit is conservative for a shared descriptor
+/// table, but it guarantees a final reset even when the group leader exits
+/// before another thread. Remaining threads fall back to `/proc` until their
+/// next tracked directory open.
+#[tracepoint]
+pub fn handle_file_exit(ctx: TracePointContext) -> u32 {
+    unsafe { try_reset_dir_index(&ctx) }.unwrap_or(1)
+}
+
+#[inline(always)]
+fn dir_fd_key(pid: u32, fd: i32) -> u64 {
+    ((pid as u64) << 32) | (fd as u32 as u64)
+}
+
+#[inline(always)]
+unsafe fn current_dir_epoch(pid: u32) -> u64 {
+    match DIR_FD_EPOCHS.get(&pid) {
+        Some(epoch) => *epoch,
+        None => 0,
+    }
+}
+
+#[inline(always)]
+unsafe fn current_dir_token(pid: u32, fd: i32) -> u64 {
+    if fd < 0 {
+        return 0;
+    }
+    let key = dir_fd_key(pid, fd);
+    let Some(state) = DIR_FD_TOKENS.get(&key) else {
+        return 0;
+    };
+    if state.epoch == current_dir_epoch(pid) {
+        state.token
+    } else {
+        0
+    }
+}
+
+#[inline(always)]
+unsafe fn try_invalidate_close(ctx: &TracePointContext) -> Result<u32, i64> {
+    let fd = ctx.read_at::<i64>(16)? as i32;
+    let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
+    invalidate_dir_token(pid, fd);
+    Ok(0)
+}
+
+#[inline(always)]
+unsafe fn invalidate_dir_token(pid: u32, fd: i32) {
+    if fd < 0 {
+        return;
+    }
+    let key = dir_fd_key(pid, fd);
+    if let Some(state) = DIR_FD_TOKENS.get_ptr_mut(&key) {
+        // Keep the LRU slot and invalidate its value. Removing a tracked key
+        // performs substantially more LRU maintenance on directory walks.
+        // A later tracked open overwrites the slot; an untracked reuse captures
+        // token zero and therefore cannot consume the old userspace path.
+        (*state).token = 0;
+    }
+}
+
+#[inline(always)]
+unsafe fn try_invalidate_dup_target(ctx: &TracePointContext) -> Result<u32, i64> {
+    let old_fd = ctx.read_at::<i64>(16)? as i32;
+    let new_fd = ctx.read_at::<i64>(24)? as i32;
+    if old_fd == new_fd {
+        return Ok(0);
+    }
+    let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
+    invalidate_dir_token(pid, new_fd);
+    Ok(0)
+}
+
+#[inline(always)]
+unsafe fn try_reset_dir_index(_ctx: &TracePointContext) -> Result<u32, i64> {
+    let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
+    if pid == 0 {
+        return Ok(0);
+    }
+
+    // A time-derived epoch invalidates all older fd tokens without a map walk.
+    // Setting the low bit keeps zero reserved for "not indexed".
+    let epoch = bpf_ktime_get_ns() | 1;
+    let _ = DIR_FD_EPOCHS.insert(&pid, &epoch, 0);
+
+    let Some(mut entry) = FILE_RING.reserve::<FileIndexEvent>(0) else {
+        return Ok(0);
+    };
+    let event = entry.as_mut_ptr();
+    (*event).kind = FILE_KIND_INDEX_RESET;
+    (*event).pid = pid;
+    (*event).fd = -1;
+    (*event)._pad = 0;
+    entry.submit(0);
+    Ok(0)
+}
+
 #[inline(always)]
 unsafe fn try_handle_openat(ctx: &TracePointContext) -> Result<u32, i64> {
     let flags: u64 = ctx.read_at::<u64>(32)?;
@@ -227,11 +386,18 @@ unsafe fn try_handle_openat_exit(ctx: &TracePointContext) -> Result<u32, i64> {
     // The vfs_create kprobe path is kept for potential future filtering but is no
     // longer required to gate the event.
     if ret >= 0 {
-        // The descriptor the open produced is the `dfd` userspace has to index
-        // the path under, and it only exists at exit.
+        let fd = ret as i32;
+        let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
         if let Some(pending) = FILE_PENDING.get_ptr_mut(&tid) {
             if (*pending).kind == FILE_KIND_DIR_OPEN {
-                (*pending).dfd = ret as i32;
+                let token = bpf_ktime_get_ns() | 1;
+                let state = TrackedDirFd {
+                    token,
+                    epoch: current_dir_epoch(pid),
+                };
+                let _ = DIR_FD_TOKENS.insert(&dir_fd_key(pid, fd), &state, 0);
+                (*pending).dfd = fd;
+                (*pending).dfd_token = token;
             }
         }
     }
@@ -341,6 +507,9 @@ unsafe fn queue_file_event(ctx: &TracePointContext, kind: u32) -> Result<u32, i6
     // kept here as well. For the other kinds `aux_path` is empty and nothing
     // reads it.
     (*event).aux_dfd = dfd;
+    let dfd_token = current_dir_token((*event).pid, dfd);
+    (*event).dfd_token = dfd_token;
+    (*event).aux_dfd_token = dfd_token;
     (*event).aux_path[0] = 0;
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
@@ -388,6 +557,8 @@ unsafe fn queue_rename_event(ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).flags = flags;
     (*event).dfd = new_dfd;
     (*event).aux_dfd = old_dfd;
+    (*event).dfd_token = current_dir_token((*event).pid, new_dfd);
+    (*event).aux_dfd_token = current_dir_token((*event).pid, old_dfd);
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
     let tid = pid_tgid as u32;

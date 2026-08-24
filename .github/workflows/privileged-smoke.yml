@@ -36,6 +36,8 @@ jobs:
       # Ctrl-C delivery is signal-based, so the capture smoke test is Unix-only.
       - name: Run ignored capture smoke tests
         run: cargo test --locked --test capture_command -- --include-ignored
+      - name: Run ignored Linux file path smoke tests
+        run: cargo test --locked --test linux_file_paths -- --include-ignored
 
   windows-privileged-smoke:
     name: Privileged Smoke (Windows)

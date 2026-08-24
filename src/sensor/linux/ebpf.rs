@@ -34,9 +34,10 @@ use crate::sensor::{
 use crate::utils::{lookup_username_by_uid, query_process_details, query_socket_metadata};
 
 use super::events::{
-    bytes_to_string, parse_event, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
+    bytes_to_string, parse_event, DnsEvent, FileEvent, FileEventHeader, FileIndexEvent,
+    NetworkEvent, ProcessEvent,
 };
-use super::paths::{resolve_at_path, truncation_marker, DirFdIndex};
+use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 
 /// Sysmon-compatible event IDs emitted for Linux events.
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
@@ -56,6 +57,7 @@ const FILE_EVENT_CHANGE: u32 = 4;
 /// Not a file event: a directory descriptor being opened. Consumed by the
 /// drain loop to name the `dfd` of later `*at` calls, never forwarded.
 const FILE_EVENT_DIR_OPEN: u32 = 5;
+const FILE_EVENT_INDEX_RESET: u32 = 6;
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
@@ -105,6 +107,8 @@ impl Sensor for EbpfSensor {
 
         attach_tracepoint(&mut bpf, "handle_exec", "sched", "sched_process_exec")?;
         attach_tracepoint(&mut bpf, "handle_exit", "sched", "sched_process_exit")?;
+        attach_tracepoint(&mut bpf, "handle_file_exec", "sched", "sched_process_exec")?;
+        attach_tracepoint(&mut bpf, "handle_file_exit", "sched", "sched_process_exit")?;
         // argv is only reachable while `execve` is still running, so it is
         // snapshotted at syscall entry and joined to the exec event above.
         attach_tracepoint(&mut bpf, "handle_execve", "syscalls", "sys_enter_execve")?;
@@ -158,6 +162,15 @@ impl Sensor for EbpfSensor {
             "handle_renameat2_exit",
             "syscalls",
             "sys_exit_renameat2",
+        )?;
+        attach_tracepoint(&mut bpf, "handle_file_close", "syscalls", "sys_enter_close")?;
+        attach_tracepoint(&mut bpf, "handle_file_dup2", "syscalls", "sys_enter_dup2")?;
+        attach_tracepoint(&mut bpf, "handle_file_dup3", "syscalls", "sys_enter_dup3")?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_file_close_range",
+            "syscalls",
+            "sys_enter_close_range",
         )?;
         attach_tracepoint(&mut bpf, "handle_sendto", "syscalls", "sys_enter_sendto")?;
         attach_tracepoint(&mut bpf, "handle_sendmsg", "syscalls", "sys_enter_sendmsg")?;
@@ -247,7 +260,7 @@ async fn run_ring_poll(
 
             Ok(mut guard) = process_fd.readable_mut() => {
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_process_ring(rb, &tx, &mut dir_fds);
+                drain_process_ring(rb, &tx);
                 guard.clear_ready();
             }
 
@@ -280,22 +293,13 @@ async fn run_ring_poll(
 
 // ── Ring-buffer drain helpers ────────────────────────────────────────────────
 
-fn drain_process_ring(
-    rb: &mut RingBuf<MapData>,
-    tx: &Sender<SensorEvent>,
-    dir_fds: &mut DirFdIndex,
-) {
+fn drain_process_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     while let Some(item) = rb.next() {
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<ProcessEvent>(bytes) else {
             warn!("process ring: short read ({} bytes)", bytes.len());
             continue;
         };
-        // Descriptor numbers die with the process, and PIDs are reused, so a
-        // successor must not inherit them.
-        if ev.kind == PROCESS_EVENT_EXIT {
-            dir_fds.forget_process(ev.pid);
-        }
         if let Some(sensor_event) = build_process_event(&ev) {
             try_send(tx, sensor_event);
         }
@@ -329,6 +333,18 @@ fn drain_file_ring(
 ) {
     while let Some(item) = rb.next() {
         let bytes: &[u8] = &item;
+        let Some(header) = parse_event::<FileEventHeader>(bytes) else {
+            warn!("file ring: short read ({} bytes)", bytes.len());
+            continue;
+        };
+        if header.kind == FILE_EVENT_INDEX_RESET {
+            let Some(ev) = parse_event::<FileIndexEvent>(bytes) else {
+                warn!("file index ring: short read ({} bytes)", bytes.len());
+                continue;
+            };
+            dir_fds.forget_process(ev.pid);
+            continue;
+        }
         let Some(ev) = parse_event::<FileEvent>(bytes) else {
             warn!("file ring: short read ({} bytes)", bytes.len());
             continue;
@@ -351,11 +367,13 @@ fn drain_file_ring(
 /// under a guess — the next `*at` call against it then falls back to `/proc`.
 fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) {
     let raw = bytes_to_string(&ev.path);
-    if raw.is_empty() {
+    if raw.is_empty() || ev.flags & super::events::FILE_FLAG_PATH_TRUNCATED != 0 {
         return;
     }
-    if let Some(path) = resolve_at_path(dir_fds, ev.pid, ev.aux_dfd, &raw) {
-        dir_fds.insert(ev.pid, ev.dfd, path);
+    if let Some(path) =
+        resolve_indexable_dir_path(dir_fds, ev.pid, ev.aux_dfd, ev.aux_dfd_token, &raw)
+    {
+        dir_fds.insert(ev.pid, ev.dfd, ev.dfd_token, path);
     }
 }
 
@@ -608,7 +626,8 @@ fn build_file_event(
     // no event: `TargetFilename|endswith: '/passwd'` would fire on any
     // `openat(dirfd, "passwd")` anywhere on the disk. Dropping is the same
     // policy the Windows sensor applies to events it cannot name.
-    let Some(target_filename) = resolve_at_path(dir_fds, ev.pid, ev.dfd, &raw_path) else {
+    let Some(target_filename) = resolve_at_path(dir_fds, ev.pid, ev.dfd, ev.dfd_token, &raw_path)
+    else {
         *unresolved += 1;
         if *unresolved == 1 || unresolved.is_multiple_of(1000) {
             warn!(
@@ -627,7 +646,7 @@ fn build_file_event(
     let source_filename = (ev.kind == FILE_EVENT_RENAME)
         .then(|| bytes_to_string(&ev.aux_path))
         .filter(|value| !value.is_empty())
-        .and_then(|value| resolve_at_path(dir_fds, ev.pid, ev.aux_dfd, &value));
+        .and_then(|value| resolve_at_path(dir_fds, ev.pid, ev.aux_dfd, ev.aux_dfd_token, &value));
 
     let user = resolved_linux_user(ev.uid);
     let comm = bytes_to_string(&ev.comm);
@@ -731,6 +750,35 @@ fn filter_unspecified_ip(value: Option<String>) -> Option<String> {
     (!is_unspecified).then_some(ip)
 }
 
+fn attach_optional_tracepoint(
+    bpf: &mut Ebpf,
+    program: &str,
+    category: &str,
+    name: &str,
+) -> Result<()> {
+    let available = [
+        "/sys/kernel/tracing/events",
+        "/sys/kernel/debug/tracing/events",
+    ]
+    .into_iter()
+    .map(|root| {
+        std::path::Path::new(root)
+            .join(category)
+            .join(name)
+            .join("id")
+    })
+    .any(|path| path.exists());
+    if available {
+        attach_tracepoint(bpf, program, category, name)
+    } else {
+        warn!(
+            program,
+            category, name, "optional tracepoint is unavailable"
+        );
+        Ok(())
+    }
+}
+
 fn attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &str) -> Result<()> {
     let prog: &mut TracePoint = bpf
         .program_mut(program)
@@ -826,6 +874,8 @@ mod tests {
             flags: 0,
             dfd: AT_FDCWD,
             aux_dfd: AT_FDCWD,
+            dfd_token: 0,
+            aux_dfd_token: 0,
             path: fixed(path),
             aux_path: [0u8; FILE_PATH_LEN],
             comm: fixed(comm),
@@ -1269,10 +1319,12 @@ mod tests {
         let mut dir_open = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/watched", "find");
         dir_open.dfd = 9;
         dir_open.aux_dfd = AT_FDCWD;
+        dir_open.dfd_token = 101;
         index_dir_open(&dir_open, &mut dir_fds);
 
         let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "find");
         delete.dfd = 9;
+        delete.dfd_token = 101;
 
         let event =
             build_file_event(&delete, &dir_fds, &mut 0).expect("indexed dfd should resolve");
@@ -1295,14 +1347,17 @@ mod tests {
 
         let mut first = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/first", "rm");
         first.dfd = 9;
+        first.dfd_token = 101;
         index_dir_open(&first, &mut dir_fds);
 
         let mut second = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/second", "rm");
         second.dfd = 9;
+        second.dfd_token = 102;
         index_dir_open(&second, &mut dir_fds);
 
         let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "rm");
         delete.dfd = 9;
+        delete.dfd_token = 102;
 
         let event =
             build_file_event(&delete, &dir_fds, &mut 0).expect("indexed dfd should resolve");
@@ -1318,6 +1373,44 @@ mod tests {
     }
 
     #[test]
+    fn an_old_index_token_is_never_used_after_untracked_fd_reuse() {
+        let mut dir_fds = DirFdIndex::new();
+
+        let mut old_dir = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/old", "rm");
+        old_dir.dfd = 9;
+        old_dir.dfd_token = 101;
+        index_dir_open(&old_dir, &mut dir_fds);
+
+        // Kernel close tracking removed token 101 before a bare O_RDONLY open
+        // reused fd 9. The later event therefore carries token zero. PID 4242
+        // does not exist, so `/proc` cannot hide an accidental cache hit.
+        let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "rm");
+        delete.dfd = 9;
+        delete.dfd_token = 0;
+
+        let mut unresolved = 0;
+        assert!(build_file_event(&delete, &dir_fds, &mut unresolved).is_none());
+        assert_eq!(unresolved, 1);
+    }
+
+    #[test]
+    fn a_truncated_directory_path_is_not_promoted_into_the_index() {
+        let mut dir_fds = DirFdIndex::new();
+
+        let mut dir_open = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/cut", "find");
+        dir_open.dfd = 9;
+        dir_open.dfd_token = 101;
+        dir_open.flags = FILE_FLAG_PATH_TRUNCATED;
+        index_dir_open(&dir_open, &mut dir_fds);
+
+        let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "find");
+        delete.dfd = 9;
+        delete.dfd_token = 101;
+
+        assert!(build_file_event(&delete, &dir_fds, &mut 0).is_none());
+    }
+
+    #[test]
     fn a_directory_opened_under_another_descriptor_is_indexed_absolutely() {
         // `openat(dirfd, "sub", O_DIRECTORY)` is ordinary, so the directory's
         // own name is resolved before it becomes a base for anything else.
@@ -1325,15 +1418,19 @@ mod tests {
 
         let mut parent = file_event(FILE_EVENT_DIR_OPEN, 4242, "/srv/data", "tar");
         parent.dfd = 4;
+        parent.dfd_token = 101;
         index_dir_open(&parent, &mut dir_fds);
 
         let mut child = file_event(FILE_EVENT_DIR_OPEN, 4242, "nested", "tar");
         child.dfd = 5;
         child.aux_dfd = 4;
+        child.dfd_token = 102;
+        child.aux_dfd_token = 101;
         index_dir_open(&child, &mut dir_fds);
 
         let mut create = file_event(FILE_EVENT_CREATE, 4242, "payload.sh", "tar");
         create.dfd = 5;
+        create.dfd_token = 102;
 
         let event = build_file_event(&create, &dir_fds, &mut 0).expect("nested dfd should resolve");
         match event.payload {

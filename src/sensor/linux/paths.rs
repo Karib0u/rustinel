@@ -22,19 +22,24 @@
 //!
 //! So the descriptor is named at the moment it is created instead. The sensor
 //! reports every successful `openat` with `O_DIRECTORY` or `O_PATH`, and
-//! [`DirFdIndex`] holds the resulting `(pid, fd) -> path`. A stale entry cannot
-//! be read back: a `*at` call only succeeds if its `dfd` is a directory at that
-//! moment, and any descriptor that is a directory was opened as one, which
-//! overwrote the entry. That is what makes the index cheap — no close tracking,
-//! no eviction protocol, only a cap on how much it may hold.
+//! [`DirFdIndex`] holds the resulting `(pid, fd) -> (token, path)`. The token
+//! comes from kernel state at open time. `close`, `dup2`, and `dup3` invalidate
+//! it; exec, exit, and `close_range` advance the process epoch. A file event may
+//! use an indexed path only when its captured token matches, so a bare
+//! `O_RDONLY` reopen cannot consume an entry left under the same fd number.
+//!
+//! Directory-open events are promoted into the index only when their path is
+//! complete and was absolute or resolved through another token-matched entry.
+//! A result obtained solely from `/proc` is not cached because that would turn
+//! the fallback race into persistent state.
 //!
 //! `/proc` remains the fallback, for descriptors the index never saw:
 //!
 //! - opened before the sensor started;
-//! - produced by `dup`, `fcntl(F_DUPFD)`, or inherited across `fork`;
-//! - opened without `O_DIRECTORY` (legal — `open("/etc", O_RDONLY)` yields a
-//!   usable `dfd`), though `opendir(3)` sets the flag, so libc, Go, Rust, and
-//!   Python all land in the index.
+//! - produced by `dup`, `fcntl(F_DUPFD)`, `pidfd_getfd`, or `SCM_RIGHTS`, or
+//!   inherited across `fork`;
+//! - opened without `O_DIRECTORY` (legal because
+//!   `open("/etc", O_RDONLY)` yields a usable `dfd`).
 //!
 //! Those keep the race described above. A descriptor reused for a
 //! *non*-directory is always caught, since `/proc/<pid>/fd` reports it as a
@@ -66,9 +71,14 @@ const DELETED_SUFFIX: &str = " (deleted)";
 /// them cannot grow it without limit; the oldest entry is evicted first, which
 /// is also the one least likely to still be open.
 pub struct DirFdIndex {
-    paths: HashMap<(u32, i32), String>,
+    paths: HashMap<(u32, i32), IndexedDir>,
     order: VecDeque<(u32, i32)>,
     capacity: usize,
+}
+
+struct IndexedDir {
+    token: u64,
+    path: String,
 }
 
 /// Descriptors held before eviction starts.
@@ -91,14 +101,14 @@ impl DirFdIndex {
     }
 
     /// Record the directory a newly opened descriptor refers to.
-    pub fn insert(&mut self, pid: u32, fd: i32, path: String) {
-        if fd < 0 {
+    pub fn insert(&mut self, pid: u32, fd: i32, token: u64, path: String) {
+        if fd < 0 || token == 0 {
             return;
         }
         let key = (pid, fd);
         // A repeat of a live key is the fd number being reused, so it keeps its
         // place in the queue rather than claiming a second slot.
-        if self.paths.insert(key, path).is_none() {
+        if self.paths.insert(key, IndexedDir { token, path }).is_none() {
             self.order.push_back(key);
         }
         while self.order.len() > self.capacity {
@@ -108,8 +118,12 @@ impl DirFdIndex {
         }
     }
 
-    fn get(&self, pid: u32, fd: i32) -> Option<&str> {
-        self.paths.get(&(pid, fd)).map(String::as_str)
+    fn get(&self, pid: u32, fd: i32, token: u64) -> Option<&str> {
+        (token != 0)
+            .then(|| self.paths.get(&(pid, fd)))
+            .flatten()
+            .filter(|entry| entry.token == token)
+            .map(|entry| entry.path.as_str())
     }
 
     /// Forget everything a process held. Called when it exits, since its
@@ -139,13 +153,41 @@ impl Default for DirFdIndex {
 ///
 /// Returns `None` when the name is relative and its base directory cannot be
 /// recovered — the caller must not fall back to the raw name.
-pub fn resolve_at_path(index: &DirFdIndex, pid: u32, dfd: i32, raw: &str) -> Option<String> {
+pub fn resolve_at_path(
+    index: &DirFdIndex,
+    pid: u32,
+    dfd: i32,
+    token: u64,
+    raw: &str,
+) -> Option<String> {
     resolve_at_path_with(dfd, raw, |fd| {
         index
-            .get(pid, fd)
+            .get(pid, fd, token)
             .map(str::to_string)
             .or_else(|| read_base_dir(pid, fd))
     })
+}
+
+/// Resolve a directory-open path only from data captured at syscall time.
+///
+/// A `/proc` fallback is useful for a single event, but caching a fallback
+/// result would turn its stale-fd race into persistent bad state. Only an
+/// absolute path or a matching indexed base is safe to promote into the index.
+pub fn resolve_indexable_dir_path(
+    index: &DirFdIndex,
+    pid: u32,
+    dfd: i32,
+    token: u64,
+    raw: &str,
+) -> Option<String> {
+    if raw.is_empty() {
+        return None;
+    }
+    if raw.starts_with('/') {
+        return Some(normalize_absolute(raw));
+    }
+    let base = index.get(pid, dfd, token)?;
+    Some(normalize_absolute(&format!("{base}/{raw}")))
 }
 
 /// [`resolve_at_path`] with the `/proc` lookup injected, so the resolution
@@ -355,7 +397,7 @@ mod tests {
     fn cwd_of_this_process_resolves() {
         let pid = std::process::id();
         let cwd = std::env::current_dir().expect("cwd should be readable");
-        let resolved = resolve_at_path(&DirFdIndex::new(), pid, AT_FDCWD, "marker.txt")
+        let resolved = resolve_at_path(&DirFdIndex::new(), pid, AT_FDCWD, 0, "marker.txt")
             .expect("own cwd should resolve");
         assert_eq!(
             resolved,
@@ -369,14 +411,14 @@ mod tests {
         // so /proc answers for a different directory - or, as here, for a
         // process that no longer exists at all.
         let mut index = DirFdIndex::new();
-        index.insert(7, 3, "/etc".to_string());
+        index.insert(7, 3, 11, "/etc".to_string());
 
         assert_eq!(
-            resolve_at_path(&index, 7, 3, "passwd").as_deref(),
+            resolve_at_path(&index, 7, 3, 11, "passwd").as_deref(),
             Some("/etc/passwd")
         );
         // Same descriptor number, different process: not this process's fd.
-        assert!(resolve_at_path(&index, 8, 3, "passwd").is_none());
+        assert!(resolve_at_path(&index, 8, 3, 11, "passwd").is_none());
     }
 
     #[test]
@@ -387,22 +429,53 @@ mod tests {
         let dir = std::fs::File::open("/tmp").expect("/tmp should be openable");
 
         let mut index = DirFdIndex::new();
-        index.insert(std::process::id(), dir.as_raw_fd(), "/etc".to_string());
+        index.insert(std::process::id(), dir.as_raw_fd(), 11, "/etc".to_string());
 
         assert_eq!(
-            resolve_at_path(&index, std::process::id(), dir.as_raw_fd(), "passwd").as_deref(),
+            resolve_at_path(&index, std::process::id(), dir.as_raw_fd(), 11, "passwd",).as_deref(),
             Some("/etc/passwd")
+        );
+    }
+
+    #[test]
+    fn a_token_mismatch_uses_proc_instead_of_a_stale_index_entry() {
+        use std::os::fd::AsRawFd;
+
+        let dir = std::fs::File::open("/tmp").expect("/tmp should be openable");
+        let mut index = DirFdIndex::new();
+        index.insert(std::process::id(), dir.as_raw_fd(), 11, "/etc".to_string());
+
+        assert_eq!(
+            resolve_at_path(&index, std::process::id(), dir.as_raw_fd(), 12, "marker",).as_deref(),
+            Some("/tmp/marker")
+        );
+    }
+
+    #[test]
+    fn proc_only_directory_paths_are_not_promoted_into_the_index() {
+        assert!(resolve_indexable_dir_path(
+            &DirFdIndex::new(),
+            std::process::id(),
+            AT_FDCWD,
+            0,
+            "relative",
+        )
+        .is_none());
+        assert_eq!(
+            resolve_indexable_dir_path(&DirFdIndex::new(), 0, AT_FDCWD, 0, "/tmp/absolute")
+                .as_deref(),
+            Some("/tmp/absolute")
         );
     }
 
     #[test]
     fn reopening_a_descriptor_number_replaces_the_entry() {
         let mut index = DirFdIndex::new();
-        index.insert(7, 3, "/etc".to_string());
-        index.insert(7, 3, "/var/log".to_string());
+        index.insert(7, 3, 11, "/etc".to_string());
+        index.insert(7, 3, 12, "/var/log".to_string());
 
         assert_eq!(
-            resolve_at_path(&index, 7, 3, "syslog").as_deref(),
+            resolve_at_path(&index, 7, 3, 12, "syslog").as_deref(),
             Some("/var/log/syslog")
         );
         // One slot, not two: a hot recycled number must not push the bound.
@@ -412,38 +485,39 @@ mod tests {
     #[test]
     fn the_index_is_bounded_and_evicts_oldest_first() {
         let mut index = DirFdIndex::with_capacity(2);
-        index.insert(7, 3, "/first".to_string());
-        index.insert(7, 4, "/second".to_string());
-        index.insert(7, 5, "/third".to_string());
+        index.insert(7, 3, 11, "/first".to_string());
+        index.insert(7, 4, 12, "/second".to_string());
+        index.insert(7, 5, 13, "/third".to_string());
 
         assert_eq!(index.len(), 2);
-        assert!(index.get(7, 3).is_none());
-        assert_eq!(index.get(7, 4), Some("/second"));
-        assert_eq!(index.get(7, 5), Some("/third"));
+        assert!(index.get(7, 3, 11).is_none());
+        assert_eq!(index.get(7, 4, 12), Some("/second"));
+        assert_eq!(index.get(7, 5, 13), Some("/third"));
     }
 
     #[test]
     fn a_process_exit_forgets_its_descriptors() {
         // PIDs are reused; a new process must not inherit the old one's fds.
         let mut index = DirFdIndex::with_capacity(4);
-        index.insert(7, 3, "/etc".to_string());
-        index.insert(8, 3, "/var".to_string());
+        index.insert(7, 3, 11, "/etc".to_string());
+        index.insert(8, 3, 12, "/var".to_string());
 
         index.forget_process(7);
-        assert!(index.get(7, 3).is_none());
-        assert_eq!(index.get(8, 3), Some("/var"));
+        assert!(index.get(7, 3, 11).is_none());
+        assert_eq!(index.get(8, 3, 12), Some("/var"));
         // The ordering queue is pruned too, so the freed slot is reusable.
         assert_eq!(index.len(), 1);
-        index.insert(9, 3, "/srv".to_string());
-        index.insert(10, 3, "/opt".to_string());
-        index.insert(11, 3, "/run".to_string());
+        index.insert(9, 3, 13, "/srv".to_string());
+        index.insert(10, 3, 14, "/opt".to_string());
+        index.insert(11, 3, 15, "/run".to_string());
         assert_eq!(index.len(), 4);
     }
 
     #[test]
     fn negative_descriptors_are_never_indexed() {
         let mut index = DirFdIndex::new();
-        index.insert(7, AT_FDCWD, "/etc".to_string());
+        index.insert(7, AT_FDCWD, 11, "/etc".to_string());
+        index.insert(7, 3, 0, "/tmp".to_string());
         assert_eq!(index.len(), 0);
     }
 }

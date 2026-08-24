@@ -104,10 +104,16 @@ The Linux sensor covers process, network, file, and DNS.
   risk).** Directory descriptors are normally named when they are opened: the
   sensor watches `openat` with `O_DIRECTORY` or `O_PATH` and indexes the
   resulting `(pid, fd)`, which is what `opendir(3)` and the directory readers in
-  Go, Rust, and Java all use. A descriptor the index never saw - opened before
-  the sensor started, produced by `dup` or inherited across `fork`, or opened
-  with a bare `O_RDONLY` (legal for a directory; CPython's `shutil.rmtree` does
-  exactly this) - falls back to reading `/proc/<pid>/fd/<dfd>` at drain time,
+  Go, Rust, and Java all use. Each entry carries a kernel token. `close`,
+  `dup2`, and `dup3` invalidate the token, while exec, exit, and `close_range`
+  invalidate the process epoch. A stale userspace entry is ignored unless its
+  token matches the file event, so a bare read-only reopen cannot consume an
+  older indexed path under the same fd number. A descriptor with no matching
+  token - opened before the sensor started, produced by `dup`,
+  `fcntl(F_DUPFD)`, `pidfd_getfd`, or `SCM_RIGHTS`, inherited across `fork`, or
+  opened with a bare `O_RDONLY` (legal for a directory; CPython's
+  `shutil.rmtree` does exactly this) - falls back to reading
+  `/proc/<pid>/fd/<dfd>` at drain time,
   milliseconds after the syscall. A process that walks a tree recycles fd
   numbers faster than that, so the answer can name a different directory, and
   nothing observable distinguishes it from the ordinary case. Measured on a lab
@@ -116,6 +122,8 @@ The Linux sensor covers process, network, file, and DNS.
   (`tar -cf /dev/null /usr/share`) against ~0% for the current filter, so it is
   not done. A descriptor reused for a *non*-directory is always caught, because
   `/proc/<pid>/fd` reports those as `socket:[…]` rather than a path.
+  Truncated directory-open paths and paths derived only from this fallback are
+  not promoted into the index.
 - **`..` is collapsed lexically**, not by walking the filesystem, since the file
   a delete or rename names is usually gone by the time the event is drained.
   That differs from the kernel's resolution only when a path component is a
