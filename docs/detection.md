@@ -178,7 +178,8 @@ observable even though the events are not. See
 
 Per-platform process field notes:
 
-- On Linux, the kernel exec event carries only `Image`, `ProcessId`, and `User`; `CommandLine`, `ParentImage`, `ParentProcessId`, `ParentCommandLine`, and `CurrentDirectory` are enriched from `/proc/<pid>` and may be absent for very short-lived processes.
+- On Linux, the kernel exec event carries `Image`, `ProcessId`, `User`, and `CommandLine`; `ParentImage`, `ParentProcessId`, `ParentCommandLine`, and `CurrentDirectory` are enriched from `/proc/<pid>` and may be absent for very short-lived processes.
+- On Linux, `CommandLine` comes from argv snapshotted in eBPF at `execve`/`execveat` entry, so it survives processes that exit before enrichment. The capture is bounded at 512 bytes, 32 arguments, and 127 bytes per argument; when a command line exceeds any of those the event is flagged truncated and the loader prefers `/proc/<pid>/cmdline` when that is still readable.
 - `Image` is resolved from `/proc/<pid>/exe`, so it is absolute and symlink-resolved even when the binary was launched with a relative path (`./payload`). Short-lived processes that exit before enrichment fall back to the raw `execve()` argument, which may be relative and is capped at 128 bytes.
 - On macOS, ESF exec events carry `CommandLine` (argv), `ParentImage`, `ParentProcessId`, and `CurrentDirectory` natively. `ParentCommandLine` is **not** provided by ESF exec events, and `IntegrityLevel` / `LogonId` / `LogonGuid` are Windows-only.
 
