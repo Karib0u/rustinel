@@ -7,10 +7,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use tokio::task::JoinHandle;
-use tracing::info;
 
 use crate::config::AppConfig;
-use crate::telemetry::{snapshot_path, spawn_reporter, write_final_snapshot, TARGET_TELEMETRY};
+use crate::telemetry::{snapshot_path, spawn_reporter, write_final_snapshot};
 
 /// Background task publishing the pipeline counters for `rustinel doctor`.
 pub struct TelemetryReporter {
@@ -26,15 +25,10 @@ impl TelemetryReporter {
         }
 
         let path = snapshot_path(&cfg.logging.directory);
-        let interval = Duration::from_secs(cfg.telemetry.snapshot_interval_secs.max(1));
-        info!(
-            target: TARGET_TELEMETRY,
-            path = %path.display(),
-            interval_secs = interval.as_secs(),
-            "Publishing pipeline channel counters"
+        let handle = spawn_reporter(
+            path.clone(),
+            Duration::from_secs(cfg.telemetry.snapshot_interval_secs),
         );
-
-        let handle = spawn_reporter(path.clone(), interval);
         Some(Self { path, handle })
     }
 

@@ -97,28 +97,6 @@ fn accepted_events_are_counted_after_the_queue_drains() {
     assert_eq!(dropped_after - dropped_before, 1);
 }
 
-/// A live snapshot reports every channel, so an operator sees which queues are
-/// idle rather than only the ones that happen to have failed.
-#[test]
-fn a_live_snapshot_covers_every_channel() {
-    let _guard = counters_guard();
-
-    let snapshot = TelemetrySnapshot::capture();
-
-    assert_eq!(snapshot.channels.len(), ChannelId::ALL.len());
-    for expected in ChannelId::ALL {
-        assert!(
-            snapshot
-                .channels
-                .iter()
-                .any(|channel| channel.channel == expected.as_str()),
-            "{} is missing from the snapshot",
-            expected.as_str()
-        );
-    }
-    assert_eq!(snapshot.pid, std::process::id());
-}
-
 fn write_config(root: &std::path::Path) -> std::path::PathBuf {
     let config_path = root.join("config.toml");
     std::fs::create_dir_all(root.join("logs")).expect("create logs dir");

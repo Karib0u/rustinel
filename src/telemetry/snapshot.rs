@@ -61,14 +61,6 @@ impl ChannelSnapshot {
         (self.dropped as f64 / offered as f64) * 100.0
     }
 
-    /// Peak fill level, as a percentage of capacity.
-    pub fn saturation_pct(&self) -> f64 {
-        if self.capacity == 0 {
-            return 0.0;
-        }
-        (self.high_water_mark as f64 / self.capacity as f64) * 100.0
-    }
-
     /// One-line operator summary of this channel.
     pub fn describe(&self) -> String {
         format!(
@@ -177,7 +169,11 @@ impl TelemetrySnapshot {
     }
 }
 
-/// Periodically log and persist the pipeline counters.
+/// Periodically publish the pipeline counters for `rustinel doctor`.
+///
+/// Publishing only writes the snapshot: drops already warn as they happen, so
+/// logging the same numbers every interval would add noise to the log this is
+/// meant to save an operator from reading.
 ///
 /// The returned task runs until it is aborted; the runtime writes one final
 /// snapshot on shutdown so the last interval's drops are not lost with it.
@@ -185,43 +181,40 @@ pub fn spawn_reporter(path: PathBuf, interval: Duration) -> JoinHandle<()> {
     tokio::spawn(async move {
         // Never busy-loop, however the interval was configured.
         let interval = interval.max(Duration::from_secs(1));
-        let mut previous_accepted = 0u64;
-        let mut previous_dropped = 0u64;
+        info!(
+            target: TARGET_TELEMETRY,
+            path = %path.display(),
+            interval_secs = interval.as_secs(),
+            "Publishing pipeline channel counters"
+        );
 
         loop {
             tokio::time::sleep(interval).await;
-
-            let snapshot = TelemetrySnapshot::capture();
-            let accepted = snapshot.total_accepted();
-            let dropped = snapshot.total_dropped();
-
-            // An idle endpoint should not narrate itself every interval.
-            if accepted != previous_accepted || dropped != previous_dropped {
-                for channel in snapshot.active_channels() {
-                    info!(
-                        target: TARGET_TELEMETRY,
-                        channel = %channel.channel,
-                        capacity = channel.capacity,
-                        accepted = channel.accepted,
-                        dropped = channel.dropped,
-                        high_water_mark = channel.high_water_mark,
-                        "Pipeline channel statistics"
-                    );
-                }
-                previous_accepted = accepted;
-                previous_dropped = dropped;
-            }
-
-            persist(&snapshot, &path);
+            persist(&TelemetrySnapshot::capture(), &path);
         }
     })
 }
 
-/// Write the current counters, logging rather than failing on I/O errors.
+/// Log and publish the counters one last time, at shutdown.
 ///
-/// Used for the shutdown snapshot, where there is no later interval to retry.
+/// The summary goes to the log here — and only here — so the totals survive
+/// even if the snapshot cannot be written.
 pub fn write_final_snapshot(path: &Path) {
-    persist(&TelemetrySnapshot::capture(), path);
+    let snapshot = TelemetrySnapshot::capture();
+
+    for channel in snapshot.active_channels() {
+        info!(
+            target: TARGET_TELEMETRY,
+            channel = %channel.channel,
+            capacity = channel.capacity,
+            accepted = channel.accepted,
+            dropped = channel.dropped,
+            high_water_mark = channel.high_water_mark,
+            "Pipeline channel statistics"
+        );
+    }
+
+    persist(&snapshot, path);
 }
 
 fn persist(snapshot: &TelemetrySnapshot, path: &Path) {
@@ -299,7 +292,6 @@ mod tests {
         let channel = channel("sensor_events", 750, 250);
 
         assert!((channel.drop_rate_pct() - 25.0).abs() < f64::EPSILON);
-        assert!((channel.saturation_pct() - 100.0).abs() < f64::EPSILON);
         assert!(channel.describe().contains("250 dropped of 1000 offered"));
     }
 

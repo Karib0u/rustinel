@@ -15,12 +15,14 @@
 mod snapshot;
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
 use tracing::warn;
+
+use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
     snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, TelemetrySnapshot,
@@ -36,7 +38,12 @@ pub const TARGET_TELEMETRY: &str = "telemetry";
 /// the running total, so a burst produces one line rather than one per event.
 const DROP_WARN_INTERVAL: Duration = Duration::from_secs(60);
 
-/// Process start, used as the epoch for the lock-free warning rate limiter.
+/// Keyed by channel, so a burst on one channel cannot swallow the first drop
+/// reported on another.
+static DROP_WARNINGS: LazyLock<Mutex<LogRateLimiter>> =
+    LazyLock::new(|| Mutex::new(LogRateLimiter::new(DROP_WARN_INTERVAL)));
+
+/// Process start, used for the snapshot's uptime.
 static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 /// A bounded channel in the event pipeline that can shed load.
@@ -80,18 +87,6 @@ impl ChannelId {
             ChannelId::IocHash => "ioc_hash",
             ChannelId::ActiveResponse => "active_response",
             ChannelId::CaptureWriter => "capture_writer",
-        }
-    }
-
-    /// What is lost when this channel drops, for operator-facing output.
-    pub const fn loss_description(self) -> &'static str {
-        match self {
-            ChannelId::SensorEvents => "raw sensor events never reached the detectors",
-            ChannelId::YaraFileScan => "files were never YARA scanned",
-            ChannelId::YaraMemoryScan => "processes were never memory scanned",
-            ChannelId::IocHash => "process images were never hashed for IOC matching",
-            ChannelId::ActiveResponse => "response actions were never executed",
-            ChannelId::CaptureWriter => "events never reached the recording",
         }
     }
 
@@ -142,10 +137,6 @@ pub struct ChannelCounters {
     dropped_closed: AtomicU64,
     /// Deepest queue depth observed after a successful send.
     high_water_mark: AtomicUsize,
-    /// Milliseconds since [`PROCESS_START`] at the last emitted drop warning.
-    last_warn_millis: AtomicU64,
-    /// Cumulative drop total at the last emitted drop warning.
-    warned_at_total: AtomicU64,
 }
 
 impl ChannelCounters {
@@ -157,8 +148,6 @@ impl ChannelCounters {
             dropped: AtomicU64::new(0),
             dropped_closed: AtomicU64::new(0),
             high_water_mark: AtomicUsize::new(0),
-            last_warn_millis: AtomicU64::new(0),
-            warned_at_total: AtomicU64::new(0),
         }
     }
 
@@ -207,13 +196,10 @@ impl ChannelCounters {
         self.dropped.store(0, Ordering::Relaxed);
         self.dropped_closed.store(0, Ordering::Relaxed);
         self.high_water_mark.store(0, Ordering::Relaxed);
-        self.last_warn_millis.store(0, Ordering::Relaxed);
-        self.warned_at_total.store(0, Ordering::Relaxed);
     }
 
-    fn record_accepted(&self, capacity: usize, depth: usize) {
-        self.accepted.fetch_add(1, Ordering::Relaxed);
-
+    /// Record the channel's shape, whatever the send's outcome was.
+    fn observe(&self, capacity: usize, depth: usize) {
         if self.capacity.load(Ordering::Relaxed) != capacity {
             self.capacity.store(capacity, Ordering::Relaxed);
         }
@@ -225,27 +211,29 @@ impl ChannelCounters {
         }
     }
 
+    fn record_accepted(&self, capacity: usize, depth: usize) {
+        self.accepted.fetch_add(1, Ordering::Relaxed);
+        self.observe(capacity, depth);
+    }
+
     fn record_dropped(&self, capacity: usize) {
         let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
-
-        if self.capacity.load(Ordering::Relaxed) != capacity {
-            self.capacity.store(capacity, Ordering::Relaxed);
-        }
         // A full channel is by definition at its deepest.
-        if capacity > self.high_water_mark.load(Ordering::Relaxed) {
-            self.high_water_mark.fetch_max(capacity, Ordering::Relaxed);
-        }
+        self.observe(capacity, capacity);
 
-        if let Some(since_last_warning) =
-            self.claim_warning(dropped, DROP_WARN_INTERVAL.as_millis() as u64)
-        {
+        let decision = match DROP_WARNINGS.lock() {
+            Ok(mut limiter) => limiter.should_emit(self.id.as_str()),
+            // A poisoned limiter must not silence the loss report.
+            Err(poisoned) => poisoned.into_inner().should_emit(self.id.as_str()),
+        };
+        if decision.should_emit {
             warn!(
                 target: TARGET_TELEMETRY,
                 channel = self.id.as_str(),
                 capacity,
                 dropped_total = dropped,
-                dropped_since_last_warning = since_last_warning,
                 accepted_total = self.accepted(),
+                suppressed_warnings = decision.suppressed_since_last_emit,
                 "Pipeline channel full; shedding telemetry"
             );
         }
@@ -253,34 +241,6 @@ impl ChannelCounters {
 
     fn record_dropped_closed(&self) {
         self.dropped_closed.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Decide whether this drop should warn, returning how many drops the
-    /// warning covers.
-    ///
-    /// Lock-free on purpose: drops happen exactly when the pipeline is already
-    /// saturated, which is the worst moment to add a contended mutex. Losing a
-    /// race here costs at most one suppressed warning line.
-    fn claim_warning(&self, dropped: u64, interval_millis: u64) -> Option<u64> {
-        let now_millis = PROCESS_START.elapsed().as_millis() as u64;
-        let last_millis = self.last_warn_millis.load(Ordering::Relaxed);
-        let is_first_drop = dropped == 1;
-
-        if !is_first_drop && now_millis.saturating_sub(last_millis) < interval_millis {
-            return None;
-        }
-
-        self.last_warn_millis
-            .compare_exchange(
-                last_millis,
-                now_millis,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            )
-            .ok()?;
-
-        let previous_total = self.warned_at_total.swap(dropped, Ordering::Relaxed);
-        Some(dropped.saturating_sub(previous_total))
     }
 }
 
@@ -317,6 +277,8 @@ pub fn try_send<T>(channel: ChannelId, tx: &Sender<T>, value: T) -> Result<(), T
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     /// Serializes tests that assert on the process-wide statics.
@@ -421,37 +383,72 @@ mod tests {
         assert_eq!(ChannelId::IocHash.counters().accepted(), 1);
     }
 
-    /// The first drop must always warn; the rest of a burst folds into the
-    /// next interval so a saturated channel cannot flood the log it is trying
-    /// to make legible.
+    /// The warning is the only live signal while a channel is shedding, so
+    /// both its rate limiting and its field names are part of the contract.
     #[tokio::test]
-    async fn cumulative_drop_warnings_are_rate_limited() {
+    async fn a_burst_of_drops_emits_one_cumulative_warning() {
         let _guard = counter_guard();
-        let counters = ChannelId::YaraMemoryScan.counters();
+        let (tx, _rx) = tokio::sync::mpsc::channel::<u8>(1);
+        let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
 
-        let interval = DROP_WARN_INTERVAL.as_millis() as u64;
+        let collector = tracing_subscriber::fmt()
+            .with_writer(CollectingWriter(Arc::clone(&lines)))
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(collector, || {
+            for value in 0..6u8 {
+                let _ = try_send(ChannelId::SensorEvents, &tx, value);
+            }
+        });
+
+        let lines = lines.lock().expect("collected lines");
+        let warnings: Vec<&String> = lines
+            .iter()
+            .filter(|line| line.contains("shedding telemetry"))
+            .collect();
 
         assert_eq!(
-            counters.claim_warning(1, interval),
-            Some(1),
-            "first drop always warns"
+            warnings.len(),
+            1,
+            "five drops fold into one line: {lines:?}"
         );
-        assert_eq!(
-            counters.claim_warning(2, interval),
-            None,
-            "burst is suppressed"
-        );
-        assert_eq!(
-            counters.claim_warning(3, interval),
-            None,
-            "burst is suppressed"
-        );
+        for field in [
+            "channel=\"sensor_events\"",
+            "capacity=1",
+            "dropped_total=1",
+            "accepted_total=1",
+            "suppressed_warnings=0",
+        ] {
+            assert!(
+                warnings[0].contains(field),
+                "missing {field}: {}",
+                warnings[0]
+            );
+        }
+    }
 
-        // A zero interval stands in for the wait, so the test never sleeps.
-        assert_eq!(
-            counters.claim_warning(9, 0),
-            Some(8),
-            "the next warning covers every drop since the last one"
-        );
+    /// Captures rendered log output so the warning can be asserted on as an
+    /// operator would read it.
+    #[derive(Clone)]
+    struct CollectingWriter(Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl std::io::Write for CollectingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut lines = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            lines.push(String::from_utf8_lossy(buf).into_owned());
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CollectingWriter {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
     }
 }

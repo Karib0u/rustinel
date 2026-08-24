@@ -386,13 +386,17 @@ fire. Drops on `yara_file_scan`, `yara_memory_scan`, or `ioc_hash` are narrower
 depth equal to capacity means the channel actually saturated; a peak well below
 capacity with drops recorded means the saturation was brief and bursty.
 
+A backed-up YARA queue is usually event volume rather than one stuck scan:
+`scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold
+its worker.
+
 ### I see “dropping event” or “queue full” in logs
 
 These messages mean the agent is under backpressure somewhere in the pipeline.
 Each bounded channel logs a cumulative line at most once a minute:
 
 ```text
-Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 dropped_since_last_warning=1203
+Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 accepted_total=1841204 suppressed_warnings=1202
 YARA queue full; dropping scan job
 IOC hash queue full; dropping job
 Active response queue full, dropping task

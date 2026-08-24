@@ -354,7 +354,7 @@ Drops are also logged as they happen, rate-limited to one cumulative line per
 channel per minute:
 
 ```
-Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 dropped_since_last_warning=1203
+Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 accepted_total=1841204 suppressed_warnings=1202
 ```
 
 ### Active Response
