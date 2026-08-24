@@ -155,7 +155,9 @@ async fn run_linux_edr(
 
     // 6. YARA scanner
     let yara_scanner = if cfg.scanner.yara_enabled {
-        match scanner::Scanner::new(&cfg.scanner.yara_rules_path) {
+        match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
+            .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
+        {
             Ok(s) => {
                 info!("YARA scanner initialized");
                 Arc::new(s)

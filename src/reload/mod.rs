@@ -210,7 +210,9 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        match scanner::Scanner::new(&scanner_cfg.yara_rules_path) {
+                        match scanner::Scanner::new(&scanner_cfg.yara_rules_path)
+                            .map(|compiled| compiled.with_limits(scanner_cfg.yara_scan_limits()))
+                        {
                             Ok(compiled) => {
                                 let compiled_files = compiled.compiled_files();
                                 if compiled.files_found() > 0 && compiled_files == 0 {
