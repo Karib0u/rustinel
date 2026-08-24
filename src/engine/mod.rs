@@ -1187,6 +1187,7 @@ detection:
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: Some("alice".to_string()),
+                path_truncated: None,
             }),
             process_context: None,
         };

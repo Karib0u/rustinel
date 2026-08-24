@@ -2,6 +2,7 @@
 
 pub mod ebpf;
 pub mod events;
+pub mod paths;
 
 pub use ebpf::EbpfSensor;
 

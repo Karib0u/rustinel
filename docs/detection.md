@@ -168,12 +168,38 @@ running total is logged as `unresolved_file_events`, so the size of the gap is
 observable even though the events are not. See
 [Limitations](limitations.md#windows-etw).
 
+Linux applies the same policy for a different reason. `openat`, `unlinkat`, and
+`renameat*` name their target with a directory descriptor plus a possibly
+relative name, so `TargetFilename` has to be rebuilt before a rule can match it.
+A name relative to the working directory resolves through `/proc/<pid>/cwd`; a
+name relative to a descriptor resolves through an index the sensor builds by
+watching directory descriptors being opened, since reading `/proc/<pid>/fd/<dfd>`
+back at drain time answers for whatever that number points at *then*, and a
+process walking a tree recycles fd numbers in less time than that. If neither
+source can place the name it is dropped, because emitting it bare would be worse
+than losing it: a rule reading `TargetFilename|endswith: '/passwd'` would fire on
+an `openat(dirfd, "passwd")` against any directory on the disk. Those drops are
+counted under the same `unresolved_file_events` name. Rename resolves its two
+names independently, so a rename whose source cannot be placed still reports its
+target and simply omits `SourceFilename`. See
+[Limitations](limitations.md#linux-ebpf) for the descriptors the index does not
+cover.
+
+**`PathTruncated` marks incomplete paths.** The Linux sensor captures at most
+511 bytes per path in the kernel. When a path is longer, the event carries
+`PathTruncated` naming which side was cut — `target`, `source`, or
+`source,target` — and ECS output carries the same value as
+`edr.file.path_truncated`. Truncation removes the *end* of the path, which is
+what `|endswith` rules and extension IOCs match on, so an event carrying this
+marker that matched nothing has not been cleared. The field is not part of
+keyword search, so it never contributes to a match on its own.
+
 ### Field Model
 
 - Sigma evaluates the shared `NormalizedEvent` model with Sysmon-style field names.
 - Shared process fields include `Image`, `CommandLine`, `User`, `ProcessId`, `ParentImage`, and `ParentCommandLine`.
 - Shared network fields include `DestinationIp`, `DestinationPort`, `SourceIp`, `SourcePort`, and `DestinationHostname`.
-- Shared file fields include `TargetFilename`, `Image`, `ProcessId`, and `User`.
+- Shared file fields include `TargetFilename`, `Image`, `ProcessId`, and `User`. `SourceFilename` carries the old name on a rename, and `PathTruncated` marks a path the sensor could not capture in full.
 - DNS rules can use either Sysmon-style names such as `QueryName` and `QueryResults` or the generic aliases `query`, `answer`, and `record_type`.
 
 Per-platform process field notes:
