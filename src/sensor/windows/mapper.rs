@@ -82,8 +82,8 @@ fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &Ev
         EventCategory::Dns => record.event_id(),
         EventCategory::Scripting => record.event_id(),
         EventCategory::Wmi => record.event_id(),
-        EventCategory::Service => 7045,
-        EventCategory::Task => 106,
+        EventCategory::Service => record.event_id(),
+        EventCategory::Task => record.event_id(),
     }
 }
 
@@ -118,10 +118,10 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
             _ => raw_event_id,
         },
         EventCategory::Dns => 22,
-        EventCategory::Wmi => 19,
-        EventCategory::Scripting => 4104,
-        EventCategory::Service => 7045,
-        EventCategory::Task => 106,
+        EventCategory::Wmi
+        | EventCategory::Scripting
+        | EventCategory::Service
+        | EventCategory::Task => raw_event_id,
     }
 }
 
@@ -225,5 +225,17 @@ mod tests {
             map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
             65
         );
+    }
+
+    #[test]
+    fn native_provider_event_ids_are_not_relabelled() {
+        for (category, raw_event_id) in [
+            (EventCategory::Scripting, 4104),
+            (EventCategory::Wmi, 23),
+            (EventCategory::Service, 7045),
+            (EventCategory::Task, 106),
+        ] {
+            assert_eq!(map_to_sysmon_id(category, 0, raw_event_id), raw_event_id);
+        }
     }
 }
