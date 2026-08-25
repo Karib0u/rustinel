@@ -6,11 +6,12 @@ use rustinel::{
 };
 use std::time::{Duration, Instant};
 
-/// A rule whose condition burns VM cycles for far longer than any test timeout.
+/// A rule whose condition runs long enough to cross YARA-X's one-second
+/// timeout check interval, even in optimized builds.
 const SLOW_RULE: &str = r#"
 rule SlowRule {
     condition:
-        for all i in (0..50000000) : ( uint8(i % 64) != 0xff )
+        for all i in (0..2000000000) : ( uint8(i % 64) != 0xff )
 }
 "#;
 
@@ -97,6 +98,8 @@ fn memory_scan_times_out_instead_of_running_unbounded() {
         matches!(error, ScanError::TimedOut { .. }),
         "expected a timeout outcome, got {error}"
     );
+    // YARA-X checks timeouts on a roughly one-second heartbeat, so the
+    // configured timeout is a floor on abort latency rather than a deadline.
     assert!(
         elapsed < Duration::from_secs(10),
         "timeout should bound the scan, took {elapsed:?}"
@@ -110,12 +113,18 @@ fn file_scan_times_out_instead_of_running_unbounded() {
     let sample = tempdir.path().join("sample.bin");
     std::fs::write(&sample, vec![0x41u8; 4096]).expect("write sample");
 
+    let started = Instant::now();
     let error = scanner
         .scan_file(&sample.to_string_lossy(), MatchDebugLevel::Off)
         .expect_err("a timed-out scan must not be reported as clean");
+    let elapsed = started.elapsed();
 
     assert!(
         matches!(error, ScanError::TimedOut { .. }),
         "expected a timeout outcome, got {error}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "timeout should bound the scan, took {elapsed:?}"
     );
 }
