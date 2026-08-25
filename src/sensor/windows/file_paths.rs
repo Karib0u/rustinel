@@ -28,7 +28,7 @@ use std::collections::{HashMap, VecDeque};
 /// number of open handles on the machine rather than total file activity. The
 /// cap only binds when processes hold handles without closing them; at this
 /// size the worst case is roughly 8192 paths per index, a few megabytes.
-const DEFAULT_CAPACITY: usize = 8192;
+pub(super) const DEFAULT_CAPACITY: usize = 8192;
 
 /// A bounded `u64 -> path` index with FIFO eviction.
 ///
@@ -46,7 +46,7 @@ struct Entry {
     seq: u64,
 }
 
-struct BoundedIndex {
+pub(super) struct BoundedIndex {
     entries: HashMap<u64, Entry>,
     /// `(key, seq)` in insertion order, used to pick the eviction victim. A
     /// slot whose key is gone, or whose `seq` no longer matches the live entry,
@@ -57,7 +57,7 @@ struct BoundedIndex {
 }
 
 impl BoundedIndex {
-    fn with_capacity(capacity: usize) -> Self {
+    pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
             entries: HashMap::new(),
             order: VecDeque::new(),
@@ -66,7 +66,7 @@ impl BoundedIndex {
         }
     }
 
-    fn insert(&mut self, key: u64, path: &str) {
+    pub(super) fn insert(&mut self, key: u64, path: &str) {
         if let Some(entry) = self.entries.get_mut(&key) {
             // Re-inserting a live key updates the path but keeps its queue
             // slot; pushing again would let one busy handle fill `order` with
@@ -111,11 +111,11 @@ impl BoundedIndex {
         }
     }
 
-    fn get(&self, key: u64) -> Option<&str> {
+    pub(super) fn get(&self, key: u64) -> Option<&str> {
         self.entries.get(&key).map(|entry| entry.path.as_str())
     }
 
-    fn forget(&mut self, key: u64) {
+    pub(super) fn forget(&mut self, key: u64) {
         self.entries.remove(&key);
     }
 

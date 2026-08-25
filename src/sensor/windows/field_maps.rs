@@ -73,27 +73,12 @@ static REGISTRY_EVENT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
         ("Image", "ImageName"),
         ("EventType", "EventType"),
         ("User", "UserName"),
-        ("TargetObject", "KeyName"),
         ("NewName", "NewName"),
     ])
 });
 
 pub fn registry_event_mappings() -> &'static FieldMapping {
     &REGISTRY_EVENT_MAP
-}
-
-static REGISTRY_MODIFY_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
-    FieldMapping::new(&[
-        ("TargetObject", "RelativeName"),
-        ("Details", "ValueName"),
-        ("ProcessId", "ProcessID"),
-        ("Image", "ImageName"),
-        ("User", "UserName"),
-    ])
-});
-
-pub fn registry_modify_mappings() -> &'static FieldMapping {
-    &REGISTRY_MODIFY_MAP
 }
 
 static DNS_QUERY_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
