@@ -37,7 +37,9 @@ const WINDOWS_EPOCH_DELTA_100NS: i64 = 116444736000000000;
 struct EtwProvider {
     guid: GUID,
     name: &'static str,
+    level: u8,
     keywords: u64,
+    event_ids: &'static [u16],
 }
 
 struct EtwProviders;
@@ -105,13 +107,26 @@ impl EtwProviders {
     const NETWORK_KEYWORD_UDP: u64 = 0x20;
     const NETWORK_KEYWORDS: u64 = Self::NETWORK_KEYWORD_TCPIP | Self::NETWORK_KEYWORD_UDP;
 
-    const DEFAULT_KEYWORDS: u64 = u64::MAX;
+    // Manifest-derived provider scopes. The channel keyword is required for
+    // providers whose useful events live in an Operational channel. Event ID
+    // filters then keep lifecycle and diagnostic records out of the session.
+    const OPERATIONAL_KEYWORD: u64 = 0x8000_0000_0000_0000;
+    const POWERSHELL_RUNSPACE_KEYWORD: u64 = 0x0000_0000_0000_0001;
+    const EVENTLOG_CLASSIC_KEYWORD: u64 = 0x0080_0000_0000_0000;
+
+    const DNS_EVENT_IDS: &'static [u16] = &[3006, 3008];
+    const POWERSHELL_EVENT_IDS: &'static [u16] = &[4104];
+    const WMI_EVENT_IDS: &'static [u16] = &[1, 2, 11, 12, 14, 15, 16, 17, 19, 20, 22, 23, 24];
+    const SERVICE_EVENT_IDS: &'static [u16] = &[7045];
+    const TASK_EVENT_IDS: &'static [u16] = &[106];
 
     fn kernel_process() -> EtwProvider {
         EtwProvider {
             guid: GUID::from(Self::KERNEL_PROCESS_GUID),
             name: "Microsoft-Windows-Kernel-Process",
+            level: 4,
             keywords: Self::PROCESS_KEYWORDS,
+            event_ids: &[],
         }
     }
 
@@ -119,7 +134,9 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::KERNEL_NETWORK_GUID),
             name: "Microsoft-Windows-Kernel-Network",
+            level: 4,
             keywords: Self::NETWORK_KEYWORDS,
+            event_ids: &[],
         }
     }
 
@@ -127,7 +144,9 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::KERNEL_FILE_GUID),
             name: "Microsoft-Windows-Kernel-File",
+            level: 4,
             keywords: Self::FILE_KEYWORDS,
+            event_ids: &KERNEL_FILE_ROUTED_EVENT_IDS,
         }
     }
 
@@ -135,7 +154,9 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::KERNEL_REGISTRY_GUID),
             name: "Microsoft-Windows-Kernel-Registry",
+            level: 4,
             keywords: Self::REGISTRY_KEYWORDS,
+            event_ids: &KERNEL_REGISTRY_ROUTED_EVENT_IDS,
         }
     }
 
@@ -143,7 +164,9 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::DNS_CLIENT_GUID),
             name: "Microsoft-Windows-DNS-Client",
-            keywords: Self::DEFAULT_KEYWORDS,
+            level: 4,
+            keywords: Self::OPERATIONAL_KEYWORD,
+            event_ids: Self::DNS_EVENT_IDS,
         }
     }
 
@@ -151,7 +174,10 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::POWERSHELL_GUID),
             name: "Microsoft-Windows-PowerShell",
-            keywords: Self::DEFAULT_KEYWORDS,
+            // Script-block event 4104 is Verbose in the provider manifest.
+            level: 5,
+            keywords: Self::POWERSHELL_RUNSPACE_KEYWORD,
+            event_ids: Self::POWERSHELL_EVENT_IDS,
         }
     }
 
@@ -159,7 +185,9 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::WMI_ACTIVITY_GUID),
             name: "Microsoft-Windows-WMI-Activity",
-            keywords: Self::DEFAULT_KEYWORDS,
+            level: 4,
+            keywords: Self::OPERATIONAL_KEYWORD,
+            event_ids: Self::WMI_EVENT_IDS,
         }
     }
 
@@ -167,7 +195,9 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::SERVICE_CONTROL_MANAGER_GUID),
             name: "Microsoft-Windows-Service-Control-Manager",
-            keywords: Self::DEFAULT_KEYWORDS,
+            level: 4,
+            keywords: Self::EVENTLOG_CLASSIC_KEYWORD,
+            event_ids: Self::SERVICE_EVENT_IDS,
         }
     }
 
@@ -175,7 +205,9 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::TASK_SCHEDULER_GUID),
             name: "Microsoft-Windows-TaskScheduler",
-            keywords: Self::DEFAULT_KEYWORDS,
+            level: 4,
+            keywords: Self::OPERATIONAL_KEYWORD,
+            event_ids: Self::TASK_EVENT_IDS,
         }
     }
 
@@ -599,14 +631,14 @@ impl Sensor for EtwSensor {
 
         for provider_def in EtwProviders::all() {
             info!(
-                "Enabling ETW provider: {} ({:?}) with keywords: 0x{:X}",
-                provider_def.name, provider_def.guid, provider_def.keywords
+                "Enabling ETW provider: {} ({:?}) with level {} and keywords: 0x{:X}",
+                provider_def.name, provider_def.guid, provider_def.level, provider_def.keywords
             );
 
             let state = Arc::clone(&state);
             let tx = tx.clone();
             let mut provider_builder = Provider::by_guid(provider_def.guid)
-                .level(4)
+                .level(provider_def.level)
                 .any(provider_def.keywords)
                 .add_callback(move |record, schema_locator| {
                     let Some(event) = decode_record(record, schema_locator, &state) else {
@@ -626,20 +658,9 @@ impl Sensor for EtwSensor {
                     }
                 });
 
-            // Kernel-File and Kernel-Registry are filtered: both are
-            // manifest providers whose keywords pull in more than is routed,
-            // and both are high enough volume for the kernel-side buffer
-            // traffic to be worth removing. Registry keeps its naming and
-            // eviction events here — they emit nothing but the index needs
-            // them.
-            if provider_def.guid == EtwProviders::kernel_file().guid {
-                provider_builder = provider_builder.add_filter(EventFilter::ByEventIds(
-                    KERNEL_FILE_ROUTED_EVENT_IDS.to_vec(),
-                ));
-            } else if provider_def.guid == EtwProviders::kernel_registry().guid {
-                provider_builder = provider_builder.add_filter(EventFilter::ByEventIds(
-                    KERNEL_REGISTRY_ROUTED_EVENT_IDS.to_vec(),
-                ));
+            if !provider_def.event_ids.is_empty() {
+                provider_builder = provider_builder
+                    .add_filter(EventFilter::ByEventIds(provider_def.event_ids.to_vec()));
             }
 
             let provider = provider_builder.build();
@@ -733,6 +754,13 @@ fn decode_record(
         EventCategory::Task => decode_task(&parser, record),
     }?;
 
+    // A payload without fields cannot satisfy a Sigma selection. Provider
+    // allowlists should prevent these records, but keep this loss-free guard at
+    // the decode boundary so manifest drift cannot reintroduce fieldless noise.
+    if !has_matchable_fields(&decoded.payload) {
+        return None;
+    }
+
     let normalization = mapper::normalization_for_record(category, action, record);
 
     Some(SensorEvent {
@@ -745,6 +773,56 @@ fn decode_record(
         process_start_key: decoded.process_start_key,
         payload: decoded.payload,
     })
+}
+
+fn has_matchable_fields(payload: &SensorPayload) -> bool {
+    match payload {
+        SensorPayload::Dns(fields) => {
+            fields.query_name.is_some()
+                || fields.query_results.is_some()
+                || fields.record_type.is_some()
+                || fields.query_status.is_some()
+                || fields.process_id.is_some()
+                || fields.image.is_some()
+        }
+        SensorPayload::Scripting(fields) => {
+            fields.script_block_text.is_some()
+                || fields.script_block_id.is_some()
+                || fields.path.is_some()
+                || fields.process_id.is_some()
+                || fields.image.is_some()
+                || fields.user.is_some()
+        }
+        SensorPayload::Wmi(fields) => {
+            fields.operation.is_some()
+                || fields.user.is_some()
+                || fields.query.is_some()
+                || fields.process_id.is_some()
+                || fields.image.is_some()
+                || fields.event_namespace.is_some()
+                || fields.event_type.is_some()
+                || fields.destination_hostname.is_some()
+        }
+        SensorPayload::Service(fields) => {
+            fields.service_name.is_some()
+                || fields.service_file_name.is_some()
+                || fields.service_type.is_some()
+                || fields.start_type.is_some()
+                || fields.account_name.is_some()
+                || fields.user.is_some()
+                || fields.process_id.is_some()
+                || fields.image.is_some()
+        }
+        SensorPayload::Task(fields) => {
+            fields.task_name.is_some()
+                || fields.task_content.is_some()
+                || fields.user_name.is_some()
+                || fields.user.is_some()
+                || fields.process_id.is_some()
+                || fields.image.is_some()
+        }
+        _ => true,
+    }
 }
 
 fn decode_process(
@@ -1226,16 +1304,20 @@ fn decode_wmi(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> 
     let fields = WmiEventFields {
         operation: try_get_string(parser, mappings.get_etw_field("Operation")?),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
-        query: try_get_string(parser, mappings.get_etw_field("Query")?),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        query: try_get_string(parser, mappings.get_etw_field("Query")?)
+            .or_else(|| try_get_string(parser, "Commandline")),
+        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
+            .or_else(|| try_get_uint(parser, "ClientProcessId")),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
-        event_namespace: try_get_string(parser, mappings.get_etw_field("EventNamespace")?),
+        event_namespace: try_get_string(parser, mappings.get_etw_field("EventNamespace")?)
+            .or_else(|| try_get_string(parser, "NamespaceName")),
         event_type: try_get_string(parser, mappings.get_etw_field("EventType")?),
         destination_hostname: try_get_string(
             parser,
             mappings.get_etw_field("DestinationHostname")?,
-        ),
+        )
+        .or_else(|| try_get_string(parser, "ClientMachine")),
     };
 
     Some(DecodedEtwEvent {
@@ -1561,5 +1643,49 @@ mod tests {
                 provider.name
             );
         }
+    }
+
+    #[test]
+    fn user_providers_are_scoped_to_matchable_events() {
+        let dns = EtwProviders::dns_client();
+        assert_eq!(dns.keywords, EtwProviders::OPERATIONAL_KEYWORD);
+        assert_eq!(dns.event_ids, &[3006, 3008]);
+
+        let powershell = EtwProviders::powershell();
+        assert_eq!(
+            powershell.keywords,
+            EtwProviders::POWERSHELL_RUNSPACE_KEYWORD
+        );
+        assert_eq!(powershell.level, 5);
+        assert_eq!(powershell.event_ids, &[4104]);
+
+        assert_eq!(EtwProviders::service_control_manager().event_ids, &[7045]);
+        assert_eq!(EtwProviders::task_scheduler().event_ids, &[106]);
+        assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));
+        assert!(!EtwProviders::WMI_EVENT_IDS.contains(&13));
+        assert!(!EtwProviders::WMI_EVENT_IDS.contains(&18));
+    }
+
+    #[test]
+    fn fieldless_provider_payload_is_not_matchable() {
+        let empty = SensorPayload::Scripting(PowerShellScriptFields {
+            script_block_text: None,
+            script_block_id: None,
+            path: None,
+            process_id: None,
+            image: None,
+            user: None,
+        });
+        assert!(!has_matchable_fields(&empty));
+
+        let populated = SensorPayload::Scripting(PowerShellScriptFields {
+            script_block_text: Some("Get-Process".to_string()),
+            script_block_id: None,
+            path: None,
+            process_id: None,
+            image: None,
+            user: None,
+        });
+        assert!(has_matchable_fields(&populated));
     }
 }

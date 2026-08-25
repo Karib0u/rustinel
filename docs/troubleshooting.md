@@ -224,6 +224,25 @@ Sigma DNS rules that depend on queried domain names and IOC domain matching can 
 
 See [Detection](detection.md).
 
+### PowerShell script rules do not match on Windows
+
+Rustinel collects Windows PowerShell 5.1 event 4104. Windows emits suspicious
+script blocks automatically, but ordinary script blocks require Script Block
+Logging to be enabled by policy. Without that policy, a normal
+`powershell.exe -Command` test may produce no `ScriptBlockText` telemetry.
+
+Check the effective policy from an elevated PowerShell:
+
+```powershell
+Get-ItemProperty `
+  HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging `
+  -Name EnableScriptBlockLogging
+```
+
+Enable **Turn on PowerShell Script Block Logging** under **Windows Components >
+Windows PowerShell** in Group Policy when full script-block coverage is needed.
+PowerShell 7 uses a different provider and is not currently collected.
+
 ### YARA did not scan the process I expected
 
 Check these first:
