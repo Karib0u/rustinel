@@ -1,4 +1,7 @@
 use std::ffi::OsString;
+use std::time::{Duration, Instant};
+
+use anyhow::{bail, Context};
 
 use crate::cli::ServiceAction;
 use crate::service::{
@@ -9,6 +12,9 @@ use crate::service::{
 use crate::state::ProcessCache;
 
 pub const SERVICE_NAME: &str = WINDOWS_SERVICE_NAME;
+
+const SERVICE_STOP_TIMEOUT: Duration = Duration::from_secs(30);
+const SERVICE_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 pub fn handle_service_command(action: ServiceAction) -> anyhow::Result<()> {
     let backend = WindowsServiceBackend::new();
@@ -131,9 +137,19 @@ impl ServiceBackend for WindowsServiceBackend {
         use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
         let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
-        let service = manager.open_service(SERVICE_NAME, ServiceAccess::STOP)?;
+        let service = manager.open_service(
+            SERVICE_NAME,
+            ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
+        )?;
         service.stop()?;
-        Ok(())
+
+        wait_for_service_state(
+            SERVICE_NAME,
+            windows_service::service::ServiceState::Stopped,
+            SERVICE_STOP_TIMEOUT,
+            SERVICE_STATUS_POLL_INTERVAL,
+            || Ok(service.query_status()?.current_state),
+        )
     }
 
     fn status(&self) -> anyhow::Result<ServiceStatus> {
@@ -151,6 +167,37 @@ impl ServiceBackend for WindowsServiceBackend {
     }
 }
 
+fn wait_for_service_state<F>(
+    service_name: &str,
+    expected_state: windows_service::service::ServiceState,
+    timeout: Duration,
+    poll_interval: Duration,
+    mut query_status: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut() -> anyhow::Result<windows_service::service::ServiceState>,
+{
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        let state = query_status()
+            .with_context(|| format!("failed to query status of service '{service_name}'"))?;
+        if state == expected_state {
+            return Ok(());
+        }
+
+        if Instant::now() >= deadline {
+            bail!(
+                "timed out after {timeout:?} waiting for service '{service_name}' to reach "
+                    "{expected_state:?}; last state was {state:?}"
+            );
+        }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        std::thread::sleep(poll_interval.min(remaining));
+    }
+}
+
 fn windows_status(state: windows_service::service::ServiceState) -> ServiceStatus {
     use windows_service::service::{
         ServiceState::ContinuePending, ServiceState::PausePending, ServiceState::Paused,
@@ -163,6 +210,51 @@ fn windows_status(state: windows_service::service::ServiceState) -> ServiceStatu
         StartPending | ContinuePending => ServiceStatus::Starting,
         Running => ServiceStatus::Running,
         StopPending | PausePending => ServiceStatus::Stopped,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn waits_until_service_reaches_expected_state() {
+        use windows_service::service::ServiceState;
+
+        let mut states = [
+            ServiceState::StopPending,
+            ServiceState::StopPending,
+            ServiceState::Stopped,
+        ]
+        .into_iter();
+
+        wait_for_service_state(
+            SERVICE_NAME,
+            ServiceState::Stopped,
+            Duration::from_secs(1),
+            Duration::ZERO,
+            || Ok(states.next().expect("test state")),
+        )
+        .expect("service should reach stopped state");
+    }
+
+    #[test]
+    fn reports_timeout_with_last_state() {
+        use windows_service::service::ServiceState;
+
+        let error = wait_for_service_state(
+            SERVICE_NAME,
+            ServiceState::Stopped,
+            Duration::ZERO,
+            Duration::ZERO,
+            || Ok(ServiceState::StopPending),
+        )
+        .expect_err("service should time out");
+
+        let message = error.to_string();
+        assert!(message.contains("timed out after"));
+        assert!(message.contains("waiting for service 'Rustinel'"));
+        assert!(message.contains("last state was StopPending"));
     }
 }
 
