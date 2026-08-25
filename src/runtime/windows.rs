@@ -500,7 +500,7 @@ async fn run_edr(
             (None, None)
         };
 
-    let mut reload_poller_handle = None;
+    let mut reload_poller = None;
     let mut reload_worker_handle = None;
     let mut reload_tx = None;
     if cfg.reload.enabled {
@@ -519,7 +519,7 @@ async fn run_edr(
             rx,
         ));
 
-        reload_poller_handle = Some(reload::spawn_reload_poller(
+        reload_poller = Some(reload::spawn_reload_poller(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
@@ -728,10 +728,9 @@ async fn run_edr(
         }
     }
 
-    if let Some(handle) = reload_poller_handle.take() {
+    if let Some(poller) = reload_poller.take() {
         info!("Signaling hot-reload poller to shut down...");
-        handle.abort();
-        let _ = handle.await;
+        poller.shutdown().await;
         info!("Hot-reload poller thread finished");
     }
     drop(reload_tx.take());

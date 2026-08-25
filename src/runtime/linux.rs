@@ -188,7 +188,7 @@ async fn run_linux_edr(
         Arc::clone(&ioc_engine),
     );
 
-    let mut reload_poller_handle = None;
+    let mut reload_poller = None;
     let mut reload_worker_handle = None;
     let mut reload_tx = None;
     if cfg.reload.enabled {
@@ -205,7 +205,7 @@ async fn run_linux_edr(
             response_config.clone(),
             rx,
         ));
-        reload_poller_handle = Some(reload::spawn_reload_poller(
+        reload_poller = Some(reload::spawn_reload_poller(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
@@ -360,9 +360,8 @@ async fn run_linux_edr(
     if let Some(h) = ioc_hash_worker_handle.take() {
         let _ = h.await;
     }
-    if let Some(h) = reload_poller_handle.take() {
-        h.abort();
-        let _ = h.await;
+    if let Some(poller) = reload_poller.take() {
+        poller.shutdown().await;
     }
     drop(reload_tx.take());
     if let Some(h) = reload_worker_handle.take() {
