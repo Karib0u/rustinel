@@ -188,8 +188,7 @@ where
 
         if Instant::now() >= deadline {
             bail!(
-                "timed out after {timeout:?} waiting for service '{service_name}' to reach "
-                    "{expected_state:?}; last state was {state:?}"
+                "timed out after {timeout:?} waiting for service '{service_name}' to reach {expected_state:?}; last state was {state:?}"
             );
         }
 
