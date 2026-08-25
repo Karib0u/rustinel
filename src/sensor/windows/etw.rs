@@ -429,10 +429,11 @@ const REG_OPENED_EXISTING_KEY: u32 = 2;
 /// Returns `None` when the event should be dropped.
 fn refine_registry_create_action(parser: &Parser) -> Option<()> {
     match parser.try_parse::<u32>("Disposition") {
+        Ok(REG_CREATED_NEW_KEY) => Some(()),
         Ok(REG_OPENED_EXISTING_KEY) => None,
         // An unreadable or unknown disposition keeps the event: a missed
         // detection is worse than an extra one.
-        _ => Some(()),
+        Ok(_) | Err(_) => Some(()),
     }
 }
 
@@ -1030,6 +1031,7 @@ fn decode_kernel_registry_record(
             return None;
         }
         KernelRegistryRoute::Emit(action) => {
+            let value_name = try_get_string(&parser, "ValueName");
             // `KeyName` is declared on these events but measured empty on
             // Windows 11, so the index is the real source of the path.
             let path = try_get_string(&parser, "KeyName")
@@ -1040,6 +1042,15 @@ fn decode_kernel_registry_record(
                         .resolve(key_object)
                         .map(str::to_string)
                 });
+
+            // Sysmon reports a value write as `<key>\<value>` on Event ID 13,
+            // and `registry_set` rules are written against that shape — an
+            // `endswith: '\Run\Foo'` rule needs the value name in the path,
+            // not only in `Details`.
+            let path = path.map(|path| match value_name.as_deref() {
+                Some(value) if !value.is_empty() => format!("{path}\\{value}"),
+                _ => path,
+            });
 
             match path {
                 Some(path) => (action, path),
