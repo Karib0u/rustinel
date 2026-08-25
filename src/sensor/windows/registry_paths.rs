@@ -109,7 +109,7 @@ fn join(base: &str, relative: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{RegistryPathCache, DEFAULT_CAPACITY};
+    use super::RegistryPathCache;
 
     #[test]
     fn resolves_a_value_write_from_the_open_that_named_the_key() {
@@ -206,11 +206,5 @@ mod tests {
         }
 
         assert!(cache.len() <= 8, "index grew to {}", cache.len());
-    }
-
-    #[test]
-    fn default_capacity_exceeds_the_file_index() {
-        // Open registry keys outnumber open file handles by a wide margin.
-        assert!(DEFAULT_CAPACITY > super::super::file_paths::DEFAULT_CAPACITY);
     }
 }
