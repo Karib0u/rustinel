@@ -33,8 +33,13 @@ are unavailable.
   maps to the registry *value name*, not the data written to it - the
   Kernel-Registry provider doesn't emit value data. A rule matching on written
   content silently matches the value name instead.
-- **Registry `TargetObject` is a relative path (silent risk).** Full key paths
-  (e.g. `HKLM\...\Run`) aren't resolved, so `endswith`-style key matches may miss.
+- **Registry `TargetObject` is not always a full path (silent risk).** The path
+  is composed from the `CreateKey`/`OpenKey` events that named the key, so it is
+  the full NT path (`\REGISTRY\MACHINE\...`) when the parent key was also seen
+  being opened, and a partial path relative to it otherwise. Hive prefixes are
+  never rewritten to `HKLM`/`HKCU`, so `startswith`-style matches on a hive
+  abbreviation will miss. Value writes do carry the value name appended to the
+  key, matching Sysmon's Event ID 13 `TargetObject` shape.
 - **No process or image-load hashes (silent risk).** There is no `Hashes`/`Imphash`
   on process or image-load events, so the many Sigma rules keyed on them can
   never fire. Hash matching exists only in the file/IOC scanner.
@@ -64,6 +69,13 @@ are unavailable.
   closed and reopened, which for some services means until the next reboot.
   The count is logged as `unresolved_file_events`, so the size of the gap is
   visible even though the events themselves are not.
+- **Writes to keys opened before startup are invisible (silent risk).** The same
+  limitation as the file index, for the same reason: Kernel-Registry reports
+  `SetValueKey`, `DeleteValueKey` and `DeleteKey` by `KeyObject` with an empty
+  `KeyName`, so the sensor learns each key's path from the `CreateKey` or
+  `OpenKey` that opened it. A key already open when the sensor starts cannot be
+  attributed, and the event is dropped rather than reported without a path. The
+  count is logged as `unresolved_registry_events`.
 
 ## Linux (eBPF)
 

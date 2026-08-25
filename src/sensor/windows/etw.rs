@@ -25,6 +25,7 @@ use crate::sensor::{Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent
 use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line};
 
 use super::file_paths::FilePathCache;
+use super::registry_paths::RegistryPathCache;
 use super::{field_maps, mapper};
 
 /// Fixed trace session name for stopping the trace on shutdown.
@@ -72,14 +73,29 @@ impl EtwProviders {
         | Self::KERNEL_FILE_KEYWORD_DELETE_PATH
         | Self::KERNEL_FILE_KEYWORD_RENAME_SETLINK_PATH;
 
+    // Keyword names and values follow the Microsoft-Windows-Kernel-Registry
+    // manifest. The values used before #279 were off by a whole nibble:
+    // `SetValueKey` is 0x100 and `DeleteValueKey` 0x200, not 0x2000 and
+    // 0x8000, which are `OpenKey` and `QueryKey`. The session subscribed to
+    // two read paths and to neither value write, so `registry_set` could not
+    // have fired even with correct classification.
+    const REG_KEYWORD_CLOSE_KEY: u64 = 0x0001;
+    const REG_KEYWORD_SET_VALUE_KEY: u64 = 0x0100;
+    const REG_KEYWORD_DELETE_VALUE_KEY: u64 = 0x0200;
     const REG_KEYWORD_CREATE_KEY: u64 = 0x1000;
-    const REG_KEYWORD_SET_VALUE_KEY: u64 = 0x2000;
+    /// `OpenKey` produces no telemetry of its own. It is subscribed because it
+    /// is a *naming* event: `SetValueKey` and friends deliver an empty
+    /// `KeyName`, and most writes land on keys that were opened rather than
+    /// created, so without this their path is unrecoverable. `CloseKey` is the
+    /// matching eviction point. See [`super::registry_paths`].
+    const REG_KEYWORD_OPEN_KEY: u64 = 0x2000;
     const REG_KEYWORD_DELETE_KEY: u64 = 0x4000;
-    const REG_KEYWORD_DELETE_VALUE_KEY: u64 = 0x8000;
-    const REGISTRY_KEYWORDS: u64 = Self::REG_KEYWORD_CREATE_KEY
+    const REGISTRY_KEYWORDS: u64 = Self::REG_KEYWORD_CLOSE_KEY
         | Self::REG_KEYWORD_SET_VALUE_KEY
-        | Self::REG_KEYWORD_DELETE_KEY
-        | Self::REG_KEYWORD_DELETE_VALUE_KEY;
+        | Self::REG_KEYWORD_DELETE_VALUE_KEY
+        | Self::REG_KEYWORD_CREATE_KEY
+        | Self::REG_KEYWORD_OPEN_KEY
+        | Self::REG_KEYWORD_DELETE_KEY;
 
     const WINEVENT_KEYWORD_PROCESS: u64 = 0x0010;
     const WINEVENT_KEYWORD_IMAGE: u64 = 0x0040;
@@ -198,6 +214,75 @@ const KERNEL_FILE_EVENT_SET_INFORMATION: u16 = 17;
 const KERNEL_FILE_EVENT_DELETE_PATH: u16 = 26;
 const KERNEL_FILE_EVENT_RENAME_PATH: u16 = 27;
 const KERNEL_FILE_EVENT_SET_LINK_PATH: u16 = 28;
+
+/// Microsoft-Windows-Kernel-Registry manifest event IDs.
+///
+/// The manifest declares opcodes 32-46 for event IDs 1-15, but the records the
+/// session actually receives carry opcode 0, exactly as Kernel-File does. The
+/// old classifier read `record.opcode()` and compared it against 36/38/39/41,
+/// which is doubly wrong: opcode is always 0 at runtime, and even the manifest
+/// values do not line up — 36 is `SetValueKey`, 38 `QueryValueKey`, 39
+/// `EnumerateKey` and 41 `QueryMultipleValueKey`. Route on the event ID (#279).
+const KERNEL_REGISTRY_EVENT_CREATE_KEY: u16 = 1;
+const KERNEL_REGISTRY_EVENT_OPEN_KEY: u16 = 2;
+const KERNEL_REGISTRY_EVENT_DELETE_KEY: u16 = 3;
+const KERNEL_REGISTRY_EVENT_SET_VALUE_KEY: u16 = 5;
+const KERNEL_REGISTRY_EVENT_DELETE_VALUE_KEY: u16 = 6;
+const KERNEL_REGISTRY_EVENT_CLOSE_KEY: u16 = 13;
+
+/// The event IDs [`kernel_registry_route`] accepts, pushed down to the provider
+/// as a scope filter. Kept in sync with the router by
+/// `registry_filter_matches_routing_allowlist`.
+const KERNEL_REGISTRY_ROUTED_EVENT_IDS: [u16; 6] = [
+    KERNEL_REGISTRY_EVENT_CREATE_KEY,
+    KERNEL_REGISTRY_EVENT_OPEN_KEY,
+    KERNEL_REGISTRY_EVENT_DELETE_KEY,
+    KERNEL_REGISTRY_EVENT_SET_VALUE_KEY,
+    KERNEL_REGISTRY_EVENT_DELETE_VALUE_KEY,
+    KERNEL_REGISTRY_EVENT_CLOSE_KEY,
+];
+
+/// What a Microsoft-Windows-Kernel-Registry event is good for.
+///
+/// An allowlist, like [`kernel_file_route`]: an unrecognised event is dropped
+/// rather than labelled a modification. The `_ => SensorAction::Modify`
+/// catch-all this replaces collapsed the whole action taxonomy onto a single
+/// value that maps to no Sysmon event ID, so `registry_add`, `registry_set` and
+/// `registry_delete` rules were evaluated against every registry event and
+/// could never match one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KernelRegistryRoute {
+    /// Carries `BaseName`/`RelativeName`; record the key's path.
+    ///
+    /// `creates` distinguishes `CreateKey`, which also reports a creation when
+    /// its `Disposition` says a new key was made, from `OpenKey`, which is
+    /// index maintenance only.
+    Name { creates: bool },
+    /// Emit telemetry under this action, resolving the path from the index.
+    Emit(SensorAction),
+    /// A closed key: drop its `KeyObject` from the index.
+    Evict,
+}
+
+fn kernel_registry_route(event_id: u16) -> Option<KernelRegistryRoute> {
+    match event_id {
+        KERNEL_REGISTRY_EVENT_CREATE_KEY => Some(KernelRegistryRoute::Name { creates: true }),
+        KERNEL_REGISTRY_EVENT_OPEN_KEY => Some(KernelRegistryRoute::Name { creates: false }),
+        // A deleted key and a deleted value are both Sysmon 12 and both
+        // `registry_delete`; the value name survives in `Details`.
+        KERNEL_REGISTRY_EVENT_DELETE_KEY | KERNEL_REGISTRY_EVENT_DELETE_VALUE_KEY => {
+            Some(KernelRegistryRoute::Emit(SensorAction::Delete))
+        }
+        KERNEL_REGISTRY_EVENT_SET_VALUE_KEY => Some(KernelRegistryRoute::Emit(SensorAction::Set)),
+        KERNEL_REGISTRY_EVENT_CLOSE_KEY => Some(KernelRegistryRoute::Evict),
+        // 4 QueryKey, 7 QueryValueKey, 8 EnumerateKey, 9 EnumerateValueKey,
+        // 10 QueryMultipleValueKey, 12 FlushKey, 14 QuerySecurityKey — reads
+        // and bookkeeping, no state change. 11 SetInformationKey and
+        // 15 SetSecurityKey do change state but have no Sysmon or Sigma
+        // counterpart to carry them.
+        _ => None,
+    }
+}
 
 /// `FILE_INFORMATION_CLASS` values seen on `SetInformation` (event ID 17).
 ///
@@ -329,6 +414,29 @@ fn refine_file_create_action(parser: &Parser, action: SensorAction) -> Option<Se
     }
 }
 
+/// `REG_DISPOSITION` values reported by Kernel-Registry event ID 1.
+const REG_CREATED_NEW_KEY: u32 = 1;
+const REG_OPENED_EXISTING_KEY: u32 = 2;
+
+/// Whether a Kernel-Registry `CreateKey` (event ID 1) actually created a key.
+///
+/// `CreateKey` is `NtCreateKey`, which opens an existing key just as readily as
+/// it makes a new one — the same trap as `IRP_MJ_CREATE` on the file side (see
+/// [`refine_file_create_action`]). Without this check every key open on the
+/// machine would surface as a `registry_add`, trading a category that never
+/// fires for one that fires constantly.
+///
+/// Returns `None` when the event should be dropped.
+fn refine_registry_create_action(parser: &Parser) -> Option<()> {
+    match parser.try_parse::<u32>("Disposition") {
+        Ok(REG_CREATED_NEW_KEY) => Some(()),
+        Ok(REG_OPENED_EXISTING_KEY) => None,
+        // An unreadable or unknown disposition keeps the event: a missed
+        // detection is worse than an extra one.
+        Ok(_) | Err(_) => Some(()),
+    }
+}
+
 /// Shared state the ETW callback carries across events.
 ///
 /// The path index has to outlive a single event: the naming event and the
@@ -336,6 +444,7 @@ fn refine_file_create_action(parser: &Parser, action: SensorAction) -> Option<Se
 struct EtwState {
     routing: EtwRouting,
     file_paths: Mutex<FilePathCache>,
+    registry_paths: Mutex<RegistryPathCache>,
     /// File events dropped because neither identifier resolved to a path.
     ///
     /// Handles opened before the sensor started were never indexed, so writes
@@ -343,6 +452,12 @@ struct EtwState {
     /// them is the right policy — a pathless event matches no rule — but without
     /// a count there is no way to tell a quiet endpoint from a blind one.
     unresolved_file_events: AtomicU64,
+    /// Registry events dropped because the `KeyObject` resolved to no path.
+    ///
+    /// Same blind spot as `unresolved_file_events`: a key opened before the
+    /// sensor started was never named, so writes through it cannot be
+    /// attributed until it is reopened.
+    unresolved_registry_events: AtomicU64,
 }
 
 impl EtwState {
@@ -350,7 +465,9 @@ impl EtwState {
         Self {
             routing: EtwRouting::new(),
             file_paths: Mutex::new(FilePathCache::new()),
+            registry_paths: Mutex::new(RegistryPathCache::new()),
             unresolved_file_events: AtomicU64::new(0),
+            unresolved_registry_events: AtomicU64::new(0),
         }
     }
 
@@ -364,11 +481,20 @@ impl EtwState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
+    /// Recovered for the same reason as [`Self::paths`]: unwinding out of an
+    /// OS-invoked ETW callback would take the sensor down.
+    fn registry_paths(&self) -> MutexGuard<'_, RegistryPathCache> {
+        self.registry_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 struct EtwRouting {
     kernel_process_guid: GUID,
     kernel_file_guid: GUID,
+    kernel_registry_guid: GUID,
     guid_to_category: HashMap<GUID, EventCategory>,
 }
 
@@ -393,6 +519,7 @@ impl EtwRouting {
         Self {
             kernel_process_guid: EtwProviders::kernel_process().guid,
             kernel_file_guid: EtwProviders::kernel_file().guid,
+            kernel_registry_guid: EtwProviders::kernel_registry().guid,
             guid_to_category,
         }
     }
@@ -417,12 +544,9 @@ impl EtwRouting {
             // Kernel-File needs the path index and so has its own pipeline;
             // `decode_record` diverts it before reaching here.
             EventCategory::File => return None,
-            EventCategory::Registry => match record.opcode() {
-                36 => SensorAction::Create,
-                38 | 41 => SensorAction::Delete,
-                39 => SensorAction::Set,
-                _ => SensorAction::Modify,
-            },
+            // Kernel-Registry needs the key-path index and so has its own
+            // pipeline; `decode_record` diverts it before reaching here.
+            EventCategory::Registry => return None,
             EventCategory::Dns => SensorAction::Query,
             EventCategory::Scripting => SensorAction::Execute,
             EventCategory::Wmi => SensorAction::Execute,
@@ -502,12 +626,19 @@ impl Sensor for EtwSensor {
                     }
                 });
 
-            // Only Kernel-File is filtered: the FILEIO keyword it needs for
-            // Close and SetInformation also turns on every read and query on
-            // the machine, and none of those are routed.
+            // Kernel-File and Kernel-Registry are filtered: both are
+            // manifest providers whose keywords pull in more than is routed,
+            // and both are high enough volume for the kernel-side buffer
+            // traffic to be worth removing. Registry keeps its naming and
+            // eviction events here — they emit nothing but the index needs
+            // them.
             if provider_def.guid == EtwProviders::kernel_file().guid {
                 provider_builder = provider_builder.add_filter(EventFilter::ByEventIds(
                     KERNEL_FILE_ROUTED_EVENT_IDS.to_vec(),
+                ));
+            } else if provider_def.guid == EtwProviders::kernel_registry().guid {
+                provider_builder = provider_builder.add_filter(EventFilter::ByEventIds(
+                    KERNEL_REGISTRY_ROUTED_EVENT_IDS.to_vec(),
                 ));
             }
 
@@ -570,6 +701,9 @@ fn decode_record(
     if record.provider_id() == state.routing.kernel_file_guid {
         return decode_kernel_file_record(record, schema_locator, state);
     }
+    if record.provider_id() == state.routing.kernel_registry_guid {
+        return decode_kernel_registry_record(record, schema_locator, state);
+    }
 
     let (category, action) = state.routing.route(record)?;
     let schema = match schema_locator.event_schema(record) {
@@ -590,7 +724,7 @@ fn decode_record(
         EventCategory::Process => decode_process(&parser, record, action),
         EventCategory::Network => decode_network(&parser, record),
         EventCategory::File => unreachable!("kernel-file records are diverted above"),
-        EventCategory::Registry => decode_registry(&parser, record),
+        EventCategory::Registry => unreachable!("kernel-registry records are diverted above"),
         EventCategory::Dns => decode_dns(&parser, record),
         EventCategory::ImageLoad => decode_image_load(&parser, record),
         EventCategory::Scripting => decode_powershell(&parser, record),
@@ -833,25 +967,137 @@ fn decode_kernel_file_record(
     })
 }
 
-fn decode_registry(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
-    let event_mappings = field_maps::registry_event_mappings();
-    let modify_mappings = field_maps::registry_modify_mappings();
+/// Decode a Microsoft-Windows-Kernel-Registry record, maintaining the key-path
+/// index the pathless write events depend on.
+///
+/// Mirrors [`decode_kernel_file_record`]. `SetValueKey`, `DeleteValueKey` and
+/// `DeleteKey` deliver an empty `KeyName` and identify their target only by
+/// `KeyObject`, so the naming events (`CreateKey`, `OpenKey`) have to be joined
+/// to them. Before #279 none of this existed: the action came from an opcode
+/// that is always 0, and every registry event reached the detectors as an
+/// unclassified `registry_event` with `event.code = 0`.
+fn decode_kernel_registry_record(
+    record: &EventRecord,
+    schema_locator: &SchemaLocator,
+    state: &EtwState,
+) -> Option<SensorEvent> {
+    // Checked before the schema lookup so unrouted events cost only an
+    // integer match.
+    let route = kernel_registry_route(record.event_id())?;
 
-    let fields = RegistryEventFields {
-        target_object: try_get_string(parser, event_mappings.get_etw_field("TargetObject")?)
-            .or_else(|| try_get_string(parser, modify_mappings.get_etw_field("TargetObject")?)),
-        details: try_get_string(parser, event_mappings.get_etw_field("Details")?)
-            .or_else(|| try_get_string(parser, modify_mappings.get_etw_field("Details")?)),
-        process_id: try_get_uint(parser, event_mappings.get_etw_field("ProcessId")?),
-        image: try_get_string(parser, event_mappings.get_etw_field("Image")?)
-            .map(|path| convert_nt_to_dos(&path)),
-        event_type: try_get_string(parser, "EventType"),
-        user: try_get_string(parser, event_mappings.get_etw_field("User")?),
-        new_name: try_get_string(parser, "NewName"),
+    let schema = match schema_locator.event_schema(record) {
+        Ok(schema) => schema,
+        Err(err) => {
+            trace!(
+                "Failed to get Kernel-Registry schema for event {}: {:?}",
+                record.event_id(),
+                err
+            );
+            return None;
+        }
+    };
+    let parser = Parser::create(record, &schema);
+
+    let key_object = try_get_uint_as_u64(&parser, "KeyObject");
+
+    let (action, target_object) = match route {
+        KernelRegistryRoute::Name { creates } => {
+            let base_object = try_get_uint_as_u64(&parser, "BaseObject");
+            let base_name = try_get_string(&parser, "BaseName").unwrap_or_default();
+            let relative_name = try_get_string(&parser, "RelativeName").unwrap_or_default();
+
+            // Indexing happens for both CreateKey and OpenKey, including the
+            // creates that also emit: a key that is created is then written
+            // through, and those writes carry only its `KeyObject`.
+            let path =
+                state
+                    .registry_paths()
+                    .learn(base_object, key_object, &base_name, &relative_name);
+
+            if !creates {
+                return None;
+            }
+            // `NtCreateKey` opens existing keys just as readily as it makes new
+            // ones — the same trap as `IRP_MJ_CREATE` on the file side. Without
+            // the disposition check every key open would surface as a
+            // `registry_add`.
+            refine_registry_create_action(&parser)?;
+            (SensorAction::Create, path?)
+        }
+        KernelRegistryRoute::Evict => {
+            if let Some(object) = key_object {
+                state.registry_paths().forget(object);
+            }
+            return None;
+        }
+        KernelRegistryRoute::Emit(action) => {
+            let value_name = try_get_string(&parser, "ValueName");
+            // `KeyName` is declared on these events but measured empty on
+            // Windows 11, so the index is the real source of the path.
+            let path = try_get_string(&parser, "KeyName")
+                .filter(|name| !name.is_empty())
+                .or_else(|| {
+                    state
+                        .registry_paths()
+                        .resolve(key_object)
+                        .map(str::to_string)
+                });
+
+            // Sysmon reports a value write as `<key>\<value>` on Event ID 13,
+            // and `registry_set` rules are written against that shape — an
+            // `endswith: '\Run\Foo'` rule needs the value name in the path,
+            // not only in `Details`.
+            let path = path.map(|path| match value_name.as_deref() {
+                Some(value) if !value.is_empty() => format!("{path}\\{value}"),
+                _ => path,
+            });
+
+            match path {
+                Some(path) => (action, path),
+                None => {
+                    // Counted rather than silently discarded, for the same
+                    // reason as the file index: this is the sensor's blind
+                    // spot and its size is the only measure of it.
+                    let unresolved = state
+                        .unresolved_registry_events
+                        .fetch_add(1, Ordering::Relaxed)
+                        + 1;
+                    if unresolved == 1 || unresolved.is_multiple_of(10_000) {
+                        warn!(
+                            unresolved_registry_events = unresolved,
+                            "Dropping registry event whose key path could not be resolved"
+                        );
+                    }
+                    return None;
+                }
+            }
+        }
     };
 
-    Some(DecodedEtwEvent {
-        pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
+    let mappings = field_maps::registry_event_mappings();
+    let fields = RegistryEventFields {
+        target_object: Some(target_object),
+        // The provider reports the value *name*; `CapturedData` holds the data
+        // but is empty unless the session asks for it, so this stays the name.
+        details: try_get_string(&parser, mappings.get_etw_field("Details")?),
+        process_id: try_get_uint(&parser, mappings.get_etw_field("ProcessId")?),
+        image: try_get_string(&parser, mappings.get_etw_field("Image")?)
+            .map(|path| convert_nt_to_dos(&path)),
+        event_type: try_get_string(&parser, "EventType"),
+        user: try_get_string(&parser, mappings.get_etw_field("User")?),
+        new_name: try_get_string(&parser, "NewName"),
+    };
+
+    let pid = parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id()));
+    let normalization = mapper::normalization_for_record(EventCategory::Registry, action, record);
+
+    Some(SensorEvent {
+        platform: Platform::Windows,
+        provider: "etw",
+        action,
+        normalization,
+        pid,
+        timestamp: filetime_to_system_time(record.raw_timestamp()),
         process_start_key: None,
         payload: SensorPayload::Registry(fields),
     })
@@ -1210,6 +1456,97 @@ mod tests {
             EtwProviders::FILE_KEYWORDS & EtwProviders::KERNEL_FILE_KEYWORD_FILEIO,
             0
         );
+    }
+
+    #[test]
+    fn registry_filter_matches_routing_allowlist() {
+        // Same allowlist-drift guard as the Kernel-File filter: an ID that
+        // routes but is missing from the filter never reaches the callback.
+        let routed: Vec<u16> = (0u16..=64)
+            .filter(|id| kernel_registry_route(*id).is_some())
+            .collect();
+        let mut expected = KERNEL_REGISTRY_ROUTED_EVENT_IDS.to_vec();
+        expected.sort_unstable();
+        assert_eq!(
+            routed, expected,
+            "provider filter and kernel_registry_route disagree"
+        );
+    }
+
+    #[test]
+    fn registry_event_ids_route_to_write_actions() {
+        use KernelRegistryRoute::Emit;
+        assert_eq!(kernel_registry_route(3), Some(Emit(SensorAction::Delete)));
+        assert_eq!(kernel_registry_route(5), Some(Emit(SensorAction::Set)));
+        assert_eq!(kernel_registry_route(6), Some(Emit(SensorAction::Delete)));
+    }
+
+    #[test]
+    fn naming_events_maintain_the_index_and_only_create_emits() {
+        // SetValueKey delivers an empty KeyName, so CreateKey and OpenKey are
+        // the only source of a key's path. OpenKey must never produce
+        // telemetry of its own; CreateKey does, subject to its Disposition.
+        assert_eq!(
+            kernel_registry_route(1),
+            Some(KernelRegistryRoute::Name { creates: true })
+        );
+        assert_eq!(
+            kernel_registry_route(2),
+            Some(KernelRegistryRoute::Name { creates: false })
+        );
+        assert_eq!(kernel_registry_route(13), Some(KernelRegistryRoute::Evict));
+    }
+
+    #[test]
+    fn registry_reads_are_dropped_not_called_modifications() {
+        // The `_ => Modify` catch-all this replaces put every one of these
+        // through the full Sigma evaluation under an action code of 0.
+        for event_id in [4, 7, 8, 9, 10, 11, 12, 14, 15, 16, 40, 99] {
+            assert_eq!(
+                kernel_registry_route(event_id),
+                None,
+                "registry event {event_id} must not be routed"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_keywords_cover_writes_naming_and_eviction() {
+        // Manifest values: CloseKey 0x1, SetValueKey 0x100,
+        // DeleteValueKey 0x200, CreateKey 0x1000, OpenKey 0x2000,
+        // DeleteKey 0x4000. The mask previously used 0x2000 and 0x8000 for the
+        // two *value* keywords, which are OpenKey and QueryKey — it subscribed
+        // to reads and missed every value write.
+        assert_eq!(EtwProviders::REGISTRY_KEYWORDS, 0x7301);
+
+        // QueryKey is the one high-volume read path with no role here: it
+        // neither names a key nor changes one.
+        const QUERY_KEY: u64 = 0x8000;
+        assert_eq!(EtwProviders::REGISTRY_KEYWORDS & QUERY_KEY, 0);
+    }
+
+    #[test]
+    fn every_routed_registry_event_has_its_keyword() {
+        // A routed event whose keyword is not in the mask is never delivered:
+        // the exact failure that made `registry_set` structurally dead (#279).
+        for (event_id, keyword) in [
+            (1u16, EtwProviders::REG_KEYWORD_CREATE_KEY),
+            (2, EtwProviders::REG_KEYWORD_OPEN_KEY),
+            (3, EtwProviders::REG_KEYWORD_DELETE_KEY),
+            (5, EtwProviders::REG_KEYWORD_SET_VALUE_KEY),
+            (6, EtwProviders::REG_KEYWORD_DELETE_VALUE_KEY),
+            (13, EtwProviders::REG_KEYWORD_CLOSE_KEY),
+        ] {
+            assert!(
+                kernel_registry_route(event_id).is_some(),
+                "event {event_id} must be routed"
+            );
+            assert_ne!(
+                EtwProviders::REGISTRY_KEYWORDS & keyword,
+                0,
+                "event {event_id} is routed but its keyword is not subscribed"
+            );
+        }
     }
 
     #[test]

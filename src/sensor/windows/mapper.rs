@@ -38,15 +38,11 @@ fn action_code_for_record(
         // The manifest-based Kernel-File provider emits events with opcode 0,
         // so the action code comes from the routed action, not the opcode.
         EventCategory::File => file_action_code(action),
-        EventCategory::Registry => match record.opcode() {
-            36 | 38 | 39 | 41 => record.opcode(),
-            _ => match action {
-                SensorAction::Create => 36,
-                SensorAction::Delete => 38,
-                SensorAction::Set => 39,
-                _ => 0,
-            },
-        },
+        // Kernel-Registry emits opcode 0 as well, and the manifest opcodes it
+        // *declares* are not the values this mapping ever used (36 is
+        // `SetValueKey`, not `CreateKey`), so reading the opcode could only
+        // ever produce a wrong answer. The routed action is the truth (#279).
+        EventCategory::Registry => registry_action_code(action),
         EventCategory::Dns => 0,
         EventCategory::Scripting => 0,
         EventCategory::Wmi => 0,
@@ -62,6 +58,19 @@ fn action_code_for_record(
 fn file_action_code(action: SensorAction) -> u8 {
     SensorNormalization::for_file_action(action)
         .map_or(0, |normalization| normalization.action_code)
+}
+
+/// Maps a routed registry action to the action code the engine's Sigma
+/// category selection expects (36 = key created, 38 = key or value deleted,
+/// 39 = value set), which [`crate::engine::alert`] turns into `registry_add`,
+/// `registry_delete` and `registry_set`.
+fn registry_action_code(action: SensorAction) -> u8 {
+    match action {
+        SensorAction::Create => 36,
+        SensorAction::Delete => 38,
+        SensorAction::Set => 39,
+        _ => 0,
+    }
 }
 
 fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &EventRecord) -> u16 {
@@ -118,7 +127,7 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
 
 #[cfg(test)]
 mod tests {
-    use super::{file_action_code, map_to_sysmon_id};
+    use super::{file_action_code, map_to_sysmon_id, registry_action_code};
     use crate::models::EventCategory;
     use crate::sensor::{SensorAction, FILE_EVENT_NORMALIZATION};
 
@@ -166,6 +175,36 @@ mod tests {
     #[test]
     fn registry_setvalue_maps_to_sysmon_13() {
         assert_eq!(map_to_sysmon_id(EventCategory::Registry, 39, 999), 13);
+    }
+
+    #[test]
+    fn registry_actions_map_to_sysmon_ids_without_an_opcode() {
+        // Kernel-Registry records carry opcode 0, so every one of these has to
+        // come from the routed action alone. Before #279 all four collapsed to
+        // action code 0 and event ID 0, which is neither Sysmon 12 nor 13 and
+        // matches no `registry_add`/`registry_set`/`registry_delete` rule.
+        for (action, expected_code, expected_id) in [
+            (SensorAction::Create, 36, 12),
+            (SensorAction::Delete, 38, 12),
+            (SensorAction::Set, 39, 13),
+        ] {
+            let code = registry_action_code(action);
+            assert_eq!(code, expected_code, "action code for {action:?}");
+            assert_eq!(
+                map_to_sysmon_id(EventCategory::Registry, code, u16::from(code)),
+                expected_id,
+                "event id for {action:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_modify_is_not_a_registry_action() {
+        // `Modify` was the old catch-all. Nothing routes to it now, and if
+        // something ever does it must not silently claim to be a value set.
+        let code = registry_action_code(SensorAction::Modify);
+        assert_eq!(code, 0);
+        assert_ne!(map_to_sysmon_id(EventCategory::Registry, code, 0), 13);
     }
 
     #[test]
