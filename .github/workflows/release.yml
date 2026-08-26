@@ -390,6 +390,7 @@ jobs:
             rustinel-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip
             rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz
             rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz
+            rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
@@ -453,5 +454,7 @@ jobs:
             All release artifacts have [SLSA build provenance](https://slsa.dev) attestations signed by GitHub:
 
             ```sh
-            gh attestation verify <artifact> --owner Karib0u
+            gh attestation verify <artifact> \
+              --repo Karib0u/rustinel \
+              --signer-workflow Karib0u/rustinel/.github/workflows/release.yml
             ```
