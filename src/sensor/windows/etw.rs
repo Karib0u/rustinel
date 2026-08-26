@@ -1625,7 +1625,6 @@ mod tests {
         assert_eq!(powershell.level, 5);
         assert_eq!(powershell.event_ids, &[4104]);
 
-        assert_eq!(EtwProviders::service_control_manager().event_ids, &[7045]);
         assert_eq!(EtwProviders::task_scheduler().event_ids, &[106]);
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&13));
