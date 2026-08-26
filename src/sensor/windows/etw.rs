@@ -114,7 +114,14 @@ impl EtwProviders {
     const POWERSHELL_RUNSPACE_KEYWORD: u64 = 0x0000_0000_0000_0001;
     const DNS_EVENT_IDS: &'static [u16] = &[3006, 3008];
     const POWERSHELL_EVENT_IDS: &'static [u16] = &[4104];
-    const WMI_EVENT_IDS: &'static [u16] = &[1, 2, 11, 12, 14, 15, 16, 17, 19, 20, 22, 23, 24];
+    // Native WMI-Activity numbering is unrelated to Sysmon's, but both reach
+    // the engine under `(windows, wmi, wmi_event)`, so any collected ID that
+    // happens to equal a Sysmon `wmi_event` ID (19 = filter, 20 = consumer,
+    // 21 = filter-to-consumer binding) makes stock SigmaHQ rules fire on the
+    // wrong event. 19 and 20 are excluded for that reason (#291); mapping them
+    // is not an option, because the native events do not carry the WMI
+    // persistence fields those rules read.
+    const WMI_EVENT_IDS: &'static [u16] = &[1, 2, 11, 12, 14, 15, 16, 17, 22, 23, 24];
     const TASK_EVENT_IDS: &'static [u16] = &[106];
 
     fn kernel_process() -> EtwProvider {
@@ -1695,6 +1702,22 @@ mod tests {
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&13));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&18));
+    }
+
+    #[test]
+    fn wmi_activity_event_ids_do_not_alias_sysmon_wmi_event_ids() {
+        // Sysmon `wmi_event`: 19 = filter, 20 = consumer, 21 = binding.
+        const SYSMON_WMI_EVENT_IDS: &[u16] = &[19, 20, 21];
+
+        for &event_id in EtwProviders::WMI_EVENT_IDS {
+            let sysmon_id = mapper::map_to_sysmon_id(EventCategory::Wmi, 0, event_id);
+            assert!(
+                !SYSMON_WMI_EVENT_IDS.contains(&sysmon_id),
+                "native WMI-Activity event {event_id} reaches the engine as \
+                 Sysmon wmi_event ID {sysmon_id}, so a stock rule selecting \
+                 that ID would match an unrelated event"
+            );
+        }
     }
 
     #[test]
