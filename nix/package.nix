@@ -64,6 +64,11 @@ let
   # this directory is missing or not writable; create it or override via
   # --config / RUSTINEL_CONFIG / EDR__LOGGING__DIRECTORY.
   logDir = "/var/log/rustinel";
+
+  # Writable location for `rustinel capture` recordings. The bundled
+  # config.toml ships `directory = "captures"` (relative), which would resolve
+  # against the read-only store. Rewritten to a writable system path.
+  captureDir = "/var/lib/rustinel/captures";
 in
 stdenv.mkDerivation {
   pname = "rustinel";
@@ -93,10 +98,21 @@ stdenv.mkDerivation {
     cp -r rules/ioc/* $out/share/rustinel/rules/ioc/
 
     # Runtime config: rewrite the bundled config.toml so that relative rule
-    # paths point into the read-only store and logs / alerts point at a
-    # writable system directory. substituteInPlace --replace-fail makes the
-    # build fail loudly if any of these strings ever drift from the bundled
-    # config.toml.
+    # paths point into the read-only store and logs / alerts / captures point
+    # at writable system directories.
+    #
+    # `--replace-fail` makes the build fail loudly if any of these strings
+    # ever drift from the bundled config.toml. The `directory = "logs"` pair
+    # matches twice by design (logging.directory and alerts.directory); a
+    # future third occurrence would be swept up silently — revisit if the
+    # config grows another `directory = "logs"` field.
+    #
+    # The `directory = "captures"` substitution uses `--replace` (non-failing):
+    # the [capture] section was added to the repo config after the v1.3.0 tag,
+    # so the v1.3.0 release archive does not contain it. `--replace` no-ops
+    # on archives without the section and rewrites it on releases that ship
+    # it, keeping the package forward-compatible without breaking the current
+    # build.
     install -Dm644 config.toml $out/share/rustinel/config.toml
     substituteInPlace $out/share/rustinel/config.toml \
       --replace-fail 'sigma_rules_path = "rules/sigma"' \
@@ -112,19 +128,23 @@ stdenv.mkDerivation {
       --replace-fail 'paths_regex_path = "rules/ioc/paths_regex.txt"' \
                      'paths_regex_path = "'"$out"'/share/rustinel/rules/ioc/paths_regex.txt"' \
       --replace-fail 'directory = "logs"' \
-                     'directory = "'${logDir}'"'
+                     'directory = "'${logDir}'"' \
+      --replace 'directory = "captures"' \
+                'directory = "'${captureDir}'"'
 
     # Unmodified bundled config for reference / customization.
     install -Dm644 config.toml $out/share/rustinel/config.example.toml
 
-    # Let `nix run` / `nix build` discover the runtime config without a NixOS
-    # module. RUSTINEL_CONFIG takes precedence over managed / next-to-exe /
-    # CWD discovery and does not require the file to pre-exist.
-    # --set-default preserves any user-provided RUSTINEL_CONFIG (e.g. from a
-    # --config override or a custom env), only falling back to the generated
-    # config when the variable is unset.
+    # Inject the store config only when the user has not set RUSTINEL_CONFIG
+    # and no managed config exists at /etc/rustinel/config.toml. This lets a
+    # hand-rolled systemd unit (or `rustinel setup`) own config discovery via
+    # the managed path, and keeps `rustinel rules install` (which writes to
+    # /var/lib/rustinel/rules/current) effective when the user manages the
+    # config there. The env-var discovery branch returns Some without an
+    # existence check, so `--set`/`--set-default` would shadow the managed
+    # path unconditionally; the conditional `--run` guards both.
     wrapProgram $out/bin/rustinel \
-      --set-default RUSTINEL_CONFIG $out/share/rustinel/config.toml
+      --run 'if [ -z "''${RUSTINEL_CONFIG:-}" ] && [ ! -e /etc/rustinel/config.toml ]; then export RUSTINEL_CONFIG='"$out"'/share/rustinel/config.toml; fi'
 
     runHook postInstall
   '';
@@ -146,13 +166,10 @@ stdenv.mkDerivation {
       };
   };
 
-  # TODO: once rustinel is upstreamed into nixpkgs, set meta.maintainers
-  # with a registered lib.maintainers.<handle> entry.
   meta = {
     description = "Open-source endpoint detection engine using eBPF, Sigma, YARA, and IOC matching";
     homepage = "https://github.com/Karib0u/rustinel";
     license = lib.licenses.asl20;
-    maintainers = with lib.maintainers; [ ];
     platforms = [
       "x86_64-linux"
       "aarch64-linux"
