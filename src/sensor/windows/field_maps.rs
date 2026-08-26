@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use super::registry_value_data::CAPTURED_DATA_PROPERTY;
+
 /// Field mapping for a specific Sigma category.
 pub struct FieldMapping {
     /// Maps Sigma field name -> ETW property name.
@@ -68,7 +70,10 @@ pub fn file_event_mappings() -> &'static FieldMapping {
 
 static REGISTRY_EVENT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
-        ("Details", "ValueName"),
+        // Sysmon Event ID 13 defines `Details` as the value data, not its
+        // name; `CapturedData` is empty unless the session asks for it, and
+        // `registry_details` falls back to `ValueName` when it is.
+        ("Details", CAPTURED_DATA_PROPERTY),
         ("ProcessId", "ProcessID"),
         ("Image", "ImageName"),
         ("EventType", "EventType"),
