@@ -15,8 +15,8 @@ use tracing::{info, trace, warn};
 
 use crate::models::{
     DnsQueryFields, EventCategory, FileEventFields, ImageLoadFields, NetworkConnectionFields,
-    PowerShellScriptFields, ProcessCreationFields, RegistryEventFields, ServiceCreationFields,
-    TaskCreationFields, WmiEventFields,
+    PowerShellScriptFields, ProcessCreationFields, RegistryEventFields, TaskCreationFields,
+    WmiEventFields,
 };
 use crate::sensor::network_events::{
     classify_kernel_network_event, decode_etw_ipv4, decode_etw_port, NetworkAddressFamily,
@@ -24,12 +24,13 @@ use crate::sensor::network_events::{
 use crate::sensor::{Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorPayload};
 use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line};
 
+use super::event_log::EventLogSubscriptions;
 use super::file_paths::FilePathCache;
 use super::registry_paths::RegistryPathCache;
 use super::{field_maps, mapper};
 
 /// Fixed trace session name for stopping the trace on shutdown.
-const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
+pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
 const WINDOWS_EPOCH_DELTA_100NS: i64 = 116444736000000000;
 
 /// ETW provider metadata.
@@ -52,7 +53,6 @@ impl EtwProviders {
     const DNS_CLIENT_GUID: &'static str = "1c95126e-7eea-49a9-a3fe-a378b03ddb4d";
     const POWERSHELL_GUID: &'static str = "A0C1853B-5C40-4B15-8766-3CF1C58F985A";
     const WMI_ACTIVITY_GUID: &'static str = "1418EF04-B0B4-4623-BF7E-D74AB47BBDAA";
-    const SERVICE_CONTROL_MANAGER_GUID: &'static str = "555908d1-a6d7-4695-8e1e-26931d2012f4";
     const TASK_SCHEDULER_GUID: &'static str = "de7b24ea-73c8-4a09-985d-5bdadcfa9017";
 
     // Keyword names follow the Microsoft-Windows-Kernel-File manifest.
@@ -112,12 +112,9 @@ impl EtwProviders {
     // filters then keep lifecycle and diagnostic records out of the session.
     const OPERATIONAL_KEYWORD: u64 = 0x8000_0000_0000_0000;
     const POWERSHELL_RUNSPACE_KEYWORD: u64 = 0x0000_0000_0000_0001;
-    const EVENTLOG_CLASSIC_KEYWORD: u64 = 0x0080_0000_0000_0000;
-
     const DNS_EVENT_IDS: &'static [u16] = &[3006, 3008];
     const POWERSHELL_EVENT_IDS: &'static [u16] = &[4104];
     const WMI_EVENT_IDS: &'static [u16] = &[1, 2, 11, 12, 14, 15, 16, 17, 19, 20, 22, 23, 24];
-    const SERVICE_EVENT_IDS: &'static [u16] = &[7045];
     const TASK_EVENT_IDS: &'static [u16] = &[106];
 
     fn kernel_process() -> EtwProvider {
@@ -191,16 +188,6 @@ impl EtwProviders {
         }
     }
 
-    fn service_control_manager() -> EtwProvider {
-        EtwProvider {
-            guid: GUID::from(Self::SERVICE_CONTROL_MANAGER_GUID),
-            name: "Microsoft-Windows-Service-Control-Manager",
-            level: 4,
-            keywords: Self::EVENTLOG_CLASSIC_KEYWORD,
-            event_ids: Self::SERVICE_EVENT_IDS,
-        }
-    }
-
     fn task_scheduler() -> EtwProvider {
         EtwProvider {
             guid: GUID::from(Self::TASK_SCHEDULER_GUID),
@@ -220,7 +207,6 @@ impl EtwProviders {
             Self::dns_client(),
             Self::powershell(),
             Self::wmi_activity(),
-            Self::service_control_manager(),
             Self::task_scheduler(),
         ]
     }
@@ -542,10 +528,6 @@ impl EtwRouting {
         guid_to_category.insert(EtwProviders::dns_client().guid, EventCategory::Dns);
         guid_to_category.insert(EtwProviders::powershell().guid, EventCategory::Scripting);
         guid_to_category.insert(EtwProviders::wmi_activity().guid, EventCategory::Wmi);
-        guid_to_category.insert(
-            EtwProviders::service_control_manager().guid,
-            EventCategory::Service,
-        );
         guid_to_category.insert(EtwProviders::task_scheduler().guid, EventCategory::Task);
 
         Self {
@@ -582,7 +564,8 @@ impl EtwRouting {
             EventCategory::Dns => SensorAction::Query,
             EventCategory::Scripting => SensorAction::Execute,
             EventCategory::Wmi => SensorAction::Execute,
-            EventCategory::Service | EventCategory::Task => SensorAction::Register,
+            EventCategory::Task => SensorAction::Register,
+            EventCategory::Service => unreachable!("service events use the event log source"),
             EventCategory::Process | EventCategory::ImageLoad => unreachable!(),
         };
 
@@ -623,6 +606,9 @@ impl Default for EtwSensor {
 impl Sensor for EtwSensor {
     fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
         info!("Starting ETW sensor...");
+
+        self.shutdown.store(false, Ordering::Relaxed);
+        let event_logs = EventLogSubscriptions::start(tx.clone(), Arc::clone(&self.shutdown))?;
 
         let _ = stop_trace_by_name(TRACE_SESSION_NAME);
 
@@ -668,8 +654,7 @@ impl Sensor for EtwSensor {
             trace_builder = trace_builder.enable(provider);
         }
 
-        let result = trace_builder.start();
-        match result {
+        let trace_result = match trace_builder.start() {
             Ok((mut trace, _handle)) => {
                 info!(
                     "ETW trace session '{}' started successfully",
@@ -697,7 +682,10 @@ impl Sensor for EtwSensor {
                 }
             }
             Err(err) => Err(anyhow::anyhow!("Failed to start ETW trace: {:?}", err)),
-        }
+        };
+
+        self.shutdown.store(true, Ordering::Relaxed);
+        event_logs.join().and(trace_result)
     }
 
     fn shutdown(&self) {
@@ -750,7 +738,7 @@ fn decode_record(
         EventCategory::ImageLoad => decode_image_load(&parser, record),
         EventCategory::Scripting => decode_powershell(&parser, record),
         EventCategory::Wmi => decode_wmi(&parser, record),
-        EventCategory::Service => decode_service(&parser, record),
+        EventCategory::Service => unreachable!("service events use the event log source"),
         EventCategory::Task => decode_task(&parser, record),
     }?;
 
@@ -1327,28 +1315,6 @@ fn decode_wmi(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> 
     })
 }
 
-fn decode_service(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
-    let mappings = field_maps::service_creation_mappings();
-    let fields = ServiceCreationFields {
-        service_name: try_get_string(parser, mappings.get_etw_field("ServiceName")?),
-        service_file_name: try_get_string(parser, mappings.get_etw_field("ServiceFileName")?)
-            .map(|path| convert_nt_to_dos(&path)),
-        service_type: try_get_uint(parser, mappings.get_etw_field("ServiceType")?),
-        start_type: try_get_uint(parser, mappings.get_etw_field("StartType")?),
-        account_name: try_get_string(parser, mappings.get_etw_field("AccountName")?),
-        user: try_get_string(parser, mappings.get_etw_field("User")?),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
-        image: try_get_string(parser, mappings.get_etw_field("Image")?)
-            .map(|path| convert_nt_to_dos(&path)),
-    };
-
-    Some(DecodedEtwEvent {
-        pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
-        process_start_key: None,
-        payload: SensorPayload::Service(fields),
-    })
-}
-
 fn decode_task(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::task_creation_mappings();
     let fields = TaskCreationFields {
@@ -1659,7 +1625,6 @@ mod tests {
         assert_eq!(powershell.level, 5);
         assert_eq!(powershell.event_ids, &[4104]);
 
-        assert_eq!(EtwProviders::service_control_manager().event_ids, &[7045]);
         assert_eq!(EtwProviders::task_scheduler().event_ids, &[106]);
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&13));
