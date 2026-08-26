@@ -116,7 +116,7 @@ rule instead of one is tracked separately by
 | `registry_event` / `registry_*` | Yes | No | No | Windows only |
 | `image_load` | Yes | No | No | Windows only |
 | `ps_script` | Yes | No | No | Windows only |
-| `wmi_event` | Yes | No | No | Windows only |
+| `wmi_event` | Yes | No | No | Windows only; WMI-Activity numbering, not Sysmon's — see [WMI Event Numbering](#wmi-event-numbering) |
 | `service_creation` | Yes | No | No | Windows only |
 | `task_creation` | Yes | No | No | Windows only |
 
@@ -193,6 +193,24 @@ cover.
 what `|endswith` rules and extension IOCs match on, so an event carrying this
 marker that matched nothing has not been cleared. The field is not part of
 keyword search, so it never contributes to a match on its own.
+
+#### WMI Event Numbering
+
+Windows WMI telemetry comes from `Microsoft-Windows-WMI-Activity`, whose event
+IDs are its own — they are not Sysmon's, and they are not remapped onto them.
+Sysmon's `wmi_event` IDs 19, 20, and 21 mean WMI Event Filter, Event Consumer,
+and Filter-to-Consumer binding; the native provider numbers unrelated operations
+in the same range. Because a rule with only `product: windows` and
+`category: wmi_event` binds to the `(windows, wmi, wmi_event)` tuple, a native
+event whose ID happened to equal 19 or 20 would make a stock SigmaHQ WMI
+persistence rule fire on something else entirely, so those two IDs are not
+collected ([#291](https://github.com/Karib0u/rustinel/issues/291)).
+
+The practical consequence for rule authors: `wmi_event` rules that select on
+`EventID` do not match on Rustinel. Rules that match on the WMI fields —
+`Operation`, `Query`, `EventNamespace`, `Image`, `User`,
+`DestinationHostname` — do. WMI *persistence* telemetry (the Sysmon 19/20/21
+equivalent) is not collected at all today.
 
 ### Field Model
 
