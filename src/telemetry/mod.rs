@@ -288,6 +288,12 @@ mod tests {
         for channel in ChannelId::ALL {
             channel.counters().reset();
         }
+        // The warning limiter is process-wide too. Reset it alongside the
+        // counters so tests cannot inherit a channel's rate-limit window.
+        let mut limiter = DROP_WARNINGS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *limiter = LogRateLimiter::new(DROP_WARN_INTERVAL);
         guard
     }
 
