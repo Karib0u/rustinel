@@ -22,9 +22,11 @@ fn write_cstr<const N: usize>(dst: &mut [u8; N], value: &str) {
 #[test]
 fn linux_ebpf_raw_events_map_to_sensor_events() {
     use rustinel::sensor::linux::events::{
-        mapping, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
+        mapping, DnsEvent, FileEvent, NetworkEvent, ProcessEvent, ARGV_CAPACITY, FILE_PATH_LEN,
     };
+    use rustinel::sensor::linux::paths::{DirFdIndex, AT_FDCWD};
     use rustinel::sensor::{SensorAction, SensorPayload};
+    use std::os::fd::AsRawFd;
 
     let mut process = ProcessEvent {
         kind: 1,
@@ -33,11 +35,29 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         _pad: 0,
         comm: [0; 16],
         image: [0; 128],
+        args_len: 0,
+        args_count: 0,
+        args_truncated: 0,
+        _pad1: [0; 3],
+        args: [0; ARGV_CAPACITY],
     };
     write_cstr(&mut process.image, "/usr/bin/curl");
+    // Kernel-captured argv: NUL-separated, `args_len` bytes long.
+    let argv = b"/usr/bin/curl\0-sS\0https://example.test\0";
+    process.args[..argv.len()].copy_from_slice(argv);
+    process.args_len = argv.len() as u16;
+    process.args_count = 3;
+
     let mapped = mapping::process_event_to_sensor(&process);
     assert_eq!(mapped.action, SensorAction::Start);
     assert_eq!(mapped.normalization.event_id, 1);
+    match mapped.payload {
+        SensorPayload::Process(ref fields) => assert_eq!(
+            fields.command_line.as_deref(),
+            Some("/usr/bin/curl -sS https://example.test")
+        ),
+        _ => panic!("expected process payload"),
+    }
 
     process.kind = 2;
     let mapped = mapping::process_event_to_sensor(&process);
@@ -71,22 +91,76 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         kind: 3,
         pid: 42,
         uid: 1000,
-        _pad0: 0,
-        path: [0; 96],
-        aux_path: [0; 96],
+        flags: 0,
+        dfd: AT_FDCWD,
+        aux_dfd: AT_FDCWD,
+        dfd_token: 0,
+        aux_dfd_token: 0,
+        path: [0; FILE_PATH_LEN],
+        aux_path: [0; FILE_PATH_LEN],
         comm: [0; 16],
     };
     write_cstr(&mut file.path, "/tmp/new.txt");
     write_cstr(&mut file.aux_path, "/tmp/old.txt");
-    let mapped = mapping::file_event_to_sensor(&file);
+    let mapped = mapping::file_event_to_sensor(&DirFdIndex::new(), &file)
+        .expect("absolute paths should map");
     assert_eq!(mapped.action, SensorAction::Rename);
     match mapped.payload {
         SensorPayload::File(fields) => {
             assert_eq!(fields.source_filename.as_deref(), Some("/tmp/old.txt"));
             assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
+            assert!(fields.path_truncated.is_none());
         }
         _ => panic!("expected file payload"),
     }
+
+    // The *at syscalls allow relative names, and the same name under two
+    // descriptors is two different files. Both sides of a rename carry their
+    // own descriptor and are resolved independently.
+    let etc = std::fs::File::open("/etc").expect("/etc should be openable");
+    let tmp = std::fs::File::open("/tmp").expect("/tmp should be openable");
+    let mut relative = FileEvent {
+        kind: 3,
+        pid: std::process::id(),
+        uid: 1000,
+        flags: 0,
+        dfd: tmp.as_raw_fd(),
+        aux_dfd: etc.as_raw_fd(),
+        dfd_token: 0,
+        aux_dfd_token: 0,
+        path: [0; FILE_PATH_LEN],
+        aux_path: [0; FILE_PATH_LEN],
+        comm: [0; 16],
+    };
+    write_cstr(&mut relative.path, "shadow.bak");
+    write_cstr(&mut relative.aux_path, "shadow");
+    let mapped = mapping::file_event_to_sensor(&DirFdIndex::new(), &relative)
+        .expect("descriptor-relative paths should map");
+    match mapped.payload {
+        SensorPayload::File(fields) => {
+            assert_eq!(fields.source_filename.as_deref(), Some("/etc/shadow"));
+            assert_eq!(fields.target_filename.as_deref(), Some("/tmp/shadow.bak"));
+        }
+        _ => panic!("expected file payload"),
+    }
+
+    // PID 0 is never a real process, so nothing can be resolved against it and
+    // the relative name is dropped rather than reported as a path.
+    let mut orphan = FileEvent {
+        kind: 1,
+        pid: 0,
+        uid: 1000,
+        flags: 0,
+        dfd: AT_FDCWD,
+        aux_dfd: AT_FDCWD,
+        dfd_token: 0,
+        aux_dfd_token: 0,
+        path: [0; FILE_PATH_LEN],
+        aux_path: [0; FILE_PATH_LEN],
+        comm: [0; 16],
+    };
+    write_cstr(&mut orphan.path, "payload.sh");
+    assert!(mapping::file_event_to_sensor(&DirFdIndex::new(), &orphan).is_none());
 
     let mut dns = DnsEvent {
         kind: 1,

@@ -114,7 +114,11 @@ impl SensorEventHandler for NormalizedEventHandler {
                                     .or(event.pid)
                                     .unwrap_or(0);
 
-                                if let Err(err) = tx.try_send((image.to_string(), pid)) {
+                                if let Err(err) = crate::telemetry::try_send(
+                                    crate::telemetry::ChannelId::IocHash,
+                                    tx,
+                                    (image.to_string(), pid),
+                                ) {
                                     debug!(
                                         target: TARGET_ENGINE,
                                         pid = pid,

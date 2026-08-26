@@ -44,6 +44,8 @@ fn scanner_cfg(sigma: &SigmaFixture, yara: &YaraFixture) -> ScannerConfig {
         yara_enabled: true,
         yara_rules_path: yara.rules_dir().to_path_buf(),
         yara_allowlist_paths: Vec::new(),
+        yara_scan_timeout_ms: 10_000,
+        yara_max_file_mb: 64,
         yara_memory_enabled: false,
         yara_memory_queue_capacity: 8,
         yara_memory_delay_ms: 0,
@@ -262,6 +264,8 @@ async fn test_reload_poller_fallback_polling() {
         yara_enabled: false,
         yara_rules_path: PathBuf::from(""),
         yara_allowlist_paths: Vec::new(),
+        yara_scan_timeout_ms: 10_000,
+        yara_max_file_mb: 64,
         yara_memory_enabled: false,
         yara_memory_queue_capacity: 0,
         yara_memory_delay_ms: 0,
@@ -293,7 +297,7 @@ async fn test_reload_poller_fallback_polling() {
 
     // Spawning the poller with a non-existent path will trigger the watcher failure
     // and cause it to fall back to the 100ms polling loop (in test configuration)
-    let handle =
+    let poller =
         rustinel::reload::spawn_reload_poller(scanner_cfg, ioc_cfg, reload_cfg, None, reload_tx);
 
     // Give it a moment to initialize and fail watcher setup
@@ -325,7 +329,121 @@ level: high
 
     assert_eq!(event, ReloadTarget::Sigma);
 
-    handle.abort();
+    poller.shutdown().await;
+}
+
+/// Regression test for a watcher-setup deadlock on deep rule trees.
+///
+/// notify watches `IN_OPEN`, so walking a tree to register it recursively queues one
+/// inotify event per directory. The callback used to block once the wake-up channel
+/// filled, parking notify's event-loop thread — the same thread the *next*
+/// `Watcher::watch()` call waits on for its acknowledgement. Setup never returned,
+/// hot reload never activated, and the process never shut down.
+///
+/// Reproducing it therefore needs both a tree larger than the channel (100) and a
+/// second watch target registered after it; here, the config file's parent.
+#[tokio::test]
+async fn test_reload_poller_handles_rule_tree_with_many_directories() {
+    use rustinel::config::IocConfig;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    // More directories than the wake-up channel can hold (capacity 100).
+    const DIR_COUNT: usize = 150;
+
+    let tempdir = tempfile::tempdir().expect("create tempdir");
+    let sigma_dir = tempdir.path().join("sigma");
+    for i in 0..DIR_COUNT {
+        let sub = sigma_dir.join(format!("category_{i:03}"));
+        std::fs::create_dir_all(&sub).expect("create rule subdir");
+        std::fs::write(sub.join("rule.yml"), sigma_rule_yaml("test.exe")).expect("write rule");
+    }
+
+    let config_dir = tempdir.path().join("etc");
+    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    let config_path = config_dir.join("rustinel.toml");
+    std::fs::write(&config_path, "").expect("write config");
+
+    let scanner_cfg = ScannerConfig {
+        sigma_enabled: true,
+        sigma_rules_path: sigma_dir.clone(),
+        sigma_engine: "builtin".to_string(),
+        yara_enabled: false,
+        yara_rules_path: PathBuf::from(""),
+        yara_allowlist_paths: Vec::new(),
+        yara_scan_timeout_ms: 10_000,
+        yara_max_file_mb: 64,
+        yara_memory_enabled: false,
+        yara_memory_queue_capacity: 0,
+        yara_memory_delay_ms: 0,
+        yara_memory_max_process_mb: 0,
+        yara_memory_max_region_mb: 0,
+        yara_memory_include_private: false,
+        yara_memory_include_image: false,
+        yara_memory_include_mapped: false,
+    };
+
+    let ioc_cfg = IocConfig {
+        enabled: false,
+        hashes_path: PathBuf::from(""),
+        ips_path: PathBuf::from(""),
+        domains_path: PathBuf::from(""),
+        paths_regex_path: PathBuf::from(""),
+        default_severity: "high".to_string(),
+        max_file_size_mb: 0,
+        hash_allowlist_paths: Vec::new(),
+    };
+
+    // A poll interval far beyond the test timeout: only a working watcher can
+    // produce the reload event below.
+    let reload_cfg = ReloadConfig {
+        enabled: true,
+        debounce_ms: 10,
+        fallback_poll_interval_ms: 3_600_000,
+    };
+
+    let (reload_tx, mut reload_rx) = mpsc::unbounded_channel();
+    let poller = rustinel::reload::spawn_reload_poller(
+        scanner_cfg,
+        ioc_cfg,
+        reload_cfg,
+        Some(config_path),
+        reload_tx,
+    );
+
+    // Let watcher setup finish before touching the tree.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    std::fs::write(
+        sigma_dir.join("category_000").join("added.yml"),
+        sigma_rule_yaml("added.exe"),
+    )
+    .expect("write rule");
+
+    let event = tokio::time::timeout(Duration::from_secs(10), reload_rx.recv())
+        .await
+        .expect("watcher setup deadlocked: no reload event")
+        .expect("Channel closed unexpectedly");
+    assert_eq!(event, ReloadTarget::Sigma);
+
+    tokio::time::timeout(Duration::from_secs(5), poller.shutdown())
+        .await
+        .expect("poller did not shut down");
+}
+
+fn sigma_rule_yaml(image: &str) -> String {
+    format!(
+        r#"title: Test Rule {image}
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image: "{image}"
+  condition: selection
+level: high
+"#
+    )
 }
 
 #[tokio::test]

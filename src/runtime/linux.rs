@@ -7,6 +7,7 @@ use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::{init_logging, log_startup_banner};
+use crate::runtime::telemetry::TelemetryReporter;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
 use crate::sensor::linux::EbpfSensor;
@@ -104,6 +105,9 @@ async fn run_linux_edr(
 
     log_startup_banner("Linux eBPF");
 
+    // 2b. Pipeline drop counters, published for `rustinel doctor`
+    let telemetry_reporter = TelemetryReporter::start(&cfg);
+
     // 3. Shared state
     let process_cache = Arc::new(ProcessCache::with_max_entries(cfg.process.max_entries));
     let sid_cache = Arc::new(SidCache::new()); // no-op on Linux; kept for Normalizer compat
@@ -155,7 +159,9 @@ async fn run_linux_edr(
 
     // 6. YARA scanner
     let yara_scanner = if cfg.scanner.yara_enabled {
-        match scanner::Scanner::new(&cfg.scanner.yara_rules_path) {
+        match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
+            .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
+        {
             Ok(s) => {
                 info!("YARA scanner initialized");
                 Arc::new(s)
@@ -182,7 +188,7 @@ async fn run_linux_edr(
         Arc::clone(&ioc_engine),
     );
 
-    let mut reload_poller_handle = None;
+    let mut reload_poller = None;
     let mut reload_worker_handle = None;
     let mut reload_tx = None;
     if cfg.reload.enabled {
@@ -199,7 +205,7 @@ async fn run_linux_edr(
             response_config.clone(),
             rx,
         ));
-        reload_poller_handle = Some(reload::spawn_reload_poller(
+        reload_poller = Some(reload::spawn_reload_poller(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
@@ -354,9 +360,8 @@ async fn run_linux_edr(
     if let Some(h) = ioc_hash_worker_handle.take() {
         let _ = h.await;
     }
-    if let Some(h) = reload_poller_handle.take() {
-        h.abort();
-        let _ = h.await;
+    if let Some(poller) = reload_poller.take() {
+        poller.shutdown().await;
     }
     drop(reload_tx.take());
     if let Some(h) = reload_worker_handle.take() {
@@ -371,6 +376,10 @@ async fn run_linux_edr(
     if let Some(dedup) = alert_sink.dedup() {
         dedup.flush_all(&alert_sink);
         dedup.log_metrics();
+    }
+
+    if let Some(reporter) = telemetry_reporter {
+        reporter.finish().await;
     }
 
     info!("Shutdown complete");

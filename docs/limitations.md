@@ -19,7 +19,7 @@ This page documents Rustinel's known limitations for the current release.
 | Command line is lost for short-lived processes | Windows | Linux |
 | No stateful correlation or filter evaluation; unsupported documents are reported at load time | Engine |
 | Rules are silently inert when no collector backs their logsource | Engine |
-| Telemetry is dropped under burst load (no backpressure) | Pipeline |
+| Telemetry is dropped under burst load; the loss is counted, not prevented | Pipeline |
 
 ---
 
@@ -33,8 +33,13 @@ are unavailable.
   maps to the registry *value name*, not the data written to it - the
   Kernel-Registry provider doesn't emit value data. A rule matching on written
   content silently matches the value name instead.
-- **Registry `TargetObject` is a relative path (silent risk).** Full key paths
-  (e.g. `HKLM\...\Run`) aren't resolved, so `endswith`-style key matches may miss.
+- **Registry `TargetObject` is not always a full path (silent risk).** The path
+  is composed from the `CreateKey`/`OpenKey` events that named the key, so it is
+  the full NT path (`\REGISTRY\MACHINE\...`) when the parent key was also seen
+  being opened, and a partial path relative to it otherwise. Hive prefixes are
+  never rewritten to `HKLM`/`HKCU`, so `startswith`-style matches on a hive
+  abbreviation will miss. Value writes do carry the value name appended to the
+  key, matching Sysmon's Event ID 13 `TargetObject` shape.
 - **No process or image-load hashes (silent risk).** There is no `Hashes`/`Imphash`
   on process or image-load events, so the many Sigma rules keyed on them can
   never fire. Hash matching exists only in the file/IOC scanner.
@@ -64,20 +69,77 @@ are unavailable.
   closed and reopened, which for some services means until the next reboot.
   The count is logged as `unresolved_file_events`, so the size of the gap is
   visible even though the events themselves are not.
+- **Writes to keys opened before startup are invisible (silent risk).** The same
+  limitation as the file index, for the same reason: Kernel-Registry reports
+  `SetValueKey`, `DeleteValueKey` and `DeleteKey` by `KeyObject` with an empty
+  `KeyName`, so the sensor learns each key's path from the `CreateKey` or
+  `OpenKey` that opened it. A key already open when the sensor starts cannot be
+  attributed, and the event is dropped rather than reported without a path. The
+  count is logged as `unresolved_registry_events`.
 
 ## Linux (eBPF)
 
 The Linux sensor covers process, network, file, and DNS.
 
-- **Process argv isn't captured in the kernel (silent risk).** Command line is read
-  from `/proc/<pid>/cmdline` in userspace, so short-lived processes yield an
-  empty command line - the dominant Linux gap, since most Linux Sigma rules match
-  `CommandLine`.
+- **Kernel-captured argv is bounded.** Argv is snapshotted in eBPF at
+  `execve`/`execveat` entry, so a process that exits before userspace drains the
+  ring still reports its command line. The capture is capped at 512 bytes total,
+  32 arguments, and 127 bytes per argument; past any of those the event is
+  flagged truncated and the loader falls back to `/proc/<pid>/cmdline`, which is
+  complete but only readable while the process is alive. A command line longer
+  than the caps *and* a process that exits first is the remaining gap, and it
+  yields a truncated command line rather than an empty one. A process that
+  changes its own argv after `execve` (`setproctitle`) reports what it was
+  launched with, not what `/proc` would show later.
 - **Paths are truncated.** The image path is capped at 128 bytes and `comm` at
   16, which can break `Image|endswith` matches. This only affects processes that
   exit before enrichment: `Image` normally comes from `/proc/<pid>/exe`, which is
   absolute, symlink-resolved, and untruncated. The raw kernel `execve()` argument
   is the fallback, and it is both truncated and possibly relative.
+- **File paths are capped at 511 bytes, and the overflow is marked.** File events
+  capture each path in a fixed kernel buffer. A longer path is cut and the event
+  carries `PathTruncated` (`edr.file.path_truncated` in ECS) naming which side
+  was cut, so a consumer can tell an incomplete path from a complete one. Since
+  truncation removes the end of the path, `|endswith` rules and extension IOCs
+  are the ones it defeats.
+- **File events whose path cannot be placed are dropped (bounded, counted).**
+  `openat`, `unlinkat`, and `renameat*` name their target with a directory
+  descriptor plus a name that may be relative to it, and the kernel does not
+  expose the resolved path on these tracepoints. A working-directory-relative
+  name is placed with `/proc/<pid>/cwd` when the ring is drained; a
+  descriptor-relative one with the index described below. A process that exits
+  before the drain leaves a name neither source can place, and it is dropped
+  rather than reported as if it were a path — `TargetFilename` of `passwd` would
+  match rules written for `/etc/passwd`. The running total is logged as
+  `unresolved_file_events`.
+- **Descriptors opened without `O_DIRECTORY` keep the stale-fd race (silent
+  risk).** Directory descriptors are normally named when they are opened: the
+  sensor watches `openat` with `O_DIRECTORY` or `O_PATH` and indexes the
+  resulting `(pid, fd)`, which is what `opendir(3)` and the directory readers in
+  Go, Rust, and Java all use. Each entry carries a kernel token. `close`,
+  `dup2`, and `dup3` invalidate the token, while exec, exit, and `close_range`
+  invalidate the process epoch. A stale userspace entry is ignored unless its
+  token matches the file event, so a bare read-only reopen cannot consume an
+  older indexed path under the same fd number. A descriptor with no matching
+  token - opened before the sensor started, produced by `dup`,
+  `fcntl(F_DUPFD)`, `pidfd_getfd`, or `SCM_RIGHTS`, inherited across `fork`, or
+  opened with a bare `O_RDONLY` (legal for a directory; CPython's
+  `shutil.rmtree` does exactly this) - falls back to reading
+  `/proc/<pid>/fd/<dfd>` at drain time,
+  milliseconds after the syscall. A process that walks a tree recycles fd
+  numbers faster than that, so the answer can name a different directory, and
+  nothing observable distinguishes it from the ordinary case. Measured on a lab
+  VM, one `rmtree` produced two such paths. Widening the index to every
+  read-only open closes the gap but costs 20-29% on a file-read-heavy workload
+  (`tar -cf /dev/null /usr/share`) against ~0% for the current filter, so it is
+  not done. A descriptor reused for a *non*-directory is always caught, because
+  `/proc/<pid>/fd` reports those as `socket:[…]` rather than a path.
+  Truncated directory-open paths and paths derived only from this fallback are
+  not promoted into the index.
+- **`..` is collapsed lexically**, not by walking the filesystem, since the file
+  a delete or rename names is usually gone by the time the event is drained.
+  That differs from the kernel's resolution only when a path component is a
+  symlink.
 - **DNS is UDP port 53 only.** DNS-over-TCP, DoH (443), and DoT (853) are
   invisible; long query names are dropped, QTYPE is limited to
   A/NS/CNAME/PTR/TXT/AAAA, and answers (`QueryResults`) aren't parsed.
@@ -132,9 +194,21 @@ macOS support is experimental and detection-only.
 
 ## Pipeline & operations
 
-- **Telemetry is dropped under load (silent risk).** Sensor channels are bounded and
-  drop on overflow, with only a periodic warning. Under burst load you get silent
-  detection gaps, not slowdown.
+- **Telemetry is dropped under load.** Sensor channels are bounded and shed
+  events on overflow rather than blocking the producer - blocking an ETW
+  callback or an eBPF poll loop loses the events queued behind it in the kernel
+  instead. Under burst load you get a detection gap, not a slowdown, and
+  Rustinel does not replay what it shed.
+  The loss is no longer silent: every bounded channel counts events accepted,
+  events dropped, and its peak queue depth. `rustinel doctor` reports the
+  totals per channel (`pipeline_telemetry`), and `--json` carries the raw
+  numbers, so a gap can be sized without searching logs. See
+  [Pipeline Telemetry](configuration.md#pipeline-telemetry).
+  What is still missing is any form of *backpressure*: there is no adaptive
+  sampling, no priority shedding, and no way to slow a producer down. Reducing
+  event volume - narrower rules, wider trusted-path allowlists - is the only
+  mitigation; channel sizes are fixed at build time apart from
+  `response.channel_capacity` and `scanner.yara_memory_queue_capacity`.
 - **Rules catalog trust is release-bound in Phase 1.** `rustinel rules install`
   trusts HTTPS GitHub release assets from `Karib0u/rustinel-rules` and requires
   the artifact SHA-256 from the released catalog to match before activation. The
@@ -175,7 +249,8 @@ not be presented as a full commercial EDR replacement today.
 - Richer process telemetry (hashes, more reliable command line) and additional
   providers
 - Correlation / temporal rule support
-- Backpressure and load-shedding visibility
+- Real backpressure: adaptive sampling and priority shedding, rather than only
+  counting what was shed
 - Scheduled YARA memory sweeps and richer memory match metadata
 - macOS hardening toward production readiness
 - Continued documentation of operational security and limitations

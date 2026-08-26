@@ -7,6 +7,7 @@ use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::{init_logging, log_startup_banner};
+use crate::runtime::telemetry::TelemetryReporter;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
 use crate::sensor::windows::EtwSensor;
@@ -310,6 +311,9 @@ async fn run_edr(
 
     log_startup_banner("Windows ETW");
 
+    // Pipeline drop counters, published for `rustinel doctor`
+    let telemetry_reporter = TelemetryReporter::start(&cfg);
+
     // 2.1 Initialize Active Response Engine (optional)
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
@@ -413,7 +417,9 @@ async fn run_edr(
             "Initializing YARA Scanner"
         );
 
-        match scanner::Scanner::new(&cfg.scanner.yara_rules_path) {
+        match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
+            .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
+        {
             Ok(s) => {
                 info!(target: "rustinel", "YARA Scanner initialized successfully");
                 Arc::new(s)
@@ -494,7 +500,7 @@ async fn run_edr(
             (None, None)
         };
 
-    let mut reload_poller_handle = None;
+    let mut reload_poller = None;
     let mut reload_worker_handle = None;
     let mut reload_tx = None;
     if cfg.reload.enabled {
@@ -513,7 +519,7 @@ async fn run_edr(
             rx,
         ));
 
-        reload_poller_handle = Some(reload::spawn_reload_poller(
+        reload_poller = Some(reload::spawn_reload_poller(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
@@ -639,18 +645,15 @@ async fn run_edr(
     let sensor_clone = Arc::clone(&sensor);
 
     // We make trace_handle mutable so we can await it.
-    let mut trace_handle = tokio::task::spawn_blocking(move || {
-        if let Err(e) = sensor_clone.start(sensor_tx) {
-            error!("ETW sensor error: {}", e);
-        }
-    });
+    let mut trace_handle = tokio::task::spawn_blocking(move || sensor_clone.start(sensor_tx));
 
     // Wait for either shutdown signal or trace completion.
     tokio::select! {
         _ = shutdown_handler => {
             info!("Shutdown signal received, waiting for ETW session to close...");
             match trace_handle.await {
-                Ok(_) => info!("ETW sensor thread finished"),
+                Ok(Ok(())) => info!("ETW sensor thread finished"),
+                Ok(Err(err)) => warn!("ETW sensor exited with error during shutdown: {err:#}"),
                 Err(e) => error!("Failed to join ETW sensor thread: {}", e),
             }
         }
@@ -662,7 +665,10 @@ async fn run_edr(
             } else {
                 error!("🚨 CRITICAL: ETW sensor thread died unexpectedly!");
                 match result {
-                    Ok(_) => {
+                    Ok(Err(err)) => {
+                        error!("ETW session failed: {err:#}");
+                    }
+                    Ok(Ok(())) => {
                         error!("Trace stopped without panic (unexpected normal termination)");
                         error!("This indicates the ETW session closed unexpectedly");
                     }
@@ -722,10 +728,9 @@ async fn run_edr(
         }
     }
 
-    if let Some(handle) = reload_poller_handle.take() {
+    if let Some(poller) = reload_poller.take() {
         info!("Signaling hot-reload poller to shut down...");
-        handle.abort();
-        let _ = handle.await;
+        poller.shutdown().await;
         info!("Hot-reload poller thread finished");
     }
     drop(reload_tx.take());
@@ -751,6 +756,10 @@ async fn run_edr(
     if let Some(dedup) = alert_sink.dedup() {
         dedup.flush_all(&alert_sink);
         dedup.log_metrics();
+    }
+
+    if let Some(reporter) = telemetry_reporter {
+        reporter.finish().await;
     }
 
     info!("");

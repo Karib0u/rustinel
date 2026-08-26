@@ -631,16 +631,13 @@ fn record_type_name(qtype: u16) -> Option<&'static str> {
     Some(name)
 }
 
+/// Queue a decoded event, accounting for a drop rather than blocking.
+///
+/// The capture loop reads a fixed-size kernel buffer, so blocking here would
+/// overflow that buffer instead. Overflow is shed and counted — see
+/// [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
-    match tx.try_send(event) {
-        Ok(_) => {}
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-            warn!("bpf sensor: event channel full, dropping event");
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            // Pipeline has shut down; stop logging.
-        }
-    }
+    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
 }
 
 fn read_u32(buf: &[u8], at: usize) -> u32 {

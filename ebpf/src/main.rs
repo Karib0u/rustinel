@@ -8,6 +8,8 @@
 //! |-----------------------|-----------------------------|-----------------|
 //! | `handle_exec`         | `sched/sched_process_exec`  | Event 1         |
 //! | `handle_exit`         | `sched/sched_process_exit`  | cache cleanup   |
+//! | `handle_execve`       | `syscalls/sys_enter_execve` | capture argv    |
+//! | `handle_execveat`     | `syscalls/sys_enter_execveat`| capture argv   |
 //! | `handle_connect`      | `syscalls/sys_enter_connect`| Event 3         |
 //! | `handle_openat`       | `syscalls/sys_enter_openat` | queue Event 11  |
 //! | `handle_vfs_create`   | `kprobe/vfs_create`         | confirm create  |

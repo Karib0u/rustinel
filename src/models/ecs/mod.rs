@@ -91,6 +91,7 @@ impl From<&Alert> for EcsAlert {
             file_extension: None,
             file_created: None,
             edr_file_previous_created: None,
+            edr_file_path_truncated: None,
             file_original_file_name: None,
             file_product: None,
             file_description: None,
@@ -175,6 +176,7 @@ impl From<&Alert> for EcsAlert {
                 ecs.file_path = f.target_filename.clone();
                 ecs.file_created = f.creation_utc_time.clone();
                 ecs.edr_file_previous_created = f.previous_creation_utc_time.clone();
+                ecs.edr_file_path_truncated = f.path_truncated.clone();
                 ecs.process_executable = f.image.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
                 apply_user_fields(&mut ecs, f.user.as_deref());
@@ -637,6 +639,7 @@ mod tests {
                     creation_utc_time: Some("2026-01-06T00:00:00Z".to_string()),
                     previous_creation_utc_time: None,
                     user: Some("ALICE".to_string()),
+                    path_truncated: None,
                 }),
                 process_context: None,
             },

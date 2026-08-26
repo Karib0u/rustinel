@@ -23,4 +23,5 @@ pub mod sensor;
 pub mod service;
 pub mod setup;
 pub mod state;
+pub mod telemetry;
 pub mod utils;

@@ -9,6 +9,13 @@
 //! - Fixed-size arrays for strings (null-terminated, rest zeroed).
 //! - All integer fields use explicit sizes (`u32`, `u16`, etc.).
 
+/// Maximum bytes of argv captured in the kernel for one `execve`.
+///
+/// A power of two so the verifier can bound the write offset with a mask.
+/// Anything past this is dropped and the event is flagged truncated; the
+/// userspace loader then falls back to `/proc/<pid>/cmdline`.
+pub const ARGV_CAPACITY: usize = 512;
+
 /// Process lifecycle event.
 ///
 /// - kind 1 = exec (`sched_process_exec`)
@@ -29,6 +36,18 @@ pub struct ProcessEvent {
     ///
     /// Empty for exit events.
     pub image: [u8; 128],
+    /// Number of valid bytes in `args`. Zero when no argv was captured.
+    pub args_len: u16,
+    /// Number of argv entries captured in `args`.
+    pub args_count: u16,
+    /// 1 when argv did not fit the capture limits, 0 when complete.
+    pub args_truncated: u8,
+    pub _pad1: [u8; 3],
+    /// Argv captured at `execve` entry, NUL-separated (no trailing NUL
+    /// guaranteed). Only the first `args_len` bytes are meaningful.
+    ///
+    /// Empty for exit events.
+    pub args: [u8; ARGV_CAPACITY],
 }
 
 /// Outbound connection event. Emitted by `handle_connect` on
@@ -58,28 +77,78 @@ pub struct NetworkEvent {
     pub saddr: [u8; 16],
 }
 
-/// File create or delete event.
+/// Bytes captured for one file path, including the NUL terminator.
+///
+/// `PATH_MAX` is 4096, but a `FileEvent` holds two paths and one lives in a
+/// per-thread pending map slot for the duration of every `openat`, `unlinkat`,
+/// and `renameat*` call on the machine, so capturing `PATH_MAX` would cost
+/// 8 KiB per in-flight syscall. 512 covers the overwhelming majority of real
+/// paths; anything longer is flagged through [`FILE_FLAG_PATH_TRUNCATED`]
+/// rather than passed off as complete.
+pub const FILE_PATH_LEN: usize = 512;
+
+/// `path` did not fit in [`FILE_PATH_LEN`] and was cut short.
+pub const FILE_FLAG_PATH_TRUNCATED: u32 = 1 << 0;
+
+/// `aux_path` did not fit in [`FILE_PATH_LEN`] and was cut short.
+pub const FILE_FLAG_AUX_PATH_TRUNCATED: u32 = 1 << 1;
+
+/// `dfd` value meaning "resolve against the process working directory".
+pub const AT_FDCWD: i32 = -100;
+
+/// File create, delete, rename, or change event.
 ///
 /// - kind 1 = create (`openat` with `O_CREAT`, emitted on successful return)
 /// - kind 2 = delete (`unlinkat`, emitted on successful return)
 /// - kind 3 = rename (`renameat*`, emitted on successful return)
 /// - kind 4 = change (`openat` with write intent, emitted on successful return)
+///
+/// `path` and `aux_path` are the raw pathname arguments, which the `*at`
+/// syscalls allow to be relative. Each carries the directory descriptor it is
+/// relative to (`dfd` for `path`, `aux_dfd` for `aux_path`) so userspace can
+/// rebuild the absolute path; a path that is already absolute is paired with
+/// [`AT_FDCWD`] and needs no descriptor.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FileEvent {
-    /// Event kind: 1 = create, 2 = delete.
+    /// Event kind: 1 = create, 2 = delete, 3 = rename, 4 = change.
     pub kind: u32,
     /// Thread group ID.
     pub pid: u32,
     /// Effective UID.
     pub uid: u32,
-    pub _pad0: u32,
-    /// Null-terminated file path (up to 95 chars).
-    pub path: [u8; 96],
-    /// Auxiliary path used for rename old-name tracking.
-    pub aux_path: [u8; 96],
+    /// Bitmask of `FILE_FLAG_*` — currently path truncation.
+    pub flags: u32,
+    /// Directory descriptor `path` is relative to, or [`AT_FDCWD`].
+    pub dfd: i32,
+    /// Directory descriptor `aux_path` is relative to, or [`AT_FDCWD`].
+    pub aux_dfd: i32,
+    /// Kernel token for the indexed directory currently held in `dfd`.
+    /// Zero means userspace must use the `/proc` fallback.
+    pub dfd_token: u64,
+    /// Kernel token for the indexed directory currently held in `aux_dfd`.
+    /// Zero means userspace must use the `/proc` fallback.
+    pub aux_dfd_token: u64,
+    /// Null-terminated file path (target/new name for renames).
+    pub path: [u8; FILE_PATH_LEN],
+    /// Null-terminated auxiliary path (source/old name for renames).
+    pub aux_path: [u8; FILE_PATH_LEN],
     /// Null-terminated process name (`comm`, up to 15 chars).
     pub comm: [u8; 16],
+}
+
+/// Compact maintenance event carried on the file ring.
+///
+/// Kind 6 resets every userspace directory-index entry owned by `pid`. It is
+/// emitted on exec, thread exit, and `close_range`, in the same ring as file
+/// events so maintenance cannot be reordered across ring drains.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FileIndexEvent {
+    pub kind: u32,
+    pub pid: u32,
+    pub fd: i32,
+    pub _pad: u32,
 }
 
 /// DNS query/response event.

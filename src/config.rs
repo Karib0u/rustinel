@@ -15,6 +15,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 use crate::models::MatchDebugLevel;
+use crate::scanner::{self, ScanLimits};
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 const CONFIG_PATH_ENV: &str = "RUSTINEL_CONFIG";
@@ -298,6 +299,7 @@ pub struct AppConfig {
     pub reload: ReloadConfig,
     pub dedup: DedupConfig,
     pub capture: CaptureConfig,
+    pub telemetry: TelemetryConfig,
 }
 
 /// Scanner configuration (Sigma and YARA rules)
@@ -311,6 +313,10 @@ pub struct ScannerConfig {
     pub yara_enabled: bool,
     pub yara_rules_path: PathBuf,
     pub yara_allowlist_paths: Vec<String>,
+    /// Per-scan timeout for file and memory scans. 0 disables the timeout.
+    pub yara_scan_timeout_ms: u64,
+    /// Maximum size of a file accepted by an on-disk scan. 0 disables the guard.
+    pub yara_max_file_mb: u64,
     pub yara_memory_enabled: bool,
     pub yara_memory_queue_capacity: usize,
     pub yara_memory_delay_ms: u64,
@@ -319,6 +325,16 @@ pub struct ScannerConfig {
     pub yara_memory_include_private: bool,
     pub yara_memory_include_image: bool,
     pub yara_memory_include_mapped: bool,
+}
+
+impl ScannerConfig {
+    /// Resource guards applied to every YARA scan.
+    pub fn yara_scan_limits(&self) -> ScanLimits {
+        ScanLimits {
+            timeout: std::time::Duration::from_millis(self.yara_scan_timeout_ms),
+            max_file_bytes: self.yara_max_file_mb.saturating_mul(1024 * 1024),
+        }
+    }
 }
 
 /// Global allowlist configuration shared across modules
@@ -419,6 +435,18 @@ pub struct CaptureConfig {
     pub directory: PathBuf,
 }
 
+/// Pipeline telemetry accounting configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct TelemetryConfig {
+    /// Write the pipeline drop-counter snapshot that `rustinel doctor` reads.
+    /// The in-memory counters and their rate-limited warnings are always on;
+    /// this only controls whether they are persisted for another process.
+    pub enabled: bool,
+    /// How often the snapshot is refreshed, in seconds. A shutdown snapshot is
+    /// always written regardless of where the interval fell.
+    pub snapshot_interval_secs: u64,
+}
+
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
@@ -463,6 +491,14 @@ impl AppConfig {
             .set_default("scanner.yara_enabled", true)?
             .set_default("scanner.yara_rules_path", "rules/current/yara")?
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
+            .set_default(
+                "scanner.yara_scan_timeout_ms",
+                scanner::DEFAULT_SCAN_TIMEOUT_MS as i64,
+            )?
+            .set_default(
+                "scanner.yara_max_file_mb",
+                scanner::DEFAULT_MAX_FILE_MB as i64,
+            )?
             .set_default("scanner.yara_memory_enabled", false)?
             .set_default("scanner.yara_memory_queue_capacity", 64i64)?
             .set_default("scanner.yara_memory_delay_ms", 750i64)?
@@ -516,7 +552,10 @@ impl AppConfig {
             .set_default("dedup.window_secs", 60i64)?
             .set_default("dedup.max_entries", 10000i64)?
             // Behavioral recording
-            .set_default("capture.directory", "captures")?;
+            .set_default("capture.directory", "captures")?
+            // Telemetry
+            .set_default("telemetry.enabled", true)?
+            .set_default("telemetry.snapshot_interval_secs", 30i64)?;
 
         let builder = match selected_config {
             Some(path) => builder.add_source(config::File::from(path).required(true)),
@@ -703,6 +742,8 @@ impl Default for AppConfig {
                 yara_enabled: true,
                 yara_rules_path: PathBuf::from("rules/current/yara"),
                 yara_allowlist_paths: Vec::new(),
+                yara_scan_timeout_ms: scanner::DEFAULT_SCAN_TIMEOUT_MS,
+                yara_max_file_mb: scanner::DEFAULT_MAX_FILE_MB,
                 yara_memory_enabled: false,
                 yara_memory_queue_capacity: 64,
                 yara_memory_delay_ms: 750,
@@ -767,6 +808,10 @@ impl Default for AppConfig {
             capture: CaptureConfig {
                 directory: PathBuf::from("captures"),
             },
+            telemetry: TelemetryConfig {
+                enabled: true,
+                snapshot_interval_secs: 30,
+            },
         };
 
         cfg.apply_allowlist_fallbacks();
@@ -805,6 +850,8 @@ mod tests {
         assert_eq!(cfg.reload.debounce_ms, 2000);
         assert_eq!(cfg.alerts.match_debug, MatchDebugLevel::Off);
         assert_eq!(cfg.network.aggregation_window_secs, 60);
+        assert!(cfg.telemetry.enabled);
+        assert_eq!(cfg.telemetry.snapshot_interval_secs, 30);
     }
 
     #[test]
@@ -1121,6 +1168,28 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         assert!(cfg.scanner.yara_memory_include_private);
         assert!(!cfg.scanner.yara_memory_include_image);
         assert!(!cfg.scanner.yara_memory_include_mapped);
+    }
+
+    #[test]
+    fn test_yara_scan_guards_are_active_by_default() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.scanner.yara_scan_timeout_ms, 10_000);
+        assert_eq!(cfg.scanner.yara_max_file_mb, 64);
+
+        let limits = cfg.scanner.yara_scan_limits();
+        assert_eq!(limits.timeout, std::time::Duration::from_secs(10));
+        assert_eq!(limits.max_file_bytes, 64 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_yara_scan_guards_can_be_disabled() {
+        let mut cfg = AppConfig::default();
+        cfg.scanner.yara_scan_timeout_ms = 0;
+        cfg.scanner.yara_max_file_mb = 0;
+
+        let limits = cfg.scanner.yara_scan_limits();
+        assert!(limits.timeout.is_zero());
+        assert_eq!(limits.max_file_bytes, 0);
     }
 
     #[test]

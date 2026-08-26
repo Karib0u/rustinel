@@ -552,6 +552,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: Some(raw.user),
+            path_truncated: None,
         }),
     })
 }
@@ -572,16 +573,12 @@ fn system_time_nanos(time: SystemTime) -> u64 {
         .unwrap_or(0)
 }
 
+/// Queue a decoded event, accounting for a drop rather than blocking.
+///
+/// The ESF message handler runs on the client's own queue and must return
+/// promptly, so overflow is shed and counted — see [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
-    match tx.try_send(event) {
-        Ok(_) => {}
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-            warn!("ESF sensor: event channel full, dropping event");
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            // Pipeline has shut down; stop logging.
-        }
-    }
+    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
 }
 
 #[cfg(test)]

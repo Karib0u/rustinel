@@ -7,6 +7,8 @@ use crate::doctor::path::path_results;
 use crate::doctor::prerequisites::platform_prerequisite_results;
 use crate::doctor::rules::{inspect_rule_pack, rule_validation_results};
 use crate::doctor::services::inspect_service;
+use crate::doctor::telemetry::telemetry_results;
+use crate::telemetry::TelemetrySnapshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -152,6 +154,10 @@ pub struct DoctorReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_pack: Option<RulePackDiagnostic>,
     pub service: ServiceDiagnostic,
+    /// Pipeline drop counters read from the running agent's snapshot, when one
+    /// has been written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub telemetry: Option<TelemetrySnapshot>,
     pub results: Vec<DiagnosticResult>,
 }
 
@@ -177,8 +183,16 @@ impl DoctorReport {
             paths,
             rule_pack,
             service,
+            telemetry: None,
             results,
         }
+    }
+
+    /// Attach the pipeline drop counters, so `--json` carries the per-channel
+    /// numbers behind the summary diagnostic.
+    pub fn with_telemetry(mut self, telemetry: Option<TelemetrySnapshot>) -> Self {
+        self.telemetry = telemetry;
+        self
     }
 }
 
@@ -230,6 +244,9 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
             results.extend(rule_validation_results(&cfg, platform));
             results.extend(platform_prerequisite_results());
 
+            let (pipeline_results, telemetry) = telemetry_results(&cfg, &paths.logs_dir);
+            results.extend(pipeline_results);
+
             let rule_pack = inspect_rule_pack(&paths, &mut results);
             let service = inspect_service(mode, &mut results);
 
@@ -242,6 +259,7 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
                 service,
                 results,
             )
+            .with_telemetry(telemetry)
         }
         Err(err) => {
             results.push(
@@ -324,6 +342,28 @@ pub fn format_human(report: &DoctorReport) -> String {
         output.push_str(&format!("  state: {}\n", pack.state_path.display()));
         if let Some(path) = &pack.manifest_path {
             output.push_str(&format!("  manifest: {}\n", path.display()));
+        }
+    }
+
+    if let Some(telemetry) = &report.telemetry {
+        output.push_str("\nPipeline channels:\n");
+        output.push_str(&format!(
+            "  snapshot: {} (pid {}, up {}s)\n",
+            telemetry.captured_at, telemetry.pid, telemetry.uptime_secs
+        ));
+        let active = telemetry.active_channels();
+        if active.is_empty() {
+            output.push_str("  no channel has carried an event yet\n");
+        }
+        for channel in active {
+            output.push_str(&format!(
+                "  {}: accepted {}, dropped {}, peak depth {}/{}\n",
+                channel.channel,
+                channel.accepted,
+                channel.dropped,
+                channel.high_water_mark,
+                channel.capacity
+            ));
         }
     }
 

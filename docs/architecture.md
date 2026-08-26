@@ -103,7 +103,7 @@ The ETW providers include:
 
 The Linux sensor loads eBPF programs with Aya and currently covers:
 
-- Process execution and exit
+- Process execution and exit, with command lines captured in the kernel: argv is snapshotted at `execve`/`execveat` entry, where it is still mapped, and joined to the `sched_process_exec` event that follows, so short-lived processes keep their `CommandLine`
 - Network connect activity
 - File create, delete, change, and rename flows
 - DNS queries observed from userspace `sendto`, `sendmsg`, and `sendmmsg` calls. The eBPF program emits a bounded raw DNS payload and userspace parses `QueryName`, keeping string parsing out of the verifier-sensitive in-kernel path. Linux DNS response answers are not parsed yet, so `QueryResults` remains unavailable on Linux.
@@ -112,6 +112,8 @@ The current loader attaches a mix of tracepoints and kprobes, including:
 
 - `sched:sched_process_exec`
 - `sched:sched_process_exit`
+- `syscalls:sys_enter_execve`
+- `syscalls:sys_enter_execveat`
 - `syscalls:sys_enter_connect`
 - `syscalls:sys_enter_openat`
 - `syscalls:sys_exit_openat`
@@ -158,6 +160,8 @@ Once a platform sensor emits a raw `SensorEvent`, the rest of the runtime is sha
 3. `YaraEventHandler` only handles process-start events and queues executable paths to the YARA worker.
 4. YARA scans and IOC hash calculations run off the hot path in background workers.
 5. Detection hits are written as ECS NDJSON through `AlertSink` and can also be handed to `ResponseEngine`.
+
+Every hop in that list crosses a bounded channel, and each of them sheds load rather than blocking its producer: blocking an ETW callback or an eBPF poll loop would lose the events queued behind it in the kernel instead. Shedding trades a detection gap for stability, so each channel carries atomic counters - accepted, dropped, and peak queue depth - in `src/telemetry`. The runtime publishes them to `telemetry.json` beside the logs, and `rustinel doctor` reads that snapshot, which is what makes the gap measurable from outside the process. See [Pipeline Telemetry](configuration.md#pipeline-telemetry).
 
 ## Detector Store and Hot Reload
 

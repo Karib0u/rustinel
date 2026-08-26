@@ -33,6 +33,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           cache: false
+          rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           lookup-only: true
@@ -69,6 +70,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           cache: false
+          rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           lookup-only: true
@@ -80,7 +82,7 @@ jobs:
           path: ebpf/
 
       - name: Install cross
-        uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2.85.11
+        uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
         with:
           tool: cross
 
@@ -104,6 +106,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           cache: false
+          rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           lookup-only: true
@@ -117,6 +120,33 @@ jobs:
           }
           $sizeMB = [math]::Round((Get-Item target/release/rustinel.exe).Length / 1MB, 2)
           Write-Output "Binary: target/release/rustinel.exe ($sizeMB MB)"
+          $bytes = [IO.File]::ReadAllBytes("target/release/rustinel.exe")
+          if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) {
+            Write-Error "Binary is not a valid DOS executable"
+            exit 1
+          }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 0 -or $peOffset + 24 + 56 -gt $bytes.Length) {
+            Write-Error "Binary has an invalid PE header offset"
+            exit 1
+          }
+          if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45 -or $bytes[$peOffset + 2] -ne 0x00 -or $bytes[$peOffset + 3] -ne 0x00) {
+            Write-Error "Binary is not a valid PE executable"
+            exit 1
+          }
+          $optionalHeaderOffset = $peOffset + 24
+          if ([BitConverter]::ToUInt16($bytes, $optionalHeaderOffset) -ne 0x20b) {
+            Write-Error "Binary is not a 64-bit PE executable"
+            exit 1
+          }
+          # PE32+ stores SizeOfStackReserve 48 bytes into the optional header.
+          $stackReserve = [BitConverter]::ToUInt64($bytes, $optionalHeaderOffset + 48)
+          $expectedStackReserve = [uint64]0x1000000
+          Write-Output ("SizeOfStackReserve: 0x{0:X}" -f $stackReserve)
+          if ($stackReserve -ne $expectedStackReserve) {
+            Write-Error ("Expected SizeOfStackReserve 0x{0:X}, got 0x{1:X}" -f $expectedStackReserve, $stackReserve)
+            exit 1
+          }
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -142,6 +172,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           cache: false
+          rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           lookup-only: true

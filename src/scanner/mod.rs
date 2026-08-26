@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, info, warn};
 use yara_x::{Compiler, Rules, Scanner as XScanner};
@@ -71,6 +71,62 @@ pub fn is_path_allowlisted(path: &str, allowlist_paths: &[String]) -> bool {
         .iter()
         .any(|prefix| normalized.starts_with(prefix.as_str()))
 }
+
+/// Default per-scan timeout applied to file and memory scans.
+pub const DEFAULT_SCAN_TIMEOUT_MS: u64 = 10_000;
+/// Default maximum size of a file accepted by [`Scanner::scan_file`].
+pub const DEFAULT_MAX_FILE_MB: u64 = 64;
+
+/// Resource guards applied to every scan.
+///
+/// A zero value disables the corresponding guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanLimits {
+    /// Per-scan timeout handed to `yara_x::Scanner::set_timeout`.
+    pub timeout: Duration,
+    /// Maximum size of a file accepted by [`Scanner::scan_file`].
+    pub max_file_bytes: u64,
+}
+
+impl Default for ScanLimits {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_millis(DEFAULT_SCAN_TIMEOUT_MS),
+            max_file_bytes: DEFAULT_MAX_FILE_MB * 1024 * 1024,
+        }
+    }
+}
+
+/// Why a scan did not produce a match verdict.
+///
+/// Timed-out and oversized targets stay distinct from engine failures so
+/// operators never see them collapse into clean results.
+#[derive(Debug, thiserror::Error)]
+pub enum ScanError {
+    /// The scan hit the configured per-scan timeout.
+    #[error("YARA scan timed out after {} ms", timeout.as_millis())]
+    TimedOut { timeout: Duration },
+    /// The target was larger than the configured maximum and was not scanned.
+    #[error("target of {size} bytes exceeds the maximum scan size of {limit} bytes")]
+    TooLarge { size: u64, limit: u64 },
+    /// The scan engine or the underlying I/O failed.
+    #[error("{0:#}")]
+    Failed(anyhow::Error),
+}
+
+impl ScanError {
+    /// Short, stable label for logs and counters.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ScanError::TimedOut { .. } => "timeout",
+            ScanError::TooLarge { .. } => "oversized",
+            ScanError::Failed(_) => "failed",
+        }
+    }
+}
+
+/// Outcome of a single scan: matches (possibly empty) or a typed failure.
+pub type ScanResult = std::result::Result<Vec<YaraRuleMatch>, ScanError>;
 
 const MAX_YARA_STRINGS_PER_RULE: usize = 8;
 const MAX_YARA_SNIPPET_LEN: usize = 80;
@@ -196,6 +252,7 @@ pub struct Scanner {
     compiled_files: usize,
     files_found: usize,
     failed_files: usize,
+    limits: ScanLimits,
     cache: Mutex<YaraScanCache>,
 }
 
@@ -262,6 +319,7 @@ impl Scanner {
             compiled_files: files_compiled,
             files_found,
             failed_files: files_failed,
+            limits: ScanLimits::default(),
             cache: Mutex::new(YaraScanCache::new()),
         })
     }
@@ -276,8 +334,19 @@ impl Scanner {
             compiled_files: 0,
             files_found: 0,
             failed_files: 0,
+            limits: ScanLimits::default(),
             cache: Mutex::new(YaraScanCache::new()),
         }
+    }
+
+    /// Override the default scan guards.
+    pub fn with_limits(mut self, limits: ScanLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    pub fn limits(&self) -> ScanLimits {
+        self.limits
     }
 
     pub fn compiled_files(&self) -> usize {
@@ -292,34 +361,71 @@ impl Scanner {
         self.failed_files
     }
 
-    /// Scan a file path and return matching rule details
-    pub fn scan_file(
-        &self,
-        path: &str,
-        match_debug: MatchDebugLevel,
-    ) -> Result<Vec<YaraRuleMatch>> {
+    /// Scan a file path and return matching rule details.
+    ///
+    /// Files above the configured maximum size are rejected before the scan
+    /// starts, and the scan itself is bounded by the configured timeout.
+    pub fn scan_file(&self, path: &str, match_debug: MatchDebugLevel) -> ScanResult {
         if self.compiled_files == 0 {
             return Ok(Vec::new());
         }
 
         let path = normalize_yara_path(path);
+        self.check_file_size(&path)?;
         self.scan_file_cached(&path, match_debug, |path| {
             let mut scanner = XScanner::new(&self.rules);
-            let scan_results = scanner
-                .scan_file(path)
-                .with_context(|| format!("YARA scan failed for {path}"))?;
+            self.apply_timeout(&mut scanner);
+            let scan_results = scanner.scan_file(path).map_err(|err| {
+                self.map_scan_error(err, || format!("YARA scan failed for {path}"))
+            })?;
             Ok(collect_yara_matches(scan_results, match_debug))
         })
     }
 
-    fn scan_file_cached<F>(
+    /// Reject targets above the configured maximum file size.
+    fn check_file_size(&self, path: &str) -> std::result::Result<(), ScanError> {
+        let limit = self.limits.max_file_bytes;
+        if limit == 0 {
+            return Ok(());
+        }
+
+        let size = fs::metadata(path)
+            .map(|metadata| metadata.len())
+            .map_err(|err| {
+                ScanError::Failed(
+                    anyhow::Error::new(err)
+                        .context(format!("YARA scan failed for {path}: cannot read metadata")),
+                )
+            })?;
+        if size > limit {
+            return Err(ScanError::TooLarge { size, limit });
+        }
+
+        Ok(())
+    }
+
+    fn apply_timeout(&self, scanner: &mut XScanner<'_>) {
+        if !self.limits.timeout.is_zero() {
+            scanner.set_timeout(self.limits.timeout);
+        }
+    }
+
+    fn map_scan_error<F: FnOnce() -> String>(
         &self,
-        path: &str,
-        match_debug: MatchDebugLevel,
-        scan: F,
-    ) -> Result<Vec<YaraRuleMatch>>
+        err: yara_x::ScanError,
+        context: F,
+    ) -> ScanError {
+        if matches!(err, yara_x::ScanError::Timeout) {
+            return ScanError::TimedOut {
+                timeout: self.limits.timeout,
+            };
+        }
+        ScanError::Failed(anyhow::Error::new(err).context(context()))
+    }
+
+    fn scan_file_cached<F>(&self, path: &str, match_debug: MatchDebugLevel, scan: F) -> ScanResult
     where
-        F: FnOnce(&str) -> Result<Vec<YaraRuleMatch>>,
+        F: FnOnce(&str) -> ScanResult,
     {
         let identity_guard = fs::File::open(path).ok();
         let identity = identity_guard
@@ -359,17 +465,20 @@ impl Scanner {
     }
 
     /// Scan a byte slice and return matching rule details.
-    pub fn scan_bytes(
-        &self,
-        data: &[u8],
-        match_debug: MatchDebugLevel,
-    ) -> Result<Vec<YaraRuleMatch>> {
+    ///
+    /// The scan is bounded by the configured timeout. Size limiting is the
+    /// caller's job here: memory scans are already bounded by
+    /// `MemoryScanConfig::max_region_bytes`.
+    pub fn scan_bytes(&self, data: &[u8], match_debug: MatchDebugLevel) -> ScanResult {
         if self.compiled_files == 0 {
             return Ok(Vec::new());
         }
 
         let mut scanner = XScanner::new(&self.rules);
-        let scan_results = scanner.scan(data).context("YARA memory scan failed")?;
+        self.apply_timeout(&mut scanner);
+        let scan_results = scanner
+            .scan(data)
+            .map_err(|err| self.map_scan_error(err, || "YARA memory scan failed".to_string()))?;
         Ok(collect_yara_matches(scan_results, match_debug))
     }
 }
@@ -488,7 +597,11 @@ impl SensorEventHandler for YaraEventHandler {
             return;
         }
 
-        match self.tx.try_send((path.to_string(), pid)) {
+        match crate::telemetry::try_send(
+            crate::telemetry::ChannelId::YaraFileScan,
+            &self.tx,
+            (path.to_string(), pid),
+        ) {
             Ok(_) => tracing::trace!(
                 target: "scanner",
                 pid = pid,
@@ -506,7 +619,11 @@ impl SensorEventHandler for YaraEventHandler {
 
         if let Some(memory_tx) = &self.memory_tx {
             let expected_identity = capture_process_identity(event, fields, pid, path);
-            match memory_tx.try_send(YaraMemoryJob { expected_identity }) {
+            match crate::telemetry::try_send(
+                crate::telemetry::ChannelId::YaraMemoryScan,
+                memory_tx,
+                YaraMemoryJob { expected_identity },
+            ) {
                 Ok(_) => tracing::trace!(
                     target: "scanner",
                     pid = pid,
@@ -564,6 +681,113 @@ mod tests {
     fn test_file_identity() -> FileIdentity {
         let file = tempfile::NamedTempFile::new().expect("temp file");
         file_identity::from_file(file.as_file()).expect("stable file identity")
+    }
+
+    fn scanner_with_marker_rule(dir: &Path) -> Scanner {
+        let rules_dir = dir.join("rules");
+        fs::create_dir_all(&rules_dir).expect("create rules directory");
+        fs::write(
+            rules_dir.join("malicious.yar"),
+            r#"rule Malicious { strings: $marker = "evil!!" condition: $marker }"#,
+        )
+        .expect("write rule");
+        Scanner::new(&rules_dir).expect("compile scanner")
+    }
+
+    #[test]
+    fn test_default_scan_limits_are_active() {
+        let limits = Scanner::empty().limits();
+        assert_eq!(
+            limits.timeout,
+            Duration::from_millis(DEFAULT_SCAN_TIMEOUT_MS)
+        );
+        assert_eq!(limits.max_file_bytes, DEFAULT_MAX_FILE_MB * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_scan_file_rejects_oversized_target_before_scanning() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let scanner = scanner_with_marker_rule(tempdir.path()).with_limits(ScanLimits {
+            timeout: Duration::from_secs(1),
+            max_file_bytes: 4,
+        });
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"evil!!").expect("write sample");
+
+        let error = scanner
+            .scan_file(path.to_str().unwrap(), MatchDebugLevel::Off)
+            .expect_err("oversized file must not be reported as a clean scan");
+
+        match error {
+            ScanError::TooLarge { size, limit } => {
+                assert_eq!(size, 6);
+                assert_eq!(limit, 4);
+            }
+            other => panic!("expected an oversized outcome, got {other:?}"),
+        }
+        assert_eq!(error.kind(), "oversized");
+    }
+
+    #[test]
+    fn test_scan_file_accepts_target_at_the_size_limit() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let scanner = scanner_with_marker_rule(tempdir.path()).with_limits(ScanLimits {
+            timeout: Duration::from_secs(1),
+            max_file_bytes: 6,
+        });
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"evil!!").expect("write sample");
+
+        let matches = scanner
+            .scan_file(path.to_str().unwrap(), MatchDebugLevel::Off)
+            .expect("scan at the limit");
+        assert_eq!(matches[0].rule, "Malicious");
+    }
+
+    #[test]
+    fn test_zero_max_file_bytes_disables_the_size_guard() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let scanner = scanner_with_marker_rule(tempdir.path()).with_limits(ScanLimits {
+            timeout: Duration::from_secs(1),
+            max_file_bytes: 0,
+        });
+        let path = tempdir.path().join("sample.bin");
+        fs::write(&path, b"evil!!").expect("write sample");
+
+        let matches = scanner
+            .scan_file(path.to_str().unwrap(), MatchDebugLevel::Off)
+            .expect("scan with the size guard disabled");
+        assert_eq!(matches[0].rule, "Malicious");
+    }
+
+    #[test]
+    fn test_scan_file_reports_unstattable_target_as_failure() {
+        let scanner = scanner_with_marker_rule(tempfile::tempdir().expect("tempdir").path());
+        let error = scanner
+            .scan_file("definitely/missing/sample.bin", MatchDebugLevel::Off)
+            .expect_err("missing file must not be reported as a clean scan");
+        assert_eq!(error.kind(), "failed");
+        assert!(
+            error.to_string().contains("YARA scan failed"),
+            "failure should retain scan context: {error}"
+        );
+    }
+
+    #[test]
+    fn test_engine_timeout_maps_to_timed_out_outcome() {
+        let timeout = Duration::from_millis(25);
+        let scanner = Scanner::empty().with_limits(ScanLimits {
+            timeout,
+            max_file_bytes: 1,
+        });
+
+        let mapped = scanner.map_scan_error(yara_x::ScanError::Timeout, || "unused".to_string());
+
+        match mapped {
+            ScanError::TimedOut { timeout: reported } => assert_eq!(reported, timeout),
+            other => panic!("expected a timeout outcome, got {other:?}"),
+        }
+        assert_eq!(mapped.kind(), "timeout");
     }
 
     #[test]

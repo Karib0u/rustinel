@@ -137,6 +137,16 @@ pub struct FileEventFields {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+
+    /// Which paths on this event were cut short by the sensor's capture buffer:
+    /// `"target"`, `"source"`, or `"source,target"`. Absent when both are
+    /// complete.
+    ///
+    /// Truncation removes the end of a path, which is what `endswith` rules and
+    /// extension IOCs match on, so a rule that does not fire on an event
+    /// carrying this marker has not cleared the file.
+    #[serde(rename = "PathTruncated", skip_serializing_if = "Option::is_none")]
+    pub path_truncated: Option<String>,
 }
 
 /// Registry event fields (Sigma: registry_event, registry_add, registry_delete, registry_set)
