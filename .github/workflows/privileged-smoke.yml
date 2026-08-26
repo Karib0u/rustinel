@@ -58,3 +58,5 @@ jobs:
         run: cargo test --locked --test yara_memory -- --include-ignored
       - name: Run ignored active response smoke tests
         run: cargo test --locked --test active_response -- --include-ignored
+      - name: Run ignored service event log smoke test
+        run: cargo test --locked --test windows_service_event_log -- --include-ignored

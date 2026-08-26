@@ -74,7 +74,8 @@ The key split in the codebase is between the hot event path and the control plan
 
 ### Windows
 
-The Windows sensor is ETW-based and currently covers:
+The Windows sensor uses ETW for realtime providers and a filtered Windows Event
+Log subscription for Service Control Manager event 7045. It currently covers:
 
 - Process
 - Image load
@@ -96,8 +97,11 @@ The ETW providers include:
 - `Microsoft-Windows-DNS-Client`
 - `Microsoft-Windows-PowerShell`
 - `Microsoft-Windows-WMI-Activity`
-- `Microsoft-Windows-Service-Control-Manager`
 - `Microsoft-Windows-TaskScheduler`
+
+Service creation comes from the System event log rather than the classic
+Service Control Manager provider, which does not deliver event 7045 to realtime
+user ETW sessions.
 
 ### Linux
 

@@ -103,7 +103,7 @@ rule instead of one is tracked separately by
 
 ### Supported Logsource Families
 
-| Family | Windows ETW | Linux eBPF | macOS ESF/bpf | Notes |
+| Family | Windows sensors | Linux eBPF | macOS ESF/bpf | Notes |
 | --- | --- | --- | --- | --- |
 | `process_creation` | Yes | Yes | Yes | Sysmon-style process events |
 | `network_connection` | Yes | Yes | Yes | Generic `service: connection`, `category: network` is also supported; macOS connections are best-effort process-attributed |

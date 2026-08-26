@@ -100,7 +100,7 @@ Installers only download published release binaries.
 
 A transparent endpoint detection engine you can read, run, test, and extend.
 
-- **Native telemetry:** ETW on Windows, eBPF on Linux, Endpoint Security and `/dev/bpf` on macOS.
+- **Native telemetry:** ETW and Windows Event Log on Windows, eBPF on Linux, Endpoint Security and `/dev/bpf` on macOS.
 - **Detection formats:** Sigma for behavior, YARA for files and memory, IOC matching for hashes, IPs, domains, and path regexes.
 - **Rule reuse:** bring existing Sigma and YARA rules instead of rewriting them into a proprietary format.
 - **SIEM output:** ECS 9.4.0 NDJSON alerts for Elastic, Splunk, and other log pipelines.
@@ -112,7 +112,7 @@ A transparent endpoint detection engine you can read, run, test, and extend.
 
 | Platform | Sensor | Telemetry | Status |
 | --- | --- | --- | --- |
-| Windows 10/11, Server 2016+ | ETW | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task | Stable |
+| Windows 10/11, Server 2016+ | ETW + Windows Event Log | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task | Stable |
 | Linux 5.8+ (BTF) | eBPF | Process, network, file, DNS | Stable |
 | macOS 11+ | Endpoint Security + `/dev/bpf` | Process, file, network, DNS | Experimental |
 

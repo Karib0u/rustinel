@@ -160,23 +160,6 @@ pub fn wmi_event_mappings() -> &'static FieldMapping {
     &WMI_EVENT_MAP
 }
 
-static SERVICE_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
-    FieldMapping::new(&[
-        ("ServiceName", "ServiceName"),
-        ("ServiceFileName", "ImagePath"),
-        ("ServiceType", "ServiceType"),
-        ("StartType", "StartType"),
-        ("AccountName", "AccountName"),
-        ("User", "UserName"),
-        ("ProcessId", "ProcessID"),
-        ("Image", "ImageName"),
-    ])
-});
-
-pub fn service_creation_mappings() -> &'static FieldMapping {
-    &SERVICE_CREATION_MAP
-}
-
 static TASK_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
         ("TaskName", "TaskName"),
