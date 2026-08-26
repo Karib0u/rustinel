@@ -14,7 +14,6 @@ This page documents Rustinel's known limitations for the current release.
 
 | Limitation | Area |
 | --- | --- |
-| Registry value *data* is never captured; `Details` holds the value *name* instead | Windows |
 | Process events carry no hashes (`Hashes` / `Imphash`) | Windows |
 | Command line is lost for short-lived processes | Windows | Linux |
 | No stateful correlation or filter evaluation; unsupported documents are reported at load time | Engine |
@@ -30,10 +29,13 @@ a Windows Event Log subscription, rather than using a kernel driver.
 Coverage is the broadest of the three platforms, but several Sysmon-style fields
 are unavailable.
 
-- **Registry value data is not captured (silent risk).** Unlike Sysmon, `Details`
-  maps to the registry *value name*, not the data written to it - the
-  Kernel-Registry provider doesn't emit value data. A rule matching on written
-  content silently matches the value name instead.
+- **Registry value data is captured through an undocumented request.** `Details`
+  carries the value data, as Sysmon Event ID 13 defines it, because the session
+  asks the Kernel-Registry provider for it with an undocumented `EnableTraceEx2`
+  filter payload. The mechanism is not contractual and may stop working on a
+  future Windows build; when it does, `Details` falls back to the value *name*
+  and a warning is logged at startup. Binary values render as `Binary Data`,
+  matching Sysmon, so their content is not searchable.
 - **Registry `TargetObject` is not always a full path (silent risk).** The path
   is composed from the `CreateKey`/`OpenKey` events that named the key, so it is
   the full NT path (`\REGISTRY\MACHINE\...`) when the parent key was also seen
