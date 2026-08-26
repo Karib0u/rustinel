@@ -27,7 +27,7 @@ use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line
 use super::event_log::EventLogSubscriptions;
 use super::file_paths::FilePathCache;
 use super::registry_paths::RegistryPathCache;
-use super::{field_maps, mapper};
+use super::{field_maps, mapper, registry_value_data};
 
 /// Fixed trace session name for stopping the trace on shutdown.
 pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
@@ -597,6 +597,41 @@ impl EtwSensor {
     }
 }
 
+/// Ask the registry provider to include value data, once the session exists.
+///
+/// This cannot be part of building the provider: `ferrisetw` has no way to
+/// express the filter payload it needs, so the provider is re-enabled by hand
+/// on the running session. A failure is logged and tolerated — `Details` then
+/// falls back to the value name, exactly as before #292 — because the
+/// mechanism is undocumented and may not hold on every Windows build.
+fn request_registry_value_data() {
+    let provider = EtwProviders::kernel_registry();
+    match registry_value_data::request_value_data(
+        TRACE_SESSION_NAME,
+        to_windows_guid(provider.guid),
+        provider.level,
+        provider.keywords,
+        provider.event_ids,
+    ) {
+        Ok(()) => info!("Registry value data capture enabled"),
+        Err(err) => warn!(
+            "Could not enable registry value data capture ({err:#}); \
+             registry Details will carry the value name"
+        ),
+    }
+}
+
+/// `ferrisetw` is built against a different `windows` version than this crate,
+/// so the two `GUID` types are distinct despite being the same four fields.
+fn to_windows_guid(guid: GUID) -> windows::core::GUID {
+    windows::core::GUID {
+        data1: guid.data1,
+        data2: guid.data2,
+        data3: guid.data3,
+        data4: guid.data4,
+    }
+}
+
 impl Default for EtwSensor {
     fn default() -> Self {
         Self::new()
@@ -660,6 +695,8 @@ impl Sensor for EtwSensor {
                     "ETW trace session '{}' started successfully",
                     TRACE_SESSION_NAME
                 );
+
+                request_registry_value_data();
 
                 match trace.process() {
                     Ok(()) => {
@@ -1066,7 +1103,7 @@ fn decode_kernel_registry_record(
 
     let key_object = try_get_uint_as_u64(&parser, "KeyObject");
 
-    let (action, target_object) = match route {
+    let (action, target_object, value_name) = match route {
         KernelRegistryRoute::Name { creates } => {
             let base_object = try_get_uint_as_u64(&parser, "BaseObject");
             let base_name = try_get_string(&parser, "BaseName").unwrap_or_default();
@@ -1088,7 +1125,7 @@ fn decode_kernel_registry_record(
             // the disposition check every key open would surface as a
             // `registry_add`.
             refine_registry_create_action(&parser)?;
-            (SensorAction::Create, path?)
+            (SensorAction::Create, path?, None)
         }
         KernelRegistryRoute::Evict => {
             if let Some(object) = key_object {
@@ -1119,7 +1156,7 @@ fn decode_kernel_registry_record(
             });
 
             match path {
-                Some(path) => (action, path),
+                Some(path) => (action, path, value_name),
                 None => {
                     // Counted rather than silently discarded, for the same
                     // reason as the file index: this is the sensor's blind
@@ -1143,9 +1180,7 @@ fn decode_kernel_registry_record(
     let mappings = field_maps::registry_event_mappings();
     let fields = RegistryEventFields {
         target_object: Some(target_object),
-        // The provider reports the value *name*; `CapturedData` holds the data
-        // but is empty unless the session asks for it, so this stays the name.
-        details: try_get_string(&parser, mappings.get_etw_field("Details")?),
+        details: registry_details(&parser, value_name.as_deref()),
         process_id: try_get_uint(&parser, mappings.get_etw_field("ProcessId")?),
         image: try_get_string(&parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
@@ -1167,6 +1202,26 @@ fn decode_kernel_registry_record(
         process_start_key: None,
         payload: SensorPayload::Registry(fields),
     })
+}
+
+/// `Details` for a registry event: the value *data*, as Sysmon Event ID 13
+/// defines it, falling back to the value name.
+///
+/// The fallback is not dead code. `CapturedData` is only populated because
+/// [`registry_value_data::request_value_data`] asked for it through an
+/// undocumented filter payload, and that request can fail — on a Windows build
+/// that does not honour it, or if the re-enable itself failed and was logged as
+/// a warning. Emitting nothing there would be a regression on the pre-#292
+/// behaviour, so the name is still better than an absent field.
+fn registry_details(parser: &Parser, value_name: Option<&str>) -> Option<String> {
+    let captured = parser
+        .try_parse::<Vec<u8>>(field_maps::registry_event_mappings().get_etw_field("Details")?)
+        .unwrap_or_default();
+    let value_type =
+        try_get_uint_as_u64(parser, registry_value_data::VALUE_TYPE_PROPERTY).unwrap_or(0);
+
+    registry_value_data::format_value_data(value_type as u32, &captured)
+        .or_else(|| value_name.map(str::to_string))
 }
 
 fn decode_network(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
@@ -1503,6 +1558,17 @@ mod tests {
         assert_ne!(
             EtwProviders::FILE_KEYWORDS & EtwProviders::KERNEL_FILE_KEYWORD_FILEIO,
             0
+        );
+    }
+
+    #[test]
+    fn registry_details_reads_the_value_data_property() {
+        // `Details` meant `ValueName` until #292, which made 180 SigmaHQ rules
+        // match the name of the value instead of what was written into it.
+        assert_eq!(
+            field_maps::registry_event_mappings().get_etw_field("Details"),
+            Some("CapturedData"),
+            "Details must map to the value data, with ValueName only as fallback"
         );
     }
 
