@@ -23,9 +23,10 @@ This page documents Rustinel's known limitations for the current release.
 
 ---
 
-## Windows (ETW)
+## Windows (ETW and Event Log)
 
-Rustinel collects Windows telemetry through ETW rather than a kernel driver.
+Rustinel collects Windows telemetry through ETW, plus System event 7045 through
+a Windows Event Log subscription, rather than using a kernel driver.
 Coverage is the broadest of the three platforms, but several Sysmon-style fields
 are unavailable.
 

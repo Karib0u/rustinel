@@ -3199,6 +3199,7 @@ dependencies = [
  "pelite",
  "regex",
  "reqwest",
+ "roxmltree",
  "rsigma-eval",
  "rsigma-parser",
  "semver",
