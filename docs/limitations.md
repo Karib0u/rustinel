@@ -60,6 +60,15 @@ are unavailable.
   aren't possible.
 - **DNS `QueryType` is always empty.** The DNS record type is not populated on
   Windows.
+- **WMI persistence events are not collected, and WMI event IDs are not
+  Sysmon's (silent risk).** WMI telemetry comes from
+  `Microsoft-Windows-WMI-Activity`, which has no equivalent of Sysmon's
+  `wmi_event` 19/20/21 (filter, consumer, filter-to-consumer binding) and
+  numbers its own operations in the same range. Nothing is remapped, and the two
+  colliding native IDs are dropped rather than passed through, so a `wmi_event`
+  rule selecting on `EventID` never matches instead of matching the wrong event.
+  Rules keyed on `Operation`, `Query`, `EventNamespace`, `Image` or `User` still
+  work.
 - **No injection or driver-load visibility.** No equivalent of CreateRemoteThread,
   ProcessAccess, named-pipe, or driver-load providers - injection-based TTPs leave
   little telemetry.
