@@ -67,6 +67,13 @@ are unavailable.
   rule selecting on `EventID` never matches instead of matching the wrong event.
   Rules keyed on `Operation`, `Query`, `EventNamespace`, `Image` or `User` still
   work.
+- **Extreme process bursts can still be lost in the kernel (silent risk).** The
+  ETW session runs on an explicitly sized buffer pool (256 KB x 64-128, 32 MB
+  ceiling), which absorbs a 4,000-process fork tree with no loss where the
+  library defaults lost 12-60% of process starts. A host that churns processes
+  faster than the lab workload can still overrun that pool, and nothing counts
+  the overrun: a recorded event count is an upper bound, not a total. See
+  [Windows ETW Session Buffers](operations.md#windows-etw-session-buffers).
 - **No injection or driver-load visibility.** No equivalent of CreateRemoteThread,
   ProcessAccess, named-pipe, or driver-load providers - injection-based TTPs leave
   little telemetry.

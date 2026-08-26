@@ -323,6 +323,61 @@ for an agent run and reset when it restarts. See
 [Pipeline Telemetry](configuration.md#pipeline-telemetry) and
 [Dropped Events And Full Queues](troubleshooting.md#dropped-events-and-full-queues).
 
+### Windows ETW Session Buffers
+
+Those counters see only Rustinel's own queues. On Windows there is a second,
+earlier place events can be lost: the kernel's buffer pool for the
+`rustinel-etw-trace` session. If the pool fills before the sensor drains it,
+the kernel discards events and the sensor never sees them at all.
+
+Rustinel sets the pool explicitly rather than taking the library defaults:
+
+| Setting | Value | Default it replaces |
+| --- | --- | --- |
+| Buffer size | 256 KB | 32 KB |
+| Minimum buffers | 64 (16 MB committed at start) | kernel-chosen, 2 |
+| Maximum buffers | 128 (32 MB ceiling) | kernel-chosen, 24 (768 KB) |
+| Flush timer | 1 s | 1 s |
+
+The buffers are non-paged pool: 16 MB is committed for the life of the agent
+and the pool grows to at most 32 MB under load. Read the live values back with:
+
+```powershell
+Get-EtwTraceSession -Name rustinel-etw-trace
+```
+
+`logman query -ets` shows the same session, but its output is localized, so
+prefer the cmdlet in scripts.
+
+**What the values were chosen against.** A two-level fork tree on a Windows 11
+lab VM (6 vCPU, 8 GB), 40 parent processes each spawning 100 short-lived
+children. Ground truth is the number of children that actually ran — each one
+creates a uniquely named file — compared against the process-creation events in
+a `rustinel capture` recording of the same run:
+
+| Session sizing | Children ran | Start events delivered | Lost |
+| --- | --- | --- | --- |
+| 32 KB x 2-24 (defaults) | 4,000 | 1,584 | 60.4% |
+| 32 KB x 2-24 (defaults) | 4,000 | 2,178 | 45.6% |
+| 32 KB x 2-24 (defaults) | 3,604 | 1,652 | 54.2% |
+| 32 KB x 2-24 (defaults) | 4,000 | 3,514 | 12.2% |
+| 32 KB x 2-24 (defaults), 50 x 100 | 5,000 | 4,159 | 16.8% |
+| 256 KB x 64-128 | 4,000 | 4,000 | 0% |
+| 256 KB x 64-128 | 4,000 | 4,000 | 0% |
+| 256 KB x 64-128 | 4,000 | 4,000 | 0% |
+| 256 KB x 64-128, 50 x 100 | 5,000 | 5,000 | 0% |
+
+The spread in the default rows is the point as much as the magnitude: identical
+runs lost between 12% and 60% depending on how tightly the burst landed, so a
+single favourable measurement on default sizing proves nothing. A heavier tree
+(60 x 150) exhausted the lab VM's memory before it exhausted the buffer pool,
+so it bounds the *host*, not the sizing.
+
+This is a fixed configuration, not an adaptive one. A host that sustains far
+more process churn than the lab VM can still overrun a 32 MB pool; kernel-side
+loss of that kind is not yet counted anywhere, so treat a recorded event count
+as an upper bound on what happened.
+
 ## Safe Upgrade Checklist
 
 1. Back up `config.toml` and your custom `rules/`.
