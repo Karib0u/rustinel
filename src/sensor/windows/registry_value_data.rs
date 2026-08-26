@@ -223,10 +223,8 @@ fn first_bytes<const N: usize>(data: &[u8]) -> Option<[u8; N]> {
 /// The embedded NULs of a `REG_MULTI_SZ` are kept for the caller to split on;
 /// only the trailing ones go.
 fn decode_utf16(data: &[u8]) -> String {
-    let units: Vec<u16> = data
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-        .collect();
+    let (pairs, _odd_trailing_byte) = data.as_chunks::<2>();
+    let units: Vec<u16> = pairs.iter().copied().map(u16::from_le_bytes).collect();
     String::from_utf16_lossy(&units)
         .trim_end_matches('\0')
         .to_string()
