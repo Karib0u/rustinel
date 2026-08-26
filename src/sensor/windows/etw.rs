@@ -8,7 +8,7 @@ use anyhow::Result;
 use ferrisetw::parser::Parser;
 use ferrisetw::provider::{EventFilter, Provider};
 use ferrisetw::schema_locator::SchemaLocator;
-use ferrisetw::trace::{stop_trace_by_name, TraceTrait, UserTrace};
+use ferrisetw::trace::{stop_trace_by_name, TraceProperties, TraceTrait, UserTrace};
 use ferrisetw::{EventRecord, GUID};
 use tokio::sync::mpsc::{error::TrySendError, Sender};
 use tracing::{info, trace, warn};
@@ -32,6 +32,65 @@ use super::{field_maps, mapper, registry_value_data};
 /// Fixed trace session name for stopping the trace on shutdown.
 pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
 const WINDOWS_EPOCH_DELTA_100NS: i64 = 116444736000000000;
+
+/// Size of one ETW session buffer, in KB.
+///
+/// `ferrisetw` defaults to 32 KB with the buffer counts left at 0, which lets
+/// the kernel pick them — in practice 2 to 24 buffers, a 768 KB ceiling. That
+/// ceiling cannot absorb a burst. On a Windows 11 lab VM (6 vCPU, 8 GB), a
+/// 4,000-process fork tree lost 12-60% of process starts on the defaults across
+/// four runs, and none at all on the values here; the workload and the full
+/// table are in `docs/operations.md`.
+///
+/// The loss is kernel-side, so no per-field fix reaches it — it degrades
+/// `CommandLine`, `ParentImage` and every other process field at once, and a
+/// lost *parent* start costs `ParentImage` on all of that process's children.
+/// Larger buffers are what helps: the cost of a burst is buffer *turnover*, and
+/// 256 KB holds eight times the events per flush. See [`SESSION_MIN_BUFFERS`]
+/// for the memory this commits.
+const SESSION_BUFFER_SIZE_KB: u32 = 256;
+
+/// Buffers committed when the session starts.
+///
+/// ETW session buffers are non-paged pool, allocated up front for the minimum
+/// and grown on demand to [`SESSION_MAX_BUFFERS`]. 64 x 256 KB is 16 MB
+/// resident — deliberately paid at startup rather than during the burst,
+/// because growing the pool is exactly the work that is too slow when a fork
+/// tree is already filling buffers.
+const SESSION_MIN_BUFFERS: u32 = 64;
+
+/// Upper bound on the buffer pool: 128 x 256 KB = 32 MB.
+///
+/// 42x the default ceiling. This is a fixed configuration on purpose — adaptive
+/// sizing is not warranted until a single configuration is shown not to cover
+/// realistic hosts.
+const SESSION_MAX_BUFFERS: u32 = 128;
+
+/// How often partially filled buffers are flushed to the consumer.
+///
+/// One second is the ETW minimum. It bounds the delay on a *quiet* host, where
+/// buffers would otherwise sit unfilled; under load buffers flush as soon as
+/// they fill, so this does not affect burst behaviour either way.
+const SESSION_FLUSH_TIMER: Duration = Duration::from_secs(1);
+
+/// Buffer configuration for the real-time session.
+///
+/// Everything else is inherited from `ferrisetw`'s defaults, in particular the
+/// logging mode: `EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING` is kept on purpose.
+/// Per-processor buffering would raise raw throughput, but it delivers events
+/// per CPU rather than in timestamp order, and both [`FilePathCache`] and
+/// [`RegistryPathCache`] resolve a path by pairing a naming event with a later
+/// event on the same object — reordering those silently mis-attributes paths.
+/// A wider buffer pool buys the same headroom without touching ordering.
+fn session_properties() -> TraceProperties {
+    TraceProperties {
+        buffer_size: SESSION_BUFFER_SIZE_KB,
+        min_buffer: SESSION_MIN_BUFFERS,
+        max_buffer: SESSION_MAX_BUFFERS,
+        flush_timer: SESSION_FLUSH_TIMER,
+        ..TraceProperties::default()
+    }
+}
 
 /// ETW provider metadata.
 #[derive(Debug, Clone)]
@@ -654,7 +713,19 @@ impl Sensor for EtwSensor {
 
         let _ = stop_trace_by_name(TRACE_SESSION_NAME);
 
-        let mut trace_builder = UserTrace::new().named(TRACE_SESSION_NAME.to_string());
+        let properties = session_properties();
+        info!(
+            "ETW session buffers: {} KB x {}-{} ({} MB ceiling), flush {}s",
+            properties.buffer_size,
+            properties.min_buffer,
+            properties.max_buffer,
+            (properties.buffer_size as u64 * properties.max_buffer as u64) / 1024,
+            properties.flush_timer.as_secs(),
+        );
+
+        let mut trace_builder = UserTrace::new()
+            .named(TRACE_SESSION_NAME.to_string())
+            .set_trace_properties(properties);
         let state = Arc::new(EtwState::new());
 
         for provider_def in EtwProviders::all() {
@@ -1497,6 +1568,44 @@ fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_properties_are_set_explicitly() {
+        // The bug this guards is silent: leaving the properties at their
+        // defaults cost 12-60% of process starts under a fork tree, with no
+        // error and no counter (#306). Assert the session is not running on
+        // `ferrisetw`'s defaults, and that the pool it asks for is large
+        // enough to matter.
+        let props = session_properties();
+        let defaults = TraceProperties::default();
+
+        assert!(
+            props.buffer_size > defaults.buffer_size,
+            "buffer size must be raised above the {} KB default",
+            defaults.buffer_size
+        );
+        assert!(
+            props.min_buffer > 0 && props.max_buffer >= props.min_buffer,
+            "buffer counts must be explicit and ordered, got {}-{}",
+            props.min_buffer,
+            props.max_buffer
+        );
+
+        // The default ceiling is 24 x 32 KB; anything close to it is not a fix.
+        let ceiling_kb = props.buffer_size as u64 * props.max_buffer as u64;
+        assert!(
+            ceiling_kb >= 16 * 1024,
+            "buffer pool ceiling is only {ceiling_kb} KB"
+        );
+
+        // Below one second ETW clamps silently, so the value would not be the
+        // configured one.
+        assert!(props.flush_timer >= Duration::from_secs(1));
+
+        // Ordering is load-bearing for the path caches; inheriting the default
+        // logging mode is what keeps it. See `session_properties`.
+        assert_eq!(props.log_file_mode, defaults.log_file_mode);
+    }
 
     #[test]
     fn filter_matches_routing_allowlist() {
