@@ -109,6 +109,39 @@ The scripts only download published release binaries. For version selection,
 custom installation directories, manual archives, and upgrade procedures, see
 [Operations and Upgrade Guide](operations.md).
 
+### Nix / NixOS
+
+Rustinel ships a [Nix flake](https://github.com/Karib0u/rustinel) that packages
+the **prebuilt musl binary** from GitHub releases (not a source build). Linux
+is supported on `x86_64-linux` and `aarch64-linux`.
+
+```bash
+# try without installing
+nix run github:Karib0u/rustinel -- --version
+
+# build the package
+nix build github:Karib0u/rustinel#rustinel
+```
+
+An overlay (`rustinel.overlays.default`) is also exposed so you can add
+`pkgs.rustinel` to your own NixOS or Home Manager configuration.
+
+A few things to keep in mind:
+
+- The flake fetches the release archive, so a checkout or `nix build` gives
+  you the **last published release**, not your working tree.
+- There is **no NixOS module** in this flake. Wire up the systemd unit
+  yourself (the package + overlay give you the binary), or run
+  `nix shell .#rustinel` and use `rustinel setup` / `rustinel service`.
+- Rules ship read-only under the Nix store. To manage rules with
+  `rustinel rules install`, point the config at a writable location — either
+  write `/etc/rustinel/config.toml` (the wrapper defers to it when present)
+  or pass `--config` / set `RUSTINEL_CONFIG`.
+- The wrapped binary falls back to a generated store config only when
+  `RUSTINEL_CONFIG` is unset **and** `/etc/rustinel/config.toml` does not
+  exist, so a hand-rolled unit or `rustinel setup` owns discovery.
+- `nix fmt` formats the Nix files (`flake.nix`, `nix/package.nix`).
+
 ## Keep Rustinel Running
 
 After the portable test succeeds, install the managed layout and native service:
