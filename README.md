@@ -104,7 +104,7 @@ A transparent endpoint detection engine you can read, run, test, and extend.
 - **Detection formats:** Sigma for behavior, YARA for files and memory, IOC matching for hashes, IPs, domains, and path regexes.
 - **Rule reuse:** bring existing Sigma and YARA rules instead of rewriting them into a proprietary format.
 - **SIEM output:** ECS 9.4.0 NDJSON alerts for Elastic, Splunk, and other log pipelines.
-- **Operations:** hot reload for rules and IOCs, optional active response on Windows and Linux only; macOS is detection-only today. Includes Windows service support and launchd packaging notes.
+- **Operations:** hot reload for rules and IOCs, optional active response (off by default) on all three platforms, and native service management via SCM, systemd, and launchd.
 
 ---
 
@@ -193,7 +193,7 @@ macOS requires the app-like signed bundle described in [Getting Started](https:/
 [Troubleshooting](https://docs.rustinel.io/troubleshooting/) |
 [FAQ](https://docs.rustinel.io/faq/) |
 [Detection rules](https://github.com/Karib0u/rustinel-rules) |
-[Roadmap](docs/roadmap.md)
+[Roadmap](https://github.com/Karib0u/rustinel/milestones)
 
 ---
 

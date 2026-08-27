@@ -8,12 +8,16 @@ rustinel [COMMAND] [OPTIONS]
 
 Running `rustinel` without a subcommand is equivalent to `rustinel run`.
 
-## Global Option
+## Global Options
+
+Accepted by every subcommand.
 
 | Option | Description |
 | --- | --- |
-| `--config <PATH>` | Load configuration from an explicit file path. This has the highest configuration file precedence. |
-| `--log-level <LEVEL>` | Interactive log-level override. For production and cross-platform automation, prefer `config.toml` or `EDR__LOGGING__LEVEL`. |
+| `--config <PATH>` | Load configuration from an explicit file path. Highest configuration-file precedence. |
+| `--log-level <LEVEL>` | Log-level override: `error`, `warn`, `info`, `debug`, or `trace`. For production and automation, prefer `config.toml` or `EDR__LOGGING__LEVEL`. |
+| `--version` | Print the version and exit. |
+| `--help` | Print usage and exit. |
 
 ## Commands
 
@@ -45,7 +49,7 @@ Notes:
 - `--config <PATH>` selects the config file and overrides `RUSTINEL_CONFIG`, managed platform paths, executable-directory config, and current-directory config.
 - `--no-console` suppresses console output, for example when redirecting logs.
 - `--console` is kept as a compatibility alias and has the same effect as the default.
-- `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#detection-engine).
+- `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#choosing-an-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
 ### `capture`
@@ -139,8 +143,8 @@ Behavior:
 
 Two replays of one recording against one configuration produce identical output,
 so a change in results is a change in detection. See
-[Detection](detection.md#replay-regression-workflow) for the regression workflow
-and [Output Format](output.md#replay-results) for the result formats.
+[Development](development.md#replay-regression-fixture) for the regression
+fixture and [Output Format](output.md#replay-results) for the result formats.
 
 ### `doctor`
 
@@ -220,6 +224,7 @@ register the native service, optionally start it, and run health checks.
 
 ```text
 rustinel setup [--pack <essential|advanced>] [--yes] [--no-start] [--force]
+               [--catalog-url <URL>]
 ```
 
 Examples:
@@ -241,6 +246,7 @@ Behavior:
 - `--yes` accepts defaults and skips the prompt.
 - `--no-start` registers the native service without starting it.
 - `--force` replaces an existing managed configuration. Without `--force`, existing configuration is preserved and validated before setup continues.
+- `--catalog-url` overrides the rules catalog index, the same as on `rules`.
 - The current executable is copied to the managed service binary path before service registration. On macOS, setup copies the complete signed `Rustinel.app` bundle so its signature, entitlements, and provisioning profile remain intact.
 - Rules pack downloads use the same catalog validation, SHA-256 verification, ZIP safety checks, and atomic activation as `rules install`.
 - If a rules download or validation fails, setup preserves existing active rules and continues only when an existing active pack is valid.
@@ -302,33 +308,14 @@ rules, logs, and state.
 
 ## Environment Variables
 
-Common examples:
+`RUSTINEL_CONFIG` selects the configuration file, below `--config` in
+precedence. Every configuration key is also settable through an `EDR__`
+variable. See [Configuration](configuration.md#environment-variables).
 
-### PowerShell
-
-```powershell
-$env:EDR__LOGGING__LEVEL="debug"
-$env:EDR__SCANNER__SIGMA_ENABLED="true"
-$env:RUSTINEL_CONFIG="C:\ProgramData\Rustinel\config.toml"
-rustinel run
-```
-
-### Bash
-
-```bash
-export EDR__LOGGING__LEVEL=debug
-export EDR__SCANNER__SIGMA_ENABLED=true
-export RUSTINEL_CONFIG=/etc/rustinel/config.toml
-sudo ./rustinel run
-```
-
-## Linux eBPF Override
-
-For Linux development, `RUSTINEL_EBPF_OBJECT` points the loader at a specific `.o` file instead of the embedded object:
-
-```bash
-sudo env RUSTINEL_EBPF_OBJECT=/opt/rustinel/ebpf/rustinel-ebpf.o ./rustinel run
-```
+Two development-only variables exist: `RUSTINEL_EBPF_OBJECT` points the Linux
+loader at a specific `.o` instead of the embedded object, and
+`RUSTINEL_BPF_INTERFACE` selects the macOS capture interface. Both are covered
+in [Development](development.md).
 
 ## Exit Codes
 
