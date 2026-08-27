@@ -300,6 +300,7 @@ pub struct AppConfig {
     pub dedup: DedupConfig,
     pub capture: CaptureConfig,
     pub telemetry: TelemetryConfig,
+    pub windows: WindowsConfig,
 }
 
 /// Scanner configuration (Sigma and YARA rules)
@@ -447,6 +448,15 @@ pub struct TelemetryConfig {
     pub snapshot_interval_secs: u64,
 }
 
+/// Windows telemetry configuration. It is present on every platform so one
+/// managed configuration can be distributed to a mixed fleet.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WindowsConfig {
+    /// Periodically hand partially filled ETW buffers to the consumer. Zero
+    /// disables forced flushing and restores ETW's one-second timer.
+    pub etw_flush_interval_ms: u64,
+}
+
 impl AppConfig {
     /// Load configuration from defaults, config.toml, and environment variables
     pub fn new() -> Result<Self, config::ConfigError> {
@@ -555,7 +565,9 @@ impl AppConfig {
             .set_default("capture.directory", "captures")?
             // Telemetry
             .set_default("telemetry.enabled", true)?
-            .set_default("telemetry.snapshot_interval_secs", 30i64)?;
+            .set_default("telemetry.snapshot_interval_secs", 30i64)?
+            // Windows ETW delivery latency
+            .set_default("windows.etw_flush_interval_ms", 100i64)?;
 
         let builder = match selected_config {
             Some(path) => builder.add_source(config::File::from(path).required(true)),
@@ -811,6 +823,9 @@ impl Default for AppConfig {
             telemetry: TelemetryConfig {
                 enabled: true,
                 snapshot_interval_secs: 30,
+            },
+            windows: WindowsConfig {
+                etw_flush_interval_ms: 100,
             },
         };
 
@@ -1149,6 +1164,12 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         assert!(cfg.dedup.enabled);
         assert_eq!(cfg.dedup.window_secs, 60);
         assert_eq!(cfg.dedup.max_entries, 10_000);
+    }
+
+    #[test]
+    fn test_windows_etw_flush_default() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.windows.etw_flush_interval_ms, 100);
     }
 
     #[test]

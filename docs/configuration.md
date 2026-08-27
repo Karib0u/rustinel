@@ -93,6 +93,9 @@ directory = "captures"
 enabled = true
 snapshot_interval_secs = 30
 
+[windows]
+etw_flush_interval_ms = 100
+
 [response]
 enabled = false
 prevention_enabled = false
@@ -293,6 +296,21 @@ nothing was dropped and warns with per-channel totals when something was;
 `--json` carries the raw numbers under `telemetry`. Setting `enabled = false`
 leaves drop totals visible only in the operational log, and `doctor` reports
 that reduced visibility as a warning.
+
+### Windows ETW delivery
+
+ETW's real-time session timer hands partially filled buffers to consumers once
+per second. Rustinel requests an earlier handoff without changing the session's
+buffer size or pool limits.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `etw_flush_interval_ms` | `100` | Partial-buffer handoff interval in milliseconds; `0` disables it |
+
+Values below 20 ms are clamped to 20 ms. Rustinel pauses requests while the
+`sensor_events` queue is at least half full, when downstream queueing controls
+latency. ETW continues its normal full-buffer and timer-based delivery. Override
+the setting with `EDR__WINDOWS__ETW_FLUSH_INTERVAL_MS`.
 
 ### Active response
 
