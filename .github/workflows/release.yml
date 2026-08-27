@@ -126,8 +126,8 @@ jobs:
             exit 1
           }
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-          if ($peOffset -lt 0 -or $peOffset + 24 + 56 -gt $bytes.Length) {
-            Write-Error "Binary has an invalid PE header offset"
+          if ($peOffset -lt 0 -or $peOffset + 24 + 80 -gt $bytes.Length) {
+            Write-Error "Binary has an invalid PE header offset or truncated optional header"
             exit 1
           }
           if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45 -or $bytes[$peOffset + 2] -ne 0x00 -or $bytes[$peOffset + 3] -ne 0x00) {
@@ -139,8 +139,8 @@ jobs:
             Write-Error "Binary is not a 64-bit PE executable"
             exit 1
           }
-          # PE32+ stores SizeOfStackReserve 48 bytes into the optional header.
-          $stackReserve = [BitConverter]::ToUInt64($bytes, $optionalHeaderOffset + 48)
+          # PE32+ stores SizeOfStackReserve 72 bytes into the optional header.
+          $stackReserve = [BitConverter]::ToUInt64($bytes, $optionalHeaderOffset + 72)
           $expectedStackReserve = [uint64]0x1000000
           Write-Output ("SizeOfStackReserve: 0x{0:X}" -f $stackReserve)
           if ($stackReserve -ne $expectedStackReserve) {
