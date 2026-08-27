@@ -56,6 +56,22 @@ const EVENT_FILTER_TYPE_NONE: u32 = 0;
 /// bytes. `ControlTraceW` fails with `ERROR_BAD_LENGTH` if either does not fit.
 const TRACE_NAME_BYTES: usize = 2 * 1024;
 
+/// Aligned storage for the variable-length `ControlTraceW` properties block.
+#[repr(C)]
+struct PropertiesBuffer {
+    properties: EVENT_TRACE_PROPERTIES,
+    names: [u8; 2 * TRACE_NAME_BYTES],
+}
+
+impl PropertiesBuffer {
+    fn new() -> Box<Self> {
+        Box::new(Self {
+            properties: EVENT_TRACE_PROPERTIES::default(),
+            names: [0; 2 * TRACE_NAME_BYTES],
+        })
+    }
+}
+
 /// `REG_*` value types, from `winnt.h`. `REG_NONE` (0) and `REG_BINARY` (3)
 /// are deliberately absent: they take the same path as an unrecognised type.
 const REG_SZ: u32 = 1;
@@ -134,19 +150,19 @@ pub(super) fn request_value_data(
 /// handle itself in `Wnode.HistoricalContext`. The session was started through
 /// `ferrisetw`, which keeps its handle private, so this is the only way to
 /// reach it.
-fn session_handle(session_name: &str) -> Result<CONTROLTRACE_HANDLE> {
+pub(super) fn session_handle(session_name: &str) -> Result<CONTROLTRACE_HANDLE> {
     let name: Vec<u16> = session_name
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
 
     let total = size_of::<EVENT_TRACE_PROPERTIES>() + 2 * TRACE_NAME_BYTES;
-    let mut buffer = vec![0u8; total];
-    let properties = buffer.as_mut_ptr().cast::<EVENT_TRACE_PROPERTIES>();
+    let mut buffer = PropertiesBuffer::new();
+    let properties = &mut buffer.properties as *mut EVENT_TRACE_PROPERTIES;
 
-    // SAFETY: `buffer` is at least `size_of::<EVENT_TRACE_PROPERTIES>()` bytes
-    // and is allocated with a stricter-than-required alignment by `Vec`, and
-    // both name offsets point inside it.
+    // SAFETY: `properties` points to the aligned header in `buffer`, the
+    // allocation is at least `total` bytes, and both name offsets point into
+    // its trailing storage.
     let status = unsafe {
         (*properties).Wnode.BufferSize = total as u32;
         (*properties).LoggerNameOffset = size_of::<EVENT_TRACE_PROPERTIES>() as u32;

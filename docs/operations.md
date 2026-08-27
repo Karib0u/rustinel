@@ -183,6 +183,12 @@ Rustinel sets the pool explicitly rather than inheriting library defaults:
 | Minimum buffers | 64 (16 MB committed at start) | 2 |
 | Maximum buffers | 128 (32 MB ceiling) | 24 (768 KB) |
 | Flush timer | 1 s | 1 s |
+| Forced partial-buffer handoff | 100 ms | disabled |
+
+The forced handoff controls quiet-host delivery latency without changing the
+buffer pool. Configure it with `windows.etw_flush_interval_ms`; `0` disables it.
+Rustinel pauses requests while its sensor queue is at least half full, when
+queueing controls latency instead.
 
 The buffers are non-paged pool: 16 MB is committed for the life of the agent and
 grows to at most 32 MB under load. Read the live values back with:

@@ -77,6 +77,11 @@ impl CaptureContext {
         })
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn config(&self) -> &AppConfig {
+        &self.config
+    }
+
     /// Open the recording and build the record-only event pipeline.
     pub(crate) fn start_recording(
         self,

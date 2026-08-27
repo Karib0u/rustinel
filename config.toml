@@ -109,6 +109,13 @@ directory = "captures"      # default parent for rustinel-capture-<UTC timestamp
 enabled = true
 snapshot_interval_secs = 30 # a snapshot is also written at shutdown
 
+# 6c. Windows ETW Delivery
+#   ETW's native flush timer has a one-second minimum. Rustinel requests an
+#   earlier handoff for partially filled buffers so isolated events reach the
+#   detector promptly. Set to 0 to use only ETW's native timer.
+[windows]
+etw_flush_interval_ms = 100
+
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
 enabled = true

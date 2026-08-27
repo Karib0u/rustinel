@@ -649,12 +649,18 @@ struct DecodedEtwEvent {
 /// Windows ETW sensor implementation.
 pub struct EtwSensor {
     shutdown: Arc<AtomicBool>,
+    flush_interval_ms: u64,
 }
 
 impl EtwSensor {
     pub fn new() -> Self {
+        Self::with_flush_interval(super::flush::DEFAULT_INTERVAL_MS)
+    }
+
+    pub fn with_flush_interval(flush_interval_ms: u64) -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
+            flush_interval_ms,
         }
     }
 
@@ -776,7 +782,17 @@ impl Sensor for EtwSensor {
 
                 request_registry_value_data();
 
-                match trace.process() {
+                // Decouples delivery latency from the session `FlushTimer`,
+                // whose floor is one second. It pauses when downstream
+                // queueing, rather than ETW buffering, controls latency.
+                let flusher = super::flush::spawn(
+                    TRACE_SESSION_NAME,
+                    self.flush_interval_ms,
+                    Arc::clone(&self.shutdown),
+                    tx.clone(),
+                );
+
+                let processed = match trace.process() {
                     Ok(()) => {
                         info!("ETW sensor stopped");
                         Ok(())
@@ -794,7 +810,15 @@ impl Sensor for EtwSensor {
                             Err(anyhow::anyhow!("ETW trace processing failed: {:?}", err))
                         }
                     }
+                };
+
+                // The thread parks on the shutdown flag, which `process()`
+                // returning means is either already set or about to be.
+                self.shutdown.store(true, Ordering::Relaxed);
+                if let Some(flusher) = flusher {
+                    let _ = flusher.join();
                 }
+                processed
             }
             Err(err) => Err(anyhow::anyhow!("Failed to start ETW trace: {:?}", err)),
         };
