@@ -247,10 +247,13 @@ PowerShell 7 uses a different provider and is not currently collected.
 
 Check these first:
 
-- YARA only runs on process-start events
+- YARA only runs on process-start events, so a file written but never executed is
+  never scanned
 - the executable path may be under an allowlisted prefix
 - YARA may be disabled
-- the YARA rule file may be outside the configured top-level directory
+- the YARA rule file may be outside `scanner.yara_rules_path`
+- the file may exceed `scanner.yara_max_file_mb`, or the scan may have hit
+  `scanner.yara_scan_timeout_ms`
 - the queue may have been full and the job dropped
 
 Typical symptom in logs:
@@ -315,8 +318,8 @@ It only runs when:
 Check these first:
 
 - `reload.enabled` must be `true`
-- the file must be under the configured detector path
-- Sigma reloads recursively, but YARA only loads top-level files
+- the file must be under the configured detector path (Sigma and YARA
+  directories are both watched recursively)
 - a failed reload keeps the previous detector set live
 
 Typical reload failure messages:
@@ -387,23 +390,16 @@ The `pipeline_telemetry` check answers directly:
       detail: sensor_events: 12500 dropped of 412500 offered (3.03%), peak depth 8192/8192; ioc_hash: 100 dropped of 1000 offered (10.00%), peak depth 8192/8192
 ```
 
-A `PASS` on this check means nothing was shed - the counters are cumulative for
-the agent run, so a pass is a real answer, not an absence of evidence. The
-`Pipeline channels` block above the checks lists every channel with its
-accepted, dropped, and peak-depth totals, and `rustinel doctor --json` carries
-the same numbers under `telemetry` for collection.
+A `PASS` here means nothing was shed. The counters are cumulative for the agent
+run, so a pass is a real answer, not an absence of evidence. If the check says
+the snapshot is missing, either the agent has not run yet or
+`telemetry.enabled` is `false`; doctor says which.
 
-The counts come from `telemetry.json` in `logging.directory`, refreshed every
-`telemetry.snapshot_interval_secs` and once more at shutdown. If it is missing,
-the agent has not run yet, or `telemetry.enabled` is `false` - doctor says
-which. See [Pipeline Telemetry](configuration.md#pipeline-telemetry).
-
-**Read the numbers this way.** `sensor_events` is the widest gap: those events
-never reached any detector, so any rule that would have matched them did not
-fire. Drops on `yara_file_scan`, `yara_memory_scan`, or `ioc_hash` are narrower
-- Sigma still evaluated the event, but that specific scan never ran. A peak
-depth equal to capacity means the channel actually saturated; a peak well below
-capacity with drops recorded means the saturation was brief and bursty.
+Interpreting the numbers: a peak depth equal to capacity means the channel
+actually saturated, while a peak well below capacity with drops recorded means
+the saturation was brief and bursty. For what a drop on each channel costs, see
+[Pipeline Telemetry](configuration.md#pipeline-telemetry). `sensor_events` is
+always the widest gap.
 
 A backed-up YARA queue is usually event volume rather than one stuck scan:
 `scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold

@@ -4,8 +4,10 @@ Rustinel includes an optional response engine that can terminate processes when
 an alert reaches the configured minimum severity. It is disabled by default and
 should be tested in dry-run mode first.
 
-Active response currently runs on **Windows and Linux only**; macOS is
-detection-only today.
+Active response runs on **Windows, Linux, and macOS**. It is least exercised on
+macOS, where the operating system also refuses to kill SIP-protected and some
+system processes even as root. A termination failure there is logged and the
+alert is unaffected.
 
 ## Modes
 
@@ -19,7 +21,7 @@ detection-only today.
 | --- | --- |
 | Windows | Uses process termination APIs |
 | Linux | Sends `SIGKILL` |
-| macOS | Not supported; detection-only today |
+| macOS | Sends `SIGKILL`; SIP-protected and some system processes cannot be killed even as root |
 
 ## Severity Handling
 

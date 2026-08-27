@@ -243,16 +243,5 @@ configuration produces byte-identical output.
 
 ## SIEM Shipping
 
-Any log shipper that can tail NDJSON works. Example Filebeat input:
-
-```yaml
-filebeat.inputs:
-- type: filestream
-  paths:
-    - /opt/rustinel/logs/alerts.json.*
-  parsers:
-    - ndjson:
-        target: ""
-```
-
-For a runnable local Elastic or Splunk trial, see [SIEM Demos](siem-demos.md).
+Any log shipper that can tail NDJSON works. For runnable Filebeat, Elastic, and
+Splunk configurations, see [SIEM Demos](siem-demos.md).
