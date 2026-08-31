@@ -52,6 +52,19 @@ impl KernelNetworkEvent {
             _ => None,
         }
     }
+
+    /// Sysmon's `Initiated`: whether this host opened the connection.
+    ///
+    /// Only the two connection operations answer that question. Everything else
+    /// the provider numbers — sends, receives, retransmits, teardown — is left
+    /// unknown rather than folded into a direction it does not carry.
+    pub(crate) fn initiated(self) -> Option<bool> {
+        match self.operation {
+            NetworkOperation::Connect => Some(true),
+            NetworkOperation::Accept => Some(false),
+            _ => None,
+        }
+    }
 }
 
 /// Classifies Microsoft-Windows-Kernel-Network manifest event IDs.
@@ -118,17 +131,25 @@ mod tests {
 
     #[test]
     fn tcp_connect_and_accept_routes_are_explicit_for_both_address_families() {
-        for (event_id, address_family, action) in [
-            (12, NetworkAddressFamily::Ipv4, SensorAction::Connect),
-            (15, NetworkAddressFamily::Ipv4, SensorAction::Accept),
-            (28, NetworkAddressFamily::Ipv6, SensorAction::Connect),
-            (31, NetworkAddressFamily::Ipv6, SensorAction::Accept),
+        for (event_id, address_family, action, initiated) in [
+            (12, NetworkAddressFamily::Ipv4, SensorAction::Connect, true),
+            (15, NetworkAddressFamily::Ipv4, SensorAction::Accept, false),
+            (28, NetworkAddressFamily::Ipv6, SensorAction::Connect, true),
+            (31, NetworkAddressFamily::Ipv6, SensorAction::Accept, false),
         ] {
             let event = classify_kernel_network_event(event_id).unwrap();
             assert_eq!(event.protocol, NetworkProtocol::Tcp);
             assert_eq!(event.protocol.as_str(), "tcp");
             assert_eq!(event.address_family, address_family);
             assert_eq!(event.connection_action(), Some(action));
+            // Sysmon's `Initiated`: an outbound connect is true, an accepted
+            // inbound connection is false. Getting these backwards would invert
+            // 44 corpus rules rather than fail them.
+            assert_eq!(
+                event.initiated(),
+                Some(initiated),
+                "event {event_id} direction"
+            );
         }
     }
 
@@ -146,6 +167,7 @@ mod tests {
             assert_eq!(event.address_family, address_family);
             assert_eq!(event.operation, operation);
             assert_eq!(event.connection_action(), None);
+            assert_eq!(event.initiated(), None, "event {event_id}");
         }
     }
 
@@ -155,6 +177,9 @@ mod tests {
             let event = classify_kernel_network_event(event_id).unwrap();
             assert_eq!(event.protocol, NetworkProtocol::Tcp);
             assert_eq!(event.connection_action(), None, "event {event_id}");
+            // Sends, retransmits, and teardown carry no direction of their own,
+            // so they must not claim one.
+            assert_eq!(event.initiated(), None, "event {event_id}");
         }
     }
 

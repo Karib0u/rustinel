@@ -1408,6 +1408,11 @@ fn decode_network(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEve
             mappings.get_etw_field("DestinationHostname")?,
         ),
         protocol: Some(route.protocol.as_str().to_string()),
+        // Direction comes from the operation the event ID encodes, not from a
+        // payload property: Kernel-Network has no equivalent of Sysmon's
+        // `Initiated`. Only Connect and Accept reach here, so this is `Some`
+        // in practice, but the classifier stays the single source of truth.
+        initiated: route.initiated(),
     };
 
     Some(DecodedEtwEvent {

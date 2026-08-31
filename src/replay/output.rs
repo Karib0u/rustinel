@@ -33,6 +33,7 @@ const CONSOLE_FIELDS: &[&str] = &[
     "DestinationIp",
     "DestinationPort",
     "DestinationHostname",
+    "Initiated",
     "QueryName",
     "QueryResults",
     "ImageLoaded",

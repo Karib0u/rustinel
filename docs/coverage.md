@@ -66,7 +66,7 @@ The field is modelled but no sensor populates it:
 | Rules | Field |
 | --- | --- |
 | 72 | `Provider_Name` |
-| 51 | `Initiated` |
+| 51 | `Initiated` (since fixed, see below) |
 | 47 | `Hashes` |
 | 39 | `ImagePath` |
 | 29 | `IntegrityLevel` |
@@ -78,6 +78,12 @@ The field is modelled but no sensor populates it:
 These are the fields listed as permanently empty in
 [Limitations](limitations.md#windows-etw-and-event-log). A rule referencing any
 of them loads successfully and never matches.
+
+`Initiated` is the exception: it is now populated on Windows, `true` for a
+connect and `false` for an accept. The table is left as measured because the
+whole snapshot was taken before that change and re-deriving one row against a
+different corpus would make the totals inconsistent; the next measurement is
+what moves the headline.
 
 `Company` is no longer one of them: it is now read from the PE version
 resource, alongside `FileVersion`
