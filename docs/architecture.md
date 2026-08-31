@@ -83,7 +83,7 @@ Log subscription for Service Control Manager event 7045. It currently covers:
 - File
 - Registry
 - DNS
-- PowerShell
+- PowerShell (script block and module logging)
 - WMI
 - Service creation
 - Task creation

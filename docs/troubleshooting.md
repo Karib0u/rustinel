@@ -243,6 +243,31 @@ Enable **Turn on PowerShell Script Block Logging** under **Windows Components >
 Windows PowerShell** in Group Policy when full script-block coverage is needed.
 PowerShell 7 uses a different provider and is not currently collected.
 
+### PowerShell module rules do not match on Windows
+
+`ps_module` rules read event 4103, which PowerShell emits **only** when Module
+Logging is enabled. There is no automatic path for it the way there is for
+suspicious script blocks: with the policy off, the event is never written, so
+no session setting can recover it.
+
+Check the effective policy from an elevated PowerShell:
+
+```powershell
+Get-ItemProperty `
+  HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ModuleLogging `
+  -Name EnableModuleLogging
+Get-Item HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames
+```
+
+`EnableModuleLogging` must be `1` **and** `ModuleNames` must list the modules to
+log — set the value name and data both to `*` to cover everything. Enabling the
+policy alone, with an empty `ModuleNames`, logs nothing.
+
+If the policy is on and rules still do not match, check the rule against the
+host language: `ContextInfo` and `Payload` are written in the host's display
+language, so a rule matching an English label (`Host Application =`) does not
+fire on a localized host. See [Detection](detection.md#powershell-logsources).
+
 ### YARA did not scan the process I expected
 
 Check these first:

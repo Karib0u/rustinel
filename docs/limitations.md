@@ -81,8 +81,15 @@ platforms, but several Sysmon-style fields are unavailable.
 - **No injection, driver-load, or named-pipe visibility.** There is no
   equivalent of CreateRemoteThread, ProcessAccess, pipe, or driver-load
   telemetry, so injection-based TTPs leave little trace.
-- **PowerShell 7 (`pwsh`) is not covered.** Only Windows PowerShell 5.1
-  script-block telemetry is collected, and there is no module logging.
+- **PowerShell telemetry depends on host policy.** Only Windows PowerShell 5.1
+  is covered; PowerShell 7 (`pwsh`) uses a different provider and is not
+  collected. Script block logging (4104) reaches the sensor for suspicious
+  blocks even with the policy off, but module logging (4103) does not exist at
+  all until Module Logging is enabled on the host, so `ps_module` rules are
+  inert on a default install. `ContextInfo` and `Payload` are also written in
+  the host's display language, so rules matching English labels do not fire on
+  a localized host. See
+  [Detection](detection.md#powershell-logsources).
 - **DNS `RecordType` is always empty**, and there is no network data-volume
   telemetry, so exfil-by-volume heuristics are not expressible.
 

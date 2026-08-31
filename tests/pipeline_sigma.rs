@@ -4,9 +4,9 @@ mod common;
 use common::{
     assert_ecs_field_eq, assert_ecs_field_present, assert_normalized_field_eq, ecs_json,
     file_create_event, file_delete_event, file_rename_event, image_for, network_connect_event,
-    process_start_event, provider_for, renamed_test_file_path, test_file_path, SigmaFixture,
-    TestNormalizer, TEST_DESTINATION_IP, TEST_DESTINATION_PORT, TEST_PID, TEST_SOURCE_IP,
-    TEST_USER,
+    powershell_module_event, process_start_event, provider_for, renamed_test_file_path,
+    test_file_path, SigmaFixture, TestNormalizer, TEST_DESTINATION_IP, TEST_DESTINATION_PORT,
+    TEST_PID, TEST_PS_MODULE_CONTEXT, TEST_PS_MODULE_PAYLOAD, TEST_SOURCE_IP, TEST_USER,
 };
 use rustinel::{
     engine::Engine,
@@ -112,6 +112,81 @@ level: high
 
     let ecs = ecs_json(&alert);
     assert_ecs_field_eq(&ecs, "edr.process.integrity_level", "System");
+}
+
+#[test]
+fn sigma_ps_module_detection_pipeline_maps_to_ecs() {
+    // Event 4103 shares the PowerShell provider with the script block event,
+    // so the thing worth proving is that it lands on `ps_module` with its own
+    // two fields rather than being read back as a `ps_script` event.
+    let fixture = SigmaFixture::new();
+    fixture.write_ps_module_rule();
+    let engine = load_engine(Platform::Windows, &fixture);
+    let harness = TestNormalizer::new(false);
+
+    let normalized = harness
+        .normalizer
+        .normalize(&powershell_module_event())
+        .expect("module logging event should normalize");
+
+    assert_eq!(normalized.category, EventCategory::PowerShellModule);
+    assert_eq!(normalized.event_id, 4103);
+    assert!(matches!(
+        normalized.fields,
+        EventFields::PowerShellModule(_)
+    ));
+    assert_normalized_field_eq(&normalized, "ContextInfo", TEST_PS_MODULE_CONTEXT);
+    assert_normalized_field_eq(&normalized, "Payload", TEST_PS_MODULE_PAYLOAD);
+
+    let alert = engine
+        .check_event(&normalized)
+        .expect("ps_module Sigma rule should match");
+    assert_sigma_alert(&alert, "Test PowerShell Module Download");
+
+    let ecs = ecs_json(&alert);
+    assert_ecs_field_eq(&ecs, "event.dataset", "edr.powershell_module");
+    assert_ecs_field_eq(&ecs, "event.action", "powershell-module");
+    assert_ecs_field_eq(&ecs, "edr.powershell.context_info", TEST_PS_MODULE_CONTEXT);
+    assert_ecs_field_eq(&ecs, "edr.powershell.payload", TEST_PS_MODULE_PAYLOAD);
+    assert_ecs_field_eq(&ecs, "process.pid", TEST_PID);
+}
+
+#[test]
+fn sigma_ps_script_event_4104_keeps_existing_behavior() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "ps_script.yml",
+        r#"title: Test PowerShell Script Block
+logsource:
+  product: windows
+  category: ps_script
+detection:
+  selection:
+    ScriptBlockText|contains: "Get-Process"
+  condition: selection
+level: medium
+"#,
+    );
+    let engine = load_engine(Platform::Windows, &fixture);
+    let harness = TestNormalizer::new(false);
+
+    let normalized = harness
+        .normalizer
+        .normalize(&common::powershell_script_event())
+        .expect("script-block event should normalize");
+
+    assert_eq!(normalized.category, EventCategory::Scripting);
+    assert_eq!(normalized.event_id, 4104);
+    assert_normalized_field_eq(&normalized, "ScriptBlockText", "Get-Process");
+
+    let alert = engine
+        .check_event(&normalized)
+        .expect("ps_script Sigma rule should still match");
+    assert_sigma_alert(&alert, "Test PowerShell Script Block");
+
+    let ecs = ecs_json(&alert);
+    assert_ecs_field_eq(&ecs, "event.dataset", "edr.scripting");
+    assert_ecs_field_eq(&ecs, "event.action", "powershell-script");
 }
 
 #[test]

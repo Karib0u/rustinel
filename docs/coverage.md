@@ -42,6 +42,15 @@ Dominated by two Event Log channels and a few Sysmon categories:
 | 17 | `windefend` |
 | 15 | `create_remote_thread` |
 
+**Since this measurement:** the 34 `ps_module` rules are no longer blocked.
+Event 4103 is collected from the PowerShell provider
+([#322](https://github.com/Karib0u/rustinel/issues/322)), and all 34 reference
+only `ContextInfo` and `Payload`, which the decoder populates — so they move to
+"can fire" (Windows 2,172 / 75.5%, blocked-on-collector 414 / 14.4%) once the
+host has Module Logging enabled. See
+[Detection](detection.md#powershell-logsources). The table itself is left as
+measured; the next full run will absorb it.
+
 ### Windows: unavailable fields (289 rules)
 
 The field is modelled but no sensor populates it:

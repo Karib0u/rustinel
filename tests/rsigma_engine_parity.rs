@@ -10,7 +10,10 @@
 #[cfg(test)]
 mod common;
 
-use common::{network_connect_event, process_start_event, SigmaFixture, TestNormalizer};
+use common::{
+    network_connect_event, powershell_module_event, process_start_event, SigmaFixture,
+    TestNormalizer,
+};
 use rustinel::engine::{Engine, SigmaEngineKind};
 use rustinel::models::MatchDebugLevel;
 use rustinel::sensor::Platform;
@@ -144,5 +147,24 @@ level: high
             alert.rule_name, "Parity Process ContainsAll Regex",
             "backend {kind:?}"
         );
+    }
+}
+
+#[test]
+fn powershell_module_rule_matches_on_every_backend() {
+    let fixture = SigmaFixture::new();
+    fixture.write_ps_module_rule();
+    let harness = TestNormalizer::new(false);
+    let normalized = harness
+        .normalizer
+        .normalize(&powershell_module_event())
+        .expect("module logging event should normalize");
+
+    for kind in backends() {
+        let engine = engine_with(&fixture, Platform::Windows, kind);
+        let alert = engine
+            .check_event(&normalized)
+            .unwrap_or_else(|| panic!("ps_module rule should match ({kind:?})"));
+        assert_eq!(alert.rule_name, "Test PowerShell Module Download");
     }
 }

@@ -11,12 +11,12 @@ use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::trace::{stop_trace_by_name, TraceProperties, TraceTrait, UserTrace};
 use ferrisetw::{EventRecord, GUID};
 use tokio::sync::mpsc::{error::TrySendError, Sender};
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::models::{
     DnsQueryFields, EventCategory, FileEventFields, ImageLoadFields, NetworkConnectionFields,
-    PowerShellScriptFields, ProcessCreationFields, RegistryEventFields, TaskCreationFields,
-    WmiEventFields,
+    PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
+    TaskCreationFields, WmiEventFields,
 };
 use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::{
@@ -172,8 +172,21 @@ impl EtwProviders {
     // filters then keep lifecycle and diagnostic records out of the session.
     const OPERATIONAL_KEYWORD: u64 = 0x8000_0000_0000_0000;
     const POWERSHELL_RUNSPACE_KEYWORD: u64 = 0x0000_0000_0000_0001;
+    /// Module logging (4103) is published under `Cmdlets`, not `Runspace`:
+    /// the manifest gives 4103 a keyword mask of `0x8000_0000_0000_0020` and
+    /// 4104 one of `0x8000_0000_0000_0001`, and a session that asks for
+    /// `Runspace` alone is never sent the module events at all. The event ID
+    /// filter below is what keeps the rest of the `Cmdlets` traffic — the
+    /// analytic command-lifecycle events, tens per interpreter run — out of
+    /// the session buffers.
+    const POWERSHELL_CMDLETS_KEYWORD: u64 = 0x0000_0000_0000_0020;
+    const POWERSHELL_KEYWORDS: u64 =
+        Self::POWERSHELL_RUNSPACE_KEYWORD | Self::POWERSHELL_CMDLETS_KEYWORD;
     const DNS_EVENT_IDS: &'static [u16] = &[3006, 3008];
-    const POWERSHELL_EVENT_IDS: &'static [u16] = &[4104];
+    const POWERSHELL_EVENT_IDS: &'static [u16] = &[
+        POWERSHELL_EVENT_MODULE_LOGGING,
+        POWERSHELL_EVENT_SCRIPT_BLOCK,
+    ];
     // Native WMI-Activity numbering is unrelated to Sysmon's, but both reach
     // the engine under `(windows, wmi, wmi_event)`, so any collected ID that
     // happens to equal a Sysmon `wmi_event` ID (19 = filter, 20 = consumer,
@@ -238,9 +251,11 @@ impl EtwProviders {
         EtwProvider {
             guid: GUID::from(Self::POWERSHELL_GUID),
             name: "Microsoft-Windows-PowerShell",
-            // Script-block event 4104 is Verbose in the provider manifest.
+            // Script-block event 4104 is Verbose in the provider manifest;
+            // module-logging event 4103 is Informational. An ETW level is a
+            // ceiling, so Verbose collects both.
             level: 5,
-            keywords: Self::POWERSHELL_RUNSPACE_KEYWORD,
+            keywords: Self::POWERSHELL_KEYWORDS,
             event_ids: Self::POWERSHELL_EVENT_IDS,
         }
     }
@@ -288,6 +303,29 @@ impl EtwProviders {
 /// for free. Kept in sync with `kernel_file_route` by
 /// `filter_matches_routing_allowlist`; a drift would silently delete detections.
 const KERNEL_FILE_ROUTED_EVENT_IDS: [u16; 9] = [10, 11, 12, 14, 16, 17, 26, 27, 28];
+
+/// Microsoft-Windows-PowerShell manifest event IDs.
+///
+/// The two carry different Sigma logsources — 4104 is `ps_script`, 4103 is
+/// `ps_module` — and different templates, so they are routed apart before
+/// decoding rather than sharing one PowerShell payload.
+const POWERSHELL_EVENT_MODULE_LOGGING: u16 = 4103;
+const POWERSHELL_EVENT_SCRIPT_BLOCK: u16 = 4104;
+
+/// One provider, two Sigma logsources: the event ID is the only thing that
+/// separates script block logging from module logging, so the PowerShell
+/// provider cannot be routed on its GUID like the others. Kept in sync with
+/// [`EtwProviders::POWERSHELL_EVENT_IDS`] by
+/// `powershell_filter_matches_routing_allowlist`.
+fn powershell_route(event_id: u16) -> Option<(EventCategory, SensorAction)> {
+    match event_id {
+        POWERSHELL_EVENT_SCRIPT_BLOCK => Some((EventCategory::Scripting, SensorAction::Execute)),
+        POWERSHELL_EVENT_MODULE_LOGGING => {
+            Some((EventCategory::PowerShellModule, SensorAction::Execute))
+        }
+        _ => None,
+    }
+}
 
 /// Microsoft-Windows-Kernel-File manifest event IDs.
 const KERNEL_FILE_EVENT_NAME_CREATE: u16 = 10;
@@ -580,6 +618,7 @@ struct EtwRouting {
     kernel_process_guid: GUID,
     kernel_file_guid: GUID,
     kernel_registry_guid: GUID,
+    powershell_guid: GUID,
     guid_to_category: HashMap<GUID, EventCategory>,
 }
 
@@ -593,7 +632,6 @@ impl EtwRouting {
             EventCategory::Registry,
         );
         guid_to_category.insert(EtwProviders::dns_client().guid, EventCategory::Dns);
-        guid_to_category.insert(EtwProviders::powershell().guid, EventCategory::Scripting);
         guid_to_category.insert(EtwProviders::wmi_activity().guid, EventCategory::Wmi);
         guid_to_category.insert(EtwProviders::task_scheduler().guid, EventCategory::Task);
 
@@ -601,6 +639,7 @@ impl EtwRouting {
             kernel_process_guid: EtwProviders::kernel_process().guid,
             kernel_file_guid: EtwProviders::kernel_file().guid,
             kernel_registry_guid: EtwProviders::kernel_registry().guid,
+            powershell_guid: EtwProviders::powershell().guid,
             guid_to_category,
         }
     }
@@ -617,6 +656,10 @@ impl EtwRouting {
             };
         }
 
+        if provider_guid == self.powershell_guid {
+            return powershell_route(record.event_id());
+        }
+
         let category = *self.guid_to_category.get(&provider_guid)?;
         let action = match category {
             EventCategory::Network => {
@@ -629,11 +672,13 @@ impl EtwRouting {
             // pipeline; `decode_record` diverts it before reaching here.
             EventCategory::Registry => return None,
             EventCategory::Dns => SensorAction::Query,
-            EventCategory::Scripting => SensorAction::Execute,
             EventCategory::Wmi => SensorAction::Execute,
             EventCategory::Task => SensorAction::Register,
             EventCategory::Service => unreachable!("service events use the event log source"),
-            EventCategory::Process | EventCategory::ImageLoad => unreachable!(),
+            EventCategory::Process
+            | EventCategory::ImageLoad
+            | EventCategory::Scripting
+            | EventCategory::PowerShellModule => unreachable!(),
         };
 
         Some((category, action))
@@ -877,6 +922,7 @@ fn decode_record(
         EventCategory::Dns => decode_dns(&parser, record),
         EventCategory::ImageLoad => decode_image_load(&parser, record),
         EventCategory::Scripting => decode_powershell(&parser, record),
+        EventCategory::PowerShellModule => decode_powershell_module(&parser, record),
         EventCategory::Wmi => decode_wmi(&parser, record),
         EventCategory::Service => unreachable!("service events use the event log source"),
         EventCategory::Task => decode_task(&parser, record),
@@ -917,6 +963,13 @@ fn has_matchable_fields(payload: &SensorPayload) -> bool {
             fields.script_block_text.is_some()
                 || fields.script_block_id.is_some()
                 || fields.path.is_some()
+                || fields.process_id.is_some()
+                || fields.image.is_some()
+                || fields.user.is_some()
+        }
+        SensorPayload::PowerShellModule(fields) => {
+            fields.context_info.is_some()
+                || fields.payload.is_some()
                 || fields.process_id.is_some()
                 || fields.image.is_some()
                 || fields.user.is_some()
@@ -1129,7 +1182,7 @@ fn decode_kernel_file_record(
                 // endpoint is quiet or unobserved.
                 let unresolved = state.unresolved_file_events.fetch_add(1, Ordering::Relaxed) + 1;
                 if unresolved == 1 || unresolved.is_multiple_of(1000) {
-                    warn!(
+                    debug!(
                         unresolved_file_events = unresolved,
                         "Dropping file event whose path could not be resolved"
                     );
@@ -1270,7 +1323,7 @@ fn decode_kernel_registry_record(
                         .fetch_add(1, Ordering::Relaxed)
                         + 1;
                     if unresolved == 1 || unresolved.is_multiple_of(10_000) {
-                        warn!(
+                        debug!(
                             unresolved_registry_events = unresolved,
                             "Dropping registry event whose key path could not be resolved"
                         );
@@ -1443,6 +1496,24 @@ fn decode_powershell(parser: &Parser, record: &EventRecord) -> Option<DecodedEtw
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
         payload: SensorPayload::Scripting(fields),
+    })
+}
+
+fn decode_powershell_module(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+    let mappings = field_maps::powershell_module_mappings();
+    let fields = PowerShellModuleFields {
+        context_info: try_get_string(parser, mappings.get_etw_field("ContextInfo")?),
+        payload: try_get_string(parser, mappings.get_etw_field("Payload")?),
+        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        image: try_get_string(parser, mappings.get_etw_field("Image")?)
+            .map(|path| convert_nt_to_dos(&path)),
+        user: try_get_string(parser, mappings.get_etw_field("User")?),
+    };
+
+    Some(DecodedEtwEvent {
+        pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
+        process_start_key: None,
+        payload: SensorPayload::PowerShellModule(fields),
     })
 }
 
@@ -1826,17 +1897,52 @@ mod tests {
         assert_eq!(dns.event_ids, &[3006, 3008]);
 
         let powershell = EtwProviders::powershell();
-        assert_eq!(
-            powershell.keywords,
-            EtwProviders::POWERSHELL_RUNSPACE_KEYWORD
+        // Both keywords are required: 4104 is published under `Runspace` and
+        // 4103 under `Cmdlets`, so dropping either silently removes a whole
+        // Sigma logsource from the sensor.
+        assert_ne!(
+            powershell.keywords & EtwProviders::POWERSHELL_RUNSPACE_KEYWORD,
+            0
+        );
+        assert_ne!(
+            powershell.keywords & EtwProviders::POWERSHELL_CMDLETS_KEYWORD,
+            0
         );
         assert_eq!(powershell.level, 5);
-        assert_eq!(powershell.event_ids, &[4104]);
+        assert_eq!(powershell.event_ids, &[4103, 4104]);
 
         assert_eq!(EtwProviders::task_scheduler().event_ids, &[106]);
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&13));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&18));
+    }
+
+    #[test]
+    fn powershell_filter_matches_routing_allowlist() {
+        // A provider filter and a router that disagree fail silently: an ID in
+        // the filter but not the router is decoded work thrown away, and an ID
+        // in the router but not the filter never reaches the session at all.
+        for &event_id in EtwProviders::POWERSHELL_EVENT_IDS {
+            assert!(
+                powershell_route(event_id).is_some(),
+                "event {event_id} is subscribed but not routed"
+            );
+        }
+
+        assert_eq!(
+            powershell_route(POWERSHELL_EVENT_SCRIPT_BLOCK),
+            Some((EventCategory::Scripting, SensorAction::Execute)),
+            "script block logging must stay on ps_script"
+        );
+        assert_eq!(
+            powershell_route(POWERSHELL_EVENT_MODULE_LOGGING),
+            Some((EventCategory::PowerShellModule, SensorAction::Execute)),
+            "module logging must reach ps_module, not ps_script"
+        );
+        // 4105/4106 (script block start/stop) share the Runspace keyword and
+        // carry no matchable text.
+        assert_eq!(powershell_route(4105), None);
+        assert_eq!(powershell_route(4106), None);
     }
 
     #[test]
@@ -1876,5 +1982,23 @@ mod tests {
             user: None,
         });
         assert!(has_matchable_fields(&populated));
+
+        let empty_module = SensorPayload::PowerShellModule(PowerShellModuleFields {
+            context_info: None,
+            payload: None,
+            process_id: None,
+            image: None,
+            user: None,
+        });
+        assert!(!has_matchable_fields(&empty_module));
+
+        let populated_module = SensorPayload::PowerShellModule(PowerShellModuleFields {
+            context_info: Some("Host Application = powershell.exe".to_string()),
+            payload: None,
+            process_id: None,
+            image: None,
+            user: None,
+        });
+        assert!(has_matchable_fields(&populated_module));
     }
 }
