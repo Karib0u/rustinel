@@ -404,6 +404,7 @@ mod native_snapshot {
 
 /// Snapshot all running processes using Native API (NtQuerySystemInformation).
 pub fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
+    use crate::utils::pe;
     use crate::utils::{convert_nt_to_dos, parse_metadata};
 
     let processes = native_snapshot::query_system_processes()
@@ -414,16 +415,8 @@ pub fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
         let raw_image = proc.full_path.unwrap_or_else(|| proc.image_name.clone());
         let image = convert_nt_to_dos(&raw_image);
 
-        let (original_filename, product, description) =
-            if let Some(metadata) = parse_metadata(&image) {
-                (
-                    metadata.original_filename,
-                    metadata.product,
-                    metadata.description,
-                )
-            } else {
-                (None, None, None)
-            };
+        let (original_filename, product, description, company, file_version) =
+            pe::version_fields(parse_metadata(&image));
 
         cache.add(
             proc.pid,
@@ -437,8 +430,8 @@ pub fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
             original_filename,
             product,
             description,
-            None,
-            None,
+            company,
+            file_version,
             None,
             None,
         );

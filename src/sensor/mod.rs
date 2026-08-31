@@ -6,6 +6,8 @@
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod dns;
+#[cfg(any(windows, test))]
+mod integrity_level;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
@@ -323,6 +325,8 @@ mod tests {
             original_file_name: None,
             product: None,
             description: None,
+            company: None,
+            file_version: None,
             target_image: None,
             command_line: Some("/usr/bin/bash -c id".to_string()),
             process_id: Some("42".to_string()),
@@ -333,8 +337,6 @@ mod tests {
             current_directory: None,
             integrity_level: None,
             user: None,
-            logon_id: None,
-            logon_guid: None,
         });
 
         assert_eq!(payload.category(), EventCategory::Process);
@@ -352,6 +354,7 @@ mod tests {
             user: None,
             destination_hostname: None,
             protocol: Some("tcp".to_string()),
+            initiated: Some(true),
         });
 
         let event = SensorEvent {

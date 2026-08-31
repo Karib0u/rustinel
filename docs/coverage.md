@@ -66,10 +66,10 @@ The field is modelled but no sensor populates it:
 | Rules | Field |
 | --- | --- |
 | 72 | `Provider_Name` |
-| 51 | `Initiated` |
+| 51 | `Initiated` (since fixed, see below) |
 | 47 | `Hashes` |
 | 39 | `ImagePath` |
-| 29 | `IntegrityLevel` |
+| 29 | `IntegrityLevel` (fixed after this measurement) |
 | 27 | `User` |
 | 21 | `Company` |
 | 15 | `Signed` |
@@ -89,6 +89,23 @@ event IDs Rustinel does not collect (7023, 7034, 7036, 104), fields it does not
 model (`Binary`, `Channel`, `HiveName`), or `ProcessId`, which a 7045 record
 does not carry. The tables above predate the change and will move at the next
 full measurement.
+
+`IntegrityLevel` is populated on Windows process creation since
+[#294](https://github.com/Karib0u/rustinel/issues/294), which lands after the
+run above. The 29 rules it blocks are no longer blocked on it, but the headline
+totals are left as measured rather than adjusted by hand; they are re-measured
+against the corpus each release.
+
+`Initiated` is the exception: it is now populated on Windows, `true` for a
+connect and `false` for an accept. The table is left as measured because the
+whole snapshot was taken before that change and re-deriving one row against a
+different corpus would make the totals inconsistent; the next measurement is
+what moves the headline.
+
+`Company` is no longer one of them: it is now read from the PE version
+resource, alongside `FileVersion`
+([#303](https://github.com/Karib0u/rustinel/issues/303)). The table above
+predates that change and still counts its 21 rules as blocked.
 
 ### Linux: one source dominates
 

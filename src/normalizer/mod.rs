@@ -149,10 +149,10 @@ impl Normalizer {
                         fields.original_file_name.clone(),
                         fields.product.clone(),
                         fields.description.clone(),
+                        fields.company.clone(),
+                        fields.file_version.clone(),
                         fields.current_directory.clone(),
                         fields.integrity_level.clone(),
-                        fields.logon_id.clone(),
-                        fields.logon_guid.clone(),
                     );
                 }
             }
@@ -393,11 +393,11 @@ impl Normalizer {
             original_file_name: meta.original_filename,
             product: meta.product,
             description: meta.description,
+            company: meta.company,
+            file_version: meta.file_version,
             current_directory: meta.current_directory,
             integrity_level: meta.integrity_level,
             user: meta.user,
-            logon_id: meta.logon_id,
-            logon_guid: meta.logon_guid,
         })
     }
 }
@@ -485,6 +485,8 @@ mod tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: Some("/usr/bin/curl https://example.test".to_string()),
                 process_id: Some(pid.to_string()),
@@ -495,8 +497,6 @@ mod tests {
                 current_directory: Some("/tmp".to_string()),
                 integrity_level: None,
                 user: Some("alice".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
         }
     }
@@ -526,6 +526,8 @@ mod tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: None,
                 process_id: Some(pid.to_string()),
@@ -536,8 +538,6 @@ mod tests {
                 current_directory: None,
                 integrity_level: None,
                 user: Some("alice".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
         }
     }
@@ -564,6 +564,7 @@ mod tests {
                 user: Some("alice".to_string()),
                 destination_hostname: None,
                 protocol: None,
+                initiated: Some(true),
             }),
         }
     }
@@ -650,6 +651,8 @@ mod tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: None,
                 process_id: Some("42".to_string()),
@@ -660,8 +663,6 @@ mod tests {
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
         };
 
@@ -727,6 +728,7 @@ mod tests {
                 user: None,
                 destination_hostname: None,
                 protocol: Some("tcp".to_string()),
+                initiated: Some(true),
             }),
         };
 
@@ -934,6 +936,7 @@ mod tests {
                 "User",
                 "DestinationHostname",
                 "Protocol",
+                "Initiated",
             ],
         );
     }

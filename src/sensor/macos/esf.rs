@@ -317,6 +317,8 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             original_file_name: None,
             product: None,
             description: None,
+            company: None,
+            file_version: None,
             target_image: None,
             command_line: raw.command_line,
             process_id: Some(raw.pid.to_string()),
@@ -329,8 +331,6 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             // Windows-specific; absent on macOS.
             integrity_level: None,
             user: Some(raw.user),
-            logon_id: None,
-            logon_guid: None,
         }),
     }
 }
@@ -366,6 +366,8 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
             original_file_name: None,
             product: None,
             description: None,
+            company: None,
+            file_version: None,
             target_image: None,
             command_line: None,
             process_id: Some(pid.to_string()),
@@ -376,8 +378,6 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
             current_directory: None,
             integrity_level: None,
             user: Some(user),
-            logon_id: None,
-            logon_guid: None,
         }),
     }
 }

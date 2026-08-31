@@ -106,6 +106,12 @@ pub struct ProcessContext {
     #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    #[serde(rename = "Company", skip_serializing_if = "Option::is_none")]
+    pub company: Option<String>,
+
+    #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
+    pub file_version: Option<String>,
+
     #[serde(rename = "CurrentDirectory", skip_serializing_if = "Option::is_none")]
     pub current_directory: Option<String>,
 
@@ -114,12 +120,6 @@ pub struct ProcessContext {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-
-    #[serde(rename = "LogonId", skip_serializing_if = "Option::is_none")]
-    pub logon_id: Option<String>,
-
-    #[serde(rename = "LogonGuid", skip_serializing_if = "Option::is_none")]
-    pub logon_guid: Option<String>,
 }
 
 impl NormalizedEvent {
@@ -140,6 +140,8 @@ impl NormalizedEvent {
                 "OriginalFileName" => f.original_file_name.as_deref(),
                 "Product" => f.product.as_deref(),
                 "Description" => f.description.as_deref(),
+                "Company" => f.company.as_deref(),
+                "FileVersion" => f.file_version.as_deref(),
                 "CommandLine" => f.command_line.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
                 "ParentProcessId" => f.parent_process_id.as_deref(),
@@ -149,8 +151,6 @@ impl NormalizedEvent {
                 "IntegrityLevel" => f.integrity_level.as_deref(),
                 "CurrentDirectory" => f.current_directory.as_deref(),
                 "TargetImage" => f.target_image.as_deref(),
-                "LogonId" => f.logon_id.as_deref(),
-                "LogonGuid" => f.logon_guid.as_deref(),
                 _ => None,
             },
             EventFields::FileEvent(f) => match key {
@@ -174,6 +174,12 @@ impl NormalizedEvent {
                 "DestinationHostname" => f.destination_hostname.as_deref(),
                 "Protocol" => f.protocol.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
+                // Rules spell `Initiated` as the string `true`/`false`, which
+                // is what Sysmon's own XML renders. The model keeps a boolean,
+                // so the two spellings are borrowed `&'static str` rather than
+                // formatted, which is what this accessor's no-allocation
+                // contract requires.
+                "Initiated" => f.initiated.map(|v| if v { "true" } else { "false" }),
                 _ => None,
             },
             EventFields::RegistryEvent(f) => match key {
@@ -204,6 +210,8 @@ impl NormalizedEvent {
                 "OriginalFileName" => f.original_file_name.as_deref(),
                 "Product" => f.product.as_deref(),
                 "Description" => f.description.as_deref(),
+                "Company" => f.company.as_deref(),
+                "FileVersion" => f.file_version.as_deref(),
                 "Signed" => f.signed.as_deref(),
                 "Signature" => f.signature.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
@@ -299,6 +307,12 @@ impl NormalizedEvent {
                 if let Some(v) = &f.description {
                     values.push(v.as_str());
                 }
+                if let Some(v) = &f.company {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.file_version {
+                    values.push(v.as_str());
+                }
                 if let Some(v) = &f.command_line {
                     values.push(v.as_str());
                 }
@@ -324,12 +338,6 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.target_image {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.logon_id {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.logon_guid {
                     values.push(v.as_str());
                 }
             }
@@ -384,6 +392,12 @@ impl NormalizedEvent {
                 if let Some(v) = &f.process_id {
                     values.push(v.as_str());
                 }
+                // `Initiated` is deliberately absent from keyword search. The
+                // RSigma adapter's keyword walk keeps only the string members
+                // of the serialized field object, and this one is a boolean, so
+                // pushing "true" here would make the two backends disagree —
+                // and would match a keyword rule searching for `true` on every
+                // connection whose direction happens to be known.
             }
             EventFields::RegistryEvent(f) => {
                 if let Some(v) = &f.target_object {
@@ -442,6 +456,12 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.description {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.company {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.file_version {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.signed {
@@ -632,6 +652,12 @@ impl NormalizedEvent {
                 if let Some(v) = &f.description {
                     values.push(("Description", v.as_str()));
                 }
+                if let Some(v) = &f.company {
+                    values.push(("Company", v.as_str()));
+                }
+                if let Some(v) = &f.file_version {
+                    values.push(("FileVersion", v.as_str()));
+                }
                 if let Some(v) = &f.command_line {
                     values.push(("CommandLine", v.as_str()));
                 }
@@ -658,12 +684,6 @@ impl NormalizedEvent {
                 }
                 if let Some(v) = &f.target_image {
                     values.push(("TargetImage", v.as_str()));
-                }
-                if let Some(v) = &f.logon_id {
-                    values.push(("LogonId", v.as_str()));
-                }
-                if let Some(v) = &f.logon_guid {
-                    values.push(("LogonGuid", v.as_str()));
                 }
             }
             EventFields::FileEvent(f) => {
@@ -717,6 +737,8 @@ impl NormalizedEvent {
                 if let Some(v) = &f.process_id {
                     values.push(("ProcessId", v.as_str()));
                 }
+                // `Initiated` is omitted for the reason given in
+                // `all_field_values`.
             }
             EventFields::RegistryEvent(f) => {
                 if let Some(v) = &f.target_object {
@@ -785,6 +807,12 @@ impl NormalizedEvent {
                 }
                 if let Some(v) = &f.description {
                     values.push(("Description", v.as_str()));
+                }
+                if let Some(v) = &f.company {
+                    values.push(("Company", v.as_str()));
+                }
+                if let Some(v) = &f.file_version {
+                    values.push(("FileVersion", v.as_str()));
                 }
                 if let Some(v) = &f.signed {
                     values.push(("Signed", v.as_str()));
@@ -978,7 +1006,9 @@ mod round_trip_tests {
     //! ones live protection would have used.
 
     use super::*;
-    use crate::models::{FileEventFields, ProcessCreationFields, ServiceCreationFields};
+    use crate::models::{
+        FileEventFields, NetworkConnectionFields, ProcessCreationFields, ServiceCreationFields,
+    };
 
     fn round_trip(event: &NormalizedEvent) -> NormalizedEvent {
         let line = serde_json::to_string(event).expect("event serializes");
@@ -1056,6 +1086,8 @@ mod round_trip_tests {
                 original_file_name: Some("zsh".to_string()),
                 product: Some("shell".to_string()),
                 description: Some("Z shell".to_string()),
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: Some("zsh -c whoami".to_string()),
                 process_id: Some("7448".to_string()),
@@ -1066,8 +1098,6 @@ mod round_trip_tests {
                 current_directory: Some("/Users/analyst".to_string()),
                 integrity_level: None,
                 user: Some("analyst".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -1159,6 +1189,99 @@ mod round_trip_tests {
         }
     }
 
+    fn network_event(initiated: Option<bool>) -> NormalizedEvent {
+        NormalizedEvent {
+            timestamp: "2026-08-16T09:41:05.001Z".to_string(),
+            platform: Platform::Windows,
+            provider: "etw".to_string(),
+            category: EventCategory::Network,
+            event_id: 3,
+            event_id_string: "3".to_string(),
+            opcode: 12,
+            fields: EventFields::NetworkConnection(NetworkConnectionFields {
+                destination_ip: Some("198.51.100.10".to_string()),
+                source_ip: Some("10.0.0.5".to_string()),
+                destination_port: Some("443".to_string()),
+                source_port: Some("51324".to_string()),
+                process_id: Some("4188".to_string()),
+                image: Some(r"C:\Windows\System32\curl.exe".to_string()),
+                user: None,
+                destination_hostname: None,
+                protocol: Some("tcp".to_string()),
+                initiated,
+            }),
+            process_context: None,
+        }
+    }
+
+    #[test]
+    fn initiated_reads_back_as_the_string_a_sigma_rule_writes() {
+        // Rules spell it `Initiated: 'true'`, so the accessor has to hand the
+        // matcher a string even though the model holds a boolean.
+        assert_eq!(
+            network_event(Some(true)).get_field("Initiated"),
+            Some("true")
+        );
+        assert_eq!(
+            network_event(Some(false)).get_field("Initiated"),
+            Some("false")
+        );
+        assert_eq!(network_event(None).get_field("Initiated"), None);
+    }
+
+    #[test]
+    fn an_unknown_direction_stays_absent_rather_than_becoming_false() {
+        // The distinction that matters: a rule asking for `Initiated: 'false'`
+        // must not match an event whose sensor could not tell the direction.
+        let event = round_trip(&network_event(None));
+        assert_eq!(event.get_field("Initiated"), None);
+
+        let line = serde_json::to_string(&network_event(None)).expect("event serializes");
+        assert!(
+            !line.contains("Initiated"),
+            "an absent direction must not be written at all: {line}"
+        );
+    }
+
+    #[test]
+    fn initiated_survives_recording_in_both_directions() {
+        for initiated in [true, false] {
+            let event = network_event(Some(initiated));
+            let line = serde_json::to_string(&event).expect("event serializes");
+            // A JSON boolean, not the string the accessor renders: the
+            // recording is the model, and ECS consumers read it as a boolean.
+            assert!(
+                line.contains(&format!(r#""Initiated":{initiated}"#)),
+                "recorded as a boolean: {line}"
+            );
+
+            let replayed = round_trip(&event);
+            match &replayed.fields {
+                EventFields::NetworkConnection(f) => assert_eq!(f.initiated, Some(initiated)),
+                other => panic!("network event came back as {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn initiated_does_not_leak_into_keyword_search() {
+        // Keyword rules search field *values*. "true" is not evidence of
+        // anything, and the RSigma adapter drops non-strings, so the built-in
+        // matcher must too or the two backends disagree.
+        let event = network_event(Some(true));
+        assert!(
+            !event.all_field_values().contains(&"true"),
+            "Initiated must not be keyword-searchable"
+        );
+        assert!(
+            !event
+                .all_field_values_with_keys()
+                .iter()
+                .any(|(key, _)| *key == "Initiated"),
+            "Initiated must not be keyword-searchable"
+        );
+    }
+
     #[test]
     fn a_recorded_service_event_keeps_both_providers_and_the_image_path_alias() {
         // `Provider_Name` is stored; `ImagePath` is derived from the stored
@@ -1233,9 +1356,9 @@ mod round_trip_tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -1275,9 +1398,9 @@ mod round_trip_tests {
             original_file_name: None,
             product: None,
             description: None,
+            company: None,
+            file_version: None,
             target_image: None,
-            logon_id: None,
-            logon_guid: None,
         });
 
         assert_eq!(event.get_field("Image"), Some(image));

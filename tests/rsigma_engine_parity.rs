@@ -16,7 +16,7 @@ use common::{
 };
 use rustinel::engine::{Engine, SigmaEngineKind};
 use rustinel::models::MatchDebugLevel;
-use rustinel::sensor::Platform;
+use rustinel::sensor::{Platform, SensorPayload};
 
 /// Every Sigma backend compiled into this build.
 fn backends() -> Vec<SigmaEngineKind> {
@@ -172,6 +172,100 @@ fn service_provider_and_image_path_rule_matches_on_every_backend() {
         assert_eq!(
             alert.rule_name, "Test Service Installation",
             "backend {kind:?}"
+        );
+    }
+}
+
+#[test]
+fn initiated_rules_separate_outbound_from_inbound_connections() {
+    // Sysmon Event 3's `Initiated` is written as a string in rules even though
+    // the model holds a boolean, and the two backends have to agree on that.
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "net_inbound.yml",
+        r#"title: Parity Inbound Connection
+logsource:
+  product: windows
+  category: network_connection
+detection:
+  selection:
+    DestinationPort: '443'
+    Initiated: 'false'
+  condition: selection
+level: high
+"#,
+    );
+
+    let harness = TestNormalizer::new(false);
+    let outbound = harness
+        .normalizer
+        .normalize(&network_connect_event(Platform::Windows))
+        .expect("outbound event should normalize");
+
+    let mut accepted = network_connect_event(Platform::Windows);
+    if let SensorPayload::Network(fields) = &mut accepted.payload {
+        fields.initiated = Some(false);
+    }
+    let inbound = harness
+        .normalizer
+        .normalize(&accepted)
+        .expect("inbound event should normalize");
+
+    for kind in backends() {
+        let engine = engine_with(&fixture, Platform::Windows, kind);
+        assert!(
+            engine.check_event(&outbound).is_none(),
+            "an outbound connection must not match Initiated: 'false' ({kind:?})"
+        );
+        let alert = engine
+            .check_event(&inbound)
+            .unwrap_or_else(|| panic!("an accepted connection should match ({kind:?})"));
+        assert_eq!(
+            alert.rule_name, "Parity Inbound Connection",
+            "backend {kind:?}"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_direction_matches_neither_initiated_value() {
+    // A sensor that cannot tell the direction leaves the field absent, and an
+    // absent field matches no equality selection in either direction. Guessing
+    // would silently answer a question the sensor never asked.
+    let fixture = SigmaFixture::new();
+    for (name, value) in [("net_true.yml", "true"), ("net_false.yml", "false")] {
+        fixture.write_rule(
+            name,
+            &format!(
+                r#"title: Parity Initiated {value}
+logsource:
+  product: macos
+  category: network_connection
+detection:
+  selection:
+    Initiated: '{value}'
+  condition: selection
+level: high
+"#
+            ),
+        );
+    }
+
+    let mut unknown = network_connect_event(Platform::MacOS);
+    if let SensorPayload::Network(fields) = &mut unknown.payload {
+        fields.initiated = None;
+    }
+    let harness = TestNormalizer::new(false);
+    let normalized = harness
+        .normalizer
+        .normalize(&unknown)
+        .expect("network event should normalize");
+
+    for kind in backends() {
+        let engine = engine_with(&fixture, Platform::MacOS, kind);
+        assert!(
+            engine.check_event(&normalized).is_none(),
+            "an unknown direction must not match either value ({kind:?})"
         );
     }
 }

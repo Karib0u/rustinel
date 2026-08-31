@@ -460,6 +460,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     original_file_name: None,
                     product: None,
                     description: None,
+                    company: None,
+                    file_version: None,
                     target_image: None,
                     command_line: resolve_command_line(
                         ev.kernel_command_line(),
@@ -485,8 +487,6 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     // Windows-specific; absent on Linux.
                     integrity_level: None,
                     user: Some(user),
-                    logon_id: None,
-                    logon_guid: None,
                 }),
             })
         }
@@ -506,6 +506,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: None,
                 process_id: Some(ev.pid.to_string()),
@@ -516,8 +518,6 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 current_directory: None,
                 integrity_level: None,
                 user: Some(user),
-                logon_id: None,
-                logon_guid: None,
             }),
         }),
         _ => None,
@@ -598,6 +598,10 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
             user: Some(user),
             destination_hostname: None,
             protocol: socket_metadata.and_then(|value| value.protocol),
+            // The probe hooks `connect()` only, so every captured connection
+            // is one this host opened. `accept()` is not hooked, so no inbound
+            // connection can reach here and be mislabelled.
+            initiated: Some(true),
         }),
     })
 }

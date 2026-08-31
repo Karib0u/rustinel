@@ -39,18 +39,18 @@ pub struct ProcessMetadata {
     /// PE metadata: File description
     #[allow(dead_code)]
     pub description: Option<String>,
+    /// PE metadata: Company name
+    #[allow(dead_code)]
+    pub company: Option<String>,
+    /// PE metadata: File version
+    #[allow(dead_code)]
+    pub file_version: Option<String>,
     /// Process working directory
     #[allow(dead_code)]
     pub current_directory: Option<String>,
     /// Process integrity level
     #[allow(dead_code)]
     pub integrity_level: Option<String>,
-    /// Logon session ID
-    #[allow(dead_code)]
-    pub logon_id: Option<String>,
-    /// Logon session GUID
-    #[allow(dead_code)]
-    pub logon_guid: Option<String>,
 }
 
 /// Thread-safe cache for process metadata
@@ -101,10 +101,10 @@ impl ProcessCache {
     /// * `original_filename` - PE metadata: Original filename
     /// * `product` - PE metadata: Product name
     /// * `description` - PE metadata: File description
+    /// * `company` - PE metadata: Company name
+    /// * `file_version` - PE metadata: File version
     /// * `current_directory` - Process working directory
     /// * `integrity_level` - Process integrity level
-    /// * `logon_id` - Logon session ID
-    /// * `logon_guid` - Logon session GUID
     #[allow(clippy::too_many_arguments)]
     pub fn add(
         &self,
@@ -119,10 +119,10 @@ impl ProcessCache {
         original_filename: Option<String>,
         product: Option<String>,
         description: Option<String>,
+        company: Option<String>,
+        file_version: Option<String>,
         current_directory: Option<String>,
         integrity_level: Option<String>,
-        logon_id: Option<String>,
-        logon_guid: Option<String>,
     ) {
         // Lock order: pid_index -> cache -> eviction_order to avoid deadlocks with readers.
         {
@@ -143,10 +143,10 @@ impl ProcessCache {
                     original_filename,
                     product,
                     description,
+                    company,
+                    file_version,
                     current_directory,
                     integrity_level,
-                    logon_id,
-                    logon_guid,
                 },
             );
             eviction_order.insert((creation_time, pid));

@@ -408,6 +408,8 @@ mod tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: Some("cmd.exe /c whoami".to_string()),
                 process_id: Some(pid.to_string()),
@@ -418,8 +420,6 @@ mod tests {
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         }
