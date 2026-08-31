@@ -80,6 +80,12 @@ pub struct ProcessCreationFields {
     #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    #[serde(rename = "Company", skip_serializing_if = "Option::is_none")]
+    pub company: Option<String>,
+
+    #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
+    pub file_version: Option<String>,
+
     #[serde(rename = "TargetImage", skip_serializing_if = "Option::is_none")]
     pub target_image: Option<String>,
 
@@ -256,6 +262,12 @@ pub struct ImageLoadFields {
 
     #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    #[serde(rename = "Company", skip_serializing_if = "Option::is_none")]
+    pub company: Option<String>,
+
+    #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
+    pub file_version: Option<String>,
 
     #[serde(rename = "Signed", skip_serializing_if = "Option::is_none")]
     pub signed: Option<String>,

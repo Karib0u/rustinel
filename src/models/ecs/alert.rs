@@ -155,6 +155,15 @@ pub struct EcsAlert {
     )]
     pub process_description: Option<String>,
 
+    #[serde(rename = "process.pe.company", skip_serializing_if = "Option::is_none")]
+    pub process_company: Option<String>,
+
+    #[serde(
+        rename = "process.pe.file_version",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub process_file_version: Option<String>,
+
     #[serde(rename = "user.name", skip_serializing_if = "Option::is_none")]
     pub user_name: Option<String>,
 
@@ -243,6 +252,15 @@ pub struct EcsAlert {
         skip_serializing_if = "Option::is_none"
     )]
     pub file_description: Option<String>,
+
+    #[serde(rename = "file.pe.company", skip_serializing_if = "Option::is_none")]
+    pub file_company: Option<String>,
+
+    #[serde(
+        rename = "file.pe.file_version",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub file_file_version: Option<String>,
 
     #[serde(
         rename = "file.code_signature.exists",
@@ -521,6 +539,12 @@ impl EcsAlert {
         }
         if ecs.process_description.is_none() {
             ecs.process_description = context.description.clone();
+        }
+        if ecs.process_company.is_none() {
+            ecs.process_company = context.company.clone();
+        }
+        if ecs.process_file_version.is_none() {
+            ecs.process_file_version = context.file_version.clone();
         }
         apply_user_fields(ecs, context.user.as_deref());
         if ecs.winlog_logon_id.is_none() {

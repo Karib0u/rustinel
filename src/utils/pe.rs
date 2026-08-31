@@ -5,6 +5,7 @@
 
 use memmap2::Mmap;
 use pelite::pe64::{Pe, PeFile};
+use pelite::resources::Resources;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
@@ -24,6 +25,38 @@ pub struct PeMetadata {
 
     /// File description (e.g., "Windows Command Processor")
     pub description: Option<String>,
+
+    /// Company name (e.g., "Microsoft Corporation")
+    pub company: Option<String>,
+
+    /// File version string (e.g., "10.0.22621.1 (WinBuild.160101.0800)")
+    pub file_version: Option<String>,
+}
+
+/// The version-resource fields in the order the event structs and the process
+/// cache take them: original filename, product, description, company, version.
+pub type PeVersionFields = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Spread parsed metadata into [`PeVersionFields`], yielding all-`None` for an
+/// image with no readable version resource.
+pub fn version_fields(metadata: Option<PeMetadata>) -> PeVersionFields {
+    metadata
+        .map(|meta| {
+            (
+                meta.original_filename,
+                meta.product,
+                meta.description,
+                meta.company,
+                meta.file_version,
+            )
+        })
+        .unwrap_or_default()
 }
 
 /// Global PE metadata cache: DOS Path -> PeMetadata
@@ -115,11 +148,14 @@ fn parse_metadata_impl(path: &Path) -> Option<PeMetadata> {
 
     // Try to parse as 64-bit PE first
     let metadata = if let Ok(pe) = PeFile::from_bytes(&mmap) {
-        extract_version_info_64(pe)
+        pe.resources().ok().and_then(extract_version_info)
     } else {
         // If 64-bit parsing fails, try 32-bit
         match pelite::pe32::PeFile::from_bytes(&mmap) {
-            Ok(pe) => extract_version_info_32(pe),
+            Ok(pe) => {
+                use pelite::pe32::Pe as Pe32;
+                pe.resources().ok().and_then(extract_version_info)
+            }
             Err(e) => {
                 // Not a valid PE file or corrupted
                 debug!("Failed to parse PE file: {} - {:?}", path.display(), e);
@@ -135,15 +171,19 @@ fn parse_metadata_impl(path: &Path) -> Option<PeMetadata> {
     metadata
 }
 
-/// Extract version info from 64-bit PE file
-fn extract_version_info_64(pe: PeFile) -> Option<PeMetadata> {
-    let resources = pe.resources().ok()?;
+/// Extract version info from a PE resource directory
+///
+/// The resource directory type is shared between 32-bit and 64-bit images, so
+/// both widths run through this single extraction.
+fn extract_version_info(resources: Resources<'_>) -> Option<PeMetadata> {
     let version_info = resources.version_info().ok()?;
 
     // Extract common version fields using callback-based API
     let mut original_filename = None;
     let mut product = None;
     let mut description = None;
+    let mut company = None;
+    let mut file_version = None;
 
     // Iterate over all available languages (Windows exes often use 0x0409 US English, not default)
     for lang in version_info.translation() {
@@ -153,59 +193,34 @@ fn extract_version_info_64(pe: PeFile) -> Option<PeMetadata> {
             }
             "ProductName" if product.is_none() => product = Some(value.to_string()),
             "FileDescription" if description.is_none() => description = Some(value.to_string()),
+            "CompanyName" if company.is_none() => company = Some(value.to_string()),
+            "FileVersion" if file_version.is_none() => file_version = Some(value.to_string()),
             _ => {}
         });
         // Early exit if we found all fields
-        if original_filename.is_some() && product.is_some() && description.is_some() {
+        if original_filename.is_some()
+            && product.is_some()
+            && description.is_some()
+            && company.is_some()
+            && file_version.is_some()
+        {
             break;
         }
     }
 
     // Only return Some if we found at least one field
-    if original_filename.is_some() || product.is_some() || description.is_some() {
+    if original_filename.is_some()
+        || product.is_some()
+        || description.is_some()
+        || company.is_some()
+        || file_version.is_some()
+    {
         Some(PeMetadata {
             original_filename,
             product,
             description,
-        })
-    } else {
-        None
-    }
-}
-
-/// Extract version info from 32-bit PE file
-fn extract_version_info_32(pe: pelite::pe32::PeFile) -> Option<PeMetadata> {
-    use pelite::pe32::Pe as Pe32;
-    let resources = pe.resources().ok()?;
-    let version_info = resources.version_info().ok()?;
-
-    // Extract common version fields using callback-based API
-    let mut original_filename = None;
-    let mut product = None;
-    let mut description = None;
-
-    // Iterate over all available languages (Windows exes often use 0x0409 US English, not default)
-    for lang in version_info.translation() {
-        version_info.strings(*lang, |key: &str, value: &str| match key {
-            "OriginalFilename" if original_filename.is_none() => {
-                original_filename = Some(value.to_string())
-            }
-            "ProductName" if product.is_none() => product = Some(value.to_string()),
-            "FileDescription" if description.is_none() => description = Some(value.to_string()),
-            _ => {}
-        });
-        // Early exit if we found all fields
-        if original_filename.is_some() && product.is_some() && description.is_some() {
-            break;
-        }
-    }
-
-    // Only return Some if we found at least one field
-    if original_filename.is_some() || product.is_some() || description.is_some() {
-        Some(PeMetadata {
-            original_filename,
-            product,
-            description,
+            company,
+            file_version,
         })
     } else {
         None
@@ -246,6 +261,19 @@ mod tests {
         assert!(
             original.contains("cmd"),
             "OriginalFilename should contain 'cmd'"
+        );
+
+        // CompanyName and FileVersion are present in the same version resource
+        let company = meta.company.expect("cmd.exe should have CompanyName");
+        assert!(
+            company.to_lowercase().contains("microsoft"),
+            "CompanyName should name Microsoft, got {company:?}"
+        );
+
+        let file_version = meta.file_version.expect("cmd.exe should have FileVersion");
+        assert!(
+            file_version.starts_with(|c: char| c.is_ascii_digit()),
+            "FileVersion should start with a version number, got {file_version:?}"
         );
     }
 

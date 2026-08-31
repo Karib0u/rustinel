@@ -79,6 +79,11 @@ These are the fields listed as permanently empty in
 [Limitations](limitations.md#windows-etw-and-event-log). A rule referencing any
 of them loads successfully and never matches.
 
+`Company` is no longer one of them: it is now read from the PE version
+resource, alongside `FileVersion`
+([#303](https://github.com/Karib0u/rustinel/issues/303)). The table above
+predates that change and still counts its 21 rules as blocked.
+
 ### Linux: one source dominates
 
 **54 of the 65 blocked Linux rules are `auditd`**, and nothing else reaches 4.
