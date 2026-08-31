@@ -135,6 +135,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                     user: Some("alice".to_string()),
                     destination_hostname: Some("example.test".to_string()),
                     protocol: Some("tcp".to_string()),
+                    initiated: Some(true),
                 }),
             ),
             "edr.network",

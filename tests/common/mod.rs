@@ -163,6 +163,7 @@ pub fn network_connect_event(platform: Platform) -> SensorEvent {
             user: Some(TEST_USER.to_string()),
             destination_hostname: None,
             protocol: Some("tcp".to_string()),
+            initiated: Some(true),
         }),
     }
 }

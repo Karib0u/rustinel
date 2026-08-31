@@ -550,6 +550,7 @@ mod tests {
                 user: Some("alice".to_string()),
                 destination_hostname: None,
                 protocol: None,
+                initiated: Some(true),
             }),
         }
     }
@@ -713,6 +714,7 @@ mod tests {
                 user: None,
                 destination_hostname: None,
                 protocol: Some("tcp".to_string()),
+                initiated: Some(true),
             }),
         };
 
@@ -920,6 +922,7 @@ mod tests {
                 "User",
                 "DestinationHostname",
                 "Protocol",
+                "Initiated",
             ],
         );
     }

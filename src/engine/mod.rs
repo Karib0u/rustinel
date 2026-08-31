@@ -1141,6 +1141,7 @@ detection:
                 user: Some("alice".to_string()),
                 destination_hostname: None,
                 protocol: Some("tcp".to_string()),
+                initiated: Some(true),
             }),
             process_context: None,
         };

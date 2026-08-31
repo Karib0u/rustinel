@@ -150,10 +150,30 @@ pub(super) fn host_os_family(platform: Platform) -> String {
     }
 }
 
+/// ECS `network.direction` for a category, used only when the event itself does
+/// not say which way the connection went.
+///
+/// Network and DNS events default to `egress` because that is what every sensor
+/// that cannot report a direction is actually capturing: an outbound `connect()`
+/// or a query this host sent.
 pub(super) fn network_direction_from_category(category: EventCategory) -> Option<String> {
     match category {
         EventCategory::Network | EventCategory::Dns => Some("egress".to_string()),
         _ => None,
+    }
+}
+
+/// ECS `network.direction` for an event that carries Sysmon's `Initiated`.
+///
+/// This is the authoritative form and overrides the category default: an
+/// accepted connection is `ingress`, and reporting it as `egress` would put a
+/// Windows inbound connection on the wrong side of every direction-aware SIEM
+/// query.
+pub(super) fn network_direction_from_initiated(initiated: bool) -> String {
+    if initiated {
+        "egress".to_string()
+    } else {
+        "ingress".to_string()
     }
 }
 

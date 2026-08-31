@@ -570,6 +570,12 @@ fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
             user: None,
             destination_hostname: None,
             protocol: Some("tcp".to_string()),
+            // Left unknown on purpose. This is a wire capture, not a syscall
+            // hook: a SYN on the interface is outbound when this host sent it
+            // and inbound when a client did, and the packet alone does not say
+            // which. Guessing `true` would make every inbound connection to a
+            // local listener match an `Initiated: 'true'` rule.
+            initiated: None,
         }),
     })
 }

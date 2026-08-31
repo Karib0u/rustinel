@@ -17,6 +17,7 @@ use crate::models::{Alert, EventFields};
 use event::{
     alert_severity_to_event_severity, ecs_event_action, ecs_event_category, ecs_event_type,
     event_dataset, event_provider, host_os_family, host_os_type, network_direction_from_category,
+    network_direction_from_initiated,
 };
 use helpers::{basename, file_extension_from_path, parse_bool, parse_u16, parse_u64};
 use network::{extract_ips, network_transport_from_opcode, network_type_from_ip};
@@ -170,6 +171,7 @@ impl From<&Alert> for EcsAlert {
                 if let Some(ip) = ecs.source_ip.as_deref().or(ecs.destination_ip.as_deref()) {
                     ecs.network_type = network_type_from_ip(ip);
                 }
+                ecs.network_direction = f.initiated.map(network_direction_from_initiated);
                 apply_user_fields(&mut ecs, f.user.as_deref());
             }
             EventFields::FileEvent(f) => {
@@ -348,8 +350,8 @@ mod tests {
     use super::*;
     use crate::models::{
         AlertSeverity, DetectionEngine, DnsQueryFields, EventCategory, FileEventFields,
-        MatchDetails, NormalizedEvent, ProcessContext, ProcessCreationFields, RegistryEventFields,
-        ServiceCreationFields,
+        MatchDetails, NetworkConnectionFields, NormalizedEvent, ProcessContext,
+        ProcessCreationFields, RegistryEventFields, ServiceCreationFields,
     };
     use crate::sensor::Platform;
     use std::collections::HashMap;
@@ -567,6 +569,59 @@ mod tests {
             Some(vec!["DWORD (0x00000001)".to_string()])
         );
         assert_eq!(ecs.event_action, Some("SetValue".to_string()));
+    }
+
+    fn network_alert(initiated: Option<bool>) -> Alert {
+        Alert {
+            severity: AlertSeverity::Medium,
+            rule_name: "Network Test".to_string(),
+            rule_description: None,
+            rule_id: None,
+            engine: DetectionEngine::Sigma,
+            event: NormalizedEvent {
+                timestamp: "2026-01-06T00:00:00Z".to_string(),
+                platform: Platform::Windows,
+                provider: "etw".to_string(),
+                category: EventCategory::Network,
+                event_id: 3,
+                event_id_string: "3".to_string(),
+                opcode: 12,
+                fields: EventFields::NetworkConnection(NetworkConnectionFields {
+                    destination_ip: Some("198.51.100.10".to_string()),
+                    source_ip: Some("10.0.0.5".to_string()),
+                    destination_port: Some("443".to_string()),
+                    source_port: Some("51324".to_string()),
+                    process_id: Some("4188".to_string()),
+                    image: Some(r"C:\Windows\System32\curl.exe".to_string()),
+                    user: None,
+                    destination_hostname: None,
+                    protocol: Some("tcp".to_string()),
+                    initiated,
+                }),
+                process_context: None,
+            },
+            match_details: None,
+        }
+    }
+
+    #[test]
+    fn network_direction_follows_the_connection_direction() {
+        // An accepted connection is inbound. Before `Initiated` existed every
+        // network alert was reported `egress`, which put inbound connections on
+        // the wrong side of any direction-aware SIEM query.
+        let outbound = EcsAlert::from(&network_alert(Some(true)));
+        assert_eq!(outbound.network_direction, Some("egress".to_string()));
+
+        let inbound = EcsAlert::from(&network_alert(Some(false)));
+        assert_eq!(inbound.network_direction, Some("ingress".to_string()));
+    }
+
+    #[test]
+    fn an_unknown_direction_falls_back_to_the_category_default() {
+        // Sensors that cannot report a direction capture outbound traffic, so
+        // the category default still describes them.
+        let ecs = EcsAlert::from(&network_alert(None));
+        assert_eq!(ecs.network_direction, Some("egress".to_string()));
     }
 
     #[test]

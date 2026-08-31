@@ -341,6 +341,7 @@ mod tests {
             user: None,
             destination_hostname: None,
             protocol: Some("tcp".to_string()),
+            initiated: Some(true),
         });
 
         let event = SensorEvent {

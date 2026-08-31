@@ -296,6 +296,9 @@ pub mod mapping {
                 user: Some(event.uid.to_string()),
                 destination_hostname: None,
                 protocol: Some("tcp".to_string()),
+                // The probe hooks `connect()` only, so every captured
+                // connection is one this host opened.
+                initiated: Some(true),
             }),
         }
     }

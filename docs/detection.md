@@ -181,11 +181,19 @@ names.
 - **Process:** `Image`, `CommandLine`, `User`, `ProcessId`, `ParentImage`,
   `ParentCommandLine`
 - **Network:** `DestinationIp`, `DestinationPort`, `SourceIp`, `SourcePort`,
-  `DestinationHostname`
+  `DestinationHostname`, `Protocol`, `Initiated`
 - **File:** `TargetFilename`, `Image`, `ProcessId`, `User`, plus
   `SourceFilename` on a rename and `PathTruncated`
 - **DNS:** Sysmon-style `QueryName` / `QueryResults` / `RecordType`, or the
   generic aliases `query`, `answer`, `record_type`
+
+`Initiated` is Sysmon's connection direction, written in rules as the string
+`'true'` or `'false'`. Windows reports it from the ETW operation: `true` for a
+connect, `false` for an accept. Linux hooks only `connect()`, so it is always
+`true` there. macOS captures packets off the wire, which does not say who opened
+the connection, so the field is absent and neither value matches. An absent
+field never matches an equality selection, so a sensor that cannot tell the
+direction stays silent rather than answering wrongly.
 
 Per-platform process notes:
 
