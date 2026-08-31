@@ -20,6 +20,7 @@ pub enum EventFields {
     DnsQuery(DnsQueryFields),
     ImageLoad(ImageLoadFields),
     PowerShellScript(PowerShellScriptFields),
+    PowerShellModule(PowerShellModuleFields),
     RemoteThread(RemoteThreadFields),
     WmiEvent(WmiEventFields),
     ServiceCreation(ServiceCreationFields),
@@ -52,6 +53,9 @@ impl EventFields {
             EventCategory::Dns => serde_json::from_value(payload).map(Self::DnsQuery),
             EventCategory::ImageLoad => serde_json::from_value(payload).map(Self::ImageLoad),
             EventCategory::Scripting => serde_json::from_value(payload).map(Self::PowerShellScript),
+            EventCategory::PowerShellModule => {
+                serde_json::from_value(payload).map(Self::PowerShellModule)
+            }
             EventCategory::Wmi => serde_json::from_value(payload).map(Self::WmiEvent),
             EventCategory::Service => serde_json::from_value(payload).map(Self::ServiceCreation),
             EventCategory::Task => serde_json::from_value(payload).map(Self::TaskCreation),
@@ -272,6 +276,32 @@ pub struct PowerShellScriptFields {
 
     #[serde(rename = "Path", skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+
+    #[serde(rename = "ProcessId", skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<String>,
+
+    #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+
+    #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+
+/// PowerShell module logging event fields (Sigma: ps_module)
+///
+/// `ContextInfo` and `Payload` are the two fields the `ps_module` rule family
+/// reads. Both are the provider's own free-form text: `ContextInfo` is a
+/// newline-separated `name = value` block (host application, command name,
+/// user), and `Payload` is the parameter-binding transcript. Windows writes
+/// both in the host's display language, so a rule that matches on the label
+/// rather than the value only fires on an English host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerShellModuleFields {
+    #[serde(rename = "ContextInfo", skip_serializing_if = "Option::is_none")]
+    pub context_info: Option<String>,
+
+    #[serde(rename = "Payload", skip_serializing_if = "Option::is_none")]
+    pub payload: Option<String>,
 
     #[serde(rename = "ProcessId", skip_serializing_if = "Option::is_none")]
     pub process_id: Option<String>,
