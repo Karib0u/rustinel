@@ -163,12 +163,6 @@ pub struct EcsAlert {
     #[serde(rename = "user.domain", skip_serializing_if = "Option::is_none")]
     pub user_domain: Option<String>,
 
-    #[serde(rename = "winlog.logon.id", skip_serializing_if = "Option::is_none")]
-    pub winlog_logon_id: Option<String>,
-
-    #[serde(rename = "winlog.logon.guid", skip_serializing_if = "Option::is_none")]
-    pub winlog_logon_guid: Option<String>,
-
     // ========================================================================
     // Network Fields
     // ========================================================================
@@ -498,12 +492,6 @@ impl EcsAlert {
             ecs.process_description = context.description.clone();
         }
         apply_user_fields(ecs, context.user.as_deref());
-        if ecs.winlog_logon_id.is_none() {
-            ecs.winlog_logon_id = context.logon_id.clone();
-        }
-        if ecs.winlog_logon_guid.is_none() {
-            ecs.winlog_logon_guid = context.logon_guid.clone();
-        }
 
         if ecs.process_name.is_none() {
             ecs.process_name = ecs.process_executable.as_deref().and_then(basename);

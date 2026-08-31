@@ -11,7 +11,7 @@ use common::{
 use rustinel::{
     engine::Engine,
     models::{DetectionEngine, EventCategory, EventFields},
-    sensor::Platform,
+    sensor::{Platform, SensorPayload},
 };
 
 fn load_engine(platform: Platform, fixture: &SigmaFixture) -> Engine {
@@ -68,6 +68,50 @@ fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
         assert_ecs_field_eq(&ecs, "process.executable", image_for(platform));
         assert_ecs_field_eq(&ecs, "process.pid", TEST_PID);
     }
+}
+
+#[test]
+fn sigma_integrity_level_detection_pipeline_matches_sysmon_spelling() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "integrity_level.yml",
+        r#"title: Test System Integrity
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    IntegrityLevel: System
+  condition: selection
+level: high
+"#,
+    );
+    let engine = load_engine(Platform::Windows, &fixture);
+    let harness = TestNormalizer::new(false);
+
+    let mut event = process_start_event(Platform::Windows);
+    match &mut event.payload {
+        SensorPayload::Process(fields) => {
+            fields.integrity_level = Some("System".to_string());
+        }
+        other => panic!("unexpected payload: {other:?}"),
+    }
+
+    let normalized = harness
+        .normalizer
+        .normalize(&event)
+        .expect("process start should normalize");
+    assert_normalized_field_eq(&normalized, "IntegrityLevel", "System");
+    assert_eq!(normalized.get_field("LogonId"), None);
+    assert_eq!(normalized.get_field("LogonGuid"), None);
+
+    let alert = engine
+        .check_event(&normalized)
+        .expect("integrity level Sigma rule should match");
+    assert_sigma_alert(&alert, "Test System Integrity");
+
+    let ecs = ecs_json(&alert);
+    assert_ecs_field_eq(&ecs, "edr.process.integrity_level", "System");
 }
 
 #[test]

@@ -485,8 +485,6 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     // Windows-specific; absent on Linux.
                     integrity_level: None,
                     user: Some(user),
-                    logon_id: None,
-                    logon_guid: None,
                 }),
             })
         }
@@ -516,8 +514,6 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 current_directory: None,
                 integrity_level: None,
                 user: Some(user),
-                logon_id: None,
-                logon_guid: None,
             }),
         }),
         _ => None,

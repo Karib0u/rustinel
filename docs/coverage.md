@@ -52,7 +52,7 @@ The field is modelled but no sensor populates it:
 | 51 | `Initiated` |
 | 47 | `Hashes` |
 | 39 | `ImagePath` |
-| 29 | `IntegrityLevel` |
+| 29 | `IntegrityLevel` (fixed after this measurement) |
 | 27 | `User` |
 | 21 | `Company` |
 | 15 | `Signed` |
@@ -61,6 +61,12 @@ The field is modelled but no sensor populates it:
 These are the fields listed as permanently empty in
 [Limitations](limitations.md#windows-etw-and-event-log). A rule referencing any
 of them loads successfully and never matches.
+
+`IntegrityLevel` is populated on Windows process creation since
+[#294](https://github.com/Karib0u/rustinel/issues/294), which lands after the
+run above. The 29 rules it blocks are no longer blocked on it, but the headline
+totals are left as measured rather than adjusted by hand; they are re-measured
+against the corpus each release.
 
 ### Linux: one source dominates
 

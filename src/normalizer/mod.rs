@@ -147,8 +147,6 @@ impl Normalizer {
                         fields.description.clone(),
                         fields.current_directory.clone(),
                         fields.integrity_level.clone(),
-                        fields.logon_id.clone(),
-                        fields.logon_guid.clone(),
                     );
                 }
             }
@@ -382,8 +380,6 @@ impl Normalizer {
             current_directory: meta.current_directory,
             integrity_level: meta.integrity_level,
             user: meta.user,
-            logon_id: meta.logon_id,
-            logon_guid: meta.logon_guid,
         })
     }
 }
@@ -481,8 +477,6 @@ mod tests {
                 current_directory: Some("/tmp".to_string()),
                 integrity_level: None,
                 user: Some("alice".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
         }
     }
@@ -522,8 +516,6 @@ mod tests {
                 current_directory: None,
                 integrity_level: None,
                 user: Some("alice".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
         }
     }
@@ -613,8 +605,6 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
         );
 
         let event = SensorEvent {
@@ -646,8 +636,6 @@ mod tests {
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
         };
 
@@ -678,8 +666,6 @@ mod tests {
             7,
             1,
             "C:\\curl.exe".to_string(),
-            None,
-            None,
             None,
             None,
             None,
@@ -791,8 +777,6 @@ mod tests {
             9,
             1,
             "/usr/bin/touch".to_string(),
-            None,
-            None,
             None,
             None,
             None,

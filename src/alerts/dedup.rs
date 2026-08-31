@@ -402,8 +402,6 @@ mod tests {
                     product: None,
                     description: None,
                     target_image: None,
-                    logon_id: None,
-                    logon_guid: None,
                 }),
                 process_context: None,
             },

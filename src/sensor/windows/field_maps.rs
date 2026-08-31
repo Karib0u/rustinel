@@ -42,10 +42,13 @@ static PROCESS_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
         ("ParentImage", "ParentImageName"),
         ("ParentCommandLine", "ParentCommandLine"),
         ("CurrentDirectory", "CurrentDirectory"),
-        ("IntegrityLevel", "IntegrityLevel"),
+        // Kernel-Process declares no `IntegrityLevel` property; the level is
+        // the `MandatoryLabel` SID on the process start template, decoded by
+        // `integrity_level_from_sid` (#294). `LogonID` and `LogonGUID` were
+        // mapped here too and exist on no event of this provider, so they are
+        // not mapped at all rather than mapped to nothing.
+        ("IntegrityLevel", "MandatoryLabel"),
         ("User", "UserName"),
-        ("LogonId", "LogonID"),
-        ("LogonGuid", "LogonGUID"),
     ])
 });
 
@@ -178,4 +181,27 @@ static TASK_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
 
 pub fn task_creation_mappings() -> &'static FieldMapping {
     &TASK_CREATION_MAP
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_creation_reads_the_properties_kernel_process_declares() {
+        let mappings = process_creation_mappings();
+
+        // `IntegrityLevel` was mapped to a property of the same name, which
+        // Microsoft-Windows-Kernel-Process does not declare, so it was always
+        // empty (#294). The level lives on `ProcessStart` as a SID.
+        assert_eq!(
+            mappings.get_etw_field("IntegrityLevel"),
+            Some("MandatoryLabel")
+        );
+
+        // Mapped to `LogonID`/`LogonGUID`, which this provider declares on no
+        // event. An entry here would only advertise a field nothing can fill.
+        assert_eq!(mappings.get_etw_field("LogonId"), None);
+        assert_eq!(mappings.get_etw_field("LogonGuid"), None);
+    }
 }

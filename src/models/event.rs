@@ -114,12 +114,6 @@ pub struct ProcessContext {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-
-    #[serde(rename = "LogonId", skip_serializing_if = "Option::is_none")]
-    pub logon_id: Option<String>,
-
-    #[serde(rename = "LogonGuid", skip_serializing_if = "Option::is_none")]
-    pub logon_guid: Option<String>,
 }
 
 impl NormalizedEvent {
@@ -149,8 +143,6 @@ impl NormalizedEvent {
                 "IntegrityLevel" => f.integrity_level.as_deref(),
                 "CurrentDirectory" => f.current_directory.as_deref(),
                 "TargetImage" => f.target_image.as_deref(),
-                "LogonId" => f.logon_id.as_deref(),
-                "LogonGuid" => f.logon_guid.as_deref(),
                 _ => None,
             },
             EventFields::FileEvent(f) => match key {
@@ -309,12 +301,6 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.target_image {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.logon_id {
-                    values.push(v.as_str());
-                }
-                if let Some(v) = &f.logon_guid {
                     values.push(v.as_str());
                 }
             }
@@ -618,12 +604,6 @@ impl NormalizedEvent {
                 }
                 if let Some(v) = &f.target_image {
                     values.push(("TargetImage", v.as_str()));
-                }
-                if let Some(v) = &f.logon_id {
-                    values.push(("LogonId", v.as_str()));
-                }
-                if let Some(v) = &f.logon_guid {
-                    values.push(("LogonGuid", v.as_str()));
                 }
             }
             EventFields::FileEvent(f) => {
@@ -999,8 +979,6 @@ mod round_trip_tests {
                 current_directory: Some("/Users/analyst".to_string()),
                 integrity_level: None,
                 user: Some("analyst".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -1111,8 +1089,6 @@ mod round_trip_tests {
                 product: None,
                 description: None,
                 target_image: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -1153,8 +1129,6 @@ mod round_trip_tests {
             product: None,
             description: None,
             target_image: None,
-            logon_id: None,
-            logon_guid: None,
         });
 
         assert_eq!(event.get_field("Image"), Some(image));

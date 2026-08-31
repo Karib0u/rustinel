@@ -268,8 +268,6 @@ pub mod mapping {
                 current_directory: None,
                 integrity_level: None,
                 user: Some(event.uid.to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
         }
     }

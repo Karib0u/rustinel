@@ -471,8 +471,6 @@ detection:
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -534,8 +532,6 @@ detection:
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -596,8 +592,6 @@ detection:
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -664,8 +658,6 @@ detection:
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -738,8 +730,6 @@ detection:
                 current_directory: None,
                 integrity_level: None,
                 user: Some("TestUser".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -946,8 +936,6 @@ level: high
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };
@@ -1073,8 +1061,6 @@ detection:
                 current_directory: None,
                 integrity_level: None,
                 user: Some("alice".to_string()),
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         };

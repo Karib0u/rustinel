@@ -110,8 +110,6 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                     product: None,
                     description: None,
                     target_image: None,
-                    logon_id: None,
-                    logon_guid: None,
                 }),
             ),
             "edr.process",
@@ -425,8 +423,6 @@ fn ecs_version_field_is_9_4_0() {
             product: None,
             description: None,
             target_image: None,
-            logon_id: None,
-            logon_guid: None,
         }),
     ));
     assert_ecs_field_eq(&json, "ecs.version", "9.4.0");
@@ -464,8 +460,6 @@ fn test_rule_id_mapping_and_omit_behavior() {
                 product: None,
                 description: None,
                 target_image: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         },

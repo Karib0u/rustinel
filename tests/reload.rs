@@ -704,8 +704,6 @@ fn build_critical_process_alert(pid: u32, image: &str) -> rustinel::models::Aler
                 current_directory: None,
                 integrity_level: None,
                 user: None,
-                logon_id: None,
-                logon_guid: None,
             }),
             process_context: None,
         },

@@ -187,8 +187,6 @@ mod tests {
             current_directory: None,
             integrity_level: None,
             user: None,
-            logon_id: None,
-            logon_guid: None,
         };
         let mut event = generic_event(&[]);
         event.fields = EventFields::ProcessCreation(fields);
