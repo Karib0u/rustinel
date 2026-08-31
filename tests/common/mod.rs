@@ -608,6 +608,7 @@ pub fn event_fields_from_payload(event: SensorEvent) -> EventFields {
         SensorPayload::Wmi(fields) => EventFields::WmiEvent(fields),
         SensorPayload::Service(fields) => EventFields::ServiceCreation(fields),
         SensorPayload::Task(fields) => EventFields::TaskCreation(fields),
+        SensorPayload::Security(fields) => EventFields::SecurityAudit(fields),
     }
 }
 
