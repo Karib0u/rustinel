@@ -436,6 +436,10 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();
         }
+        EventFields::PowerShellModule(f) => {
+            pid = parse_pid(f.process_id.as_deref());
+            image = f.image.clone();
+        }
         EventFields::WmiEvent(f) => {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();

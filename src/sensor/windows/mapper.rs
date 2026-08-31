@@ -45,6 +45,7 @@ fn action_code_for_record(
         EventCategory::Registry => registry_action_code(action),
         EventCategory::Dns => 0,
         EventCategory::Scripting => 0,
+        EventCategory::PowerShellModule => 0,
         EventCategory::Wmi => 0,
         EventCategory::Service => 0,
         EventCategory::Task => 0,
@@ -81,6 +82,7 @@ fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &Ev
         EventCategory::Registry => u16::from(action_code),
         EventCategory::Dns => record.event_id(),
         EventCategory::Scripting => record.event_id(),
+        EventCategory::PowerShellModule => record.event_id(),
         EventCategory::Wmi => record.event_id(),
         EventCategory::Service => record.event_id(),
         EventCategory::Task => record.event_id(),
@@ -120,6 +122,7 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
         EventCategory::Dns => 22,
         EventCategory::Wmi
         | EventCategory::Scripting
+        | EventCategory::PowerShellModule
         | EventCategory::Service
         | EventCategory::Task => raw_event_id,
     }
@@ -231,6 +234,7 @@ mod tests {
     fn native_provider_event_ids_are_not_relabelled() {
         for (category, raw_event_id) in [
             (EventCategory::Scripting, 4104),
+            (EventCategory::PowerShellModule, 4103),
             (EventCategory::Wmi, 23),
             (EventCategory::Service, 7045),
             (EventCategory::Task, 106),

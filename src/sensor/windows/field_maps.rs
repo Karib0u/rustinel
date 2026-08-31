@@ -132,6 +132,23 @@ pub fn powershell_script_mappings() -> &'static FieldMapping {
     &POWERSHELL_SCRIPT_MAP
 }
 
+/// Module logging (event 4103) has its own template: `ContextInfo`,
+/// `UserData` and `Payload`. `UserData` is not mapped because no `ps_module`
+/// rule reads it and it is empty on every event observed.
+static POWERSHELL_MODULE_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
+    FieldMapping::new(&[
+        ("ContextInfo", "ContextInfo"),
+        ("Payload", "Payload"),
+        ("ProcessId", "ProcessID"),
+        ("Image", "ImageName"),
+        ("User", "UserName"),
+    ])
+});
+
+pub fn powershell_module_mappings() -> &'static FieldMapping {
+    &POWERSHELL_MODULE_MAP
+}
+
 static IMAGE_LOAD_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
         ("ImageLoaded", "ImageName"),
@@ -178,4 +195,21 @@ static TASK_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
 
 pub fn task_creation_mappings() -> &'static FieldMapping {
     &TASK_CREATION_MAP
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn powershell_module_mapping_matches_event_4103_template() {
+        let mappings = powershell_module_mappings();
+
+        assert_eq!(mappings.get_etw_field("ContextInfo"), Some("ContextInfo"));
+        assert_eq!(mappings.get_etw_field("Payload"), Some("Payload"));
+        assert_eq!(mappings.get_etw_field("ProcessId"), Some("ProcessID"));
+        assert_eq!(mappings.get_etw_field("Image"), Some("ImageName"));
+        assert_eq!(mappings.get_etw_field("User"), Some("UserName"));
+        assert_eq!(mappings.get_etw_field("UserData"), None);
+    }
 }
