@@ -170,6 +170,41 @@ cargo test --locked --test active_response -- --include-ignored
 
 Those ignored tests may require administrator rights on Windows or a controlled Linux host with permissive process-memory access.
 
+### Replay Regression Fixture
+
+A golden recording guards against a change to normalization, serialization, or
+matching quietly stopping a rule from firing:
+
+```text
+tests/fixtures/replay/
+├── windows-powershell-fixture.ps1     benign behavior generator
+├── windows-powershell.ndjson          the recording
+├── windows-powershell.manifest.json   its manifest
+└── sigma/                             the rules it must fire
+```
+
+`tests/replay_fixture.rs` replays it against those rules on every platform in
+ordinary CI (no sensors, no privileges) and asserts both rules fire in the
+recorded order. Because it is a Windows capture, it also proves a recording
+replays away from the platform that produced it.
+
+To regenerate it:
+
+1. On a Windows lab endpoint, run `rustinel capture --output windows-powershell.ndjson`.
+2. Run `windows-powershell-fixture.ps1`, then stop the capture with Ctrl-C.
+3. Confirm the manifest reads `"status": "complete"`.
+4. Copy both files into `tests/fixtures/replay/`, replacing the previous pair.
+   Never edit a recording by hand: the manifest checksum is verified on every
+   replay and an edited payload is rejected.
+5. Run `cargo test --test replay_fixture`.
+
+## Development Environment Variables
+
+| Variable | Purpose |
+| --- | --- |
+| `RUSTINEL_EBPF_OBJECT` | Absolute path to a compiled `.o`, used instead of the embedded Linux object |
+| `RUSTINEL_BPF_INTERFACE` | macOS capture interface, when the default `en0` is not the active one |
+
 ## Code Quality
 
 ```bash

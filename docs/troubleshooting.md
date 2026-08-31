@@ -31,6 +31,7 @@ Before changing config or rules, check these first:
 | Active response does not kill | dry-run mode, severity below threshold, allowlist hit, missing PID or image |
 | Alerts are missing details | `alerts.match_debug = "off"` |
 | Logs mention dropped events or full queues | sensor backpressure, YARA/IOC/response queues saturated |
+| Not sure whether events were lost at all | run `rustinel doctor` and read the `pipeline_telemetry` check |
 
 ## Startup Failures
 
@@ -223,14 +224,61 @@ Sigma DNS rules that depend on queried domain names and IOC domain matching can 
 
 See [Detection](detection.md).
 
+### PowerShell script rules do not match on Windows
+
+Rustinel collects Windows PowerShell 5.1 event 4104. Windows emits suspicious
+script blocks automatically, but ordinary script blocks require Script Block
+Logging to be enabled by policy. Without that policy, a normal
+`powershell.exe -Command` test may produce no `ScriptBlockText` telemetry.
+
+Check the effective policy from an elevated PowerShell:
+
+```powershell
+Get-ItemProperty `
+  HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging `
+  -Name EnableScriptBlockLogging
+```
+
+Enable **Turn on PowerShell Script Block Logging** under **Windows Components >
+Windows PowerShell** in Group Policy when full script-block coverage is needed.
+PowerShell 7 uses a different provider and is not currently collected.
+
+### PowerShell module rules do not match on Windows
+
+`ps_module` rules read event 4103, which PowerShell emits **only** when Module
+Logging is enabled. There is no automatic path for it the way there is for
+suspicious script blocks: with the policy off, the event is never written, so
+no session setting can recover it.
+
+Check the effective policy from an elevated PowerShell:
+
+```powershell
+Get-ItemProperty `
+  HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ModuleLogging `
+  -Name EnableModuleLogging
+Get-Item HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames
+```
+
+`EnableModuleLogging` must be `1` **and** `ModuleNames` must list the modules to
+log — set the value name and data both to `*` to cover everything. Enabling the
+policy alone, with an empty `ModuleNames`, logs nothing.
+
+If the policy is on and rules still do not match, check the rule against the
+host language: `ContextInfo` and `Payload` are written in the host's display
+language, so a rule matching an English label (`Host Application =`) does not
+fire on a localized host. See [Detection](detection.md#powershell-logsources).
+
 ### YARA did not scan the process I expected
 
 Check these first:
 
-- YARA only runs on process-start events
+- YARA only runs on process-start events, so a file written but never executed is
+  never scanned
 - the executable path may be under an allowlisted prefix
 - YARA may be disabled
-- the YARA rule file may be outside the configured top-level directory
+- the YARA rule file may be outside `scanner.yara_rules_path`
+- the file may exceed `scanner.yara_max_file_mb`, or the scan may have hit
+  `scanner.yara_scan_timeout_ms`
 - the queue may have been full and the job dropped
 
 Typical symptom in logs:
@@ -295,8 +343,8 @@ It only runs when:
 Check these first:
 
 - `reload.enabled` must be `true`
-- the file must be under the configured detector path
-- Sigma reloads recursively, but YARA only loads top-level files
+- the file must be under the configured detector path (Sigma and YARA
+  directories are both watched recursively)
 - a failed reload keeps the previous detector set live
 
 Typical reload failure messages:
@@ -352,20 +400,50 @@ The response engine skips:
 
 ## Dropped Events And Full Queues
 
+### Did this endpoint lose telemetry, and how much?
+
+Start with `rustinel doctor` rather than the logs:
+
+```bash
+rustinel doctor
+```
+
+The `pipeline_telemetry` check answers directly:
+
+```text
+  [WARN] pipeline_telemetry: 12600 events were dropped under load (snapshot from 2026-08-24T09:30:00Z)
+      detail: sensor_events: 12500 dropped of 412500 offered (3.03%), peak depth 8192/8192; ioc_hash: 100 dropped of 1000 offered (10.00%), peak depth 8192/8192
+```
+
+A `PASS` here means nothing was shed. The counters are cumulative for the agent
+run, so a pass is a real answer, not an absence of evidence. If the check says
+the snapshot is missing, either the agent has not run yet or
+`telemetry.enabled` is `false`; doctor says which.
+
+Interpreting the numbers: a peak depth equal to capacity means the channel
+actually saturated, while a peak well below capacity with drops recorded means
+the saturation was brief and bursty. For what a drop on each channel costs, see
+[Pipeline Telemetry](configuration.md#pipeline-telemetry). `sensor_events` is
+always the widest gap.
+
+A backed-up YARA queue is usually event volume rather than one stuck scan:
+`scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold
+its worker.
+
 ### I see “dropping event” or “queue full” in logs
 
 These messages mean the agent is under backpressure somewhere in the pipeline.
-
-Common log lines include:
+Each bounded channel logs a cumulative line at most once a minute:
 
 ```text
-Sensor event channel full; dropping ETW event
-eBPF sensor: event channel full, dropping event
-bpf sensor: event channel full, dropping event
+Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 accepted_total=1841204 suppressed_warnings=1202
 YARA queue full; dropping scan job
 IOC hash queue full; dropping job
 Active response queue full, dropping task
 ```
+
+`dropped_total` is cumulative for the agent run, so the last such line for a
+channel is its running total - there is no need to add the lines up.
 
 What to do:
 
@@ -374,6 +452,8 @@ What to do:
 - widen trusted-path exclusions where appropriate
 - avoid scanning large trusted software trees unnecessarily
 - watch system load while reproducing the issue
+
+Re-run `rustinel doctor` after tuning to confirm the drop count stopped growing.
 
 If the problem is persistent, capture the relevant log excerpt before tuning.
 

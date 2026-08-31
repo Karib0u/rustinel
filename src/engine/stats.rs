@@ -1,4 +1,32 @@
 use super::*;
+use std::fmt;
+
+/// The kind of Sigma document that the RSigma parser accepted but Rustinel
+/// does not currently evaluate at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsupportedRuleKind {
+    Correlation,
+    Filter,
+}
+
+impl fmt::Display for UnsupportedRuleKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Correlation => f.write_str("correlation"),
+            Self::Filter => f.write_str("filter"),
+        }
+    }
+}
+
+/// Context for a parsed Sigma document that was not loaded by the active
+/// runtime because its document type is not supported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedRule {
+    pub source_path: String,
+    pub kind: UnsupportedRuleKind,
+    pub identity: String,
+    pub reason: String,
+}
 
 impl Engine {
     pub fn stats(&self) -> EngineStats {
@@ -43,6 +71,17 @@ impl Engine {
             SigmaEngineKind::Rsigma => builtin_counts(),
         };
 
+        let unsupported_correlation_rules = self
+            .unsupported_rules
+            .iter()
+            .filter(|rule| rule.kind == UnsupportedRuleKind::Correlation)
+            .count();
+        let unsupported_filter_rules = self
+            .unsupported_rules
+            .iter()
+            .filter(|rule| rule.kind == UnsupportedRuleKind::Filter)
+            .count();
+
         EngineStats {
             total_rules: self.rule_count,
             rule_files_found: self.rule_files_found,
@@ -59,6 +98,9 @@ impl Engine {
                 .map(|(k, v)| (k.display(), *v))
                 .collect(),
             failed_rules: self.failed_rules.clone(),
+            unsupported_rules: self.unsupported_rules.clone(),
+            unsupported_correlation_rules,
+            unsupported_filter_rules,
             skipped_product_rules: self.skipped_product_rules,
             skipped_deferred_rules: self.skipped_deferred_rules,
             skipped_unknown_logsource_rules: self.skipped_unknown_logsource_rules,
@@ -79,6 +121,10 @@ pub struct EngineStats {
     pub unknown_logsource_rules: HashMap<String, usize>,
     #[allow(dead_code)] // Used by validation binaries outside this crate.
     pub failed_rules: Vec<(String, String)>,
+    /// Parsed documents that the active runtime cannot evaluate.
+    pub unsupported_rules: Vec<UnsupportedRule>,
+    pub unsupported_correlation_rules: usize,
+    pub unsupported_filter_rules: usize,
     pub skipped_product_rules: usize,
     pub skipped_deferred_rules: usize,
     pub skipped_unknown_logsource_rules: usize,

@@ -23,8 +23,8 @@ use tokio::sync::mpsc::Sender;
 
 use crate::models::{
     DnsQueryFields, EventCategory, EventFields, FileEventFields, ImageLoadFields,
-    NetworkConnectionFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
-    ServiceCreationFields, TaskCreationFields, WmiEventFields,
+    NetworkConnectionFields, PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields,
+    RegistryEventFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
 
 /// Cross-platform sensor interface.
@@ -48,6 +48,17 @@ pub enum Platform {
     Windows,
     Linux,
     MacOS,
+}
+
+impl Platform {
+    /// The lowercase platform name, matching how it is serialized.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Linux => "linux",
+            Self::MacOS => "macos",
+        }
+    }
 }
 
 /// High-level action emitted by a sensor event.
@@ -111,6 +122,83 @@ pub struct SensorNormalization {
     pub action_code: u8,
 }
 
+/// The single numbering table for file events, shared by every platform sensor.
+///
+/// `Engine::sigma_file_categories_for_event` matches on `event_id` first and
+/// only falls back to `action_code`, so a sensor that picks its own `event_id`
+/// silently changes which Sigma category its events are evaluated against. The
+/// sensors previously each carried their own copy of this mapping and had
+/// drifted apart on `Modify`; routing all of them through this table is what
+/// keeps the same logical action in the same category on every platform.
+///
+/// The identifiers are Sysmon-compatible where Sysmon has an equivalent event
+/// (2 = FileCreateTime, 11 = FileCreate, 23 = FileDelete). Sysmon has no
+/// file-modify or file-rename event, so those reuse the action code as the
+/// `event_id`.
+///
+/// [`SensorAction::Set`] means the file's metadata was set — its timestamps or
+/// attributes — which is what Sigma's `file_change` category denotes. A plain
+/// write is [`SensorAction::Modify`] and is deliberately *not* `file_change`.
+pub const FILE_EVENT_NORMALIZATION: &[(SensorAction, SensorNormalization)] = &[
+    (
+        SensorAction::Create,
+        SensorNormalization {
+            event_id: 11,
+            action_code: 64,
+        },
+    ),
+    (
+        SensorAction::Set,
+        SensorNormalization {
+            event_id: 2,
+            action_code: 2,
+        },
+    ),
+    (
+        SensorAction::Modify,
+        SensorNormalization {
+            event_id: 65,
+            action_code: 65,
+        },
+    ),
+    (
+        SensorAction::Delete,
+        SensorNormalization {
+            event_id: 23,
+            action_code: 70,
+        },
+    ),
+    (
+        SensorAction::Rename,
+        SensorNormalization {
+            event_id: 71,
+            action_code: 71,
+        },
+    ),
+];
+
+impl SensorNormalization {
+    /// Return the shared file-event numbering for `action`.
+    ///
+    /// `None` for actions that are not file actions, which lets a caller drop
+    /// the event rather than invent a number for it.
+    pub fn for_file_action(action: SensorAction) -> Option<Self> {
+        FILE_EVENT_NORMALIZATION
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .map(|(_, normalization)| *normalization)
+    }
+
+    /// Reverse lookup of [`Self::for_file_action`], for sensors that recover
+    /// the action from an already-computed action code.
+    pub fn for_file_action_code(action_code: u8) -> Option<Self> {
+        FILE_EVENT_NORMALIZATION
+            .iter()
+            .find(|(_, normalization)| normalization.action_code == action_code)
+            .map(|(_, normalization)| *normalization)
+    }
+}
+
 /// Shared event router that dispatches decoded sensor events to downstream handlers.
 pub struct SensorEventRouter {
     handlers: Vec<Box<dyn SensorEventHandler>>,
@@ -150,6 +238,7 @@ pub enum SensorPayload {
     Registry(RegistryEventFields),
     ImageLoad(ImageLoadFields),
     Scripting(PowerShellScriptFields),
+    PowerShellModule(PowerShellModuleFields),
     Wmi(WmiEventFields),
     Service(ServiceCreationFields),
     Task(TaskCreationFields),
@@ -166,6 +255,7 @@ impl SensorPayload {
             Self::Registry(_) => EventCategory::Registry,
             Self::ImageLoad(_) => EventCategory::ImageLoad,
             Self::Scripting(_) => EventCategory::Scripting,
+            Self::PowerShellModule(_) => EventCategory::PowerShellModule,
             Self::Wmi(_) => EventCategory::Wmi,
             Self::Service(_) => EventCategory::Service,
             Self::Task(_) => EventCategory::Task,
@@ -183,6 +273,7 @@ impl SensorPayload {
             Self::Registry(fields) => EventFields::RegistryEvent(fields),
             Self::ImageLoad(fields) => EventFields::ImageLoad(fields),
             Self::Scripting(fields) => EventFields::PowerShellScript(fields),
+            Self::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
             Self::Wmi(fields) => EventFields::WmiEvent(fields),
             Self::Service(fields) => EventFields::ServiceCreation(fields),
             Self::Task(fields) => EventFields::TaskCreation(fields),
@@ -202,6 +293,7 @@ impl TryFrom<EventFields> for SensorPayload {
             EventFields::RegistryEvent(fields) => Ok(Self::Registry(fields)),
             EventFields::ImageLoad(fields) => Ok(Self::ImageLoad(fields)),
             EventFields::PowerShellScript(fields) => Ok(Self::Scripting(fields)),
+            EventFields::PowerShellModule(fields) => Ok(Self::PowerShellModule(fields)),
             EventFields::WmiEvent(fields) => Ok(Self::Wmi(fields)),
             EventFields::ServiceCreation(fields) => Ok(Self::Service(fields)),
             EventFields::TaskCreation(fields) => Ok(Self::Task(fields)),
@@ -284,6 +376,7 @@ mod tests {
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: None,
+            path_truncated: None,
         });
 
         let fields = payload.into_event_fields();

@@ -1,106 +1,78 @@
 # Operations and Upgrade Guide
 
-This guide covers install layout, service behavior, and practical upgrade examples.
+How to lay out a persistent installation, run it under the platform's service
+manager, and upgrade it safely.
 
-## Recommended Directory Layout
-
-### Windows
-
-```text
-C:\Rustinel\
-├── rustinel.exe
-├── config.toml
-├── rules\
-│   ├── sigma\
-│   ├── yara\
-│   └── ioc\
-└── logs\
-```
-
-### Linux
-
-```text
-/opt/rustinel/
-├── rustinel
-├── config.toml
-├── rules/
-│   ├── sigma/
-│   ├── yara/
-│   └── ioc/
-└── logs/
-```
-
-### macOS
-
-```text
-/usr/local/var/rustinel/
-├── Rustinel.app/
-├── rustinel -> Rustinel.app/Contents/MacOS/rustinel
-├── config.toml
-├── rules/
-│   ├── sigma/
-│   ├── yara/
-│   └── ioc/
-└── logs/
-```
-
-macOS support is experimental. Release archives contain a signed and notarized
-app-like daemon bundle (`Rustinel.app`) plus a `rustinel` symlink into it. The
-bundled `com.rustinel.agent.plist` LaunchDaemon expects this
-`/usr/local/var/rustinel` layout. See [Getting Started](getting-started.md) for
-Full Disk Access setup and [Development](development.md) for signing details.
-
-### Container
-
-```text
-/usr/local/bin/rustinel              # the agent
-/etc/rustinel/config.toml            # configuration
-/var/lib/rustinel/rules/current/     # sigma/, yara/, ioc/
-/var/log/rustinel/                   # operational log and alerts
-```
-
-The container image uses the managed Linux layout. See [Docker](docker.md).
-
-Use absolute paths in `config.toml` once you move beyond the default repo layout.
+For the commands themselves (`setup`, `service`, `rules`, `doctor`), see the
+[CLI Reference](cli.md). For configuration precedence and path resolution, see
+[Configuration](configuration.md). For Linux container deployment and its host
+access requirements, see [Docker](docker.md).
 
 ## Managed Setup
 
-For a persistent endpoint installation, use the managed setup command:
-
-```powershell
-rustinel setup --yes
-```
+For a persistent endpoint installation, use `setup`:
 
 ```bash
 sudo rustinel setup --yes
 ```
 
-`setup` prepares the managed layout, writes a managed configuration when needed,
-downloads and verifies the selected rules pack, copies the current executable to
-the service binary path, registers the native service, starts it unless
-`--no-start` is supplied, runs health checks, and prints the final paths and
-service status. Existing managed configuration is preserved unless `--force` is
-supplied.
+It prepares the managed layout, writes a managed configuration when none exists,
+downloads and verifies a rules pack, copies the executable to the service binary
+path, registers the native service, starts it, and runs health checks. Existing
+configuration is preserved unless `--force` is given. Use `--pack advanced` for
+the larger pack, or `--no-start` to register without starting.
 
-On macOS, `setup` copies the complete signed `Rustinel.app` bundle into the
-managed layout. Do not replace only `Contents/MacOS/rustinel`: doing so can
-invalidate the signing context required by Endpoint Security.
+On macOS, `setup` copies the complete signed `Rustinel.app` bundle. Do not
+replace only `Contents/MacOS/rustinel`, which invalidates the signing context
+Endpoint Security requires.
 
-Pack selection:
+Managed paths per platform are listed in
+[Configuration](configuration.md#managed-layouts).
 
-```bash
-sudo rustinel setup --pack essential
-sudo rustinel setup --pack advanced --no-start
-```
+## Portable Directory Layout
 
-Without `--pack`, an interactive terminal prompts for Essential or Advanced.
-Non-interactive setup defaults to Essential. If rules download or verification
-fails, setup preserves existing active rules and continues only when the active
-pack is valid.
+If you are not using the managed layout, keep the binary, config, rules, and
+logs together and point `config.toml` at absolute paths:
 
-## Installer And Archive Options
+=== "Windows"
 
-The install scripts accept a target directory and published version:
+    ```text
+    C:\Rustinel\
+    ├── rustinel.exe
+    ├── config.toml
+    ├── rules\{sigma,yara,ioc}\
+    └── logs\
+    ```
+
+=== "Linux"
+
+    ```text
+    /opt/rustinel/
+    ├── rustinel
+    ├── config.toml
+    ├── rules/{sigma,yara,ioc}/
+    └── logs/
+    ```
+
+=== "macOS"
+
+    ```text
+    /usr/local/var/rustinel/
+    ├── Rustinel.app/
+    ├── rustinel -> Rustinel.app/Contents/MacOS/rustinel
+    ├── config.toml
+    ├── rules/{sigma,yara,ioc}/
+    └── logs/
+    ```
+
+macOS release archives contain a signed and notarized daemon bundle
+(`Rustinel.app`) plus a `rustinel` symlink into it. The bundled
+`com.rustinel.agent.plist` LaunchDaemon expects the
+`/usr/local/var/rustinel` layout.
+
+## Installers And Archives
+
+The install scripts accept a target directory and a published version:
 
 === "Linux and macOS"
 
@@ -114,87 +86,35 @@ The install scripts accept a target directory and published version:
     .\scripts\install\install.ps1 -InstallDir C:\Rustinel -Version 1.2.0
     ```
 
-The scripts download published binaries only. They do not install Rust or build
-from source. Manual packages are available from
-[GitHub Releases](https://github.com/Karib0u/rustinel/releases) for Windows
-x86_64, Linux x86_64 and arm64, and macOS Intel and Apple Silicon. Each archive
-contains the binary, `config.toml`, demo rules, install scripts, examples, and
-an empty `logs/` directory.
+They download published binaries only; they never install Rust or build from
+source. Manual packages for Windows x86_64, Linux x86_64 and arm64, and macOS
+Intel and Apple Silicon are on
+[GitHub Releases](https://github.com/Karib0u/rustinel/releases). Each archive
+carries the binary, `config.toml`, demo rules, install scripts, examples, and an
+empty `logs/` directory.
 
-## Rules And Hot Reload
+## Rules In Production
 
-Install a released pack with `rustinel rules install <PACK>`. Managed packs are
-activated atomically under the platform rules directory. Local edits to active
-Sigma, YARA, IOC files, and the configuration file are watched when `reload.enabled = true` (the
-default), with rapid changes grouped by `reload.debounce_ms`. Config file changes hot-swap the active response settings (`[response]` section); other config sections require a restart.
+Install a released pack with `rustinel rules install <PACK>`; packs activate
+atomically under the managed rules directory. Local edits to active Sigma, YARA,
+and IOC files are picked up by hot reload. See
+[Configuration](configuration.md#reload) for what reloads and what does not.
 
 After editing a rule, check the operational log for a successful reload and
-trigger a known event. A rejected reload leaves the last valid in-memory rules
-active. Run `rustinel doctor` to validate the on-disk configuration and rules.
+trigger a known event. A rejected reload leaves the last valid rules live. Run
+`rustinel doctor` to validate the on-disk configuration and rules.
 
-## Working Directory Rules
+## Service Runtime Models
 
-- Configuration files are selected from `--config`, `RUSTINEL_CONFIG`, the
-  managed platform path, the executable directory, and the current working
-  directory, in that order.
-- Relative paths resolve from the directory containing the selected
-  configuration file.
-- `rustinel doctor` reports the selected configuration and resolved paths.
-- Use the managed platform configuration path for native services.
-- Prefer absolute paths for custom service layouts and supervisors.
+`rustinel service install` registers the platform's native service and is the
+supported path on all three platforms. The sections below cover what that
+service actually runs, for operators who need to supervise it themselves.
 
-## Native Service Lifecycle
+### Linux
 
-Rustinel includes built-in native service management commands on Windows,
-Linux, and macOS:
-
-```powershell
-.\rustinel.exe service install
-.\rustinel.exe service start
-.\rustinel.exe service status
-.\rustinel.exe service restart
-.\rustinel.exe service stop
-.\rustinel.exe service uninstall
-```
-
-```bash
-sudo rustinel service install
-sudo rustinel service start
-rustinel service status
-sudo rustinel service restart
-sudo rustinel service stop
-sudo rustinel service uninstall
-```
-
-Important behavior:
-
-- `service install` registers the native service definition with managed paths.
-- The managed binary and managed configuration file must already exist.
-- `service install` does not download rules, copy a temporary executable, or overwrite user configuration.
-- `service uninstall` stops and unregisters the native service while preserving configuration, rules, logs, and state.
-- `service status` prints one normalized value: `not-installed`, `stopped`, `starting`, `running`, `failed`, or `unknown`.
-- Service mode uses the managed config file path and can still be adjusted with `EDR__...` environment variables.
-
-Managed service paths:
-
-| Platform | Native manager | Binary | Configuration |
-| --- | --- | --- | --- |
-| Windows | Service Control Manager | `C:\Program Files\Rustinel\rustinel.exe` | `C:\ProgramData\Rustinel\config.toml` |
-| Linux | systemd | `/opt/rustinel/rustinel` | `/etc/rustinel/config.toml` |
-| macOS | launchd | `/usr/local/var/rustinel/Rustinel.app/Contents/MacOS/rustinel` | `/Library/Application Support/Rustinel/config.toml` |
-
-## Linux Runtime Model
-
-The binary itself remains the same foreground application. Service management
-wraps it with `systemd`:
-
-```bash
-sudo /opt/rustinel/rustinel run
-```
-
-### Example systemd Unit
-
-Save as `/etc/systemd/system/rustinel.service`:
+The binary is an ordinary foreground process; `systemd` wraps it. `service
+install` writes this unit to `/etc/systemd/system/rustinel.service`, reloads
+`systemd`, and enables it:
 
 ```ini
 [Unit]
@@ -213,44 +133,85 @@ User=root
 WantedBy=multi-user.target
 ```
 
-Enable and start:
+### macOS
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable rustinel
-sudo systemctl start rustinel
-sudo systemctl status rustinel
-```
+macOS support is experimental, though active response works there like it does
+elsewhere. `service install` writes and bootstraps
+`/Library/LaunchDaemons/com.rustinel.agent.plist`, expecting the managed bundle
+at `/usr/local/var/rustinel/Rustinel.app`.
 
-The built-in `service install` command writes this unit to
-`/etc/systemd/system/rustinel.service`, reloads `systemd`, and enables the unit.
-
-## macOS Runtime Model
-
-macOS support is experimental and detection-only today. Active response is not
-supported on macOS. You can still run it in the foreground as root:
-
-```bash
-sudo /usr/local/var/rustinel/rustinel run
-```
-
-For background execution, `service install` writes and bootstraps
-`/Library/LaunchDaemons/com.rustinel.agent.plist` as a `launchd`
-LaunchDaemon. It expects the managed app bundle at
-`/usr/local/var/rustinel/Rustinel.app` and the managed configuration file at
-`/Library/Application Support/Rustinel/config.toml`.
-
-The app bundle must be signed with the
+The bundle must be signed with the
 `com.apple.developer.endpoint-security.client` entitlement, contain the
-authorizing provisioning profile, and have Full Disk Access (a LaunchDaemon needs
-it granted to `Rustinel.app`, or provisioned via an MDM PPPC profile). See
-[Development](development.md) for signing and notarization details.
+authorizing provisioning profile, and hold Full Disk Access, granted to
+`Rustinel.app` itself for a LaunchDaemon, or provisioned by an MDM PPPC profile.
+See [Development](development.md) for signing and notarization.
 
-## Upgrade Examples
+### Windows
 
-### Windows: Replace Binary In Place
+The Service Control Manager runs the managed binary directly. Note that Windows
+services start with `C:\Windows\System32` as the working directory, which is why
+managed installs use an absolute managed config path.
 
-If the service already points to the final directory:
+## Monitoring Telemetry Loss
+
+Sensor channels are bounded and shed events under burst load, which produces a
+detection gap rather than a slowdown. Rustinel counts what it sheds, so the gap
+is measurable:
+
+```bash
+rustinel doctor --json | jq '.telemetry.channels[] | select(.dropped > 0)'
+```
+
+Treat a growing `sensor_events` count as a coverage problem rather than a
+performance one: those events never reached any detector. Counts are cumulative
+per agent run. See
+[Pipeline Telemetry](configuration.md#pipeline-telemetry) for the per-channel
+meaning and [Troubleshooting](troubleshooting.md#dropped-events-and-full-queues)
+for what to do about it.
+
+### Windows ETW session buffers
+
+Those counters see only Rustinel's own queues. On Windows there is an earlier
+place events can be lost: the kernel's buffer pool for the `rustinel-etw-trace`
+session. If the pool fills before the sensor drains it, the kernel discards
+events and the sensor never sees them.
+
+Rustinel sets the pool explicitly rather than inheriting library defaults:
+
+| Setting | Value | Default it replaces |
+| --- | --- | --- |
+| Buffer size | 256 KB | 32 KB |
+| Minimum buffers | 64 (16 MB committed at start) | 2 |
+| Maximum buffers | 128 (32 MB ceiling) | 24 (768 KB) |
+| Flush timer | 1 s | 1 s |
+| Forced partial-buffer handoff | 100 ms | disabled |
+
+The forced handoff controls quiet-host delivery latency without changing the
+buffer pool. Configure it with `windows.etw_flush_interval_ms`; `0` disables it.
+Rustinel pauses requests while its sensor queue is at least half full, when
+queueing controls latency instead.
+
+The buffers are non-paged pool: 16 MB is committed for the life of the agent and
+grows to at most 32 MB under load. Read the live values back with:
+
+```powershell
+Get-EtwTraceSession -Name rustinel-etw-trace
+```
+
+`logman query -ets` shows the same session but localizes its output, so prefer
+the cmdlet in scripts.
+
+This sizing absorbed a 4,000-process fork tree with no loss on a Windows 11 lab
+VM, where the library defaults lost 12-60% of process starts across identical
+runs ([#312](https://github.com/Karib0u/rustinel/pull/312)). It is a fixed
+configuration, not an adaptive one: a host that churns processes harder than
+that can still overrun a 32 MB pool, and kernel-side loss is not counted
+anywhere yet ([#305](https://github.com/Karib0u/rustinel/issues/305)). Treat a
+recorded event count as an upper bound on what happened.
+
+## Upgrades
+
+### Windows: replace the binary in place
 
 ```powershell
 Set-Location C:\Rustinel
@@ -259,7 +220,7 @@ Copy-Item C:\Staging\rustinel.exe .\rustinel.exe -Force
 .\rustinel.exe service start
 ```
 
-### Windows: Move To A New Install Directory
+### Windows: move to a new install directory
 
 ```powershell
 Set-Location C:\OldRustinel
@@ -276,45 +237,19 @@ Set-Location D:\Rustinel
 .\rustinel.exe service start
 ```
 
-### Linux: Rebuild From Source And Restart
-
-Example with `systemd` as the supervisor:
-
-```bash
-cd /opt/src/rustinel
-git pull
-cargo build --release
-sudo install -m 0755 ./target/release/rustinel /opt/rustinel/rustinel
-sudo systemctl restart rustinel
-```
-
-### Linux: Release Binary Upgrade
+### Linux: replace the binary and restart
 
 ```bash
 sudo install -m 0755 ./rustinel /opt/rustinel/rustinel
 sudo systemctl restart rustinel
 ```
 
-### Linux: eBPF-Only Iteration
+### Safe upgrade checklist
 
-When you only changed `ebpf/`, rebuild the object and run with the override path:
-
-```bash
-cd /opt/src/rustinel/ebpf
-cargo +nightly build --release --bin rustinel-ebpf
-cp target/bpfel-unknown-none/release/rustinel-ebpf rustinel-ebpf.o
-
-cd /opt/src/rustinel
-sudo env RUSTINEL_EBPF_OBJECT=$PWD/ebpf/rustinel-ebpf.o ./target/release/rustinel run
-```
-
-This is useful for development because it avoids rebuilding the full userspace binary after every eBPF-only change.
-
-## Safe Upgrade Checklist
-
-1. Back up `config.toml` and your custom `rules/`.
+1. Back up `config.toml` and any custom rules.
 2. Keep log and alert directories outside ephemeral build directories.
 3. Replace the binary.
 4. Restart the process or service.
 5. Confirm new startup logs in `rustinel.log.<date>`.
-6. Trigger a known benign rule such as the bundled `whoami` Sigma rule.
+6. Trigger the bundled `whoami` rule.
+7. Run `rustinel doctor` and confirm `pipeline_telemetry` reports no new drops.

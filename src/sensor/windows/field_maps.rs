@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use super::registry_value_data::CAPTURED_DATA_PROPERTY;
+
 /// Field mapping for a specific Sigma category.
 pub struct FieldMapping {
     /// Maps Sigma field name -> ETW property name.
@@ -57,6 +59,7 @@ static FILE_EVENT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
         ("ProcessId", "ProcessID"),
         ("Image", "ImageName"),
         ("CreationUtcTime", "CreationTime"),
+        ("PreviousCreationUtcTime", "PreviousCreationTime"),
         ("User", "UserName"),
     ])
 });
@@ -67,32 +70,20 @@ pub fn file_event_mappings() -> &'static FieldMapping {
 
 static REGISTRY_EVENT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
-        ("Details", "ValueName"),
+        // Sysmon Event ID 13 defines `Details` as the value data, not its
+        // name; `CapturedData` is empty unless the session asks for it, and
+        // `registry_details` falls back to `ValueName` when it is.
+        ("Details", CAPTURED_DATA_PROPERTY),
         ("ProcessId", "ProcessID"),
         ("Image", "ImageName"),
         ("EventType", "EventType"),
         ("User", "UserName"),
-        ("TargetObject", "KeyName"),
         ("NewName", "NewName"),
     ])
 });
 
 pub fn registry_event_mappings() -> &'static FieldMapping {
     &REGISTRY_EVENT_MAP
-}
-
-static REGISTRY_MODIFY_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
-    FieldMapping::new(&[
-        ("TargetObject", "RelativeName"),
-        ("Details", "ValueName"),
-        ("ProcessId", "ProcessID"),
-        ("Image", "ImageName"),
-        ("User", "UserName"),
-    ])
-});
-
-pub fn registry_modify_mappings() -> &'static FieldMapping {
-    &REGISTRY_MODIFY_MAP
 }
 
 static DNS_QUERY_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
@@ -141,6 +132,23 @@ pub fn powershell_script_mappings() -> &'static FieldMapping {
     &POWERSHELL_SCRIPT_MAP
 }
 
+/// Module logging (event 4103) has its own template: `ContextInfo`,
+/// `UserData` and `Payload`. `UserData` is not mapped because no `ps_module`
+/// rule reads it and it is empty on every event observed.
+static POWERSHELL_MODULE_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
+    FieldMapping::new(&[
+        ("ContextInfo", "ContextInfo"),
+        ("Payload", "Payload"),
+        ("ProcessId", "ProcessID"),
+        ("Image", "ImageName"),
+        ("User", "UserName"),
+    ])
+});
+
+pub fn powershell_module_mappings() -> &'static FieldMapping {
+    &POWERSHELL_MODULE_MAP
+}
+
 static IMAGE_LOAD_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
         ("ImageLoaded", "ImageName"),
@@ -174,23 +182,6 @@ pub fn wmi_event_mappings() -> &'static FieldMapping {
     &WMI_EVENT_MAP
 }
 
-static SERVICE_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
-    FieldMapping::new(&[
-        ("ServiceName", "ServiceName"),
-        ("ServiceFileName", "ImagePath"),
-        ("ServiceType", "ServiceType"),
-        ("StartType", "StartType"),
-        ("AccountName", "AccountName"),
-        ("User", "UserName"),
-        ("ProcessId", "ProcessID"),
-        ("Image", "ImageName"),
-    ])
-});
-
-pub fn service_creation_mappings() -> &'static FieldMapping {
-    &SERVICE_CREATION_MAP
-}
-
 static TASK_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
         ("TaskName", "TaskName"),
@@ -204,4 +195,21 @@ static TASK_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
 
 pub fn task_creation_mappings() -> &'static FieldMapping {
     &TASK_CREATION_MAP
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn powershell_module_mapping_matches_event_4103_template() {
+        let mappings = powershell_module_mappings();
+
+        assert_eq!(mappings.get_etw_field("ContextInfo"), Some("ContextInfo"));
+        assert_eq!(mappings.get_etw_field("Payload"), Some("Payload"));
+        assert_eq!(mappings.get_etw_field("ProcessId"), Some("ProcessID"));
+        assert_eq!(mappings.get_etw_field("Image"), Some("ImageName"));
+        assert_eq!(mappings.get_etw_field("User"), Some("UserName"));
+        assert_eq!(mappings.get_etw_field("UserData"), None);
+    }
 }

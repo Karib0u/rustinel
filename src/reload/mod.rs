@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use arc_swap::ArcSwap;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::{info, warn};
 
 use crate::config::{IocConfig, ReloadConfig, ScannerConfig};
@@ -153,7 +153,10 @@ pub fn spawn_reload_worker(
                         match engine.load_rules(&scanner_cfg.sigma_rules_path) {
                             Ok(()) => {
                                 let stats = engine.stats();
-                                if stats.rule_files_found > 0 && stats.total_rules == 0 {
+                                if stats.rule_files_found > 0
+                                    && stats.total_rules == 0
+                                    && stats.unsupported_rules.is_empty()
+                                {
                                     warn!(
                                         target: "reload",
                                         path = ?scanner_cfg.sigma_rules_path,
@@ -170,11 +173,22 @@ pub fn spawn_reload_worker(
                                         "Some Sigma rules failed to compile, but loading the working rules"
                                     );
                                 }
+                                if !stats.unsupported_rules.is_empty() {
+                                    warn!(
+                                        target: "reload",
+                                        path = ?scanner_cfg.sigma_rules_path,
+                                        unsupported = ?stats.unsupported_rules,
+                                        "Some Sigma documents are unsupported by the active runtime"
+                                    );
+                                }
                                 store.swap_sigma(Arc::new(engine));
                                 info!(
                                     target: "reload",
                                     component = "sigma",
                                     total_rules = stats.total_rules,
+                                    unsupported_rules = stats.unsupported_rules.len(),
+                                    unsupported_correlation_rules = stats.unsupported_correlation_rules,
+                                    unsupported_filter_rules = stats.unsupported_filter_rules,
                                     elapsed_ms = started.elapsed().as_millis() as u64,
                                     "Sigma rules hot-reloaded"
                                 );
@@ -196,7 +210,9 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        match scanner::Scanner::new(&scanner_cfg.yara_rules_path) {
+                        match scanner::Scanner::new(&scanner_cfg.yara_rules_path)
+                            .map(|compiled| compiled.with_limits(scanner_cfg.yara_scan_limits()))
+                        {
                             Ok(compiled) => {
                                 let compiled_files = compiled.compiled_files();
                                 if compiled.files_found() > 0 && compiled_files == 0 {
@@ -310,23 +326,152 @@ pub fn spawn_reload_worker(
     })
 }
 
+/// Maximum time [`ReloadPoller::shutdown`] waits for the task before aborting it.
+const POLLER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Handle to a running hot-reload poller task.
+///
+/// Carries an explicit shutdown signal rather than relying on
+/// [`tokio::task::JoinHandle::abort`], which cannot interrupt a task parked inside a
+/// synchronous watcher call.
+pub struct ReloadPoller {
+    handle: tokio::task::JoinHandle<()>,
+    shutdown: watch::Sender<bool>,
+}
+
+impl ReloadPoller {
+    /// Signal the poller to stop and wait for it to finish.
+    ///
+    /// Aborts the task if it does not observe the signal within
+    /// [`POLLER_SHUTDOWN_TIMEOUT`], so shutdown can never stall the process.
+    pub async fn shutdown(self) {
+        let ReloadPoller {
+            mut handle,
+            shutdown,
+        } = self;
+        let _ = shutdown.send(true);
+        if tokio::time::timeout(POLLER_SHUTDOWN_TIMEOUT, &mut handle)
+            .await
+            .is_err()
+        {
+            warn!(target: "reload", "Hot-reload poller did not stop in time; aborting");
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+}
+
+/// Collect the paths to watch, and how deeply, for the enabled subsystems.
+fn watch_targets(
+    scanner_cfg: &ScannerConfig,
+    ioc_cfg: &IocConfig,
+    config_path: Option<&PathBuf>,
+) -> Vec<(PathBuf, notify::RecursiveMode)> {
+    let mut targets = Vec::new();
+
+    if scanner_cfg.sigma_enabled {
+        targets.push((
+            scanner_cfg.sigma_rules_path.clone(),
+            notify::RecursiveMode::Recursive,
+        ));
+    }
+    if scanner_cfg.yara_enabled {
+        targets.push((
+            scanner_cfg.yara_rules_path.clone(),
+            notify::RecursiveMode::Recursive,
+        ));
+    }
+    if ioc_cfg.enabled {
+        let mut parents = HashSet::new();
+        for path in [
+            &ioc_cfg.hashes_path,
+            &ioc_cfg.ips_path,
+            &ioc_cfg.domains_path,
+            &ioc_cfg.paths_regex_path,
+        ] {
+            let normalized = normalize_path(path);
+            if let Some(parent) = normalized.parent() {
+                parents.insert(parent.to_path_buf());
+            }
+        }
+        for parent in parents {
+            targets.push((parent, notify::RecursiveMode::NonRecursive));
+        }
+    }
+    if let Some(cfg_path) = config_path {
+        let normalized = normalize_path(cfg_path);
+        if let Some(parent) = normalized.parent() {
+            targets.push((parent.to_path_buf(), notify::RecursiveMode::NonRecursive));
+        }
+    }
+
+    targets
+}
+
+/// Create the filesystem watcher and register every target.
+///
+/// Synchronous on purpose: `Watcher::watch()` blocks waiting on the watcher's own
+/// event thread, so callers run this on a blocking thread.
+fn build_watcher(
+    targets: &[(PathBuf, notify::RecursiveMode)],
+    tx: mpsc::Sender<()>,
+) -> Option<notify::RecommendedWatcher> {
+    use notify::Watcher;
+
+    let mut watcher =
+        match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+            if res.is_ok() {
+                // Must not block: this runs on the watcher's event thread, the same
+                // thread `watch()` waits on for its acknowledgement. A recursive
+                // registration over a large tree emits an event per directory, which
+                // would fill the channel before the receive loop starts and deadlock
+                // setup. A full channel already means a wake-up is pending, and the
+                // loop re-fingerprints everything after debouncing, so dropping the
+                // signal costs nothing.
+                let _ = tx.try_send(());
+            }
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                warn!(
+                    target: "reload",
+                    error = %e,
+                    "Failed to initialize recommended watcher"
+                );
+                return None;
+            }
+        };
+
+    for (path, mode) in targets {
+        if let Err(e) = watcher.watch(path, *mode) {
+            warn!(
+                target: "reload",
+                path = ?path,
+                error = %e,
+                "Failed to watch path, inotify/watcher setup failed"
+            );
+            return None;
+        }
+    }
+
+    Some(watcher)
+}
+
 pub fn spawn_reload_poller(
     scanner_cfg: ScannerConfig,
     ioc_cfg: IocConfig,
     reload_cfg: ReloadConfig,
     config_path: Option<PathBuf>,
     reload_tx: mpsc::UnboundedSender<ReloadTarget>,
-) -> tokio::task::JoinHandle<()> {
-    use notify::Watcher;
+) -> ReloadPoller {
+    let (shutdown, mut shutdown_rx) = watch::channel(false);
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         if !reload_cfg.enabled {
             return;
         }
 
-        let mut watcher_setup_ok = true;
         let (tx, mut rx) = mpsc::channel::<()>(100);
-        let mut watcher = None;
 
         let mut sigma_fp = scanner_cfg
             .sigma_enabled
@@ -337,76 +482,17 @@ pub fn spawn_reload_poller(
         let mut ioc_fp = ioc_cfg.enabled.then(|| fingerprint_ioc_files(&ioc_cfg));
         let mut config_fp = config_path.as_ref().map(|path| fingerprint_file(path));
 
-        match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            if res.is_ok() {
-                let _ = tx.blocking_send(());
+        let targets = watch_targets(&scanner_cfg, &ioc_cfg, config_path.as_ref());
+        let setup = tokio::task::spawn_blocking(move || build_watcher(&targets, tx));
+        let watcher = tokio::select! {
+            res = setup => res.ok().flatten(),
+            _ = shutdown_rx.changed() => {
+                info!(target: "reload", "Hot-reload poller shutting down during watcher setup");
+                return;
             }
-        }) {
-            Ok(mut w) => {
-                let mut watch_targets = Vec::new();
-                if scanner_cfg.sigma_enabled {
-                    watch_targets.push((
-                        scanner_cfg.sigma_rules_path.clone(),
-                        notify::RecursiveMode::Recursive,
-                    ));
-                }
-                if scanner_cfg.yara_enabled {
-                    watch_targets.push((
-                        scanner_cfg.yara_rules_path.clone(),
-                        notify::RecursiveMode::Recursive,
-                    ));
-                }
-                if ioc_cfg.enabled {
-                    let mut parents = HashSet::new();
-                    for path in [
-                        &ioc_cfg.hashes_path,
-                        &ioc_cfg.ips_path,
-                        &ioc_cfg.domains_path,
-                        &ioc_cfg.paths_regex_path,
-                    ] {
-                        let normalized = normalize_path(path);
-                        if let Some(parent) = normalized.parent() {
-                            parents.insert(parent.to_path_buf());
-                        }
-                    }
-                    for parent in parents {
-                        watch_targets.push((parent, notify::RecursiveMode::NonRecursive));
-                    }
-                }
-                if let Some(cfg_path) = &config_path {
-                    let normalized = normalize_path(cfg_path);
-                    if let Some(parent) = normalized.parent() {
-                        watch_targets
-                            .push((parent.to_path_buf(), notify::RecursiveMode::NonRecursive));
-                    }
-                }
+        };
 
-                for (path, mode) in &watch_targets {
-                    if let Err(e) = w.watch(path, *mode) {
-                        warn!(
-                            target: "reload",
-                            path = ?path,
-                            error = %e,
-                            "Failed to watch path, inotify/watcher setup failed"
-                        );
-                        watcher_setup_ok = false;
-                        break;
-                    }
-                }
-                if watcher_setup_ok {
-                    watcher = Some(w);
-                }
-            }
-            Err(e) => {
-                warn!(
-                    target: "reload",
-                    error = %e,
-                    "Failed to initialize recommended watcher"
-                );
-                watcher_setup_ok = false;
-            }
-        }
-
+        let watcher_setup_ok = watcher.is_some();
         if !watcher_setup_ok {
             warn!(target: "reload", "inotify is not available for the rules directory");
         }
@@ -422,17 +508,25 @@ pub fn spawn_reload_poller(
 
         loop {
             if watcher_setup_ok {
-                // Wait for filesystem event
-                if rx.recv().await.is_none() {
-                    break; // channel closed
+                // Wait for a filesystem event, or for shutdown
+                tokio::select! {
+                    _ = shutdown_rx.changed() => break,
+                    event = rx.recv() => {
+                        if event.is_none() {
+                            break; // channel closed
+                        }
+                    }
                 }
                 // Debounce: sleep to let multiple events coalesce
                 tokio::time::sleep(debounce_interval).await;
                 // Drain extra events
                 while rx.try_recv().is_ok() {}
             } else {
-                // Fallback: poll every 60 seconds
-                tokio::time::sleep(poll_interval).await;
+                // Fallback: poll on the configured interval
+                tokio::select! {
+                    _ = shutdown_rx.changed() => break,
+                    _ = tokio::time::sleep(poll_interval) => {}
+                }
             }
 
             if scanner_cfg.sigma_enabled {
@@ -478,7 +572,9 @@ pub fn spawn_reload_poller(
 
         drop(watcher);
         info!(target: "reload", "Hot-reload poller shutting down");
-    })
+    });
+
+    ReloadPoller { handle, shutdown }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

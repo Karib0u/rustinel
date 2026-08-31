@@ -8,7 +8,7 @@ use rustinel::utils::hash_command_line;
 use rustinel::{
     alerts::AlertSink,
     config::ResponseConfig,
-    engine::{Engine, SigmaDetectionHandler},
+    engine::{DetectionPipeline, Engine, NormalizedEventHandler},
     ioc::IocEngine,
     reload::DetectorStore,
     scanner::{normalize_allowlist_paths, Scanner, YaraEventHandler},
@@ -48,13 +48,15 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
     ));
 
     let harness = TestNormalizer::new(false);
-    let handler = SigmaDetectionHandler {
-        normalizer: Arc::new(harness.normalizer),
-        detectors,
-        ioc_hash_tx: None,
-        alert_sink: AlertSink::new(writer),
-        response_engine: response,
-    };
+    let handler = NormalizedEventHandler::detecting(
+        Arc::new(harness.normalizer),
+        DetectionPipeline {
+            detectors,
+            ioc_hash_tx: None,
+            alert_sink: AlertSink::new(writer),
+            response_engine: response,
+        },
+    );
 
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));

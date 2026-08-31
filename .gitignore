@@ -36,6 +36,10 @@ ebpf/Cargo.lock
 tests/**/*
 !tests/**/
 !tests/**/*.rs
+# The golden replay fixture is checked in on purpose: the recording, its
+# manifest, the rules it must fire, and the script that produced it are the
+# regression, not build output. See docs/detection.md.
+!tests/fixtures/replay/**
 
 *.exe
 *.pdb

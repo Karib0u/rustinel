@@ -7,7 +7,7 @@
 ```text
                       ┌───────────────────────────────┐
                       │ Platform Sensor               │
-                      │ Windows ETW or Linux eBPF     │
+                      │ ETW / eBPF / ESF + bpf        │
                       └─────────────────┬─────────────┘
                                         ▼
                             ┌──────────────────────┐
@@ -74,7 +74,8 @@ The key split in the codebase is between the hot event path and the control plan
 
 ### Windows
 
-The Windows sensor is ETW-based and currently covers:
+The Windows sensor uses ETW for realtime providers and a filtered Windows Event
+Log subscription for Service Control Manager event 7045. It currently covers:
 
 - Process
 - Image load
@@ -82,7 +83,7 @@ The Windows sensor is ETW-based and currently covers:
 - File
 - Registry
 - DNS
-- PowerShell
+- PowerShell (script block and module logging)
 - WMI
 - Service creation
 - Task creation
@@ -96,35 +97,26 @@ The ETW providers include:
 - `Microsoft-Windows-DNS-Client`
 - `Microsoft-Windows-PowerShell`
 - `Microsoft-Windows-WMI-Activity`
-- `Microsoft-Windows-Service-Control-Manager`
 - `Microsoft-Windows-TaskScheduler`
+
+Service creation comes from the System event log rather than the classic
+Service Control Manager provider, which does not deliver event 7045 to realtime
+user ETW sessions.
 
 ### Linux
 
 The Linux sensor loads eBPF programs with Aya and currently covers:
 
-- Process execution and exit
+- Process execution and exit, with command lines captured in the kernel: argv is snapshotted at `execve`/`execveat` entry, where it is still mapped, and joined to the `sched_process_exec` event that follows, so short-lived processes keep their `CommandLine`
 - Network connect activity
 - File create, delete, change, and rename flows
 - DNS queries observed from userspace `sendto`, `sendmsg`, and `sendmmsg` calls. The eBPF program emits a bounded raw DNS payload and userspace parses `QueryName`, keeping string parsing out of the verifier-sensitive in-kernel path. Linux DNS response answers are not parsed yet, so `QueryResults` remains unavailable on Linux.
 
-The current loader attaches a mix of tracepoints and kprobes, including:
-
-- `sched:sched_process_exec`
-- `sched:sched_process_exit`
-- `syscalls:sys_enter_connect`
-- `syscalls:sys_enter_openat`
-- `syscalls:sys_exit_openat`
-- `syscalls:sys_enter_unlinkat`
-- `syscalls:sys_exit_unlinkat`
-- `syscalls:sys_enter_renameat`
-- `syscalls:sys_exit_renameat`
-- `syscalls:sys_enter_renameat2`
-- `syscalls:sys_exit_renameat2`
-- `syscalls:sys_enter_sendto`
-- `syscalls:sys_enter_sendmsg`
-- `syscalls:sys_enter_sendmmsg`
-- `kprobe:vfs_create`
+The loader attaches a mix of tracepoints and kprobes: `sched_process_exec` and
+`sched_process_exit`, enter/exit pairs on `execve`, `execveat`, `openat`,
+`unlinkat`, `renameat`, and `renameat2`, entry hooks on `connect`, `sendto`,
+`sendmsg`, and `sendmmsg`, and a `vfs_create` kprobe. The authoritative list is
+in `src/sensor/linux/`.
 
 Requirements for the Linux sensor are kernel 5.8+, BTF, and eBPF privileges.
 
@@ -159,6 +151,14 @@ Once a platform sensor emits a raw `SensorEvent`, the rest of the runtime is sha
 4. YARA scans and IOC hash calculations run off the hot path in background workers.
 5. Detection hits are written as ECS NDJSON through `AlertSink` and can also be handed to `ResponseEngine`.
 
+Every hop in that list crosses a bounded channel that sheds load rather than
+blocking its producer, trading a detection gap for stability. Each channel
+therefore carries atomic counters (accepted, dropped, and peak queue depth) in
+`src/telemetry`, published to `telemetry.json` beside the logs so the gap is
+measurable from outside the process. See
+[Pipeline Telemetry](configuration.md#pipeline-telemetry) for the counters and
+[Limitations](limitations.md#pipeline-and-operations) for what shedding costs.
+
 ## Detector Store and Hot Reload
 
 Live detector instances sit behind `DetectorStore`:
@@ -176,13 +176,13 @@ If hot reload is enabled:
 
 ## Normalization and Enrichment
 
-The normalizer keeps one event model across both platforms and adds context where available:
+The normalizer keeps one event model across all three platforms and adds context where available:
 
 - Sysmon-style field names in a single `NormalizedEvent` model
 - `ProcessCache` for process metadata and parent correlation
 - `SidCache` for Windows SID-to-user resolution
 - `DnsCache` for DNS answer to later network-event correlation
-- `ConnectionAggregator` for repeated network-connection suppression and interval tracking
+- `ConnectionAggregator` for repeated-connection metrics and interval tracking. This is observational only: every network event is still forwarded to the detectors
 - Lazy process-context enrichment on alerts so non-process detections can still carry process details
 
 On Windows, the agent also snapshots running processes during startup so `ProcessCache` is warm before the first new process event arrives.

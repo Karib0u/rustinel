@@ -2,9 +2,14 @@
 mod common;
 
 use common::{
-    dns_query_event, file_create_event, network_connect_event, process_start_event, TestNormalizer,
+    dns_query_event, file_create_event, file_event, network_connect_event, process_start_event,
+    test_file_path, TestNormalizer,
 };
-use rustinel::{engine::Engine, models::EventFields, sensor::Platform};
+use rustinel::{
+    engine::Engine,
+    models::EventFields,
+    sensor::{Platform, SensorAction, SensorNormalization, FILE_EVENT_NORMALIZATION},
+};
 
 #[cfg(target_os = "linux")]
 fn write_cstr<const N: usize>(dst: &mut [u8; N], value: &str) {
@@ -17,9 +22,11 @@ fn write_cstr<const N: usize>(dst: &mut [u8; N], value: &str) {
 #[test]
 fn linux_ebpf_raw_events_map_to_sensor_events() {
     use rustinel::sensor::linux::events::{
-        mapping, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
+        mapping, DnsEvent, FileEvent, NetworkEvent, ProcessEvent, ARGV_CAPACITY, FILE_PATH_LEN,
     };
+    use rustinel::sensor::linux::paths::{DirFdIndex, AT_FDCWD};
     use rustinel::sensor::{SensorAction, SensorPayload};
+    use std::os::fd::AsRawFd;
 
     let mut process = ProcessEvent {
         kind: 1,
@@ -28,11 +35,29 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         _pad: 0,
         comm: [0; 16],
         image: [0; 128],
+        args_len: 0,
+        args_count: 0,
+        args_truncated: 0,
+        _pad1: [0; 3],
+        args: [0; ARGV_CAPACITY],
     };
     write_cstr(&mut process.image, "/usr/bin/curl");
+    // Kernel-captured argv: NUL-separated, `args_len` bytes long.
+    let argv = b"/usr/bin/curl\0-sS\0https://example.test\0";
+    process.args[..argv.len()].copy_from_slice(argv);
+    process.args_len = argv.len() as u16;
+    process.args_count = 3;
+
     let mapped = mapping::process_event_to_sensor(&process);
     assert_eq!(mapped.action, SensorAction::Start);
     assert_eq!(mapped.normalization.event_id, 1);
+    match mapped.payload {
+        SensorPayload::Process(ref fields) => assert_eq!(
+            fields.command_line.as_deref(),
+            Some("/usr/bin/curl -sS https://example.test")
+        ),
+        _ => panic!("expected process payload"),
+    }
 
     process.kind = 2;
     let mapped = mapping::process_event_to_sensor(&process);
@@ -66,22 +91,76 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         kind: 3,
         pid: 42,
         uid: 1000,
-        _pad0: 0,
-        path: [0; 96],
-        aux_path: [0; 96],
+        flags: 0,
+        dfd: AT_FDCWD,
+        aux_dfd: AT_FDCWD,
+        dfd_token: 0,
+        aux_dfd_token: 0,
+        path: [0; FILE_PATH_LEN],
+        aux_path: [0; FILE_PATH_LEN],
         comm: [0; 16],
     };
     write_cstr(&mut file.path, "/tmp/new.txt");
     write_cstr(&mut file.aux_path, "/tmp/old.txt");
-    let mapped = mapping::file_event_to_sensor(&file);
+    let mapped = mapping::file_event_to_sensor(&DirFdIndex::new(), &file)
+        .expect("absolute paths should map");
     assert_eq!(mapped.action, SensorAction::Rename);
     match mapped.payload {
         SensorPayload::File(fields) => {
             assert_eq!(fields.source_filename.as_deref(), Some("/tmp/old.txt"));
             assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
+            assert!(fields.path_truncated.is_none());
         }
         _ => panic!("expected file payload"),
     }
+
+    // The *at syscalls allow relative names, and the same name under two
+    // descriptors is two different files. Both sides of a rename carry their
+    // own descriptor and are resolved independently.
+    let etc = std::fs::File::open("/etc").expect("/etc should be openable");
+    let tmp = std::fs::File::open("/tmp").expect("/tmp should be openable");
+    let mut relative = FileEvent {
+        kind: 3,
+        pid: std::process::id(),
+        uid: 1000,
+        flags: 0,
+        dfd: tmp.as_raw_fd(),
+        aux_dfd: etc.as_raw_fd(),
+        dfd_token: 0,
+        aux_dfd_token: 0,
+        path: [0; FILE_PATH_LEN],
+        aux_path: [0; FILE_PATH_LEN],
+        comm: [0; 16],
+    };
+    write_cstr(&mut relative.path, "shadow.bak");
+    write_cstr(&mut relative.aux_path, "shadow");
+    let mapped = mapping::file_event_to_sensor(&DirFdIndex::new(), &relative)
+        .expect("descriptor-relative paths should map");
+    match mapped.payload {
+        SensorPayload::File(fields) => {
+            assert_eq!(fields.source_filename.as_deref(), Some("/etc/shadow"));
+            assert_eq!(fields.target_filename.as_deref(), Some("/tmp/shadow.bak"));
+        }
+        _ => panic!("expected file payload"),
+    }
+
+    // PID 0 is never a real process, so nothing can be resolved against it and
+    // the relative name is dropped rather than reported as a path.
+    let mut orphan = FileEvent {
+        kind: 1,
+        pid: 0,
+        uid: 1000,
+        flags: 0,
+        dfd: AT_FDCWD,
+        aux_dfd: AT_FDCWD,
+        dfd_token: 0,
+        aux_dfd_token: 0,
+        path: [0; FILE_PATH_LEN],
+        aux_path: [0; FILE_PATH_LEN],
+        comm: [0; 16],
+    };
+    write_cstr(&mut orphan.path, "payload.sh");
+    assert!(mapping::file_event_to_sensor(&DirFdIndex::new(), &orphan).is_none());
 
     let mut dns = DnsEvent {
         kind: 1,
@@ -163,6 +242,117 @@ fn equivalent_windows_and_linux_events_normalize_to_shared_sigma_fields() {
                 assert_eq!(w.record_type, l.record_type);
             }
             _ => panic!("event shape mismatch"),
+        }
+    }
+}
+
+/// Every Sigma file category the engine can route an event into.
+const ALL_FILE_CATEGORIES: &[&str] = &[
+    "file_event",
+    "file_create",
+    "file_change",
+    "file_delete",
+    "file_rename",
+];
+
+/// The single table for the file action to Sigma category mapping.
+///
+/// Sensors used to carry a private copy of the numbering behind this and had
+/// drifted apart on `Modify` (issue #239): macOS reported it under FileCreate
+/// (11), so macOS writes were evaluated against `file_create` rules while the
+/// same operation on Linux matched `file_change`. Asserting the mapping here,
+/// for every platform from one table, is what stops that recurring.
+///
+/// `Set` — the file's timestamps or attributes were changed — is what Sigma's
+/// `file_change` denotes (Sysmon Event ID 2). A plain `Modify` is a write and
+/// stays in the base family only (issue #238).
+const FILE_ACTION_CATEGORIES: &[(SensorAction, &[&str])] = &[
+    (SensorAction::Create, &["file_event", "file_create"]),
+    (SensorAction::Set, &["file_event", "file_change"]),
+    (SensorAction::Modify, &["file_event"]),
+    (SensorAction::Delete, &["file_delete"]),
+    (SensorAction::Rename, &["file_event", "file_rename"]),
+];
+
+/// An engine holding exactly one rule, in `category`, that matches any file
+/// event carrying a `.txt` target. Membership in `category` is then simply
+/// whether the rule fires.
+fn engine_for_category(fixture: &common::SigmaFixture, category: &str) -> Engine {
+    fixture.write_rule(
+        "category-probe.yml",
+        &format!(
+            r#"title: File Category Probe
+logsource:
+  category: {category}
+detection:
+  selection:
+    TargetFilename|endswith: ".txt"
+  condition: selection
+level: medium
+"#
+        ),
+    );
+
+    let mut engine = Engine::new_for_platform(Platform::Linux);
+    engine
+        .load_rules(fixture.rules_dir())
+        .expect("load category probe rule");
+    engine
+}
+
+#[test]
+fn file_actions_carry_the_shared_normalization_on_every_platform() {
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+        for (action, expected) in FILE_EVENT_NORMALIZATION {
+            let event = file_event(platform, *action, None, Some(test_file_path(platform)));
+            assert_eq!(
+                event.normalization, *expected,
+                "{action:?} normalization on {platform:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn same_file_action_yields_same_sigma_categories_on_every_platform() {
+    // The category table and the sensor numbering table must cover the same
+    // actions, or an action could gain a normalization without ever having its
+    // category pinned down.
+    assert_eq!(
+        FILE_ACTION_CATEGORIES.len(),
+        FILE_EVENT_NORMALIZATION.len(),
+        "every normalized file action needs a category expectation"
+    );
+
+    for (action, expected_categories) in FILE_ACTION_CATEGORIES {
+        assert!(
+            SensorNormalization::for_file_action(*action).is_some(),
+            "{action:?} has a category expectation but no shared normalization"
+        );
+
+        for category in ALL_FILE_CATEGORIES {
+            let should_match = expected_categories.contains(category);
+
+            for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+                let fixture = common::SigmaFixture::new();
+                let engine = engine_for_category(&fixture, category);
+                let normalized = TestNormalizer::new(false)
+                    .normalizer
+                    .normalize(&file_event(
+                        platform,
+                        *action,
+                        None,
+                        Some(test_file_path(platform)),
+                    ))
+                    .expect("file event normalizes");
+
+                assert_eq!(
+                    engine.check_event(&normalized).is_some(),
+                    should_match,
+                    "{action:?} on {platform:?} should {} match `{category}`",
+                    if should_match { "" } else { "not" },
+                );
+            }
         }
     }
 }

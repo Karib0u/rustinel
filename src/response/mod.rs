@@ -12,7 +12,7 @@ use arc_swap::ArcSwap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 const TARGET_RESPONSE: &str = "response";
 static IDENTITY_MISMATCH_SKIPS: AtomicU64 = AtomicU64::new(0);
@@ -71,7 +71,7 @@ impl ResponseEngine {
 
         let handle = tokio::spawn(async move {
             let initial = worker_cfg.load();
-            info!(
+            debug!(
                 target: TARGET_RESPONSE,
                 enabled = initial.enabled,
                 prevention_enabled = initial.prevention_enabled,
@@ -98,7 +98,7 @@ impl ResponseEngine {
                 );
             }
 
-            info!(target: TARGET_RESPONSE, "Active response worker shutting down");
+            debug!(target: TARGET_RESPONSE, "Active response worker shutting down");
         });
 
         (
@@ -131,7 +131,9 @@ impl ResponseEngine {
             identity: extract_process_identity(alert),
         };
 
-        if let Err(err) = self.tx.try_send(task) {
+        if let Err(err) =
+            crate::telemetry::try_send(crate::telemetry::ChannelId::ActiveResponse, &self.tx, task)
+        {
             warn!(
                 target: TARGET_RESPONSE,
                 error = %err,
@@ -431,6 +433,10 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
             image = f.image.clone();
         }
         EventFields::PowerShellScript(f) => {
+            pid = parse_pid(f.process_id.as_deref());
+            image = f.image.clone();
+        }
+        EventFields::PowerShellModule(f) => {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();
         }

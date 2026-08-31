@@ -1,0 +1,24 @@
+title: Rustinel Replay Fixture - PowerShell Writes To Temp
+id: b3c9147e-52a8-4d6b-8f31-2ae7d90c6b55
+status: test
+description: >
+  Fires on the file write in the checked-in replay fixture. The recorded event
+  carries little more than Image and ProcessId, so it only matches when the
+  recorded category has been used to read its fields back as a file event; a
+  structural guess would read it as a process event and this rule would go
+  quiet.
+references:
+  - https://github.com/Karib0u/rustinel/issues/230
+author: Rustinel
+date: 2026/08/16
+logsource:
+  product: windows
+  category: file_create
+detection:
+  selection:
+    Image|endswith: '\powershell.exe'
+    TargetFilename|endswith: '\rustinel-replay-fixture.txt'
+  condition: selection
+falsepositives:
+  - Unknown
+level: low

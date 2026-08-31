@@ -1,11 +1,13 @@
 use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
-use crate::engine::{Engine, SigmaDetectionHandler};
+use crate::engine::{DetectionPipeline, Engine, NormalizedEventHandler};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
 use crate::normalizer::Normalizer;
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
-use crate::runtime::logging::{init_logging, log_startup_banner};
+use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
+use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
+use crate::runtime::telemetry::TelemetryReporter;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
 use crate::sensor::macos::{BpfSensor, EsfSensor};
@@ -31,6 +33,45 @@ pub fn run(
         config_path,
         sigma_engine,
     ))
+}
+
+/// macOS capture runtime: the same Endpoint Security and network sensors as
+/// `run`, recording normalized events instead of evaluating them.
+pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
+    let runtime = Builder::new_multi_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let context = CaptureContext::load(&options, "macOS ESF")?;
+        let session = context.start_recording(&options, Platform::MacOS)?;
+        let (sensor_tx, sensor_worker) = session.sensor_channel();
+
+        let esf_sensor = Arc::new(EsfSensor::new());
+        let bpf_sensor = Arc::new(BpfSensor::new());
+        info!(target: TARGET_CONSOLE, "Starting macOS sensors...");
+
+        // Endpoint Security is the primary source; failing to start it is fatal.
+        if let Err(e) = esf_sensor.start(sensor_tx.clone()) {
+            error!("macOS Endpoint Security sensor failed to start: {:#}", e);
+            drop(sensor_tx);
+            session.abandon(sensor_worker).await;
+            return Err(e);
+        }
+
+        // Network/DNS capture is best-effort; degrade to ESF-only if it fails,
+        // exactly as `run` does. A reduced sensor set is a narrower recording,
+        // not a lossy one, so the recording still finalizes as complete.
+        if let Err(e) = bpf_sensor.start(sensor_tx) {
+            warn!(
+                "macOS network/DNS sensor unavailable: {:#}; recording Endpoint Security only",
+                e
+            );
+            eprintln!("Warning: network and DNS events will not be recorded ({e:#})");
+        }
+
+        CaptureSession::wait_for_shutdown().await;
+        esf_sensor.shutdown();
+        bpf_sensor.shutdown();
+        session.finish(sensor_worker).await
+    })
 }
 
 /// macOS EDR main loop. Mirrors `run_linux_edr`, sourcing process and file
@@ -80,6 +121,9 @@ async fn run_macos_edr(
 
     log_startup_banner("macOS ESF");
 
+    // Pipeline drop counters, published for `rustinel doctor`
+    let telemetry_reporter = TelemetryReporter::start(&cfg);
+
     // 3. Shared state
     let process_cache = Arc::new(ProcessCache::with_max_entries(cfg.process.max_entries));
     let sid_cache = Arc::new(SidCache::new()); // no-op on macOS; kept for Normalizer compat
@@ -97,7 +141,7 @@ async fn run_macos_edr(
     // 5. Sigma engine
     let engine_kind =
         crate::engine::SigmaEngineKind::resolve(sigma_engine_override, &cfg.scanner.sigma_engine)?;
-    info!(engine = engine_kind.as_str(), "Selected Sigma engine");
+    info!(target: TARGET_CONSOLE, engine = engine_kind.as_str(), "Selected Sigma engine");
     let mut sigma_engine = Engine::new_for_platform_with_logging_level_and_match_debug(
         Platform::MacOS,
         &cfg.logging.level,
@@ -112,25 +156,33 @@ async fn run_macos_edr(
         } else {
             let stats = sigma_engine.stats();
             info!(
+                target: TARGET_CONSOLE,
                 total_rules = stats.total_rules,
                 skipped_deferred_rules = stats.skipped_deferred_rules,
                 skipped_unknown_logsource_rules = stats.skipped_unknown_logsource_rules,
                 skipped_product_rules = stats.skipped_product_rules,
                 inactive_collector_rules = stats.inactive_collector_rules,
+                unsupported_rules = stats.unsupported_rules.len(),
+                unsupported_correlation_rules = stats.unsupported_correlation_rules,
+                unsupported_filter_rules = stats.unsupported_filter_rules,
                 "Sigma engine initialized"
             );
             for (logsource, count) in stats.rules_by_logsource {
                 info!(logsource = %logsource, count, "Sigma rules loaded");
             }
         }
+    } else {
+        info!(target: TARGET_CONSOLE, "Sigma detection disabled by configuration");
     }
     let sigma_engine = Arc::new(sigma_engine);
 
     // 6. YARA scanner
     let yara_scanner = if cfg.scanner.yara_enabled {
-        match scanner::Scanner::new(&cfg.scanner.yara_rules_path) {
+        match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
+            .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
+        {
             Ok(s) => {
-                info!("YARA scanner initialized");
+                info!(target: TARGET_CONSOLE, "YARA scanner initialized");
                 Arc::new(s)
             }
             Err(e) => {
@@ -139,6 +191,7 @@ async fn run_macos_edr(
             }
         }
     } else {
+        info!(target: TARGET_CONSOLE, "YARA scanning disabled by configuration");
         Arc::new(scanner::Scanner::empty())
     };
 
@@ -147,6 +200,23 @@ async fn run_macos_edr(
 
     // 7. IOC engine
     let ioc_engine = Arc::new(IocEngine::load(&cfg.ioc));
+    if ioc_engine.is_enabled() {
+        let stats = ioc_engine.stats();
+        info!(
+            target: TARGET_CONSOLE,
+            md5 = stats.md5,
+            sha1 = stats.sha1,
+            sha256 = stats.sha256,
+            ip = stats.ip,
+            cidr = stats.cidr,
+            domain_exact = stats.domain_exact,
+            domain_suffix = stats.domain_suffix,
+            path_regex = stats.path_regex,
+            "IOC engine initialized"
+        );
+    } else {
+        info!(target: TARGET_CONSOLE, "IOC detection disabled by configuration");
+    }
 
     // 8. Detector store + hot-reload
     let detectors = DetectorStore::new(
@@ -155,7 +225,7 @@ async fn run_macos_edr(
         Arc::clone(&ioc_engine),
     );
 
-    let mut reload_poller_handle = None;
+    let mut reload_poller = None;
     let mut reload_worker_handle = None;
     let mut reload_tx = None;
     if cfg.reload.enabled {
@@ -172,7 +242,7 @@ async fn run_macos_edr(
             response_config.clone(),
             rx,
         ));
-        reload_poller_handle = Some(reload::spawn_reload_poller(
+        reload_poller = Some(reload::spawn_reload_poller(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
@@ -259,13 +329,15 @@ async fn run_macos_edr(
     ));
 
     // 12. Detection handlers + router
-    let sigma_handler = SigmaDetectionHandler {
-        normalizer: Arc::clone(&normalizer),
-        detectors: Arc::clone(&detectors),
-        ioc_hash_tx,
-        alert_sink: alert_sink.clone(),
-        response_engine: response_engine.clone(),
-    };
+    let sigma_handler = NormalizedEventHandler::detecting(
+        Arc::clone(&normalizer),
+        DetectionPipeline {
+            detectors: Arc::clone(&detectors),
+            ioc_hash_tx,
+            alert_sink: alert_sink.clone(),
+            response_engine: response_engine.clone(),
+        },
+    );
 
     let yara_handler = if cfg.scanner.yara_enabled {
         let yara_handler = YaraEventHandler {
@@ -289,8 +361,10 @@ async fn run_macos_edr(
     let esf_sensor = Arc::new(EsfSensor::new());
     let bpf_sensor = Arc::new(BpfSensor::new());
 
-    info!("Starting macOS sensors...");
-    info!("Press Ctrl+C to stop gracefully");
+    info!(
+        target: TARGET_CONSOLE,
+        "Starting macOS sensors; press Ctrl+C to stop gracefully"
+    );
 
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(8192);
     let router_for_worker = Arc::clone(&router);
@@ -318,7 +392,7 @@ async fn run_macos_edr(
 
     // 14. Wait for Ctrl+C
     match tokio::signal::ctrl_c().await {
-        Ok(()) => info!("Received Ctrl+C, shutting down"),
+        Ok(()) => info!(target: TARGET_CONSOLE, "Received Ctrl+C, shutting down"),
         Err(e) => error!("Failed to listen for Ctrl+C: {}", e),
     }
     esf_sensor.shutdown();
@@ -337,9 +411,8 @@ async fn run_macos_edr(
     if let Some(h) = ioc_hash_worker_handle.take() {
         let _ = h.await;
     }
-    if let Some(h) = reload_poller_handle.take() {
-        h.abort();
-        let _ = h.await;
+    if let Some(poller) = reload_poller.take() {
+        poller.shutdown().await;
     }
     drop(reload_tx.take());
     if let Some(h) = reload_worker_handle.take() {
@@ -356,6 +429,10 @@ async fn run_macos_edr(
         dedup.log_metrics();
     }
 
-    info!("Shutdown complete");
+    if let Some(reporter) = telemetry_reporter {
+        reporter.finish().await;
+    }
+
+    info!(target: TARGET_CONSOLE, "Shutdown complete");
     Ok(())
 }

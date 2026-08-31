@@ -238,7 +238,10 @@ unsafe fn try_handle_sendmmsg(ctx: &TracePointContext) -> Result<u32, i64> {
 }
 
 #[inline(always)]
-unsafe fn read_iovec_payload(msg: &UserMsghdr, payload: &mut [u8; MAX_DNS_PAYLOAD]) -> Option<usize> {
+unsafe fn read_iovec_payload(
+    msg: &UserMsghdr,
+    payload: &mut [u8; MAX_DNS_PAYLOAD],
+) -> Option<usize> {
     if msg.msg_iov == 0 || msg.msg_iovlen < MAX_IOVEC_SEGMENTS as u64 {
         return None;
     }

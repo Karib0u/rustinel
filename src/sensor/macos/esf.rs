@@ -45,10 +45,6 @@ const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
 /// Sysmon-compatible event ID emitted for process-terminate events.
 const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
-/// Sysmon-compatible event IDs emitted for file events.
-const EVENT_ID_FILE_CREATE: u16 = 11;
-const EVENT_ID_FILE_DELETE: u16 = 23;
-const EVENT_ID_FILE_RENAME: u16 = 71;
 
 /// Endpoint Security event subscriptions for the macOS sensor.
 const SUBSCRIPTIONS: &[es_event_type_t] = &[
@@ -396,17 +392,19 @@ enum FileAction {
 }
 
 impl FileAction {
-    /// Return the (action, event id, action code) triple for this class,
-    /// matching the Linux sensor's Sysmon-compatible numbering.
+    /// Return the (action, event id, action code) triple for this class, taken
+    /// from the shared [`FILE_EVENT_NORMALIZATION`] table so macOS lands in the
+    /// same Sigma category as Linux and Windows for the same operation.
     fn normalization(self) -> (SensorAction, u16, u8) {
-        match self {
-            FileAction::Create => (SensorAction::Create, EVENT_ID_FILE_CREATE, 64),
-            FileAction::Delete => (SensorAction::Delete, EVENT_ID_FILE_DELETE, 70),
-            FileAction::Rename => (SensorAction::Rename, EVENT_ID_FILE_RENAME, 71),
-            // Sysmon has no file-modify event, so report modify under
-            // FileCreate (11) like the Linux sensor; the action code stays 65.
-            FileAction::Modify => (SensorAction::Modify, EVENT_ID_FILE_CREATE, 65),
-        }
+        let action = match self {
+            FileAction::Create => SensorAction::Create,
+            FileAction::Delete => SensorAction::Delete,
+            FileAction::Rename => SensorAction::Rename,
+            FileAction::Modify => SensorAction::Modify,
+        };
+        let normalization = SensorNormalization::for_file_action(action)
+            .expect("file actions are covered by the shared file normalization table");
+        (action, normalization.event_id, normalization.action_code)
     }
 }
 
@@ -554,6 +552,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: Some(raw.user),
+            path_truncated: None,
         }),
     })
 }
@@ -574,21 +573,24 @@ fn system_time_nanos(time: SystemTime) -> u64 {
         .unwrap_or(0)
 }
 
+/// Queue a decoded event, accounting for a drop rather than blocking.
+///
+/// The ESF message handler runs on the client's own queue and must return
+/// promptly, so overflow is shed and counted — see [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
-    match tx.try_send(event) {
-        Ok(_) => {}
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-            warn!("ESF sensor: event channel full, dropping event");
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            // Pipeline has shut down; stop logging.
-        }
-    }
+    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The expected numbering for `action`, read from the shared table rather
+    /// than from a macOS-local constant — asserting against a sensor's own
+    /// constant is what let the platforms drift apart in the first place.
+    fn shared(action: SensorAction) -> SensorNormalization {
+        SensorNormalization::for_file_action(action).expect("file action is in the shared table")
+    }
 
     #[test]
     fn not_permitted_hint_points_at_full_disk_access() {
@@ -664,7 +666,7 @@ mod tests {
         let event = file_event(raw_file(FileAction::Create, "/tmp/new.txt", None))
             .expect("create event should build");
         assert_eq!(event.action, SensorAction::Create);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_CREATE);
+        assert_eq!(event.normalization, shared(SensorAction::Create));
         assert_eq!(event.pid, Some(55));
         assert!(event.process_start_key.is_none());
 
@@ -684,7 +686,7 @@ mod tests {
         let event = file_event(raw_file(FileAction::Delete, "/tmp/old.txt", None))
             .expect("delete event should build");
         assert_eq!(event.action, SensorAction::Delete);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_DELETE);
+        assert_eq!(event.normalization, shared(SensorAction::Delete));
     }
 
     #[test]
@@ -696,7 +698,7 @@ mod tests {
         ))
         .expect("rename event should build");
         assert_eq!(event.action, SensorAction::Rename);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_RENAME);
+        assert_eq!(event.normalization, shared(SensorAction::Rename));
 
         match event.payload {
             SensorPayload::File(fields) => {
@@ -712,9 +714,10 @@ mod tests {
         let event = file_event(raw_file(FileAction::Modify, "/tmp/changed.txt", None))
             .expect("modify event should build");
         assert_eq!(event.action, SensorAction::Modify);
-        // Matches the Linux sensor: modify reports under FileCreate (11).
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_CREATE);
-        assert_eq!(event.normalization.event_id, 11);
+        // Modify must not report under FileCreate (11): that would route macOS
+        // writes into `file_create` instead of `file_change` (issue #239).
+        assert_eq!(event.normalization, shared(SensorAction::Modify));
+        assert_eq!(event.normalization.event_id, 65);
     }
 
     #[test]

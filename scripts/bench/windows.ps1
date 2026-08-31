@@ -323,7 +323,7 @@ function Measure-AlertLatency {
 
     $before = Get-AlertLineCount -RuleName $AlertRuleName
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    & whoami | Out-Null
+    & whoami /all | Out-Null
     while ($sw.Elapsed.TotalSeconds -lt 15) {
         Start-Sleep -Milliseconds 100
         $after = Get-AlertLineCount -RuleName $AlertRuleName

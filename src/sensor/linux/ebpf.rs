@@ -22,7 +22,7 @@ use aya::programs::{KProbe, TracePoint};
 use aya::Ebpf;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::models::{
     DnsQueryFields, FileEventFields, NetworkConnectionFields, ProcessCreationFields,
@@ -34,21 +34,30 @@ use crate::sensor::{
 use crate::utils::{lookup_username_by_uid, query_process_details, query_socket_metadata};
 
 use super::events::{
-    bytes_to_string, parse_event, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
+    bytes_to_string, parse_event, DnsEvent, FileEvent, FileEventHeader, FileIndexEvent,
+    NetworkEvent, ProcessEvent,
 };
+use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 
 /// Sysmon-compatible event IDs emitted for Linux events.
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
 const EVENT_ID_PROCESS_TERMINATE: u16 = 5;
 const EVENT_ID_NETWORK_CONNECT: u16 = 3;
-const EVENT_ID_FILE_CREATE: u16 = 11;
-const EVENT_ID_FILE_DELETE: u16 = 23;
-const EVENT_ID_FILE_CHANGE: u16 = 65;
-const EVENT_ID_FILE_RENAME: u16 = 71;
 const EVENT_ID_DNS_QUERY: u16 = 22;
+// File event IDs come from `SensorNormalization::for_file_action`, the shared
+// table in `crate::sensor`, so they cannot drift from the other platforms.
 
 const PROCESS_EVENT_EXEC: u32 = 1;
 const PROCESS_EVENT_EXIT: u32 = 2;
+
+const FILE_EVENT_CREATE: u32 = 1;
+const FILE_EVENT_DELETE: u32 = 2;
+const FILE_EVENT_RENAME: u32 = 3;
+const FILE_EVENT_CHANGE: u32 = 4;
+/// Not a file event: a directory descriptor being opened. Consumed by the
+/// drain loop to name the `dfd` of later `*at` calls, never forwarded.
+const FILE_EVENT_DIR_OPEN: u32 = 5;
+const FILE_EVENT_INDEX_RESET: u32 = 6;
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
@@ -98,6 +107,17 @@ impl Sensor for EbpfSensor {
 
         attach_tracepoint(&mut bpf, "handle_exec", "sched", "sched_process_exec")?;
         attach_tracepoint(&mut bpf, "handle_exit", "sched", "sched_process_exit")?;
+        attach_tracepoint(&mut bpf, "handle_file_exec", "sched", "sched_process_exec")?;
+        attach_tracepoint(&mut bpf, "handle_file_exit", "sched", "sched_process_exit")?;
+        // argv is only reachable while `execve` is still running, so it is
+        // snapshotted at syscall entry and joined to the exec event above.
+        attach_tracepoint(&mut bpf, "handle_execve", "syscalls", "sys_enter_execve")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_execveat",
+            "syscalls",
+            "sys_enter_execveat",
+        )?;
         attach_tracepoint(&mut bpf, "handle_connect", "syscalls", "sys_enter_connect")?;
         attach_tracepoint(&mut bpf, "handle_openat", "syscalls", "sys_enter_openat")?;
         attach_kprobe(&mut bpf, "handle_vfs_create", "vfs_create")?;
@@ -142,6 +162,15 @@ impl Sensor for EbpfSensor {
             "handle_renameat2_exit",
             "syscalls",
             "sys_exit_renameat2",
+        )?;
+        attach_tracepoint(&mut bpf, "handle_file_close", "syscalls", "sys_enter_close")?;
+        attach_tracepoint(&mut bpf, "handle_file_dup2", "syscalls", "sys_enter_dup2")?;
+        attach_tracepoint(&mut bpf, "handle_file_dup3", "syscalls", "sys_enter_dup3")?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_file_close_range",
+            "syscalls",
+            "sys_enter_close_range",
         )?;
         attach_tracepoint(&mut bpf, "handle_sendto", "syscalls", "sys_enter_sendto")?;
         attach_tracepoint(&mut bpf, "handle_sendmsg", "syscalls", "sys_enter_sendmsg")?;
@@ -217,6 +246,8 @@ async fn run_ring_poll(
     let mut network_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(network_ring)?;
     let mut file_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(file_ring)?;
     let mut dns_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(dns_ring)?;
+    let mut unresolved_file_events: u64 = 0;
+    let mut dir_fds = DirFdIndex::new();
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -241,7 +272,7 @@ async fn run_ring_poll(
 
             Ok(mut guard) = file_fd.readable_mut() => {
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_file_ring(rb, &tx);
+                drain_file_ring(rb, &tx, &mut dir_fds, &mut unresolved_file_events);
                 guard.clear_ready();
             }
 
@@ -288,16 +319,61 @@ fn drain_network_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     }
 }
 
-fn drain_file_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
+/// Drain the file ring.
+///
+/// `unresolved` counts events dropped because their path could not be rebuilt.
+/// It lives with the poll loop rather than being recomputed per call, so the
+/// size of that blind spot stays visible in the log. See
+/// [`super::paths`] for when resolution fails.
+fn drain_file_ring(
+    rb: &mut RingBuf<MapData>,
+    tx: &Sender<SensorEvent>,
+    dir_fds: &mut DirFdIndex,
+    unresolved: &mut u64,
+) {
     while let Some(item) = rb.next() {
         let bytes: &[u8] = &item;
+        let Some(header) = parse_event::<FileEventHeader>(bytes) else {
+            warn!("file ring: short read ({} bytes)", bytes.len());
+            continue;
+        };
+        if header.kind == FILE_EVENT_INDEX_RESET {
+            let Some(ev) = parse_event::<FileIndexEvent>(bytes) else {
+                warn!("file index ring: short read ({} bytes)", bytes.len());
+                continue;
+            };
+            dir_fds.forget_process(ev.pid);
+            continue;
+        }
         let Some(ev) = parse_event::<FileEvent>(bytes) else {
             warn!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
-        if let Some(sensor_event) = build_file_event(&ev) {
+        if ev.kind == FILE_EVENT_DIR_OPEN {
+            index_dir_open(&ev, dir_fds);
+            continue;
+        }
+        if let Some(sensor_event) = build_file_event(&ev, dir_fds, unresolved) {
             try_send(tx, sensor_event);
         }
+    }
+}
+
+/// Record what a freshly opened directory descriptor points at.
+///
+/// `dfd` holds the descriptor the open produced and `aux_dfd` the one its own
+/// name was relative to, since `openat(dirfd, "sub", O_DIRECTORY)` is ordinary.
+/// A directory whose own path cannot be resolved is skipped rather than indexed
+/// under a guess — the next `*at` call against it then falls back to `/proc`.
+fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) {
+    let raw = bytes_to_string(&ev.path);
+    if raw.is_empty() || ev.flags & super::events::FILE_FLAG_PATH_TRUNCATED != 0 {
+        return;
+    }
+    if let Some(path) =
+        resolve_indexable_dir_path(dir_fds, ev.pid, ev.aux_dfd, ev.aux_dfd_token, &raw)
+    {
+        dir_fds.insert(ev.pid, ev.dfd, ev.dfd_token, path);
     }
 }
 
@@ -330,6 +406,25 @@ fn resolve_exec_image(proc_exe: Option<&str>, raw_filename: &str) -> Option<Stri
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| Some(raw_filename.to_string()).filter(|value| !value.is_empty()))
+}
+
+/// Pick the command line for an exec event.
+///
+/// The kernel capture is authoritative when it is complete: it is the argv
+/// this exec was called with, taken before the process could exit or exec
+/// again. `/proc/<pid>/cmdline` is only consulted when the kernel capture is
+/// missing or hit its bounds — and the truncated kernel value is still better
+/// than nothing when `/proc` has already gone away.
+fn resolve_command_line(
+    kernel: Option<String>,
+    truncated: bool,
+    proc_cmdline: Option<String>,
+) -> Option<String> {
+    match kernel {
+        Some(value) if !truncated => Some(value),
+        Some(value) => proc_cmdline.or(Some(value)),
+        None => proc_cmdline,
+    }
 }
 
 fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
@@ -366,9 +461,13 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     product: None,
                     description: None,
                     target_image: None,
-                    command_line: details
-                        .as_ref()
-                        .and_then(|value| value.command_line.clone()),
+                    command_line: resolve_command_line(
+                        ev.kernel_command_line(),
+                        ev.args_truncated != 0,
+                        details
+                            .as_ref()
+                            .and_then(|value| value.command_line.clone()),
+                    ),
                     process_id: Some(ev.pid.to_string()),
                     process_start_time: None,
                     parent_process_id: details
@@ -503,48 +602,73 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
     })
 }
 
-fn build_file_event(ev: &FileEvent) -> Option<SensorEvent> {
-    let path = bytes_to_string(&ev.path);
-    if path.is_empty() {
+fn build_file_event(
+    ev: &FileEvent,
+    dir_fds: &DirFdIndex,
+    unresolved: &mut u64,
+) -> Option<SensorEvent> {
+    let raw_path = bytes_to_string(&ev.path);
+    if raw_path.is_empty() {
         return None;
     }
 
-    let (action, event_id, action_code) = match ev.kind {
-        1 => (SensorAction::Create, EVENT_ID_FILE_CREATE, 64u8),
-        2 => (SensorAction::Delete, EVENT_ID_FILE_DELETE, 70u8),
-        3 => (SensorAction::Rename, EVENT_ID_FILE_RENAME, 71u8),
-        4 => (SensorAction::Modify, EVENT_ID_FILE_CHANGE, 65u8),
+    let action = match ev.kind {
+        FILE_EVENT_CREATE => SensorAction::Create,
+        FILE_EVENT_DELETE => SensorAction::Delete,
+        FILE_EVENT_RENAME => SensorAction::Rename,
+        FILE_EVENT_CHANGE => SensorAction::Modify,
         _ => return None,
     };
+    let normalization = SensorNormalization::for_file_action(action)
+        .expect("file actions are covered by the shared file normalization table");
+
+    // A relative name that cannot be tied back to its directory is worse than
+    // no event: `TargetFilename|endswith: '/passwd'` would fire on any
+    // `openat(dirfd, "passwd")` anywhere on the disk. Dropping is the same
+    // policy the Windows sensor applies to events it cannot name.
+    let Some(target_filename) = resolve_at_path(dir_fds, ev.pid, ev.dfd, ev.dfd_token, &raw_path)
+    else {
+        *unresolved += 1;
+        if *unresolved == 1 || unresolved.is_multiple_of(1000) {
+            debug!(
+                unresolved_file_events = *unresolved,
+                raw_path = %raw_path,
+                "Dropping file event whose path could not be resolved"
+            );
+        }
+        return None;
+    };
+
+    // Rename resolves its two names independently: they carry separate
+    // descriptors and `renameat(olddfd, .., newdfd, ..)` may cross directories.
+    // A source that cannot be resolved is omitted rather than guessed, which
+    // keeps the event's target usable.
+    let source_filename = (ev.kind == FILE_EVENT_RENAME)
+        .then(|| bytes_to_string(&ev.aux_path))
+        .filter(|value| !value.is_empty())
+        .and_then(|value| resolve_at_path(dir_fds, ev.pid, ev.aux_dfd, ev.aux_dfd_token, &value));
 
     let user = resolved_linux_user(ev.uid);
     let comm = bytes_to_string(&ev.comm);
-    let source_filename = if ev.kind == 3 {
-        let value = bytes_to_string(&ev.aux_path);
-        (!value.is_empty()).then_some(value)
-    } else {
-        None
-    };
+    let path_truncated = truncation_marker(ev.flags, source_filename.is_some()).map(str::to_string);
 
     Some(SensorEvent {
         platform: Platform::Linux,
         provider: "ebpf",
         action,
-        normalization: SensorNormalization {
-            event_id,
-            action_code,
-        },
+        normalization,
         pid: Some(ev.pid),
         timestamp: SystemTime::now(),
         process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename,
-            target_filename: Some(path),
+            target_filename: Some(target_filename),
             process_id: Some(ev.pid.to_string()),
             image: if comm.is_empty() { None } else { Some(comm) },
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: Some(user),
+            path_truncated,
         }),
     })
 }
@@ -595,16 +719,15 @@ fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
+/// Queue a decoded event, accounting for a drop rather than blocking.
+///
+/// Blocking here would stall the perf-buffer poll loop and lose the events
+/// behind it in the kernel instead, so overflow is shed. The count is what
+/// makes that trade auditable — see [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
-    match tx.try_send(event) {
-        Ok(_) => {}
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-            warn!("eBPF sensor: event channel full, dropping event");
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            // Pipeline has shut down; stop logging.
-        }
-    }
+    // Both the full and closed cases are already counted; the reason is in the
+    // rate-limited warning the telemetry module emits.
+    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
 }
 
 fn resolved_linux_user(uid: u32) -> String {
@@ -625,6 +748,35 @@ fn filter_unspecified_ip(value: Option<String>) -> Option<String> {
         .map(|value| value.is_unspecified())
         .unwrap_or(false);
     (!is_unspecified).then_some(ip)
+}
+
+fn attach_optional_tracepoint(
+    bpf: &mut Ebpf,
+    program: &str,
+    category: &str,
+    name: &str,
+) -> Result<()> {
+    let available = [
+        "/sys/kernel/tracing/events",
+        "/sys/kernel/debug/tracing/events",
+    ]
+    .into_iter()
+    .map(|root| {
+        std::path::Path::new(root)
+            .join(category)
+            .join(name)
+            .join("id")
+    })
+    .any(|path| path.exists());
+    if available {
+        attach_tracepoint(bpf, program, category, name)
+    } else {
+        warn!(
+            program,
+            category, name, "optional tracepoint is unavailable"
+        );
+        Ok(())
+    }
 }
 
 fn attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &str) -> Result<()> {
@@ -667,8 +819,42 @@ mod tests {
     use crate::ioc::{IocEngine, IocKind};
     use crate::models::EventFields;
     use crate::normalizer::Normalizer;
+    use crate::sensor::linux::events::{
+        ARGV_CAPACITY, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
+    };
+    use crate::sensor::linux::paths::AT_FDCWD;
     use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
     use std::sync::Arc;
+
+    /// Build a `ProcessEvent` the way the kernel would, with no argv capture.
+    /// Tests that exercise argv override `args*` explicitly.
+    fn raw_process_event(kind: u32, pid: u32, image: &str) -> ProcessEvent {
+        ProcessEvent {
+            kind,
+            pid,
+            uid: 1000,
+            _pad: 0,
+            comm: fixed("bash"),
+            image: fixed(image),
+            args_len: 0,
+            args_count: 0,
+            args_truncated: 0,
+            _pad1: [0u8; 3],
+            args: [0u8; ARGV_CAPACITY],
+        }
+    }
+
+    /// Pack argv the way `read_argv` does: NUL-separated, `args_len` bytes.
+    fn packed_argv(args: &[&str]) -> ([u8; ARGV_CAPACITY], u16, u16) {
+        let mut buf = [0u8; ARGV_CAPACITY];
+        let mut offset = 0usize;
+        for arg in args {
+            let bytes = arg.as_bytes();
+            buf[offset..offset + bytes.len()].copy_from_slice(bytes);
+            offset += bytes.len() + 1;
+        }
+        (buf, offset as u16, args.len() as u16)
+    }
 
     fn fixed<const N: usize>(value: &str) -> [u8; N] {
         let mut buf = [0u8; N];
@@ -676,6 +862,24 @@ mod tests {
         let len = bytes.len().min(N.saturating_sub(1));
         buf[..len].copy_from_slice(&bytes[..len]);
         buf
+    }
+
+    /// Build a file event whose paths are absolute, i.e. one that needs no
+    /// `/proc` lookup to resolve.
+    fn file_event(kind: u32, pid: u32, path: &str, comm: &str) -> FileEvent {
+        FileEvent {
+            kind,
+            pid,
+            uid: 1000,
+            flags: 0,
+            dfd: AT_FDCWD,
+            aux_dfd: AT_FDCWD,
+            dfd_token: 0,
+            aux_dfd_token: 0,
+            path: fixed(path),
+            aux_path: [0u8; FILE_PATH_LEN],
+            comm: fixed(comm),
+        }
     }
 
     fn dns_query_payload(name: &str, qtype: u16) -> ([u8; 256], u16) {
@@ -749,14 +953,7 @@ mod tests {
 
     #[test]
     fn build_process_exec_event_emits_start() {
-        let raw = ProcessEvent {
-            kind: PROCESS_EVENT_EXEC,
-            pid: DEAD_PID,
-            uid: 1000,
-            _pad: 0,
-            comm: fixed("bash"),
-            image: fixed("/usr/bin/bash"),
-        };
+        let raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
 
         let event = build_process_event(&raw).expect("process exec should build");
         assert_eq!(event.action, SensorAction::Start);
@@ -779,15 +976,9 @@ mod tests {
     fn build_process_exec_event_resolves_relative_image_from_proc() {
         let expected = std::fs::read_link("/proc/self/exe")
             .expect("current process should expose /proc/self/exe");
-        let raw = ProcessEvent {
-            kind: PROCESS_EVENT_EXEC,
-            pid: std::process::id(),
-            uid: 1000,
-            _pad: 0,
-            comm: fixed("rustinel"),
-            // What the kernel records when a binary is run as `./rustinel`.
-            image: fixed("./rustinel"),
-        };
+        // `./rustinel` is what the kernel records when a binary is run
+        // relatively.
+        let raw = raw_process_event(PROCESS_EVENT_EXEC, std::process::id(), "./rustinel");
 
         let event = build_process_event(&raw).expect("process exec should build");
         match event.payload {
@@ -796,6 +987,85 @@ mod tests {
             }
             other => panic!("unexpected payload: {:?}", other),
         }
+    }
+
+    #[test]
+    fn build_process_exec_event_uses_kernel_argv_for_a_dead_process() {
+        // DEAD_PID has no `/proc` entry — exactly the short-lived case where
+        // userspace enrichment loses the command line.
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/bin/true");
+        let (args, args_len, args_count) = packed_argv(&["/bin/true", "--quiet"]);
+        raw.args = args;
+        raw.args_len = args_len;
+        raw.args_count = args_count;
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert_eq!(fields.command_line.as_deref(), Some("/bin/true --quiet"));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn kernel_command_line_ignores_bytes_past_args_len() {
+        let (mut args, args_len, args_count) = packed_argv(&["/bin/ls", "-la"]);
+        // Stale bytes from a previous capture must never leak into the event.
+        args[args_len as usize..args_len as usize + 5].copy_from_slice(b"stale");
+
+        let event = ProcessEvent {
+            args,
+            args_len,
+            args_count,
+            ..raw_process_event(PROCESS_EVENT_EXEC, 42, "/bin/ls")
+        };
+        assert_eq!(event.kernel_command_line().as_deref(), Some("/bin/ls -la"));
+    }
+
+    #[test]
+    fn kernel_command_line_is_none_without_a_capture() {
+        let event = raw_process_event(PROCESS_EVENT_EXEC, 42, "/bin/ls");
+        assert!(event.kernel_command_line().is_none());
+    }
+
+    #[test]
+    fn resolve_command_line_prefers_a_complete_kernel_capture() {
+        assert_eq!(
+            resolve_command_line(
+                Some("/bin/true --quiet".to_string()),
+                false,
+                Some("/bin/true".to_string()),
+            )
+            .as_deref(),
+            Some("/bin/true --quiet")
+        );
+    }
+
+    #[test]
+    fn resolve_command_line_prefers_proc_when_the_kernel_capture_is_truncated() {
+        assert_eq!(
+            resolve_command_line(
+                Some("/bin/sh -c long".to_string()),
+                true,
+                Some("/bin/sh -c long and complete".to_string()),
+            )
+            .as_deref(),
+            Some("/bin/sh -c long and complete")
+        );
+    }
+
+    #[test]
+    fn resolve_command_line_keeps_a_truncated_capture_when_proc_is_gone() {
+        assert_eq!(
+            resolve_command_line(Some("/bin/sh -c long".to_string()), true, None).as_deref(),
+            Some("/bin/sh -c long")
+        );
+        assert_eq!(
+            resolve_command_line(None, false, Some("/bin/sh".to_string())).as_deref(),
+            Some("/bin/sh")
+        );
+        assert_eq!(resolve_command_line(None, false, None), None);
     }
 
     #[test]
@@ -821,14 +1091,7 @@ mod tests {
 
     #[test]
     fn build_process_exit_event_emits_stop() {
-        let raw = ProcessEvent {
-            kind: PROCESS_EVENT_EXIT,
-            pid: 42,
-            uid: 1000,
-            _pad: 0,
-            comm: fixed("bash"),
-            image: [0u8; 128],
-        };
+        let raw = raw_process_event(PROCESS_EVENT_EXIT, 42, "");
 
         let event = build_process_event(&raw).expect("process exit should build");
         assert_eq!(event.action, SensorAction::Stop);
@@ -920,17 +1183,10 @@ mod tests {
 
     #[test]
     fn build_file_event_preserves_fallback_comm_until_normalization() {
-        let raw = FileEvent {
-            kind: 1,
-            pid: 55,
-            uid: 1000,
-            _pad0: 0,
-            path: fixed("/tmp/test.txt"),
-            aux_path: [0u8; 96],
-            comm: fixed("touch"),
-        };
+        let raw = file_event(1, 55, "/tmp/test.txt", "touch");
 
-        let event = build_file_event(&raw).expect("file event should build");
+        let event =
+            build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("file event should build");
         match event.payload {
             SensorPayload::File(fields) => {
                 assert!(fields.source_filename.is_none());
@@ -943,19 +1199,15 @@ mod tests {
 
     #[test]
     fn build_file_delete_event_emits_delete_action() {
-        let raw = FileEvent {
-            kind: 2,
-            pid: 55,
-            uid: 1000,
-            _pad0: 0,
-            path: fixed("/tmp/deleted.txt"),
-            aux_path: [0u8; 96],
-            comm: fixed("rm"),
-        };
+        let raw = file_event(2, 55, "/tmp/deleted.txt", "rm");
 
-        let event = build_file_event(&raw).expect("delete file event should build");
+        let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
+            .expect("delete file event should build");
         assert_eq!(event.action, SensorAction::Delete);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_DELETE);
+        assert_eq!(
+            event.normalization,
+            SensorNormalization::for_file_action(SensorAction::Delete).unwrap()
+        );
 
         match event.payload {
             SensorPayload::File(fields) => {
@@ -968,15 +1220,7 @@ mod tests {
 
     #[test]
     fn parse_event_struct_layout_matches_userspace_decoder() {
-        let raw = FileEvent {
-            kind: 2,
-            pid: 7,
-            uid: 1000,
-            _pad0: 0,
-            path: fixed("/tmp/delete-me"),
-            aux_path: [0u8; 96],
-            comm: fixed("rm"),
-        };
+        let raw = file_event(2, 7, "/tmp/delete-me", "rm");
 
         let bytes = unsafe {
             std::slice::from_raw_parts(
@@ -986,7 +1230,8 @@ mod tests {
         };
         let decoded =
             parse_event::<FileEvent>(bytes).expect("parse_event should decode file event");
-        let built = build_file_event(&decoded).expect("decoded file event should build");
+        let built = build_file_event(&decoded, &DirFdIndex::new(), &mut 0)
+            .expect("decoded file event should build");
 
         match built.payload {
             SensorPayload::File(fields) => {
@@ -1004,23 +1249,285 @@ mod tests {
 
     #[test]
     fn build_file_rename_event_preserves_old_and_new_paths() {
-        let raw = FileEvent {
-            kind: 3,
-            pid: 99,
-            uid: 1000,
-            _pad0: 0,
-            path: fixed("/tmp/new.txt"),
-            aux_path: fixed("/tmp/old.txt"),
-            comm: fixed("mv"),
-        };
+        let mut raw = file_event(3, 99, "/tmp/new.txt", "mv");
+        raw.aux_path = fixed("/tmp/old.txt");
 
-        let event = build_file_event(&raw).expect("rename file event should build");
+        let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
+            .expect("rename file event should build");
         assert_eq!(event.action, SensorAction::Rename);
-        assert_eq!(event.normalization.event_id, EVENT_ID_FILE_RENAME);
+        assert_eq!(
+            event.normalization,
+            SensorNormalization::for_file_action(SensorAction::Rename).unwrap()
+        );
 
         match event.payload {
             SensorPayload::File(fields) => {
                 assert_eq!(fields.source_filename.as_deref(), Some("/tmp/old.txt"));
+                assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_file_event_resolves_cwd_relative_paths() {
+        let cwd = std::env::current_dir().expect("cwd should be readable");
+        let mut raw = file_event(1, std::process::id(), "payload.sh", "sh");
+        raw.dfd = AT_FDCWD;
+
+        let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
+            .expect("cwd-relative event should build");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(
+                    fields.target_filename.as_deref(),
+                    Some(format!("{}/payload.sh", cwd.display()).as_str())
+                );
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_file_event_resolves_descriptor_relative_paths() {
+        use std::os::fd::AsRawFd;
+
+        let dir = std::fs::File::open("/etc").expect("/etc should be openable");
+        let mut raw = file_event(2, std::process::id(), "passwd", "rm");
+        raw.dfd = dir.as_raw_fd();
+
+        let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
+            .expect("dirfd-relative event should build");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                // Without the descriptor this is the bare string "passwd",
+                // which names a different file under every directory on the
+                // disk.
+                assert_eq!(fields.target_filename.as_deref(), Some("/etc/passwd"));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn a_directory_open_names_the_descriptor_for_later_events() {
+        // What the sensor actually receives: the open of the directory, then a
+        // delete against the descriptor it produced. /proc cannot answer for
+        // either here - pid 4242 does not exist - so only the index can.
+        let mut dir_fds = DirFdIndex::new();
+
+        let mut dir_open = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/watched", "find");
+        dir_open.dfd = 9;
+        dir_open.aux_dfd = AT_FDCWD;
+        dir_open.dfd_token = 101;
+        index_dir_open(&dir_open, &mut dir_fds);
+
+        let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "find");
+        delete.dfd = 9;
+        delete.dfd_token = 101;
+
+        let event =
+            build_file_event(&delete, &dir_fds, &mut 0).expect("indexed dfd should resolve");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(
+                    fields.target_filename.as_deref(),
+                    Some("/tmp/watched/victim.txt")
+                );
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn a_recycled_descriptor_resolves_to_the_directory_it_now_names() {
+        // The bug the index exists for: fd 9 is reopened onto another directory,
+        // and every later event must follow the new one, not the old.
+        let mut dir_fds = DirFdIndex::new();
+
+        let mut first = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/first", "rm");
+        first.dfd = 9;
+        first.dfd_token = 101;
+        index_dir_open(&first, &mut dir_fds);
+
+        let mut second = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/second", "rm");
+        second.dfd = 9;
+        second.dfd_token = 102;
+        index_dir_open(&second, &mut dir_fds);
+
+        let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "rm");
+        delete.dfd = 9;
+        delete.dfd_token = 102;
+
+        let event =
+            build_file_event(&delete, &dir_fds, &mut 0).expect("indexed dfd should resolve");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(
+                    fields.target_filename.as_deref(),
+                    Some("/tmp/second/victim.txt")
+                );
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn an_old_index_token_is_never_used_after_untracked_fd_reuse() {
+        let mut dir_fds = DirFdIndex::new();
+
+        let mut old_dir = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/old", "rm");
+        old_dir.dfd = 9;
+        old_dir.dfd_token = 101;
+        index_dir_open(&old_dir, &mut dir_fds);
+
+        // Kernel close tracking removed token 101 before a bare O_RDONLY open
+        // reused fd 9. The later event therefore carries token zero. PID 4242
+        // does not exist, so `/proc` cannot hide an accidental cache hit.
+        let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "rm");
+        delete.dfd = 9;
+        delete.dfd_token = 0;
+
+        let mut unresolved = 0;
+        assert!(build_file_event(&delete, &dir_fds, &mut unresolved).is_none());
+        assert_eq!(unresolved, 1);
+    }
+
+    #[test]
+    fn a_truncated_directory_path_is_not_promoted_into_the_index() {
+        let mut dir_fds = DirFdIndex::new();
+
+        let mut dir_open = file_event(FILE_EVENT_DIR_OPEN, 4242, "/tmp/cut", "find");
+        dir_open.dfd = 9;
+        dir_open.dfd_token = 101;
+        dir_open.flags = FILE_FLAG_PATH_TRUNCATED;
+        index_dir_open(&dir_open, &mut dir_fds);
+
+        let mut delete = file_event(FILE_EVENT_DELETE, 4242, "victim.txt", "find");
+        delete.dfd = 9;
+        delete.dfd_token = 101;
+
+        assert!(build_file_event(&delete, &dir_fds, &mut 0).is_none());
+    }
+
+    #[test]
+    fn a_directory_opened_under_another_descriptor_is_indexed_absolutely() {
+        // `openat(dirfd, "sub", O_DIRECTORY)` is ordinary, so the directory's
+        // own name is resolved before it becomes a base for anything else.
+        let mut dir_fds = DirFdIndex::new();
+
+        let mut parent = file_event(FILE_EVENT_DIR_OPEN, 4242, "/srv/data", "tar");
+        parent.dfd = 4;
+        parent.dfd_token = 101;
+        index_dir_open(&parent, &mut dir_fds);
+
+        let mut child = file_event(FILE_EVENT_DIR_OPEN, 4242, "nested", "tar");
+        child.dfd = 5;
+        child.aux_dfd = 4;
+        child.dfd_token = 102;
+        child.aux_dfd_token = 101;
+        index_dir_open(&child, &mut dir_fds);
+
+        let mut create = file_event(FILE_EVENT_CREATE, 4242, "payload.sh", "tar");
+        create.dfd = 5;
+        create.dfd_token = 102;
+
+        let event = build_file_event(&create, &dir_fds, &mut 0).expect("nested dfd should resolve");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(
+                    fields.target_filename.as_deref(),
+                    Some("/srv/data/nested/payload.sh")
+                );
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_file_event_drops_and_counts_unresolvable_relative_paths() {
+        // PID 0 is never a real process, so /proc/0/cwd cannot be read.
+        let raw = file_event(1, 0, "payload.sh", "sh");
+
+        let mut unresolved = 0;
+        assert!(build_file_event(&raw, &DirFdIndex::new(), &mut unresolved).is_none());
+        assert_eq!(unresolved, 1);
+    }
+
+    #[test]
+    fn build_file_event_keeps_absolute_paths_without_touching_proc() {
+        // A dead PID must not matter when the name is already absolute.
+        let raw = file_event(1, 0, "/tmp/absolute.txt", "sh");
+
+        let mut unresolved = 0;
+        let event = build_file_event(&raw, &DirFdIndex::new(), &mut unresolved)
+            .expect("absolute event should build");
+        assert_eq!(unresolved, 0);
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(fields.target_filename.as_deref(), Some("/tmp/absolute.txt"));
+                assert!(fields.path_truncated.is_none());
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_file_event_marks_truncated_paths() {
+        let long_path = format!("/tmp/{}", "a".repeat(FILE_PATH_LEN));
+        let mut raw = file_event(1, 55, &long_path, "dd");
+        raw.flags = FILE_FLAG_PATH_TRUNCATED;
+
+        let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
+            .expect("truncated event should build");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                let target = fields.target_filename.expect("target should be present");
+                assert_eq!(target.len(), FILE_PATH_LEN - 1);
+                assert_eq!(fields.path_truncated.as_deref(), Some("target"));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_file_rename_event_resolves_each_side_against_its_own_descriptor() {
+        use std::os::fd::AsRawFd;
+
+        let etc = std::fs::File::open("/etc").expect("/etc should be openable");
+        let tmp = std::fs::File::open("/tmp").expect("/tmp should be openable");
+
+        let mut raw = file_event(3, std::process::id(), "shadow.bak", "mv");
+        raw.dfd = tmp.as_raw_fd();
+        raw.aux_path = fixed("shadow");
+        raw.aux_dfd = etc.as_raw_fd();
+        raw.flags = FILE_FLAG_AUX_PATH_TRUNCATED;
+
+        let event =
+            build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("rename event should build");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(fields.source_filename.as_deref(), Some("/etc/shadow"));
+                assert_eq!(fields.target_filename.as_deref(), Some("/tmp/shadow.bak"));
+                assert_eq!(fields.path_truncated.as_deref(), Some("source"));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_file_rename_event_keeps_the_target_when_the_source_is_unresolvable() {
+        let mut raw = file_event(3, 0, "/tmp/new.txt", "mv");
+        raw.aux_path = fixed("old.txt");
+
+        let mut unresolved = 0;
+        let event = build_file_event(&raw, &DirFdIndex::new(), &mut unresolved)
+            .expect("rename event should build");
+        assert_eq!(unresolved, 0);
+        match event.payload {
+            SensorPayload::File(fields) => {
+                // Omitted rather than emitted as the bare name "old.txt".
+                assert!(fields.source_filename.is_none());
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
             }
             other => panic!("unexpected payload: {:?}", other),
@@ -1136,6 +1643,94 @@ level: high
             .check_event(&event)
             .expect("dns Sigma rule should match raw eBPF QueryName");
         assert_eq!(alert.rule_name, "Raw Linux DNS QueryName");
+    }
+
+    #[test]
+    fn descriptor_relative_file_event_matches_a_path_sigma_rule() {
+        use std::os::fd::AsRawFd;
+
+        let tempdir = tempfile::tempdir().expect("create sigma tempdir");
+        let rules_dir = tempdir.path().join("sigma");
+        std::fs::create_dir_all(&rules_dir).expect("create sigma rules dir");
+        std::fs::write(
+            rules_dir.join("file.yml"),
+            r#"title: Raw Linux Sensitive File Write
+logsource:
+  product: linux
+  category: file_event
+detection:
+  selection:
+    TargetFilename|endswith: "/etc/passwd"
+  condition: selection
+level: high
+"#,
+        )
+        .expect("write sigma rule");
+
+        let mut engine = Engine::new_for_platform(Platform::Linux);
+        engine.load_rules(&rules_dir).expect("load sigma rule");
+        assert_eq!(engine.stats().failed_rules, Vec::<(String, String)>::new());
+
+        // The kernel hands the sensor the bare name "passwd" plus a descriptor.
+        // Before resolution that string matched no path rule at all.
+        let dir = std::fs::File::open("/etc").expect("/etc should be openable");
+        let mut raw = file_event(FILE_EVENT_CREATE, std::process::id(), "passwd", "sh");
+        raw.dfd = dir.as_raw_fd();
+
+        let sensor_event =
+            build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("file event should build");
+        let event = test_normalizer()
+            .normalize(&sensor_event)
+            .expect("file event should normalize");
+        assert_eq!(event.get_field("TargetFilename"), Some("/etc/passwd"));
+
+        let alert = engine
+            .check_event(&event)
+            .expect("file Sigma rule should match the resolved path");
+        assert_eq!(alert.rule_name, "Raw Linux Sensitive File Write");
+    }
+
+    #[test]
+    fn descriptor_relative_file_event_matches_a_path_regex_ioc() {
+        use std::os::fd::AsRawFd;
+
+        let tempdir = tempfile::tempdir().expect("create ioc tempdir");
+        let root = tempdir.path().join("ioc");
+        std::fs::create_dir_all(&root).expect("create ioc dir");
+        let hashes_path = root.join("hashes.txt");
+        let ips_path = root.join("ips.txt");
+        let domains_path = root.join("domains.txt");
+        let paths_regex_path = root.join("paths_regex.txt");
+        std::fs::write(&hashes_path, "").expect("write hashes");
+        std::fs::write(&ips_path, "").expect("write ips");
+        std::fs::write(&domains_path, "").expect("write domains");
+        std::fs::write(&paths_regex_path, "^/etc/passwd$; sensitive file")
+            .expect("write path regexes");
+
+        let engine = IocEngine::load(&IocConfig {
+            enabled: true,
+            hashes_path,
+            ips_path,
+            domains_path,
+            paths_regex_path,
+            default_severity: "high".to_string(),
+            max_file_size_mb: 16,
+            hash_allowlist_paths: Vec::new(),
+        });
+
+        let dir = std::fs::File::open("/etc").expect("/etc should be openable");
+        let mut raw = file_event(FILE_EVENT_CREATE, std::process::id(), "passwd", "sh");
+        raw.dfd = dir.as_raw_fd();
+
+        let sensor_event =
+            build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("file event should build");
+        let event = test_normalizer()
+            .normalize(&sensor_event)
+            .expect("file event should normalize");
+
+        let matches = engine.check_event(&event);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].observed, "/etc/passwd");
     }
 
     #[test]

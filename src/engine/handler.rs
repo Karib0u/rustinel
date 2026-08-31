@@ -1,4 +1,11 @@
-//! Sigma detection event handler.
+//! Normalized-event handler: the shared boundary between sensors and everything
+//! downstream of normalization.
+//!
+//! Sensor events are normalized exactly once here. What happens next depends on
+//! how the handler is configured: live protection evaluates the normalized
+//! event against the detectors, and capture records it. Both read the same
+//! canonical event from the same stateful [`Normalizer`], so a recording
+//! contains precisely what live detection would have seen.
 
 use std::sync::Arc;
 
@@ -6,6 +13,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 use crate::alerts::AlertSink;
+use crate::capture::CaptureSink;
+use crate::engine::EventDetectors;
 use crate::normalizer::Normalizer;
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
@@ -14,10 +23,8 @@ use crate::sensor::{SensorAction, SensorEvent, SensorEventHandler};
 /// Target name for engine operational logs.
 const TARGET_ENGINE: &str = "engine";
 
-/// Sigma detection handler that normalizes events and checks them against Sigma rules.
-pub struct SigmaDetectionHandler {
-    /// Normalizer for converting sensor events to the normalized event model.
-    pub normalizer: Arc<Normalizer>,
+/// Detection side of the pipeline: rule evaluation, alerting, and response.
+pub struct DetectionPipeline {
     /// Live detector store (sigma/ioc hot-reloaded atomically).
     pub detectors: Arc<DetectorStore>,
     /// Hash worker channel (optional).
@@ -28,7 +35,40 @@ pub struct SigmaDetectionHandler {
     pub response_engine: ResponseEngine,
 }
 
-impl SensorEventHandler for SigmaDetectionHandler {
+/// Handler that normalizes sensor events and dispatches them to capture,
+/// detection, or both.
+pub struct NormalizedEventHandler {
+    /// Normalizer for converting sensor events to the normalized event model.
+    pub normalizer: Arc<Normalizer>,
+    /// Behavioral recording sink. Fed immediately after normalization, before
+    /// alert-only enrichment or any detector evaluation.
+    pub capture: Option<CaptureSink>,
+    /// Detection pipeline. Absent when the session only records, which is what
+    /// keeps capture from evaluating rules or invoking active response.
+    pub detection: Option<DetectionPipeline>,
+}
+
+impl NormalizedEventHandler {
+    /// Live protection: evaluate every normalized event against the detectors.
+    pub fn detecting(normalizer: Arc<Normalizer>, detection: DetectionPipeline) -> Self {
+        Self {
+            normalizer,
+            capture: None,
+            detection: Some(detection),
+        }
+    }
+
+    /// Capture: record every normalized event and evaluate nothing.
+    pub fn recording(normalizer: Arc<Normalizer>, capture: CaptureSink) -> Self {
+        Self {
+            normalizer,
+            capture: Some(capture),
+            detection: None,
+        }
+    }
+}
+
+impl SensorEventHandler for NormalizedEventHandler {
     fn handle_event(&self, event: &SensorEvent) {
         tracing::trace!(
             target: TARGET_ENGINE,
@@ -49,7 +89,17 @@ impl SensorEventHandler for SigmaDetectionHandler {
                     }
                 }
 
-                if let Some(tx) = &self.ioc_hash_tx {
+                // Record before enrichment: a recording holds the canonical
+                // event, not the alert-only process context added below.
+                if let Some(capture) = &self.capture {
+                    capture.record(&normalized_event);
+                }
+
+                let Some(detection) = &self.detection else {
+                    return;
+                };
+
+                if let Some(tx) = &detection.ioc_hash_tx {
                     if event.category() == crate::models::EventCategory::Process
                         && event.action == SensorAction::Start
                     {
@@ -64,7 +114,11 @@ impl SensorEventHandler for SigmaDetectionHandler {
                                     .or(event.pid)
                                     .unwrap_or(0);
 
-                                if let Err(err) = tx.try_send((image.to_string(), pid)) {
+                                if let Err(err) = crate::telemetry::try_send(
+                                    crate::telemetry::ChannelId::IocHash,
+                                    tx,
+                                    (image.to_string(), pid),
+                                ) {
                                     debug!(
                                         target: TARGET_ENGINE,
                                         pid = pid,
@@ -78,43 +132,31 @@ impl SensorEventHandler for SigmaDetectionHandler {
                     }
                 }
 
-                let sigma = self.detectors.sigma();
-                if let Some(mut alert) = sigma.check_event(&normalized_event) {
+                // The same detector service replay runs, over the same event.
+                let detectors = EventDetectors::snapshot(&detection.detectors);
+                let alerts = detectors.evaluate(&normalized_event);
+                if alerts.is_empty() {
+                    tracing::trace!(target: TARGET_ENGINE, "No rule matched this event");
+                }
+
+                for mut alert in alerts {
+                    // Alert-only enrichment: live has the process cache and the
+                    // originating PID, so it can fill in context the canonical
+                    // event does not carry.
                     self.normalizer
                         .enrich_process_context(&mut alert.event, event.pid.unwrap_or(0));
 
                     info!(
                         target: TARGET_ENGINE,
+                        engine = ?alert.engine,
                         rule = %alert.rule_name,
                         severity = ?alert.severity,
                         category = ?alert.event.category,
-                        "Sigma detection triggered"
+                        "Detection triggered"
                     );
 
-                    self.alert_sink.write_alert(&alert);
-                    self.response_engine.handle_alert(&alert);
-                } else {
-                    tracing::trace!(target: TARGET_ENGINE, "No Sigma rule matched this event");
-                }
-
-                let ioc_engine = self.detectors.ioc();
-                let ioc_matches = ioc_engine.check_event(&normalized_event);
-                if !ioc_matches.is_empty() {
-                    for ioc_match in ioc_matches {
-                        let mut alert =
-                            ioc_engine.build_alert_for_match(&ioc_match, &normalized_event);
-                        self.normalizer
-                            .enrich_process_context(&mut alert.event, event.pid.unwrap_or(0));
-                        info!(
-                            target: TARGET_ENGINE,
-                            rule = %alert.rule_name,
-                            severity = ?alert.severity,
-                            category = ?alert.event.category,
-                            "IOC detection triggered"
-                        );
-                        self.alert_sink.write_alert(&alert);
-                        self.response_engine.handle_alert(&alert);
-                    }
+                    detection.alert_sink.write_alert(&alert);
+                    detection.response_engine.handle_alert(&alert);
                 }
             }
             None => {

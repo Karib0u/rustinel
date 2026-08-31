@@ -288,6 +288,30 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Diagnosti
         .with_fix("Fix the listed Sigma rules or remove them from the active pack");
     }
 
+    if !stats.unsupported_rules.is_empty() {
+        let detail = stats
+            .unsupported_rules
+            .iter()
+            .take(5)
+            .map(|rule| {
+                format!(
+                    "{}: {} {}: {}",
+                    rule.source_path, rule.kind, rule.identity, rule.reason
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return DiagnosticResult::warn(
+            "sigma_rules_unsupported",
+            format!(
+                "{} Sigma documents are unsupported by the runtime",
+                stats.unsupported_rules.len()
+            ),
+            detail,
+        )
+        .with_fix("Use stateless Sigma rules until stateful support is implemented");
+    }
+
     if stats.total_rules == 0 {
         return DiagnosticResult::warn(
             "sigma_rules_parse",

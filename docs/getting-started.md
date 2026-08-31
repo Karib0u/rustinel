@@ -1,79 +1,77 @@
 # Getting Started
 
-This guide gets Rustinel installed, running, and producing its first alert.
+Install Rustinel, run it, and see your first alert.
 
-## Install From A Release
+## Install
 
-Use the install scripts when you want a published binary, bundled demo rules,
-`config.toml`, and the default `logs/` layout.
+=== "Windows"
 
-### Windows
+    From an elevated PowerShell:
 
-Run from an elevated PowerShell:
+    ```powershell
+    Invoke-WebRequest https://rustinel.io/install.ps1 -OutFile install-rustinel.ps1
+    powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
+    ```
 
-```powershell
-Invoke-WebRequest https://rustinel.io/install.ps1 -OutFile install-rustinel.ps1
-powershell -ExecutionPolicy Bypass -File .\install-rustinel.ps1 -Run
-```
+    Official binaries use the MSVC runtime. If Rustinel exits immediately with
+    no output and `$LASTEXITCODE` is `-1073741515`, install the x64
+    [Visual C++ Redistributable](https://aka.ms/vc14/vc_redist.x64.exe). See
+    [Troubleshooting](troubleshooting.md#windows-exits-without-printing-output).
 
-Official Windows binaries use the MSVC runtime. Install the current x64
-[Microsoft Visual C++ Redistributable](https://aka.ms/vc14/vc_redist.x64.exe)
-if Rustinel exits before printing output. Exit code `-1073741515`
-(`0xC0000135`) normally means a required runtime DLL is missing:
+=== "Linux"
 
-```powershell
-Invoke-WebRequest https://aka.ms/vc14/vc_redist.x64.exe -OutFile "$env:TEMP\vc_redist.x64.exe"
-Start-Process "$env:TEMP\vc_redist.x64.exe" -ArgumentList "/install", "/quiet", "/norestart" -Wait -Verb RunAs
-```
+    ```bash
+    curl -fsSL https://rustinel.io/install.sh | sh -s -- --run
+    ```
 
-### Linux
+    To inspect the script first:
 
-```bash
-curl -fsSL https://rustinel.io/install.sh | sh -s -- --run
-```
+    ```bash
+    curl -fsSLO https://rustinel.io/install.sh
+    less install.sh
+    sh install.sh --run
+    ```
 
-To inspect the script first:
+=== "macOS"
 
-```bash
-curl -fsSLO https://rustinel.io/install.sh
-less install.sh
-sh install.sh --run
-```
+    macOS support is experimental. Install **without** `--run` so you can grant
+    Full Disk Access before the first real start:
 
-### macOS
+    ```bash
+    curl -fsSL https://rustinel.io/install.sh | sh
+    cd rustinel
+    sudo ./rustinel run
+    ```
 
-macOS support is experimental. Install without `--run` so you can grant the
-required Full Disk Access approval before the first real start:
+    If the first run exits with `NotPermitted`, macOS has not yet granted
+    Endpoint Security access. For an interactive `sudo` run, grant Full Disk
+    Access to **your terminal app** (Terminal, iTerm, Ghostty…), then fully quit
+    and reopen it. macOS attributes the permission to the terminal, so Rustinel
+    itself never appears in the list. For a background LaunchDaemon, grant
+    `Rustinel.app` directly or deploy a PPPC profile.
 
-```bash
-curl -fsSL https://rustinel.io/install.sh | sh
-cd rustinel
-```
+    Install into a stable location: macOS does not reliably retain approval for
+    an app launched from a temporary path such as `/tmp`.
 
-If the first run exits with `NotPermitted`, grant Full Disk Access and run it
-again. For an interactive `sudo` run from Terminal, iTerm, Ghostty, or another
-terminal, grant Full Disk Access to that terminal app, then fully quit and
-reopen it. For a background LaunchDaemon, grant Full Disk Access to
-`Rustinel.app` directly or deploy a PPPC profile.
+The install scripts only download published release binaries. For version
+selection, custom directories, and manual archives, see
+[Operations](operations.md#installers-and-archives).
 
-Install macOS packages in a stable location. macOS does not retain the approval
-reliably for an app launched from a temporary path such as `/tmp`.
+## Verify
 
-After approval, start Rustinel:
-
-```bash
-sudo ./rustinel run
-```
-
-## Verify The Demo Rule
-
-Keep Rustinel running, then execute:
+With Rustinel running, in another window:
 
 ```bash
 whoami
 ```
 
-Confirm that an alert was written:
+Then confirm an alert was written:
+
+=== "Linux and macOS"
+
+    ```bash
+    cat logs/alerts.json.*
+    ```
 
 === "Windows"
 
@@ -81,52 +79,28 @@ Confirm that an alert was written:
     Get-Content .\logs\alerts.json.*
     ```
 
-=== "Linux"
+That fires a bundled demo rule: `rules/sigma/{windows,linux,macos}_whoami.yml`.
+Installed release packs become active under `rules/current` instead.
 
-    ```bash
-    cat logs/alerts.json.*
-    ```
+If nothing appears, run `rustinel doctor` and follow
+[Troubleshooting](troubleshooting.md#agent-runs-but-no-alerts).
 
-=== "macOS"
+## Keep It Running
 
-    ```bash
-    cat logs/alerts.json.*
-    ```
-
-Bundled demo rules:
-
-| Platform | Rule |
-| --- | --- |
-| Windows | `rules/sigma/windows_whoami.yml` |
-| Linux | `rules/sigma/linux_whoami.yml` |
-| macOS | `rules/sigma/macos_whoami.yml` |
-
-Installed release packs become active under `rules/current`.
-
-## Other Install Methods
-
-The scripts only download published release binaries. For version selection,
-custom installation directories, manual archives, and upgrade procedures, see
-[Operations and Upgrade Guide](operations.md).
-
-To run the Linux sensor as a container instead, see [Docker](docker.md).
-
-## Keep Rustinel Running
-
-After the portable test succeeds, install the managed layout and native service:
-
-=== "Windows"
-
-    ```powershell
-    rustinel setup --yes
-    rustinel service status
-    rustinel doctor
-    ```
+Once the portable test works, install the managed layout and native service:
 
 === "Linux"
 
     ```bash
     sudo rustinel setup --yes
+    rustinel service status
+    rustinel doctor
+    ```
+
+=== "Windows"
+
+    ```powershell
+    rustinel setup --yes
     rustinel service status
     rustinel doctor
     ```
@@ -141,27 +115,47 @@ After the portable test succeeds, install the managed layout and native service:
     ./rustinel doctor
     ```
 
-`setup` installs an Essential rules pack by default, registers the platform's
-native service, starts it, and runs health checks. Use `--pack advanced` to
-select the larger pack or `--no-start` to register without starting.
+`setup` installs an Essential rules pack, registers the platform's native
+service, starts it, and runs health checks. Use `--pack advanced` for the larger
+pack or `--no-start` to register without starting. See
+[Operations](operations.md) for the managed layout and upgrades.
 
 ## Minimum Requirements
 
 | Platform | Requirements |
 | --- | --- |
-| Windows | Windows 10/11 or Server 2016+, x64 Visual C++ Redistributable, Administrator privileges for telemetry and service management |
-| Linux | Kernel 5.8+ with BTF, root or eBPF capabilities such as `CAP_BPF`, `CAP_PERFMON`, and `CAP_NET_ADMIN`, or `CAP_SYS_ADMIN`, `tracefs`, and `debugfs` |
-| macOS | macOS 11+, root, signed Endpoint Security client, Full Disk Access, and `/dev/bpf*` access for network and DNS capture |
+| Windows | Windows 10/11 or Server 2016+, x64 Visual C++ Redistributable, Administrator |
+| Linux | Kernel 5.8+ with BTF; root, or `CAP_BPF` + `CAP_PERFMON` + `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`); `tracefs` and `debugfs` mounted |
+| macOS | macOS 11+, root, signed Endpoint Security client, Full Disk Access, and `/dev/bpf*` access for network and DNS |
 
-Source builds require Rust 1.92 and platform build tools. See
-[Development](development.md) for build, signing, eBPF, and test instructions.
+Source builds need Rust 1.92 and platform build tools. See
+[Development](development.md).
+
+## Install With Nix
+
+Rustinel ships a flake that packages the **prebuilt musl binary** from GitHub
+releases (not a source build), for `x86_64-linux` and `aarch64-linux`:
+
+```bash
+nix run github:Karib0u/rustinel -- --version
+nix build github:Karib0u/rustinel#rustinel
+```
+
+An overlay (`rustinel.overlays.default`) exposes `pkgs.rustinel` for NixOS or
+Home Manager. Three things to know:
+
+- A checkout or `nix build` gives you the **last published release**, not your
+  working tree.
+- There is **no NixOS module**. Wire up the systemd unit yourself, or use
+  `nix shell .#rustinel` with `rustinel setup` / `rustinel service`.
+- Rules ship read-only in the Nix store. To use `rustinel rules install`, point
+  the config at a writable location: write `/etc/rustinel/config.toml` (the
+  wrapper defers to it when present) or set `RUSTINEL_CONFIG`.
 
 ## Next Steps
 
-- [Configuration](configuration.md): move rule paths, logs, and allowlists out of the default layout.
-- [Docker](docker.md): run the Linux sensor from the Alpine container image.
-- [SIEM Demos](siem-demos.md): ship first alerts to Elastic or Splunk.
-- [Operations and Upgrade Guide](operations.md): install layouts, services, and upgrades.
-- [CLI Reference](cli.md): service commands and runtime examples.
-- [Development](development.md): build and test from source.
-- [Limitations](limitations.md): current platform and detection gaps.
+- [Configuration](configuration.md): move rules, logs, and allowlists out of the default layout
+- [SIEM Demos](siem-demos.md): ship alerts to Elastic or Splunk
+- [Detection](detection.md): write and debug rules
+- [CLI Reference](cli.md): every command and flag
+- [Limitations](limitations.md): what will not fire, and why

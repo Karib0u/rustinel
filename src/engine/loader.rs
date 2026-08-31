@@ -14,19 +14,32 @@ impl Engine {
         // Recursively load all rules
         self.load_rules_recursive(rules_dir)?;
 
-        info!("Loaded {} Sigma rules total", self.rule_count);
-        for (logsource, count) in self.stats().rules_by_logsource {
+        let stats = self.stats();
+        info!("Loaded {} Sigma rules total", stats.total_rules);
+        for (logsource, count) in &stats.rules_by_logsource {
             info!("  Logsource '{}': {} rules", logsource, count);
         }
         info!(
-            "Skipped rules - deferred: {}, unknown_logsource: {}, product_mismatch: {}, inactive_collectors: {}",
-            self.skipped_deferred_rules,
-            self.skipped_unknown_logsource_rules,
-            self.skipped_product_rules,
-            self.inactive_collector_rules
+            "Skipped rules - deferred: {}, unknown_logsource: {}, product_mismatch: {}, inactive_collectors: {}; unsupported documents - correlations: {}, filters: {}",
+            stats.skipped_deferred_rules,
+            stats.skipped_unknown_logsource_rules,
+            stats.skipped_product_rules,
+            stats.inactive_collector_rules,
+            stats.unsupported_correlation_rules,
+            stats.unsupported_filter_rules
         );
 
-        if self.rule_files_found > 0 && self.rule_count == 0 {
+        for unsupported in &stats.unsupported_rules {
+            warn!(
+                source = %unsupported.source_path,
+                kind = %unsupported.kind,
+                identity = %unsupported.identity,
+                reason = %unsupported.reason,
+                "Sigma document is unsupported by the active runtime"
+            );
+        }
+
+        if self.rule_files_found > 0 && self.rule_count == 0 && stats.unsupported_rules.is_empty() {
             warn!("Sigma rules found but none compiled successfully");
         }
 

@@ -73,13 +73,12 @@ nav = [
     { "How It Works" = [
         { "Architecture" = "architecture.md" },
         { "Detection" = "detection.md" },
+        { "Sigma Coverage" = "coverage.md" },
         { "Benchmarking" = "benchmarking.md" },
         { "Limitations" = "limitations.md" },
     ] },
 
     { "Project" = [
-        { "Why Rustinel" = "why-rustinel.md" },
-        { "Roadmap" = "roadmap.md" },
         { "Development" = "development.md" },
     ] },
 ]

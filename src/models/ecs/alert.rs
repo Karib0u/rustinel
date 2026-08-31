@@ -220,6 +220,14 @@ pub struct EcsAlert {
     )]
     pub edr_file_previous_created: Option<String>,
 
+    /// Which of this event's paths the sensor had to cut short: `target`,
+    /// `source`, or `source,target`. Absent when `file.path` is complete.
+    #[serde(
+        rename = "edr.file.path_truncated",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_file_path_truncated: Option<String>,
+
     #[serde(
         rename = "file.pe.original_file_name",
         skip_serializing_if = "Option::is_none"
@@ -358,6 +366,18 @@ pub struct EcsAlert {
     )]
     pub edr_powershell_script_block_id: Option<String>,
 
+    #[serde(
+        rename = "edr.powershell.context_info",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_powershell_context_info: Option<String>,
+
+    #[serde(
+        rename = "edr.powershell.payload",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_powershell_payload: Option<String>,
+
     // ========================================================================
     // WMI Fields
     // ========================================================================
@@ -429,6 +449,29 @@ pub struct EcsAlert {
     // ========================================================================
     #[serde(rename = "edr.match", skip_serializing_if = "Option::is_none")]
     pub edr_match: Option<MatchDetails>,
+
+    // ========================================================================
+    // Replay Provenance
+    // ========================================================================
+    /// Present only on alerts produced by `rustinel replay`. Its absence is what
+    /// makes an alert a live detection, so this must never be set by the live
+    /// pipeline.
+    #[serde(rename = "edr.replay", skip_serializing_if = "Option::is_none")]
+    pub edr_replay: Option<ReplayProvenance>,
+}
+
+/// Where a replayed alert came from.
+///
+/// Every value is read from the recording's manifest, so replaying the same
+/// recording twice produces byte-identical provenance.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ReplayProvenance {
+    /// File name of the recording payload that was replayed.
+    pub recording: String,
+    /// Platform whose sensors produced the recorded events.
+    pub platform: String,
+    /// RFC 3339 timestamp of when the recording was started.
+    pub recorded_at: String,
 }
 
 impl EcsAlert {

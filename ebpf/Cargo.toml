@@ -19,5 +19,8 @@ opt-level = 2
 
 [workspace]
 
+[lints.rust]
+warnings = "deny"
+
 [dependencies]
 aya-ebpf = "0.2"

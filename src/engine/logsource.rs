@@ -175,6 +175,7 @@ impl Engine {
                 | "dns"
                 | "image_load"
                 | "ps_script"
+                | "ps_module"
                 | "wmi_event"
                 | "service_creation"
                 | "task_creation"
@@ -267,6 +268,17 @@ impl Engine {
                     Some("windows"),
                     Some("microsoft-windows-powershell"),
                     Some("ps_script"),
+                ),
+                LogSourceKey::from_parts(Some("windows"), Some("powershell"), Some("ps_module")),
+                LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell-classic"),
+                    Some("ps_module"),
+                ),
+                LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("microsoft-windows-powershell"),
+                    Some("ps_module"),
                 ),
                 LogSourceKey::from_parts(Some("windows"), Some("wmi"), Some("wmi_event")),
                 LogSourceKey::from_parts(Some("windows"), Some("system"), Some("service_creation")),

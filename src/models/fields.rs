@@ -1,7 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::EventCategory;
+
 /// Event fields enum containing category-specific data
+///
+/// Serialization is untagged: the payload is the bare field object, keyed by the
+/// canonical Sigma/Sysmon field names. Reading that payload back therefore needs
+/// the event category to say which variant it is — see
+/// [`EventFields::from_recorded`]. Structural inference is not good enough,
+/// because a minimal event carries too few fields to tell the variants apart.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum EventFields {
@@ -12,11 +20,47 @@ pub enum EventFields {
     DnsQuery(DnsQueryFields),
     ImageLoad(ImageLoadFields),
     PowerShellScript(PowerShellScriptFields),
+    PowerShellModule(PowerShellModuleFields),
     RemoteThread(RemoteThreadFields),
     WmiEvent(WmiEventFields),
     ServiceCreation(ServiceCreationFields),
     TaskCreation(TaskCreationFields),
     Generic(HashMap<String, String>),
+}
+
+impl EventFields {
+    /// Rebuild the fields of a recorded event from its category and payload.
+    ///
+    /// Each event category maps to exactly one typed variant, mirroring the
+    /// sensor payload it was normalized from. Dispatching on the category is
+    /// what keeps a two-field file event from being read back as a process
+    /// event, which is all an untagged structural guess could conclude from
+    /// `{"Image": ..., "ProcessId": ...}`.
+    ///
+    /// [`EventFields::Generic`] and [`EventFields::RemoteThread`] have no
+    /// category of their own and are never produced by normalization, so they
+    /// never appear in a recording; a payload written from one is read back as
+    /// the typed variant of its category.
+    pub fn from_recorded(
+        category: EventCategory,
+        payload: serde_json::Value,
+    ) -> Result<Self, serde_json::Error> {
+        match category {
+            EventCategory::Process => serde_json::from_value(payload).map(Self::ProcessCreation),
+            EventCategory::Network => serde_json::from_value(payload).map(Self::NetworkConnection),
+            EventCategory::File => serde_json::from_value(payload).map(Self::FileEvent),
+            EventCategory::Registry => serde_json::from_value(payload).map(Self::RegistryEvent),
+            EventCategory::Dns => serde_json::from_value(payload).map(Self::DnsQuery),
+            EventCategory::ImageLoad => serde_json::from_value(payload).map(Self::ImageLoad),
+            EventCategory::Scripting => serde_json::from_value(payload).map(Self::PowerShellScript),
+            EventCategory::PowerShellModule => {
+                serde_json::from_value(payload).map(Self::PowerShellModule)
+            }
+            EventCategory::Wmi => serde_json::from_value(payload).map(Self::WmiEvent),
+            EventCategory::Service => serde_json::from_value(payload).map(Self::ServiceCreation),
+            EventCategory::Task => serde_json::from_value(payload).map(Self::TaskCreation),
+        }
+    }
 }
 
 /// Process creation/access event fields (Sigma: process_creation, process_access)
@@ -97,6 +141,16 @@ pub struct FileEventFields {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+
+    /// Which paths on this event were cut short by the sensor's capture buffer:
+    /// `"target"`, `"source"`, or `"source,target"`. Absent when both are
+    /// complete.
+    ///
+    /// Truncation removes the end of a path, which is what `endswith` rules and
+    /// extension IOCs match on, so a rule that does not fire on an event
+    /// carrying this marker has not cleared the file.
+    #[serde(rename = "PathTruncated", skip_serializing_if = "Option::is_none")]
+    pub path_truncated: Option<String>,
 }
 
 /// Registry event fields (Sigma: registry_event, registry_add, registry_delete, registry_set)
@@ -222,6 +276,32 @@ pub struct PowerShellScriptFields {
 
     #[serde(rename = "Path", skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+
+    #[serde(rename = "ProcessId", skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<String>,
+
+    #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+
+    #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+
+/// PowerShell module logging event fields (Sigma: ps_module)
+///
+/// `ContextInfo` and `Payload` are the two fields the `ps_module` rule family
+/// reads. Both are the provider's own free-form text: `ContextInfo` is a
+/// newline-separated `name = value` block (host application, command name,
+/// user), and `Payload` is the parameter-binding transcript. Windows writes
+/// both in the host's display language, so a rule that matches on the label
+/// rather than the value only fires on an English host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerShellModuleFields {
+    #[serde(rename = "ContextInfo", skip_serializing_if = "Option::is_none")]
+    pub context_info: Option<String>,
+
+    #[serde(rename = "Payload", skip_serializing_if = "Option::is_none")]
+    pub payload: Option<String>,
 
     #[serde(rename = "ProcessId", skip_serializing_if = "Option::is_none")]
     pub process_id: Option<String>,

@@ -176,7 +176,7 @@ dependencies = [
  "nom 7.1.3",
  "num-traits",
  "rusticata-macros",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "time",
 ]
 
@@ -247,7 +247,7 @@ dependencies = [
  "object 0.39.1",
  "once_cell",
  "scopeguard",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -259,7 +259,7 @@ dependencies = [
  "bytes",
  "log",
  "object 0.39.1",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -276,9 +276,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
-version = "0.23.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64ct"
@@ -519,9 +519,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.5"
+version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "301b56658598e48f3648647ac6fc887be7e7108eddfa4e9b63fcf3ec58c0cadf"
+checksum = "473c7e07f409a8d772161724aa8db6a765a2532a70f9667eeb7b49d3d02fbdca"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -529,9 +529,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.6.5"
+version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a65403d1a1bd28f7dc68eb8506e8874808ee5eecb59298de588e2e1407a078"
+checksum = "7b48fea5a88e9ae728a2dcbedbfc0e730f7d60da42e1cb049a83c9fb8b789889"
 dependencies = [
  "anstream",
  "anstyle",
@@ -563,7 +563,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fa961b519f0b462e3a3b4a34b64d119eeaca1d59af726fe450bbba07a9fc0a1"
 dependencies = [
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -2769,7 +2769,7 @@ dependencies = [
  "rustc-hash 2.1.3",
  "rustls",
  "socket2",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "tokio",
  "tracing",
  "web-time",
@@ -2791,7 +2791,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "tinyvec",
  "tracing",
  "web-time",
@@ -3078,45 +3078,46 @@ dependencies = [
 
 [[package]]
 name = "rsigma-eval"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee77a2e8d23bd8bcc6b7512031b2d91bd9d7b72fa3bb1328090618a68f3d1184"
+checksum = "9560e923f9022ef9fdde1f9d3b76dfb99f18359102b4fa1c0fecb698dfacbca2"
 dependencies = [
  "ahash",
  "aho-corasick",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "flate2",
  "ipnet",
  "log",
  "regex",
+ "regex-syntax",
  "rsigma-ir",
  "rsigma-parser",
  "serde",
  "serde_json",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "yaml_serde",
 ]
 
 [[package]]
 name = "rsigma-ir"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a484c9b1992f9a5f1b56a40556b98bf9c4005665f72528681fcfb5d3700550d6"
+checksum = "e5a00bf3b28c71385fc2943e5ac55a56ea271f24643a29ff0694f2c9d48d578a"
 dependencies = [
  "ciborium",
  "rsigma-parser",
  "serde",
  "serde_json",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "yaml_serde",
 ]
 
 [[package]]
 name = "rsigma-parser"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61cdf056039cc0bd824d8204ceec9f39211d61033d5fe272ebb8b94b404f6bf6"
+checksum = "241e758a3fd6567430253b45e30266fc32639eb2c1397ddf61771e4bc753233f"
 dependencies = [
  "globset",
  "log",
@@ -3124,7 +3125,7 @@ dependencies = [
  "pest_derive",
  "serde",
  "serde_json",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "yaml_serde",
  "yamlpatch",
  "yamlpath",
@@ -3172,12 +3173,12 @@ dependencies = [
 
 [[package]]
 name = "rustinel"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "anyhow",
  "arc-swap",
  "aya",
- "base64 0.23.0",
+ "base64 0.23.1",
  "chrono",
  "clap",
  "config",
@@ -3198,6 +3199,7 @@ dependencies = [
  "pelite",
  "regex",
  "reqwest",
+ "roxmltree",
  "rsigma-eval",
  "rsigma-parser",
  "semver",
@@ -3207,7 +3209,7 @@ dependencies = [
  "sha1 0.11.0",
  "sha2 0.11.0",
  "tempfile",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -3767,11 +3769,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.19"
+version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09a43598840e33d5b0331f38c5e30d13bb11c11210a4b58f0d9b18a5a5eefcd9"
+checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
 dependencies = [
- "thiserror-impl 2.0.19",
+ "thiserror-impl 2.0.20",
 ]
 
 [[package]]
@@ -3787,9 +3789,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.19"
+version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43cbfe0cf76104d42a574802844187e84a305e531ed54455f11fbde0f10541cd"
+checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4017,7 +4019,7 @@ checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
 dependencies = [
  "crossbeam-channel",
  "symlink",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "time",
  "tracing-subscriber",
 ]
@@ -4487,7 +4489,7 @@ dependencies = [
  "pulley-interpreter",
  "smallvec",
  "target-lexicon",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "wasmparser",
  "wasmtime-environ",
  "wasmtime-internal-core",
@@ -5007,7 +5009,7 @@ dependencies = [
  "nom 7.1.3",
  "oid-registry",
  "rusticata-macros",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "time",
 ]
 
@@ -5045,7 +5047,7 @@ dependencies = [
  "line-index",
  "serde_json",
  "subfeature",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "yaml_serde",
  "yamlpath",
 ]
@@ -5059,7 +5061,7 @@ dependencies = [
  "line-index",
  "self_cell",
  "serde",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "tree-sitter",
  "tree-sitter-iter",
  "tree-sitter-yaml",
@@ -5128,7 +5130,7 @@ dependencies = [
  "simd_cesu8",
  "smallvec",
  "strum_macros",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "tinyzip",
  "uuid",
  "walrus",

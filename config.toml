@@ -37,6 +37,10 @@ debounce_ms = 2000          # debounces real-time filesystem events; fallback po
 [logging]
 level = "info"              # trace, debug, info, warn, error
 # Optional target-aware filter (takes precedence over level when set)
+# Interactive commands use a compact console view at info; the operational
+# file keeps the configured detail. Use --log-level debug for console details.
+# Path-resolution drops are counted by the sensors; detailed notices are
+# debug-level and hidden by the default info level.
 # filter = "info,engine=info,scanner=info,ioc=info,rustinel::normalizer=info"
 directory = "logs"
 filename = "rustinel.log"
@@ -50,9 +54,9 @@ filename = "alerts.json"    # Will contain newline-delimited JSON (NDJSON)
 match_debug = "off"         # off | summary | full (attach match details to alerts.json)
 
 # 3a. Alert Deduplication
-#   Collapses repeated identical alerts within a sliding window into a single
-#   rollup alert carrying event.count.  The first occurrence always emits
-#   immediately - there is no detection latency penalty.
+#   Collapses repeated identical alerts within a fixed window anchored to the
+#   first occurrence into a single rollup alert carrying event.count.  The first
+#   occurrence always emits immediately - there is no detection latency penalty.
 #
 #   event.count on the rollup is the number of *suppressed* repeats (the first
 #   occurrence is already its own line, which carries no event.count).  Summing
@@ -88,6 +92,33 @@ aggregation_enabled = true
 aggregation_max_entries = 20000
 aggregation_window_secs = 60
 aggregation_interval_buffer_size = 50
+
+# 6a. Behavioral Recording (rustinel capture)
+#   Recordings hold normalized events - command lines, file paths, destinations,
+#   and user names - so treat them like alert output: they are written
+#   owner-only and kept apart from alert and operational logs.
+[capture]
+directory = "captures"      # default parent for rustinel-capture-<UTC timestamp>.ndjson
+
+# 6b. Pipeline Telemetry Counters
+#   Every channel between a sensor and the detectors is bounded and sheds load
+#   rather than blocking, so a burst produces a detection gap instead of a
+#   slowdown. The counters below make that gap measurable: `rustinel doctor`
+#   reads the snapshot and reports how many events were dropped, per channel.
+#
+#   The counters and their rate-limited warnings are always on. This section
+#   only controls whether they are written to {logging.directory}/telemetry.json
+#   for another process to read.
+[telemetry]
+enabled = true
+snapshot_interval_secs = 30 # a snapshot is also written at shutdown
+
+# 6c. Windows ETW Delivery
+#   ETW's native flush timer has a one-second minimum. Rustinel requests an
+#   earlier handoff for partially filled buffers so isolated events reach the
+#   detector promptly. Set to 0 to use only ETW's native timer.
+[windows]
+etw_flush_interval_ms = 100
 
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
