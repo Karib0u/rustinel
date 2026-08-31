@@ -127,6 +127,7 @@ Format:
 | DNS | `edr.dns` |
 | Image load | `edr.library` |
 | Scripting | `edr.scripting` |
+| PowerShell module | `edr.powershell_module` |
 | WMI | `edr.wmi` |
 | Service | `edr.service` |
 | Task | `edr.task` |

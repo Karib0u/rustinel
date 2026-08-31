@@ -569,6 +569,23 @@ impl Engine {
                     Some("ps_script"),
                 ));
             }
+            EventCategory::PowerShellModule => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell"),
+                    Some("ps_module"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell-classic"),
+                    Some("ps_module"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("microsoft-windows-powershell"),
+                    Some("ps_module"),
+                ));
+            }
             EventCategory::Wmi => {
                 aliases.push(LogSourceKey::from_parts(
                     Some("windows"),

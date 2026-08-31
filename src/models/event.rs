@@ -219,6 +219,14 @@ impl NormalizedEvent {
                 "User" => f.user.as_deref(),
                 _ => None,
             },
+            EventFields::PowerShellModule(f) => match key {
+                "ContextInfo" => f.context_info.as_deref(),
+                "Payload" => f.payload.as_deref(),
+                "ProcessId" => f.process_id.as_deref(),
+                "Image" => f.image.as_deref(),
+                "User" => f.user.as_deref(),
+                _ => None,
+            },
             EventFields::RemoteThread(f) => match key {
                 "SourceProcessId" => f.source_process_id.as_deref(),
                 "SourceImage" => f.source_image.as_deref(),
@@ -456,6 +464,23 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.path {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.image {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.user {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.process_id {
+                    values.push(v.as_str());
+                }
+            }
+            EventFields::PowerShellModule(f) => {
+                if let Some(v) = &f.context_info {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.payload {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.image {
@@ -768,6 +793,23 @@ impl NormalizedEvent {
                     values.push(("ProcessId", v.as_str()));
                 }
             }
+            EventFields::PowerShellModule(f) => {
+                if let Some(v) = &f.context_info {
+                    values.push(("ContextInfo", v.as_str()));
+                }
+                if let Some(v) = &f.payload {
+                    values.push(("Payload", v.as_str()));
+                }
+                if let Some(v) = &f.image {
+                    values.push(("Image", v.as_str()));
+                }
+                if let Some(v) = &f.user {
+                    values.push(("User", v.as_str()));
+                }
+                if let Some(v) = &f.process_id {
+                    values.push(("ProcessId", v.as_str()));
+                }
+            }
             EventFields::PowerShellScript(f) => {
                 if let Some(v) = &f.script_block_text {
                     values.push(("ScriptBlockText", v.as_str()));
@@ -910,6 +952,7 @@ pub enum EventCategory {
     Dns,
     ImageLoad,
     Scripting,
+    PowerShellModule,
     Wmi,
     Service,
     Task,
@@ -1062,6 +1105,9 @@ mod round_trip_tests {
             }),
             (EventCategory::Scripting, "Image", |f| {
                 matches!(f, EventFields::PowerShellScript(_))
+            }),
+            (EventCategory::PowerShellModule, "Image", |f| {
+                matches!(f, EventFields::PowerShellModule(_))
             }),
             (EventCategory::Wmi, "Image", |f| {
                 matches!(f, EventFields::WmiEvent(_))

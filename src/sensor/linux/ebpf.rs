@@ -22,7 +22,7 @@ use aya::programs::{KProbe, TracePoint};
 use aya::Ebpf;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::models::{
     DnsQueryFields, FileEventFields, NetworkConnectionFields, ProcessCreationFields,
@@ -630,7 +630,7 @@ fn build_file_event(
     else {
         *unresolved += 1;
         if *unresolved == 1 || unresolved.is_multiple_of(1000) {
-            warn!(
+            debug!(
                 unresolved_file_events = *unresolved,
                 raw_path = %raw_path,
                 "Dropping file event whose path could not be resolved"

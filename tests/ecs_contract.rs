@@ -10,8 +10,8 @@ use common::{
 use rustinel::models::{
     Alert, AlertSeverity, DetectionEngine, DnsQueryFields, EventCategory, EventFields,
     FileEventFields, ImageLoadFields, NetworkConnectionFields, NormalizedEvent,
-    PowerShellScriptFields, ProcessCreationFields, RegistryEventFields, ServiceCreationFields,
-    TaskCreationFields, WmiEventFields,
+    PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
+    ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
 use rustinel::sensor::Platform;
 use serde_json::json;
@@ -250,6 +250,27 @@ fn ecs_category_coverage_maps_event_contract_fields() {
             json!(["info"]),
             "powershell-script",
             "edr.powershell.script_block_text",
+        ),
+        (
+            alert(
+                EventCategory::PowerShellModule,
+                4103,
+                0,
+                EventFields::PowerShellModule(PowerShellModuleFields {
+                    context_info: Some("Host Application = powershell.exe".to_string()),
+                    payload: Some("CommandInvocation(New-Object)".to_string()),
+                    process_id: Some("111".to_string()),
+                    image: Some(
+                        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string(),
+                    ),
+                    user: Some("alice".to_string()),
+                }),
+            ),
+            "edr.powershell_module",
+            json!(["process"]),
+            json!(["info"]),
+            "powershell-module",
+            "edr.powershell.context_info",
         ),
         (
             alert(
