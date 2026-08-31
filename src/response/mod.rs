@@ -699,6 +699,8 @@ mod tests {
                     original_file_name: None,
                     product: None,
                     description: None,
+                    company: None,
+                    file_version: None,
                     target_image: None,
                     parent_process_id: None,
                     parent_image: None,

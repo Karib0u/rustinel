@@ -154,10 +154,12 @@ The Linux sensor covers process, network, file, and DNS.
   is decoded only for A, NS, CNAME, PTR, TXT, and AAAA. Every other type is
   reported as the literal string `OTHER`, so a rule selecting on any other
   record type cannot match.
-- **Network is outbound `connect()` only.** No inbound or `accept()` visibility.
-  Because capture is at syscall entry, failed connections are reported as
-  connections, and `SourceIp`/`SourcePort` are not yet assigned
-  ([#299](https://github.com/Karib0u/rustinel/issues/299),
+- **Network is outbound `connect()` only.** No inbound or `accept()` visibility,
+  so every event carries `Initiated: true` and a rule selecting
+  `Initiated: 'false'` has nothing to match on Linux — inbound connections are
+  absent rather than misreported. Because capture is at syscall entry, failed
+  connections are reported as connections, and `SourceIp`/`SourcePort` are not
+  yet assigned ([#299](https://github.com/Karib0u/rustinel/issues/299),
   [#301](https://github.com/Karib0u/rustinel/issues/301)). Only AF_INET and
   AF_INET6.
 - **No library-load, module-load, or ptrace events.** Sigma rules in those
@@ -179,7 +181,9 @@ would succeed.
   `/dev/bpf` capture rather than a per-process hook, so connections are matched
   to processes by port (racy), DNS events are not attributed at all, and capture
   binds to a single interface (default `en0`, override with
-  `RUSTINEL_BPF_INTERFACE`).
+  `RUSTINEL_BPF_INTERFACE`). A wire capture also cannot say who opened the
+  connection, so `Initiated` is left absent and rules selecting on it — either
+  value — do not match on macOS.
 - **Memory scanning is restricted.** YARA memory scanning uses `task_for_pid`,
   which generally needs root plus SIP/AMFI relaxation or an entitlement; when
   denied it silently returns nothing. File scanning is unaffected.

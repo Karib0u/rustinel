@@ -80,6 +80,12 @@ pub struct ProcessCreationFields {
     #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    #[serde(rename = "Company", skip_serializing_if = "Option::is_none")]
+    pub company: Option<String>,
+
+    #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
+    pub file_version: Option<String>,
+
     #[serde(rename = "TargetImage", skip_serializing_if = "Option::is_none")]
     pub target_image: Option<String>,
 
@@ -206,6 +212,18 @@ pub struct NetworkConnectionFields {
 
     #[serde(rename = "Protocol", skip_serializing_if = "Option::is_none")]
     pub protocol: Option<String>,
+
+    /// Whether the local host initiated the connection, as Sysmon Event ID 3
+    /// defines `Initiated`.
+    ///
+    /// Absent rather than guessed when the sensor cannot tell the direction: a
+    /// wire-level capture sees both ends of a handshake, and a rule asking for
+    /// `Initiated: 'false'` must not match an outbound connection because the
+    /// sensor defaulted. Sigma sees the value as the string `true` or `false`
+    /// via [`NormalizedEvent::get_field`](crate::models::NormalizedEvent::get_field);
+    /// it is a JSON boolean on the wire.
+    #[serde(rename = "Initiated", skip_serializing_if = "Option::is_none")]
+    pub initiated: Option<bool>,
 }
 
 /// DNS query event fields (Sigma: dns_query)
@@ -250,6 +268,12 @@ pub struct ImageLoadFields {
 
     #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    #[serde(rename = "Company", skip_serializing_if = "Option::is_none")]
+    pub company: Option<String>,
+
+    #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
+    pub file_version: Option<String>,
 
     #[serde(rename = "Signed", skip_serializing_if = "Option::is_none")]
     pub signed: Option<String>,

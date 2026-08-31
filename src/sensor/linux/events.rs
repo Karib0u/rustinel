@@ -255,6 +255,8 @@ pub mod mapping {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 // Exit events carry no argv; only exec fills the buffer.
                 command_line: (action == SensorAction::Start)
@@ -294,6 +296,9 @@ pub mod mapping {
                 user: Some(event.uid.to_string()),
                 destination_hostname: None,
                 protocol: Some("tcp".to_string()),
+                // The probe hooks `connect()` only, so every captured
+                // connection is one this host opened.
+                initiated: Some(true),
             }),
         }
     }

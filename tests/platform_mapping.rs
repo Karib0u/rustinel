@@ -83,6 +83,9 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         SensorPayload::Network(fields) => {
             assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
             assert_eq!(fields.source_port.as_deref(), Some("51324"));
+            // The probe hooks `connect()` only, so a captured connection is
+            // outbound by construction.
+            assert_eq!(fields.initiated, Some(true));
         }
         _ => panic!("expected network payload"),
     }
@@ -232,6 +235,10 @@ fn equivalent_windows_and_linux_events_normalize_to_shared_sigma_fields() {
             (EventFields::NetworkConnection(w), EventFields::NetworkConnection(l)) => {
                 assert_eq!(w.destination_ip, l.destination_ip);
                 assert_eq!(w.destination_port, l.destination_port);
+                // A Windows Connect and a Linux `connect()` are the same
+                // observation and must present the same direction to a rule.
+                assert_eq!(w.initiated, Some(true));
+                assert_eq!(w.initiated, l.initiated);
             }
             (EventFields::FileEvent(w), EventFields::FileEvent(l)) => {
                 assert!(w.target_filename.is_some());

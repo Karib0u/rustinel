@@ -228,6 +228,8 @@ impl IocEngine {
                     original_file_name: None,
                     product: None,
                     description: None,
+                    company: None,
+                    file_version: None,
                     target_image: None,
                     command_line: None,
                     process_id: Some(pid.to_string()),

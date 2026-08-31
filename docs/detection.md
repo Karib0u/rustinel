@@ -240,13 +240,26 @@ names.
 - **Process:** `Image`, `CommandLine`, `User`, `ProcessId`, `ParentImage`,
   `ParentCommandLine`
 - **Network:** `DestinationIp`, `DestinationPort`, `SourceIp`, `SourcePort`,
-  `DestinationHostname`
+  `DestinationHostname`, `Protocol`, `Initiated`
 - **File:** `TargetFilename`, `Image`, `ProcessId`, `User`, plus
   `SourceFilename` on a rename and `PathTruncated`
 - **DNS:** Sysmon-style `QueryName` / `QueryResults` / `RecordType`, or the
   generic aliases `query`, `answer`, `record_type`
+- **PE version resources (Windows only):** `OriginalFileName`, `Product`,
+  `Description`, `Company`, and `FileVersion` are read from the image's own
+  version resource on process creation and image load. They are absent on Linux
+  and macOS, and on any image whose file is unreadable when the event is
+  decoded (deleted, locked, or unversioned).
 - **PowerShell:** `ScriptBlockText`, `ScriptBlockId`, `Path` on `ps_script`;
   `ContextInfo`, `Payload` on `ps_module`
+
+`Initiated` is Sysmon's connection direction, written in rules as the string
+`'true'` or `'false'`. Windows reports it from the ETW operation: `true` for a
+connect, `false` for an accept. Linux hooks only `connect()`, so it is always
+`true` there. macOS captures packets off the wire, which does not say who opened
+the connection, so the field is absent and neither value matches. An absent
+field never matches an equality selection, so a sensor that cannot tell the
+direction stays silent rather than answering wrongly.
 
 Per-platform process notes:
 

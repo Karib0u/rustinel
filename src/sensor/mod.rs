@@ -325,6 +325,8 @@ mod tests {
             original_file_name: None,
             product: None,
             description: None,
+            company: None,
+            file_version: None,
             target_image: None,
             command_line: Some("/usr/bin/bash -c id".to_string()),
             process_id: Some("42".to_string()),
@@ -352,6 +354,7 @@ mod tests {
             user: None,
             destination_hostname: None,
             protocol: Some("tcp".to_string()),
+            initiated: Some(true),
         });
 
         let event = SensorEvent {

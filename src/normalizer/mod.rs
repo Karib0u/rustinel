@@ -149,6 +149,8 @@ impl Normalizer {
                         fields.original_file_name.clone(),
                         fields.product.clone(),
                         fields.description.clone(),
+                        fields.company.clone(),
+                        fields.file_version.clone(),
                         fields.current_directory.clone(),
                         fields.integrity_level.clone(),
                     );
@@ -391,6 +393,8 @@ impl Normalizer {
             original_file_name: meta.original_filename,
             product: meta.product,
             description: meta.description,
+            company: meta.company,
+            file_version: meta.file_version,
             current_directory: meta.current_directory,
             integrity_level: meta.integrity_level,
             user: meta.user,
@@ -481,6 +485,8 @@ mod tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: Some("/usr/bin/curl https://example.test".to_string()),
                 process_id: Some(pid.to_string()),
@@ -520,6 +526,8 @@ mod tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: None,
                 process_id: Some(pid.to_string()),
@@ -556,6 +564,7 @@ mod tests {
                 user: Some("alice".to_string()),
                 destination_hostname: None,
                 protocol: None,
+                initiated: Some(true),
             }),
         }
     }
@@ -619,6 +628,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         );
 
         let event = SensorEvent {
@@ -640,6 +651,8 @@ mod tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: None,
                 process_id: Some("42".to_string()),
@@ -690,6 +703,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         );
 
         let build_event = || SensorEvent {
@@ -713,6 +728,7 @@ mod tests {
                 user: None,
                 destination_hostname: None,
                 protocol: Some("tcp".to_string()),
+                initiated: Some(true),
             }),
         };
 
@@ -791,6 +807,8 @@ mod tests {
             9,
             1,
             "/usr/bin/touch".to_string(),
+            None,
+            None,
             None,
             None,
             None,
@@ -918,6 +936,7 @@ mod tests {
                 "User",
                 "DestinationHostname",
                 "Protocol",
+                "Initiated",
             ],
         );
     }
