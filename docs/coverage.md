@@ -62,6 +62,17 @@ These are the fields listed as permanently empty in
 [Limitations](limitations.md#windows-etw-and-event-log). A rule referencing any
 of them loads successfully and never matches.
 
+**`Provider_Name` and `ImagePath` have since been populated**
+([#317](https://github.com/Karib0u/rustinel/issues/317)): event 7045 now carries
+the Windows Event Log provider that wrote it, and the service executable
+resolves under both `ImagePath` and `ServiceFileName`. Counted over the same
+corpus, 61 `service: system` rules reference one of the two fields and **37 of
+them become able to fire**. The remaining 24 stay blocked for other reasons:
+event IDs Rustinel does not collect (7023, 7034, 7036, 104), fields it does not
+model (`Binary`, `Channel`, `HiveName`), or `ProcessId`, which a 7045 record
+does not carry. The tables above predate the change and will move at the next
+full measurement.
+
 ### Linux: one source dominates
 
 **54 of the 65 blocked Linux rules are `auditd`**, and nothing else reaches 4.

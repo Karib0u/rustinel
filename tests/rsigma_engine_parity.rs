@@ -10,7 +10,10 @@
 #[cfg(test)]
 mod common;
 
-use common::{network_connect_event, process_start_event, SigmaFixture, TestNormalizer};
+use common::{
+    network_connect_event, process_start_event, service_installation_event, SigmaFixture,
+    TestNormalizer,
+};
 use rustinel::engine::{Engine, SigmaEngineKind};
 use rustinel::models::MatchDebugLevel;
 use rustinel::sensor::Platform;
@@ -142,6 +145,32 @@ level: high
             .unwrap_or_else(|| panic!("contains|all + re rule should match ({kind:?})"));
         assert_eq!(
             alert.rule_name, "Parity Process ContainsAll Regex",
+            "backend {kind:?}"
+        );
+    }
+}
+
+/// `Provider_Name` is carried on the event and `ImagePath` is an alias resolved
+/// in `NormalizedEvent::get_field`, so both backends have to see them: the
+/// RSigma adapter reads fields through that same accessor, but enumerates them
+/// through serde, where the alias does not exist.
+#[test]
+fn service_provider_and_image_path_rule_matches_on_every_backend() {
+    let fixture = SigmaFixture::new();
+    fixture.write_service_rule();
+    let harness = TestNormalizer::new(false);
+    let normalized = harness
+        .normalizer
+        .normalize(&service_installation_event())
+        .expect("service event should normalize");
+
+    for kind in backends() {
+        let engine = engine_with(&fixture, Platform::Windows, kind);
+        let alert = engine
+            .check_event(&normalized)
+            .unwrap_or_else(|| panic!("service rule should match ({kind:?})"));
+        assert_eq!(
+            alert.rule_name, "Test Service Installation",
             "backend {kind:?}"
         );
     }

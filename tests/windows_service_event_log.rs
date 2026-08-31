@@ -80,6 +80,13 @@ fn service_installation_reaches_the_normalized_sensor_channel() {
     let SensorPayload::Service(fields) = event.payload else {
         unreachable!();
     };
+    // `event.provider` names the sensor; `Provider_Name` names the Windows
+    // provider that wrote the record, which is what `service: system` rules
+    // select on.
+    assert_eq!(
+        fields.provider_name.as_deref(),
+        Some("Service Control Manager")
+    );
     assert_eq!(fields.service_name.as_deref(), Some(service_name.as_str()));
     assert!(fields.service_file_name.is_some());
     assert!(fields.service_type.is_some());

@@ -242,8 +242,14 @@ impl NormalizedEvent {
                 _ => None,
             },
             EventFields::ServiceCreation(f) => match key {
+                "Provider_Name" => f.provider_name.as_deref(),
                 "ServiceName" => f.service_name.as_deref(),
-                "ServiceFileName" => f.service_file_name.as_deref(),
+                // `ImagePath` is what the 7045 record calls the executable and
+                // what every SigmaHQ service rule selects on; `ServiceFileName`
+                // is the Sysmon-style name the model stores it under. The alias
+                // lives here rather than in the field struct so the value is
+                // carried, serialized, and keyword-searched exactly once.
+                "ServiceFileName" | "ImagePath" => f.service_file_name.as_deref(),
                 "ServiceType" => f.service_type.as_deref(),
                 "StartType" => f.start_type.as_deref(),
                 "AccountName" => f.account_name.as_deref(),
@@ -515,6 +521,9 @@ impl NormalizedEvent {
                 }
             }
             EventFields::ServiceCreation(f) => {
+                if let Some(v) = &f.provider_name {
+                    values.push(v.as_str());
+                }
                 if let Some(v) = &f.service_name {
                     values.push(v.as_str());
                 }
@@ -832,6 +841,9 @@ impl NormalizedEvent {
                 }
             }
             EventFields::ServiceCreation(f) => {
+                if let Some(v) = &f.provider_name {
+                    values.push(("Provider_Name", v.as_str()));
+                }
                 if let Some(v) = &f.service_name {
                     values.push(("ServiceName", v.as_str()));
                 }
@@ -911,7 +923,7 @@ mod round_trip_tests {
     //! ones live protection would have used.
 
     use super::*;
-    use crate::models::{FileEventFields, ProcessCreationFields};
+    use crate::models::{FileEventFields, ProcessCreationFields, ServiceCreationFields};
 
     fn round_trip(event: &NormalizedEvent) -> NormalizedEvent {
         let line = serde_json::to_string(event).expect("event serializes");
@@ -1084,6 +1096,56 @@ mod round_trip_tests {
             );
             assert_eq!(event.get_field(field), Some("/bin/zsh"));
         }
+    }
+
+    #[test]
+    fn a_recorded_service_event_keeps_both_providers_and_the_image_path_alias() {
+        // `Provider_Name` is stored; `ImagePath` is derived from the stored
+        // `ServiceFileName`. A replay that lost either would silently stop
+        // matching every `service: system` rule.
+        let event = NormalizedEvent {
+            timestamp: "2026-08-25T12:34:56.123Z".to_string(),
+            platform: Platform::Windows,
+            provider: "windows_event_log".to_string(),
+            category: EventCategory::Service,
+            event_id: 7045,
+            event_id_string: "7045".to_string(),
+            opcode: 0,
+            fields: EventFields::ServiceCreation(ServiceCreationFields {
+                provider_name: Some("Service Control Manager".to_string()),
+                service_name: Some("RustinelIssue317".to_string()),
+                service_file_name: Some(r"C:\Temp\evil.exe".to_string()),
+                service_type: None,
+                start_type: None,
+                account_name: None,
+                user: None,
+                process_id: None,
+                image: None,
+            }),
+            process_context: None,
+        };
+
+        let event = round_trip(&event);
+
+        assert_eq!(
+            event.provider, "windows_event_log",
+            "the sensor provider must not be overwritten by the Windows one"
+        );
+        assert_eq!(
+            event.get_field("Provider_Name"),
+            Some("Service Control Manager")
+        );
+        assert_eq!(event.get_field("ImagePath"), Some(r"C:\Temp\evil.exe"));
+        assert_eq!(
+            event.get_field("ServiceFileName"),
+            event.get_field("ImagePath"),
+            "the alias must resolve to the same value it aliases"
+        );
+        // The alias is a read path, not a second stored field: flattening it
+        // twice would double-count it in keyword matches and ECS output.
+        let flattened = event.all_field_values_with_keys();
+        assert!(flattened.contains(&("Provider_Name", "Service Control Manager")));
+        assert!(flattened.iter().all(|(key, _)| *key != "ImagePath"));
     }
 
     #[test]

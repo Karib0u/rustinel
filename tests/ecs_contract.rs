@@ -279,6 +279,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 7045,
                 0,
                 EventFields::ServiceCreation(ServiceCreationFields {
+                    provider_name: Some("Service Control Manager".to_string()),
                     service_name: Some("Updater".to_string()),
                     service_file_name: Some(r"C:\Temp\updater.exe".to_string()),
                     service_type: Some("own".to_string()),

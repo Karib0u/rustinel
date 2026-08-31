@@ -339,6 +339,16 @@ pub struct EcsAlert {
     )]
     pub edr_service_account_name: Option<String>,
 
+    /// Windows Event Log provider that wrote the record, as Sigma's
+    /// `Provider_Name` reads it. `event.provider` names the Rustinel sensor
+    /// instead, so an analyst reading a service alert cannot recover this from
+    /// the rest of the document.
+    #[serde(
+        rename = "edr.event_log.provider_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_event_log_provider_name: Option<String>,
+
     // ========================================================================
     // Task Scheduler Persistence Fields
     // ========================================================================

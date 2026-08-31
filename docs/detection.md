@@ -186,6 +186,11 @@ names.
   `SourceFilename` on a rename and `PathTruncated`
 - **DNS:** Sysmon-style `QueryName` / `QueryResults` / `RecordType`, or the
   generic aliases `query`, `answer`, `record_type`
+- **Service (Windows 7045):** `Provider_Name`, `ServiceName`, `ImagePath`,
+  `ServiceType`, `StartType`, `AccountName`, `User`. `ServiceFileName` is the
+  same value as `ImagePath`; SigmaHQ's service rules use `ImagePath`, so both
+  names resolve. `Image` and `ProcessId` stay empty: the 7045 record names no
+  installing process.
 
 Per-platform process notes:
 
@@ -201,6 +206,15 @@ Per-platform process notes:
   provided, and `IntegrityLevel` / `LogonId` / `LogonGuid` are Windows-only.
 - **Windows:** several modelled fields are never populated. See
   [Limitations](limitations.md#windows-etw-and-event-log).
+
+**`Provider_Name` is not `event.provider`.** `Provider_Name` is the Windows
+provider that wrote the record — `Service Control Manager` for event 7045 — and
+comes from the Event Log subscription. `NormalizedEvent.provider`, surfaced as
+ECS `event.provider`, names the Rustinel sensor that collected it (`etw`,
+`windows_event_log`, `ebpf`, `esf`, `bpf`). Only Event-Log-sourced events carry
+`Provider_Name`; ETW-sourced events do not. In SigmaHQ, the field is almost
+entirely a `system` and `application` channel concern, so that gap costs three
+rules.
 
 DNS field availability:
 

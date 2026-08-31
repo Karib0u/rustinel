@@ -11,6 +11,9 @@ use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, Se
 use super::EventLogSource;
 
 const SERVICE_EVENT_ID: u16 = 7045;
+/// The provider that writes System event 7045, and the value `service: system`
+/// rules select on as `Provider_Name`.
+const SERVICE_PROVIDER: &str = "Service Control Manager";
 
 pub(super) const fn source() -> EventLogSource {
     EventLogSource::new(
@@ -40,7 +43,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .children()
         .find(|node| node.has_tag_name("Provider"))
         .and_then(|node| node.attribute("Name"));
-    if provider != Some("Service Control Manager") {
+    if provider != Some(SERVICE_PROVIDER) {
         return Err(anyhow!("unexpected event 7045 provider {provider:?}"));
     }
 
@@ -81,6 +84,10 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         timestamp,
         process_start_key: None,
         payload: SensorPayload::Service(ServiceCreationFields {
+            // Carried from the record rather than assumed: the guard above has
+            // already rejected anything else, so this is the provider the
+            // Windows Event Log actually named.
+            provider_name: provider.map(str::to_string),
             service_name,
             service_file_name,
             service_type: field("ServiceType").filter(|value| !value.is_empty()),
@@ -142,6 +149,11 @@ mod tests {
         let SensorPayload::Service(fields) = event.payload else {
             panic!("expected service payload");
         };
+        assert_eq!(
+            fields.provider_name.as_deref(),
+            Some("Service Control Manager"),
+            "Provider_Name must name the Windows provider, not the sensor"
+        );
         assert_eq!(fields.service_name.as_deref(), Some("RustinelIssue287"));
         assert_eq!(
             fields.service_file_name.as_deref(),

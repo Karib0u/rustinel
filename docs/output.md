@@ -58,7 +58,7 @@ Format:
 | `event.code`        | Sysmon-style or native event ID string                                                                                                                                                                |
 | `event.module`      | Always `edr`                                                                                                                                                                                          |
 | `event.dataset`     | `edr.<category>`                                                                                                                                                                                      |
-| `event.provider`    | `etw` (Windows), `ebpf` (Linux), `esf` / `bpf` (macOS), or `yara-memory` for memory-scan hits                                                                                                         |
+| `event.provider`    | Sensor that collected the event: `etw` or `windows_event_log` (Windows), `ebpf` (Linux), `esf` / `bpf` (macOS), or `yara-memory` for memory-scan hits. Not the Windows provider that wrote the record — see `edr.event_log.provider_name`. |
 | `rule.name`         | Detection rule title                                                                                                                                                                                  |
 | `rule.id`           | Optional detection rule identifier, unique amongs the rustinel rules. Formatted as: `sigma::<uuid>` for Sigma, `yara::<id>` for YARA (if metadata ID is defined), or `ioc::<type>::<value>` for IOCs. |
 | `edr.rule.severity` | Low, Medium, High, or Critical                                                                                                                                                                        |
@@ -132,6 +132,12 @@ Format:
 | Task | `edr.task` |
 
 The full field set depends on event type and platform. Windows alerts can include PE metadata, registry details, PowerShell content, and service or task context. Linux and macOS alerts currently focus on process, network, file, and DNS fields.
+
+Alerts on events read from the Windows Event Log carry
+`edr.event_log.provider_name`, the provider that wrote the record
+(`Service Control Manager` for service installations). It is a different thing
+from `event.provider`, which names the Rustinel sensor, and it is what Sigma
+sees as `Provider_Name`.
 
 ## Behavioral Recordings
 

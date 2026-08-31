@@ -4,8 +4,9 @@ mod common;
 use common::{
     assert_ecs_field_eq, assert_ecs_field_present, assert_normalized_field_eq, ecs_json,
     file_create_event, file_delete_event, file_rename_event, image_for, network_connect_event,
-    process_start_event, provider_for, renamed_test_file_path, test_file_path, SigmaFixture,
-    TestNormalizer, TEST_DESTINATION_IP, TEST_DESTINATION_PORT, TEST_PID, TEST_SOURCE_IP,
+    process_start_event, provider_for, renamed_test_file_path, service_installation_event,
+    test_file_path, SigmaFixture, TestNormalizer, TEST_DESTINATION_IP, TEST_DESTINATION_PORT,
+    TEST_PID, TEST_SERVICE_IMAGE_PATH, TEST_SERVICE_NAME, TEST_SERVICE_PROVIDER, TEST_SOURCE_IP,
     TEST_USER,
 };
 use rustinel::{
@@ -252,4 +253,43 @@ level: low
         assert_ecs_field_eq(&ecs, "file.extension", "txt");
         assert_ecs_field_eq(&ecs, "process.executable", image_for(platform));
     }
+}
+
+/// A `service: system` rule cannot fire without `Provider_Name`, and 35 of the
+/// SigmaHQ rules in that logsource read the executable as `ImagePath` rather
+/// than `ServiceFileName`. Both travel on the same 7045 event, and neither
+/// displaces `NormalizedEvent::provider`, which keeps naming the sensor.
+#[test]
+fn sigma_service_detection_pipeline_matches_provider_name_and_image_path() {
+    let fixture = SigmaFixture::new();
+    fixture.write_service_rule();
+    let engine = load_engine(Platform::Windows, &fixture);
+    let harness = TestNormalizer::new(false);
+
+    let normalized = harness
+        .normalizer
+        .normalize(&service_installation_event())
+        .expect("service installation should normalize");
+
+    assert_eq!(normalized.category, EventCategory::Service);
+    assert_eq!(
+        normalized.provider, "windows_event_log",
+        "the sensor provider must survive the new Windows provider field"
+    );
+    assert_normalized_field_eq(&normalized, "Provider_Name", TEST_SERVICE_PROVIDER);
+    assert_normalized_field_eq(&normalized, "ServiceName", TEST_SERVICE_NAME);
+    assert_normalized_field_eq(&normalized, "ImagePath", TEST_SERVICE_IMAGE_PATH);
+    assert_normalized_field_eq(&normalized, "ServiceFileName", TEST_SERVICE_IMAGE_PATH);
+
+    let alert = engine
+        .check_event(&normalized)
+        .expect("service Sigma rule should match");
+    assert_sigma_alert(&alert, "Test Service Installation");
+
+    let ecs = ecs_json(&alert);
+    assert_ecs_field_eq(&ecs, "event.dataset", "edr.service");
+    assert_ecs_field_eq(&ecs, "event.provider", "windows_event_log");
+    assert_ecs_field_eq(&ecs, "edr.event_log.provider_name", TEST_SERVICE_PROVIDER);
+    assert_ecs_field_eq(&ecs, "service.name", TEST_SERVICE_NAME);
+    assert_ecs_field_eq(&ecs, "edr.service.executable", TEST_SERVICE_IMAGE_PATH);
 }
