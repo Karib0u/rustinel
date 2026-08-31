@@ -106,6 +106,12 @@ pub struct ProcessContext {
     #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    #[serde(rename = "Company", skip_serializing_if = "Option::is_none")]
+    pub company: Option<String>,
+
+    #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
+    pub file_version: Option<String>,
+
     #[serde(rename = "CurrentDirectory", skip_serializing_if = "Option::is_none")]
     pub current_directory: Option<String>,
 
@@ -140,6 +146,8 @@ impl NormalizedEvent {
                 "OriginalFileName" => f.original_file_name.as_deref(),
                 "Product" => f.product.as_deref(),
                 "Description" => f.description.as_deref(),
+                "Company" => f.company.as_deref(),
+                "FileVersion" => f.file_version.as_deref(),
                 "CommandLine" => f.command_line.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
                 "ParentProcessId" => f.parent_process_id.as_deref(),
@@ -204,6 +212,8 @@ impl NormalizedEvent {
                 "OriginalFileName" => f.original_file_name.as_deref(),
                 "Product" => f.product.as_deref(),
                 "Description" => f.description.as_deref(),
+                "Company" => f.company.as_deref(),
+                "FileVersion" => f.file_version.as_deref(),
                 "Signed" => f.signed.as_deref(),
                 "Signature" => f.signature.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
@@ -282,6 +292,12 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.description {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.company {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.file_version {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.command_line {
@@ -427,6 +443,12 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.description {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.company {
+                    values.push(v.as_str());
+                }
+                if let Some(v) = &f.file_version {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.signed {
@@ -592,6 +614,12 @@ impl NormalizedEvent {
                 if let Some(v) = &f.description {
                     values.push(("Description", v.as_str()));
                 }
+                if let Some(v) = &f.company {
+                    values.push(("Company", v.as_str()));
+                }
+                if let Some(v) = &f.file_version {
+                    values.push(("FileVersion", v.as_str()));
+                }
                 if let Some(v) = &f.command_line {
                     values.push(("CommandLine", v.as_str()));
                 }
@@ -745,6 +773,12 @@ impl NormalizedEvent {
                 }
                 if let Some(v) = &f.description {
                     values.push(("Description", v.as_str()));
+                }
+                if let Some(v) = &f.company {
+                    values.push(("Company", v.as_str()));
+                }
+                if let Some(v) = &f.file_version {
+                    values.push(("FileVersion", v.as_str()));
                 }
                 if let Some(v) = &f.signed {
                     values.push(("Signed", v.as_str()));
@@ -989,6 +1023,8 @@ mod round_trip_tests {
                 original_file_name: Some("zsh".to_string()),
                 product: Some("shell".to_string()),
                 description: Some("Z shell".to_string()),
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: Some("zsh -c whoami".to_string()),
                 process_id: Some("7448".to_string()),
@@ -1110,6 +1146,8 @@ mod round_trip_tests {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 logon_id: None,
                 logon_guid: None,
@@ -1152,6 +1190,8 @@ mod round_trip_tests {
             original_file_name: None,
             product: None,
             description: None,
+            company: None,
+            file_version: None,
             target_image: None,
             logon_id: None,
             logon_guid: None,

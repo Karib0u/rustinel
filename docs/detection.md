@@ -186,6 +186,11 @@ names.
   `SourceFilename` on a rename and `PathTruncated`
 - **DNS:** Sysmon-style `QueryName` / `QueryResults` / `RecordType`, or the
   generic aliases `query`, `answer`, `record_type`
+- **PE version resources (Windows only):** `OriginalFileName`, `Product`,
+  `Description`, `Company`, and `FileVersion` are read from the image's own
+  version resource on process creation and image load. They are absent on Linux
+  and macOS, and on any image whose file is unreadable when the event is
+  decoded (deleted, locked, or unversioned).
 
 Per-platform process notes:
 

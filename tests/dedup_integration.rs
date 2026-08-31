@@ -44,6 +44,8 @@ fn make_alert(rule: &str, image: &str) -> Alert {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 logon_id: None,
                 logon_guid: None,

@@ -697,6 +697,8 @@ fn build_critical_process_alert(pid: u32, image: &str) -> rustinel::models::Aler
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 parent_process_id: None,
                 parent_image: None,

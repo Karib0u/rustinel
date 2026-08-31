@@ -72,6 +72,8 @@ impl From<&Alert> for EcsAlert {
             process_original_file_name: None,
             process_product: None,
             process_description: None,
+            process_company: None,
+            process_file_version: None,
             user_name: None,
             user_id: None,
             user_domain: None,
@@ -95,6 +97,8 @@ impl From<&Alert> for EcsAlert {
             file_original_file_name: None,
             file_product: None,
             file_description: None,
+            file_company: None,
+            file_file_version: None,
             file_code_signature_exists: None,
             file_code_signature_subject_name: None,
             dll_name: None,
@@ -150,6 +154,8 @@ impl From<&Alert> for EcsAlert {
                 ecs.process_original_file_name = f.original_file_name.clone();
                 ecs.process_product = f.product.clone();
                 ecs.process_description = f.description.clone();
+                ecs.process_company = f.company.clone();
+                ecs.process_file_version = f.file_version.clone();
                 apply_user_fields(&mut ecs, f.user.as_deref());
                 ecs.winlog_logon_id = f.logon_id.clone();
                 ecs.winlog_logon_guid = f.logon_guid.clone();
@@ -220,6 +226,8 @@ impl From<&Alert> for EcsAlert {
                 ecs.file_original_file_name = f.original_file_name.clone();
                 ecs.file_product = f.product.clone();
                 ecs.file_description = f.description.clone();
+                ecs.file_company = f.company.clone();
+                ecs.file_file_version = f.file_version.clone();
                 ecs.file_code_signature_exists = parse_bool(&f.signed);
                 ecs.file_code_signature_subject_name = f.signature.clone();
                 ecs.dll_path = f.image_loaded.clone();
@@ -380,6 +388,8 @@ mod tests {
                     original_file_name: None,
                     product: None,
                     description: None,
+                    company: None,
+                    file_version: None,
                     target_image: None,
                     parent_process_id: None,
                     parent_command_line: None,
@@ -499,6 +509,8 @@ mod tests {
                     original_file_name: Some("svchost.exe".to_string()),
                     product: Some("Microsoft Windows".to_string()),
                     description: Some("Host Process".to_string()),
+                    company: None,
+                    file_version: None,
                     current_directory: Some(r"C:\Windows\System32".to_string()),
                     integrity_level: Some("System".to_string()),
                     user: Some(r"NT AUTHORITY\SYSTEM".to_string()),

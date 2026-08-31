@@ -255,6 +255,8 @@ pub mod mapping {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 // Exit events carry no argv; only exec fills the buffer.
                 command_line: (action == SensorAction::Start)
