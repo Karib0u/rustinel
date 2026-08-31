@@ -6,7 +6,7 @@ use crate::normalizer::Normalizer;
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
-use crate::runtime::logging::{init_logging, log_startup_banner};
+use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
 use crate::runtime::telemetry::TelemetryReporter;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
@@ -46,7 +46,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
 
         let esf_sensor = Arc::new(EsfSensor::new());
         let bpf_sensor = Arc::new(BpfSensor::new());
-        info!("Starting macOS sensors...");
+        info!(target: TARGET_CONSOLE, "Starting macOS sensors...");
 
         // Endpoint Security is the primary source; failing to start it is fatal.
         if let Err(e) = esf_sensor.start(sensor_tx.clone()) {
@@ -141,7 +141,7 @@ async fn run_macos_edr(
     // 5. Sigma engine
     let engine_kind =
         crate::engine::SigmaEngineKind::resolve(sigma_engine_override, &cfg.scanner.sigma_engine)?;
-    info!(engine = engine_kind.as_str(), "Selected Sigma engine");
+    info!(target: TARGET_CONSOLE, engine = engine_kind.as_str(), "Selected Sigma engine");
     let mut sigma_engine = Engine::new_for_platform_with_logging_level_and_match_debug(
         Platform::MacOS,
         &cfg.logging.level,
@@ -156,6 +156,7 @@ async fn run_macos_edr(
         } else {
             let stats = sigma_engine.stats();
             info!(
+                target: TARGET_CONSOLE,
                 total_rules = stats.total_rules,
                 skipped_deferred_rules = stats.skipped_deferred_rules,
                 skipped_unknown_logsource_rules = stats.skipped_unknown_logsource_rules,
@@ -170,6 +171,8 @@ async fn run_macos_edr(
                 info!(logsource = %logsource, count, "Sigma rules loaded");
             }
         }
+    } else {
+        info!(target: TARGET_CONSOLE, "Sigma detection disabled by configuration");
     }
     let sigma_engine = Arc::new(sigma_engine);
 
@@ -179,7 +182,7 @@ async fn run_macos_edr(
             .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
         {
             Ok(s) => {
-                info!("YARA scanner initialized");
+                info!(target: TARGET_CONSOLE, "YARA scanner initialized");
                 Arc::new(s)
             }
             Err(e) => {
@@ -188,6 +191,7 @@ async fn run_macos_edr(
             }
         }
     } else {
+        info!(target: TARGET_CONSOLE, "YARA scanning disabled by configuration");
         Arc::new(scanner::Scanner::empty())
     };
 
@@ -196,6 +200,23 @@ async fn run_macos_edr(
 
     // 7. IOC engine
     let ioc_engine = Arc::new(IocEngine::load(&cfg.ioc));
+    if ioc_engine.is_enabled() {
+        let stats = ioc_engine.stats();
+        info!(
+            target: TARGET_CONSOLE,
+            md5 = stats.md5,
+            sha1 = stats.sha1,
+            sha256 = stats.sha256,
+            ip = stats.ip,
+            cidr = stats.cidr,
+            domain_exact = stats.domain_exact,
+            domain_suffix = stats.domain_suffix,
+            path_regex = stats.path_regex,
+            "IOC engine initialized"
+        );
+    } else {
+        info!(target: TARGET_CONSOLE, "IOC detection disabled by configuration");
+    }
 
     // 8. Detector store + hot-reload
     let detectors = DetectorStore::new(
@@ -340,8 +361,10 @@ async fn run_macos_edr(
     let esf_sensor = Arc::new(EsfSensor::new());
     let bpf_sensor = Arc::new(BpfSensor::new());
 
-    info!("Starting macOS sensors...");
-    info!("Press Ctrl+C to stop gracefully");
+    info!(
+        target: TARGET_CONSOLE,
+        "Starting macOS sensors; press Ctrl+C to stop gracefully"
+    );
 
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(8192);
     let router_for_worker = Arc::clone(&router);
@@ -369,7 +392,7 @@ async fn run_macos_edr(
 
     // 14. Wait for Ctrl+C
     match tokio::signal::ctrl_c().await {
-        Ok(()) => info!("Received Ctrl+C, shutting down"),
+        Ok(()) => info!(target: TARGET_CONSOLE, "Received Ctrl+C, shutting down"),
         Err(e) => error!("Failed to listen for Ctrl+C: {}", e),
     }
     esf_sensor.shutdown();
@@ -410,6 +433,6 @@ async fn run_macos_edr(
         reporter.finish().await;
     }
 
-    info!("Shutdown complete");
+    info!(target: TARGET_CONSOLE, "Shutdown complete");
     Ok(())
 }

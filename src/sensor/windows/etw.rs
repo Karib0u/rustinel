@@ -11,7 +11,7 @@ use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::trace::{stop_trace_by_name, TraceProperties, TraceTrait, UserTrace};
 use ferrisetw::{EventRecord, GUID};
 use tokio::sync::mpsc::{error::TrySendError, Sender};
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::models::{
     DnsQueryFields, EventCategory, FileEventFields, ImageLoadFields, NetworkConnectionFields,
@@ -1127,7 +1127,7 @@ fn decode_kernel_file_record(
                 // endpoint is quiet or unobserved.
                 let unresolved = state.unresolved_file_events.fetch_add(1, Ordering::Relaxed) + 1;
                 if unresolved == 1 || unresolved.is_multiple_of(1000) {
-                    warn!(
+                    debug!(
                         unresolved_file_events = unresolved,
                         "Dropping file event whose path could not be resolved"
                     );
@@ -1268,7 +1268,7 @@ fn decode_kernel_registry_record(
                         .fetch_add(1, Ordering::Relaxed)
                         + 1;
                     if unresolved == 1 || unresolved.is_multiple_of(10_000) {
-                        warn!(
+                        debug!(
                             unresolved_registry_events = unresolved,
                             "Dropping registry event whose key path could not be resolved"
                         );

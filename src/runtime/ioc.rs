@@ -106,6 +106,7 @@ pub fn spawn_ioc_hash_worker(
             let matches = ioc_engine.match_hashes(&hashes);
             if !matches.is_empty() {
                 info!(
+                    target: "engine",
                     pid = pid,
                     file = %path,
                     matches = matches.len(),

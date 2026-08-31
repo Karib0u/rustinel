@@ -17,6 +17,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use super::{ChannelId, PROCESS_START, TARGET_TELEMETRY};
+use crate::runtime::logging::TARGET_CONSOLE;
 use crate::utils::fs::restrict_file_permissions;
 
 /// File name of the snapshot, written inside the configured log directory.
@@ -201,8 +202,19 @@ pub fn spawn_reporter(path: PathBuf, interval: Duration) -> JoinHandle<()> {
 /// even if the snapshot cannot be written.
 pub fn write_final_snapshot(path: &Path) {
     let snapshot = TelemetrySnapshot::capture();
+    let active_channels = snapshot.active_channels();
 
-    for channel in snapshot.active_channels() {
+    if !active_channels.is_empty() {
+        info!(
+            target: TARGET_CONSOLE,
+            channels = active_channels.len(),
+            accepted = snapshot.total_accepted(),
+            dropped = snapshot.total_dropped(),
+            "Pipeline summary"
+        );
+    }
+
+    for channel in active_channels {
         info!(
             target: TARGET_TELEMETRY,
             channel = %channel.channel,

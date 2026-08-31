@@ -9,6 +9,9 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const STARTUP_BANNER_INNER_WIDTH: usize = 49;
+/// Tracing target for messages intended for an interactive console.
+pub const TARGET_CONSOLE: &str = "console";
+const DEFAULT_CONSOLE_FILTER: &str = "warn,console=info,engine=info,response=info";
 
 struct RestrictedFileAppender {
     inner: rolling::RollingFileAppender,
@@ -63,21 +66,52 @@ pub fn build_log_filter(logging: &config::LogConfig) -> EnvFilter {
     }
 }
 
+/// Build the filter for an interactive console layer.
+///
+/// The operational file keeps the configured stream. With the default info
+/// level, the console shows milestones and detections while suppressing
+/// component internals. Explicit debug or trace levels opt into the full
+/// stream for troubleshooting. A custom filter remains authoritative for
+/// both outputs.
+fn build_console_log_filter(logging: &config::LogConfig, base_filter: &EnvFilter) -> EnvFilter {
+    let has_custom_filter = logging
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|filter| !filter.is_empty());
+    if has_custom_filter {
+        return base_filter.clone();
+    }
+
+    let level = logging.level.trim().to_ascii_lowercase();
+    let filter = match level.as_str() {
+        "debug" | "trace" => logging.level.trim(),
+        "warn" => "warn",
+        "error" => "error",
+        _ => DEFAULT_CONSOLE_FILTER,
+    };
+
+    EnvFilter::try_new(filter).unwrap_or_else(|_| {
+        EnvFilter::try_new(DEFAULT_CONSOLE_FILTER)
+            .expect("hardcoded console filter should always parse")
+    })
+}
+
 pub fn log_startup_banner(runtime: &str) {
-    info!(target: "rustinel", "╔═══════════════════════════════════════════════════╗");
+    info!(target: TARGET_CONSOLE, "╔═══════════════════════════════════════════════════╗");
     info!(
-        target: "rustinel",
+        target: TARGET_CONSOLE,
         "║ {:^width$} ║",
         format!("Rustinel v{} ({})", APP_VERSION, runtime),
         width = STARTUP_BANNER_INNER_WIDTH
     );
     info!(
-        target: "rustinel",
+        target: TARGET_CONSOLE,
         "║ {:^width$} ║",
         "High-Performance Endpoint Detection Agent",
         width = STARTUP_BANNER_INNER_WIDTH
     );
-    info!(target: "rustinel", "╚═══════════════════════════════════════════════════╝");
+    info!(target: TARGET_CONSOLE, "╚═══════════════════════════════════════════════════╝");
 }
 
 /// Initialize dual-pipeline logging system.
@@ -93,6 +127,7 @@ pub fn init_logging(
     let (app_writer, app_guard) =
         build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
     let base_filter = build_log_filter(&cfg.logging);
+    let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
     let app_layer = fmt::layer()
         .with_writer(app_writer)
@@ -112,7 +147,7 @@ pub fn init_logging(
                 .compact()
                 .with_ansi(ansi_supported)
                 .with_target(false)
-                .with_filter(base_filter),
+                .with_filter(console_filter),
         )
     } else {
         None
@@ -137,6 +172,7 @@ pub fn init_logging(
     let (app_writer, app_guard) =
         build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
     let base_filter = build_log_filter(&cfg.logging);
+    let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
     let app_layer = fmt::layer()
         .with_writer(app_writer)
@@ -152,8 +188,8 @@ pub fn init_logging(
         let console_layer = fmt::layer()
             .compact()
             .with_ansi(true)
-            .with_target(true)
-            .with_filter(base_filter);
+            .with_target(false)
+            .with_filter(console_filter);
         tracing_subscriber::registry()
             .with(app_layer)
             .with(console_layer)
@@ -176,6 +212,7 @@ pub fn init_operational_logging(
     let (app_writer, app_guard) =
         build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
     let base_filter = build_log_filter(&cfg.logging);
+    let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
     let app_layer = fmt::layer()
         .with_writer(app_writer)
@@ -189,8 +226,8 @@ pub fn init_operational_logging(
             fmt::layer()
                 .compact()
                 .with_ansi(console_ansi_supported())
-                .with_target(true)
-                .with_filter(base_filter),
+                .with_target(false)
+                .with_filter(console_filter),
         )
     } else {
         None
@@ -212,12 +249,13 @@ pub fn init_operational_logging(
 /// keeps diagnostics — a rule that failed to compile, say — out of the replay
 /// report on stdout.
 pub fn init_replay_logging(cfg: &config::AppConfig) {
+    let base_filter = build_log_filter(&cfg.logging);
     let layer = fmt::layer()
         .with_writer(std::io::stderr)
         .compact()
         .with_ansi(console_ansi_supported())
-        .with_target(true)
-        .with_filter(build_log_filter(&cfg.logging));
+        .with_target(false)
+        .with_filter(build_console_log_filter(&cfg.logging, &base_filter));
 
     // A replay running inside a process that already has a subscriber keeps
     // that one; this is best-effort diagnostics, not a reason to fail.
@@ -385,5 +423,94 @@ mod permission_tests {
             fs::metadata(&unrelated_file).unwrap().permissions().mode() & 0o777,
             0o644
         );
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::{build_console_log_filter, build_log_filter, TARGET_CONSOLE};
+    use crate::config;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::{fmt, layer::SubscriberExt, Layer};
+
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for SharedWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn logging(level: &str, filter: Option<&str>) -> config::LogConfig {
+        let mut logging = config::AppConfig::default().logging;
+        logging.level = level.to_owned();
+        logging.filter = filter.map(str::to_owned);
+        logging
+    }
+
+    #[test]
+    fn default_info_console_filter_is_compact() {
+        let logging = logging("info", None);
+        let file_filter = build_log_filter(&logging);
+        let console_filter = build_console_log_filter(&logging, &file_filter);
+        let rendered = console_filter.to_string();
+
+        for directive in ["warn", "console=info", "engine=info", "response=info"] {
+            assert!(rendered.split(',').any(|item| item == directive));
+        }
+    }
+
+    #[test]
+    fn debug_console_filter_follows_the_requested_level() {
+        let logging = logging("debug", None);
+        let file_filter = build_log_filter(&logging);
+        let console_filter = build_console_log_filter(&logging, &file_filter);
+
+        assert_eq!(console_filter.to_string(), "debug");
+    }
+
+    #[test]
+    fn custom_filter_applies_to_the_console_as_well() {
+        let logging = logging("info", Some("info,scanner=debug"));
+        let file_filter = build_log_filter(&logging);
+        let console_filter = build_console_log_filter(&logging, &file_filter);
+        let rendered = console_filter.to_string();
+
+        assert!(rendered.split(',').any(|item| item == "info"));
+        assert!(rendered.split(',').any(|item| item == "scanner=debug"));
+    }
+
+    #[test]
+    fn default_info_console_output_keeps_user_facing_events() {
+        let logging = logging("info", None);
+        let file_filter = build_log_filter(&logging);
+        let console_filter = build_console_log_filter(&logging, &file_filter);
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer_output = Arc::clone(&output);
+        let subscriber = tracing_subscriber::registry().with(
+            fmt::layer()
+                .compact()
+                .with_ansi(false)
+                .with_writer(move || SharedWriter(Arc::clone(&writer_output)))
+                .with_filter(console_filter),
+        );
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(target: "rustinel", "internal info");
+            tracing::info!(target: TARGET_CONSOLE, "startup milestone");
+            tracing::info!(target: "engine", "detection event");
+            tracing::warn!(target: "rustinel", "actionable warning");
+        });
+
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(!output.contains("internal info"));
+        assert!(output.contains("startup milestone"));
+        assert!(output.contains("detection event"));
+        assert!(output.contains("actionable warning"));
     }
 }
