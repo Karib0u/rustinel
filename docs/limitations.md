@@ -30,11 +30,15 @@ three platforms, but several Sysmon-style fields are unavailable.
 - **No process or image-load hashes (silent risk).** There is no
   `Hashes`/`Imphash` on process or image-load events, so the many Sigma rules
   keyed on them can never fire. Hashing exists only in the file/IOC scanner.
-- **Some process fields are always empty (silent risk).** `IntegrityLevel`,
-  `User`, `CurrentDirectory`, `LogonId`, and `LogonGuid` are modelled and
-  exposed to Sigma but never populated by the provider, so rules filtering on
-  them cannot match. `Signed` and `Signature` on image loads are empty for the
-  same reason.
+- **Some process fields are always empty (silent risk).** `User` and
+  `CurrentDirectory` are modelled and exposed to Sigma but never populated by
+  the provider, so rules filtering on them cannot match. `Signed` and
+  `Signature` on image loads are empty for the same reason.
+- **`IntegrityLevel` is on process start only.** It is decoded from the
+  `MandatoryLabel` SID that Kernel-Process puts on the start event, and named
+  the way Sysmon names it (`System`, `High`, `Medium`). Process *stop* events
+  do not carry it, and a mandatory label whose level Windows has not defined is
+  reported as the raw `S-1-16-...` SID rather than dropped.
 - **Command line is back-filled, and can be lost.** No Kernel-Process event
   carries `CommandLine`; it is obtained by querying the live process. Measured
   at 100% on realistic workloads and 99.8% under process churn, the gap appears

@@ -6,6 +6,8 @@
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod dns;
+#[cfg(any(windows, test))]
+mod integrity_level;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
@@ -335,8 +337,6 @@ mod tests {
             current_directory: None,
             integrity_level: None,
             user: None,
-            logon_id: None,
-            logon_guid: None,
         });
 
         assert_eq!(payload.category(), EventCategory::Process);

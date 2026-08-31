@@ -115,12 +115,6 @@ pub struct ProcessCreationFields {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-
-    #[serde(rename = "LogonId", skip_serializing_if = "Option::is_none")]
-    pub logon_id: Option<String>,
-
-    #[serde(rename = "LogonGuid", skip_serializing_if = "Option::is_none")]
-    pub logon_guid: Option<String>,
 }
 
 /// File event fields (Sigma: file_access, file_delete, file_event)

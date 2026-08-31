@@ -18,6 +18,7 @@ use crate::models::{
     PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
     TaskCreationFields, WmiEventFields,
 };
+use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::{
     classify_kernel_network_event, decode_etw_ipv4, decode_etw_port, NetworkAddressFamily,
 };
@@ -1065,10 +1066,11 @@ fn decode_process(
         parent_image,
         parent_command_line: try_get_string(parser, mappings.get_etw_field("ParentCommandLine")?),
         current_directory,
-        integrity_level: try_get_string(parser, mappings.get_etw_field("IntegrityLevel")?),
+        // `MandatoryLabel` is a SID; Sigma matches on Sysmon's level name.
+        // It is only on the start template, so a stop event has none.
+        integrity_level: try_get_string(parser, mappings.get_etw_field("IntegrityLevel")?)
+            .and_then(|sid| integrity_level_from_sid(&sid)),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
-        logon_id: try_get_string(parser, mappings.get_etw_field("LogonId")?),
-        logon_guid: try_get_string(parser, mappings.get_etw_field("LogonGuid")?),
     };
 
     let pid = fields

@@ -434,8 +434,6 @@ pub fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
             file_version,
             None,
             None,
-            None,
-            None,
         );
         count += 1;
     }

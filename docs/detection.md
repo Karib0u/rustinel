@@ -272,8 +272,11 @@ Per-platform process notes:
   `CurrentDirectory` are enriched from `/proc` and may be absent.
 - **macOS:** ESF exec events carry `CommandLine`, `ParentImage`,
   `ParentProcessId`, and `CurrentDirectory` natively. `ParentCommandLine` is not
-  provided, and `IntegrityLevel` / `LogonId` / `LogonGuid` are Windows-only.
-- **Windows:** several modelled fields are never populated. See
+  provided, and `IntegrityLevel` is a Windows field with no macOS equivalent.
+- **Windows:** `IntegrityLevel` is decoded from the mandatory-label SID on the
+  process start event and spelled the way Sysmon spells it (`System`, `High`,
+  `Medium`), so it is absent on process stop events. Several other modelled
+  fields are never populated. See
   [Limitations](limitations.md#windows-etw-and-event-log).
 
 DNS field availability:

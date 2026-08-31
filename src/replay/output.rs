@@ -212,8 +212,6 @@ mod tests {
                     current_directory: None,
                     integrity_level: None,
                     user: None,
-                    logon_id: None,
-                    logon_guid: None,
                 }),
                 process_context: None,
             },

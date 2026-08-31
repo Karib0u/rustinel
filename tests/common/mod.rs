@@ -137,8 +137,6 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             current_directory: Some(temp_current_directory(platform).to_string()),
             integrity_level: None,
             user: Some(TEST_USER.to_string()),
-            logon_id: None,
-            logon_guid: None,
         }),
     }
 }

@@ -547,12 +547,6 @@ impl EcsAlert {
             ecs.process_file_version = context.file_version.clone();
         }
         apply_user_fields(ecs, context.user.as_deref());
-        if ecs.winlog_logon_id.is_none() {
-            ecs.winlog_logon_id = context.logon_id.clone();
-        }
-        if ecs.winlog_logon_guid.is_none() {
-            ecs.winlog_logon_guid = context.logon_guid.clone();
-        }
 
         if ecs.process_name.is_none() {
             ecs.process_name = ecs.process_executable.as_deref().and_then(basename);

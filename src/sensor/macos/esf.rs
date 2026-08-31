@@ -331,8 +331,6 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             // Windows-specific; absent on macOS.
             integrity_level: None,
             user: Some(raw.user),
-            logon_id: None,
-            logon_guid: None,
         }),
     }
 }
@@ -380,8 +378,6 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
             current_directory: None,
             integrity_level: None,
             user: Some(user),
-            logon_id: None,
-            logon_guid: None,
         }),
     }
 }

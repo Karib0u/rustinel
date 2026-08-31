@@ -161,8 +161,6 @@ impl From<&Alert> for EcsAlert {
                 ecs.process_company = f.company.clone();
                 ecs.process_file_version = f.file_version.clone();
                 apply_user_fields(&mut ecs, f.user.as_deref());
-                ecs.winlog_logon_id = f.logon_id.clone();
-                ecs.winlog_logon_guid = f.logon_guid.clone();
                 ecs.edr_process_target_image = f.target_image.clone();
             }
             EventFields::NetworkConnection(f) => {
@@ -449,8 +447,6 @@ mod tests {
                     parent_command_line: None,
                     current_directory: None,
                     integrity_level: None,
-                    logon_id: None,
-                    logon_guid: None,
                 }),
                 process_context: None,
             },
@@ -568,8 +564,6 @@ mod tests {
                     current_directory: Some(r"C:\Windows\System32".to_string()),
                     integrity_level: Some("System".to_string()),
                     user: Some(r"NT AUTHORITY\SYSTEM".to_string()),
-                    logon_id: Some("0x3e7".to_string()),
-                    logon_guid: Some("guid".to_string()),
                 }),
             },
             match_details: None,
@@ -591,7 +585,6 @@ mod tests {
         assert_eq!(ecs.process_pid, Some(4321));
         assert_eq!(ecs.user_name.as_deref(), Some("SYSTEM"));
         assert_eq!(ecs.user_domain.as_deref(), Some("NT AUTHORITY"));
-        assert_eq!(ecs.winlog_logon_id, Some("0x3e7".to_string()));
     }
 
     #[test]
