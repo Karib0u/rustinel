@@ -74,8 +74,8 @@ The key split in the codebase is between the hot event path and the control plan
 
 ### Windows
 
-The Windows sensor uses ETW for realtime providers and a filtered Windows Event
-Log subscription for Service Control Manager event 7045. It currently covers:
+The Windows sensor uses ETW for realtime providers and filtered Windows Event
+Log subscriptions for the System and Security channels. It currently covers:
 
 - Process
 - Image load
@@ -87,6 +87,7 @@ Log subscription for Service Control Manager event 7045. It currently covers:
 - WMI
 - Service creation
 - Task creation
+- Security channel audit events
 
 The ETW providers include:
 
@@ -102,6 +103,15 @@ The ETW providers include:
 Service creation comes from the System event log rather than the classic
 Service Control Manager provider, which does not deliver event 7045 to realtime
 user ETW sessions.
+
+The Event Log side is source-agnostic: a source is a channel, an XPath query,
+and a decoder, and the subscription lifecycle is shared. Two sources exist
+today, the System channel's 7045 and the Security channel's audit events, and
+both deliver into the same sensor channel as ETW. The Security source is scoped
+by its query to the event IDs it decodes, so the channel's full volume is
+filtered in the kernel rather than in the agent. What it collects depends on the
+host's audit policy — see
+[Windows audit policy](operations.md#windows-audit-policy).
 
 ### Linux
 

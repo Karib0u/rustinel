@@ -18,13 +18,14 @@ full rather than hide them.
 | No stateful correlation or filter evaluation | Engine |
 | Telemetry is dropped under burst load (counted, not prevented) | Pipeline |
 | Writes through handles or keys opened before startup are invisible | Windows |
+| Security channel events depend on audit policy Rustinel does not set | Windows |
 | Image paths are truncated, and truncation is unmarked on process events | Linux |
 
 ## Windows (ETW and Event Log)
 
-Telemetry comes from ETW plus a Windows Event Log subscription for System event
-7045, rather than a kernel driver. Coverage is the broadest of the three
-platforms, but several Sysmon-style fields are unavailable.
+Telemetry comes from ETW plus Windows Event Log subscriptions on the System and
+Security channels, rather than a kernel driver. Coverage is the broadest of the
+three platforms, but several Sysmon-style fields are unavailable.
 
 - **No process or image-load hashes (silent risk).** There is no
   `Hashes`/`Imphash` on process or image-load events, so the many Sigma rules
@@ -74,6 +75,20 @@ platforms, but several Sysmon-style fields are unavailable.
   operations in that range. Nothing is remapped and the two colliding IDs are
   dropped, so a `wmi_event` rule selecting on `EventID` never matches rather
   than matching the wrong event. WMI persistence telemetry is not collected.
+- **Security channel coverage depends on the host's audit policy (silent
+  risk).** Rustinel subscribes to the Security channel and decodes six audit
+  event families, but only 4624 (logon) is audited by default. The other five
+  need their audit subcategory enabled, and 4656/4663 additionally need a SACL
+  on the object being watched. Nothing about this is visible from inside the
+  agent: the subscription succeeds, the rules load against an active collector,
+  and no event ever arrives. The policy each needs is in
+  [Windows audit policy](operations.md#windows-audit-policy); Rustinel never
+  changes it.
+- **Only six Security event IDs are subscribed to (silent risk).** The
+  subscription is scoped in the kernel to 4624, 4656, 4663, 4697, 5136 and 5145.
+  A `windows/security` rule selecting on any other `EventID` loads, is counted
+  as backed by an active collector, and can never match. The list is
+  `SUPPORTED_EVENTS` in `src/sensor/windows/event_log/security.rs`.
 - **No injection, driver-load, or named-pipe visibility.** There is no
   equivalent of CreateRemoteThread, ProcessAccess, pipe, or driver-load
   telemetry, so injection-based TTPs leave little trace.

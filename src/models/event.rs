@@ -275,6 +275,7 @@ impl NormalizedEvent {
                 "Image" => f.image.as_deref(),
                 _ => None,
             },
+            EventFields::SecurityAudit(f) => f.get(key),
             EventFields::Generic(map) => map.get(key).map(|s| s.as_str()),
         }
     }
@@ -594,6 +595,11 @@ impl NormalizedEvent {
                     values.push(v.as_str());
                 }
                 if let Some(v) = &f.image {
+                    values.push(v.as_str());
+                }
+            }
+            EventFields::SecurityAudit(f) => {
+                for v in f.fields.values() {
                     values.push(v.as_str());
                 }
             }
@@ -933,6 +939,11 @@ impl NormalizedEvent {
                     values.push(("Image", v.as_str()));
                 }
             }
+            EventFields::SecurityAudit(f) => {
+                for (key, value) in &f.fields {
+                    values.push((key.as_str(), value.as_str()));
+                }
+            }
             EventFields::Generic(map) => {
                 for (key, value) in map {
                     values.push((key.as_str(), value.as_str()));
@@ -958,6 +969,7 @@ pub enum EventCategory {
     Wmi,
     Service,
     Task,
+    Security,
 }
 
 #[cfg(test)]
@@ -1119,6 +1131,9 @@ mod round_trip_tests {
             }),
             (EventCategory::Task, "Image", |f| {
                 matches!(f, EventFields::TaskCreation(_))
+            }),
+            (EventCategory::Security, "ObjectName", |f| {
+                matches!(f, EventFields::SecurityAudit(_))
             }),
         ];
 

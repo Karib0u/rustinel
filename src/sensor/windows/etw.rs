@@ -673,7 +673,9 @@ impl EtwRouting {
             EventCategory::Dns => SensorAction::Query,
             EventCategory::Wmi => SensorAction::Execute,
             EventCategory::Task => SensorAction::Register,
-            EventCategory::Service => unreachable!("service events use the event log source"),
+            EventCategory::Service | EventCategory::Security => {
+                unreachable!("event log categories use the event log sources")
+            }
             EventCategory::Process
             | EventCategory::ImageLoad
             | EventCategory::Scripting
@@ -923,7 +925,9 @@ fn decode_record(
         EventCategory::Scripting => decode_powershell(&parser, record),
         EventCategory::PowerShellModule => decode_powershell_module(&parser, record),
         EventCategory::Wmi => decode_wmi(&parser, record),
-        EventCategory::Service => unreachable!("service events use the event log source"),
+        EventCategory::Service | EventCategory::Security => {
+            unreachable!("event log categories use the event log sources")
+        }
         EventCategory::Task => decode_task(&parser, record),
     }?;
 

@@ -282,6 +282,7 @@ impl Engine {
                 ),
                 LogSourceKey::from_parts(Some("windows"), Some("wmi"), Some("wmi_event")),
                 LogSourceKey::from_parts(Some("windows"), Some("system"), Some("service_creation")),
+                LogSourceKey::from_parts(Some("windows"), Some("security"), None),
                 LogSourceKey::from_parts(
                     Some("windows"),
                     Some("taskscheduler"),

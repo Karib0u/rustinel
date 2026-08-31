@@ -42,14 +42,22 @@ Dominated by two Event Log channels and a few Sysmon categories:
 | 17 | `windefend` |
 | 15 | `create_remote_thread` |
 
-**Since this measurement:** the 34 `ps_module` rules are no longer blocked.
-Event 4103 is collected from the PowerShell provider
-([#322](https://github.com/Karib0u/rustinel/issues/322)), and all 34 reference
-only `ContextInfo` and `Payload`, which the decoder populates — so they move to
-"can fire" (Windows 2,172 / 75.5%, blocked-on-collector 414 / 14.4%) once the
-host has Module Logging enabled. See
-[Detection](detection.md#powershell-logsources). The table itself is left as
-measured; the next full run will absorb it.
+**Since this measurement**, two of these rows have moved. The table itself is
+left as measured; the next full run will absorb both.
+
+- The 34 `ps_module` rules are no longer blocked. Event 4103 is collected from
+  the PowerShell provider
+  ([#322](https://github.com/Karib0u/rustinel/issues/322)), and all 34 reference
+  only `ContextInfo` and `Payload`, which the decoder populates — so they move
+  to "can fire" (Windows 2,172 / 75.5%, blocked-on-collector 414 / 14.4%) once
+  the host has Module Logging enabled. See
+  [Detection](detection.md#powershell-logsources).
+- The `security` row predates the Security channel collector
+  ([#315](https://github.com/Karib0u/rustinel/issues/315)), which covers six
+  audit event families in that channel. It has not been re-measured, and what
+  the collector delivers depends on the host's
+  [audit policy](operations.md#windows-audit-policy), so treat 177 as an upper
+  bound on what is still blocked rather than a current count.
 
 ### Windows: unavailable fields (289 rules)
 
