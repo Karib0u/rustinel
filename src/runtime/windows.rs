@@ -6,7 +6,7 @@ use crate::normalizer::Normalizer;
 use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
-use crate::runtime::logging::{init_logging, log_startup_banner};
+use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
 use crate::runtime::telemetry::TelemetryReporter;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
@@ -146,7 +146,7 @@ fn spawn_shutdown_handler(
         match shutdown_mode {
             ShutdownMode::Console => match tokio::signal::ctrl_c().await {
                 Ok(()) => {
-                    info!("Received Ctrl+C signal");
+                    info!(target: TARGET_CONSOLE, "Received Ctrl+C signal");
                     sensor.shutdown();
                 }
                 Err(err) => {
@@ -155,7 +155,7 @@ fn spawn_shutdown_handler(
             },
             ShutdownMode::Service(mut shutdown_rx) => {
                 if shutdown_rx.changed().await.is_ok() {
-                    info!("Received service stop signal");
+                    info!(target: TARGET_CONSOLE, "Received service stop signal");
                 } else {
                     warn!("Service shutdown channel dropped");
                 }
@@ -196,7 +196,7 @@ fn ensure_administrator_privileges() -> anyhow::Result<()> {
                         "Insufficient privileges - Administrator access required"
                     ));
                 } else {
-                    info!("✓ Running with Administrator privileges");
+                    info!(target: TARGET_CONSOLE, "✓ Running with Administrator privileges");
                 }
             }
         }
@@ -218,6 +218,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         // Cold start: seed the process cache so early events resolve parents.
         match crate::platform::windows::snapshot_processes(session.process_cache()) {
             Ok(count) => info!(
+                target: TARGET_CONSOLE,
                 "✓ Process Cache initialized with {} existing processes",
                 count
             ),
@@ -324,6 +325,7 @@ async fn run_edr(
         alerts_dir = ?cfg.alerts.directory,
         "Agent started with dual-pipeline logging"
     );
+    info!(target: TARGET_CONSOLE, "Agent started");
 
     // Verify running with appropriate privileges
     ensure_administrator_privileges()?;
@@ -347,6 +349,7 @@ async fn run_edr(
         match crate::platform::windows::snapshot_processes(&process_cache) {
             Ok(count) => {
                 info!(
+                    target: TARGET_CONSOLE,
                     "✓ Process Cache initialized with {} existing processes",
                     count
                 );
@@ -372,7 +375,7 @@ async fn run_edr(
     // Initialize Sigma engine
     let engine_kind =
         crate::engine::SigmaEngineKind::resolve(sigma_engine_override, &cfg.scanner.sigma_engine)?;
-    info!(target: "rustinel", engine = engine_kind.as_str(), "Selected Sigma engine");
+    info!(target: TARGET_CONSOLE, engine = engine_kind.as_str(), "Selected Sigma engine");
     let mut sigma_engine = Engine::new_for_platform_with_logging_level_and_match_debug(
         Platform::Windows,
         &cfg.logging.level,
@@ -392,7 +395,7 @@ async fn run_edr(
         } else {
             let stats = sigma_engine.stats();
             info!(
-                target: "rustinel",
+                target: TARGET_CONSOLE,
                 total_rules = stats.total_rules,
                 skipped_deferred_rules = stats.skipped_deferred_rules,
                 skipped_unknown_logsource_rules = stats.skipped_unknown_logsource_rules,
@@ -408,7 +411,7 @@ async fn run_edr(
             }
         }
     } else {
-        info!(target: "rustinel", "Sigma detection disabled by configuration");
+        info!(target: TARGET_CONSOLE, "Sigma detection disabled by configuration");
     }
     let sigma_engine = Arc::new(sigma_engine);
 
@@ -424,7 +427,7 @@ async fn run_edr(
             .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
         {
             Ok(s) => {
-                info!(target: "rustinel", "YARA Scanner initialized successfully");
+                info!(target: TARGET_CONSOLE, "YARA Scanner initialized successfully");
                 Arc::new(s)
             }
             Err(e) => {
@@ -434,7 +437,7 @@ async fn run_edr(
             }
         }
     } else {
-        info!(target: "rustinel", "YARA scanning disabled by configuration");
+        info!(target: TARGET_CONSOLE, "YARA scanning disabled by configuration");
         Arc::new(scanner::Scanner::empty())
     };
 
@@ -442,7 +445,7 @@ async fn run_edr(
         scanner::normalize_allowlist_paths(&cfg.scanner.yara_allowlist_paths);
     if !yara_allowlist_paths.is_empty() {
         info!(
-            target: "rustinel",
+            target: TARGET_CONSOLE,
             count = yara_allowlist_paths.len(),
             "YARA allowlist paths loaded (files under these paths will NOT be scanned)"
         );
@@ -453,7 +456,7 @@ async fn run_edr(
     if ioc_engine.is_enabled() {
         let stats = ioc_engine.stats();
         info!(
-            target: "rustinel",
+            target: TARGET_CONSOLE,
             md5 = stats.md5,
             sha1 = stats.sha1,
             sha256 = stats.sha256,
@@ -465,7 +468,7 @@ async fn run_edr(
             "IOC engine initialized"
         );
     } else {
-        info!(target: "rustinel", "IOC detection disabled by configuration");
+        info!(target: TARGET_CONSOLE, "IOC detection disabled by configuration");
     }
 
     let detectors = DetectorStore::new(
@@ -586,7 +589,7 @@ async fn run_edr(
         cfg.network.aggregation_enabled,
     ));
 
-    info!("✓ ETW sensor initialized");
+    info!(target: TARGET_CONSOLE, "✓ ETW sensor initialized");
     info!("✓ Normalizer initialized");
 
     // Create the normalized-event handler in live detection mode
@@ -631,7 +634,7 @@ async fn run_edr(
     info!("✓ Signal handlers configured");
     info!("");
     info!("Starting ETW trace session...");
-    info!("Press Ctrl+C to stop gracefully");
+    info!(target: TARGET_CONSOLE, "ETW sensor starting; press Ctrl+C to stop gracefully");
     info!("");
 
     // Start shared sensor event pipeline
@@ -766,6 +769,7 @@ async fn run_edr(
     }
 
     info!("");
+    info!(target: TARGET_CONSOLE, "Shutdown complete");
     info!("╔═══════════════════════════════════════════════════╗");
     info!("║           Shutdown Complete                       ║");
     info!("║        Thank you for using Rustinel!              ║");

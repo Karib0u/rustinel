@@ -72,6 +72,10 @@ debounce_ms = 2000
 
 [logging]
 level = "info"
+# Interactive commands use a compact console view at info; the operational
+# file keeps the configured detail. Use --log-level debug for console details.
+# Path-resolution drops are counted by the sensors; detailed notices are
+# debug-level and hidden by the default info level.
 directory = "logs"
 filename = "rustinel.log"
 console_output = false
@@ -216,10 +220,10 @@ software and is a common location for macOS malware.
 | Option | Default | Description |
 | --- | --- | --- |
 | `level` | `info` | `trace`, `debug`, `info`, `warn`, or `error` |
-| `filter` | `null` | Optional `tracing_subscriber` filter expression; overrides `level` when valid |
+| `filter` | `null` | Optional `tracing_subscriber` filter expression; overrides `level` when valid for both file and console. Path-resolution drops are counted by the sensors; detailed notices are debug-level |
 | `directory` | `logs` | Operational log directory |
 | `filename` | `rustinel.log` | Operational log filename, rotated daily |
-| `console_output` | `false` | Console mirroring when the runtime does not override it. Interactive `rustinel run` enables console output regardless; use `--no-console` to suppress. On Windows, colored output needs [Windows Terminal](https://aka.ms/terminal) |
+| `console_output` | `false` | Console mirroring when the runtime does not override it. Interactive `rustinel run` enables console output regardless; at info it uses a compact view, while the operational file keeps configured detail. Use `--no-console` to suppress. On Windows, colored output needs [Windows Terminal](https://aka.ms/terminal) |
 
 ### Alerts
 

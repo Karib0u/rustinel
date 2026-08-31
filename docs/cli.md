@@ -46,6 +46,11 @@ sudo ./rustinel run --config /etc/rustinel/config.toml
 Notes:
 
 - `rustinel run` enables console output by default on every platform.
+- At the default `info` level, the console shows startup milestones, detections,
+  actionable warnings and errors, and the final pipeline summary. The
+  operational log keeps the detailed stream.
+- Use `--log-level debug` or `--log-level trace` when the detailed console
+  stream is needed for troubleshooting.
 - `--config <PATH>` selects the config file and overrides `RUSTINEL_CONFIG`, managed platform paths, executable-directory config, and current-directory config.
 - `--no-console` suppresses console output, for example when redirecting logs.
 - `--console` is kept as a compatibility alias and has the same effect as the default.

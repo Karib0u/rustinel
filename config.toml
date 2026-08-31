@@ -37,6 +37,10 @@ debounce_ms = 2000          # debounces real-time filesystem events; fallback po
 [logging]
 level = "info"              # trace, debug, info, warn, error
 # Optional target-aware filter (takes precedence over level when set)
+# Interactive commands use a compact console view at info; the operational
+# file keeps the configured detail. Use --log-level debug for console details.
+# Path-resolution drops are counted by the sensors; detailed notices are
+# debug-level and hidden by the default info level.
 # filter = "info,engine=info,scanner=info,ioc=info,rustinel::normalizer=info"
 directory = "logs"
 filename = "rustinel.log"
