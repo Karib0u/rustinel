@@ -612,6 +612,15 @@ impl Engine {
                     Some("task_creation"),
                 ));
             }
+            // The Security channel is addressed by channel alone: its Sigma
+            // rules carry no category and select on `EventID` instead.
+            EventCategory::Security => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("security"),
+                    None,
+                ));
+            }
         }
 
         aliases

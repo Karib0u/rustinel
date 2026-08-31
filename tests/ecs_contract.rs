@@ -11,10 +11,18 @@ use rustinel::models::{
     Alert, AlertSeverity, DetectionEngine, DnsQueryFields, EventCategory, EventFields,
     FileEventFields, ImageLoadFields, NetworkConnectionFields, NormalizedEvent,
     PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
-    ServiceCreationFields, TaskCreationFields, WmiEventFields,
+    SecurityAuditFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
 use rustinel::sensor::Platform;
 use serde_json::json;
+
+fn security_audit_fields(pairs: &[(&str, &str)]) -> SecurityAuditFields {
+    let mut fields = SecurityAuditFields::default();
+    for (name, value) in pairs {
+        fields.insert(name, value);
+    }
+    fields
+}
 
 fn alert(category: EventCategory, event_id: u16, opcode: u8, fields: EventFields) -> Alert {
     Alert {
@@ -335,6 +343,26 @@ fn ecs_category_coverage_maps_event_contract_fields() {
             json!(["creation"]),
             "task-create",
             "edr.task.name",
+        ),
+        (
+            alert(
+                EventCategory::Security,
+                4624,
+                0,
+                EventFields::SecurityAudit(security_audit_fields(&[
+                    ("SubjectUserName", "alice"),
+                    ("SubjectDomainName", "ACME"),
+                    ("TargetUserName", "bob"),
+                    ("LogonType", "3"),
+                    ("AuthenticationPackageName", "NTLM"),
+                    ("IpAddress", "10.0.0.9"),
+                ])),
+            ),
+            "edr.security",
+            json!(["authentication", "session"]),
+            json!(["start"]),
+            "logged-in",
+            "edr.security",
         ),
     ];
 

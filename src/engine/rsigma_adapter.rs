@@ -106,7 +106,9 @@ impl Event for RsigmaEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{EventCategory, EventFields, NormalizedEvent, ProcessCreationFields};
+    use crate::models::{
+        EventCategory, EventFields, NormalizedEvent, ProcessCreationFields, SecurityAuditFields,
+    };
     use crate::sensor::Platform;
     use std::collections::HashMap;
 
@@ -207,5 +209,26 @@ mod tests {
         let values = adapter.all_string_values();
         assert!(values.iter().any(|value| value.as_ref() == "/usr/bin/curl"));
         assert!(values.iter().any(|value| value.contains("example.test")));
+    }
+
+    #[test]
+    fn security_audit_fields_serialize_flat_like_the_typed_variants() {
+        // The Security payload is a map rather than a struct of named options.
+        // The cold paths here read the fields through serde, so a nested
+        // representation would produce `fields.ObjectName`-style keys that no
+        // rule field name could ever match.
+        let mut fields = SecurityAuditFields::default();
+        fields.insert("ObjectName", r"C:\Windows\NTDS\ntds.dit");
+        fields.insert("SubjectLogonId", "0x3e4");
+
+        let mut event = generic_event(&[]);
+        event.category = EventCategory::Security;
+        event.fields = EventFields::SecurityAudit(fields);
+        let adapter = RsigmaEvent::new(&event);
+
+        let keys = adapter.field_keys();
+        assert!(keys.iter().any(|key| key.as_ref() == "ObjectName"));
+        assert!(keys.iter().any(|key| key.as_ref() == "SubjectLogonId"));
+        assert!(adapter.any_string_value(&|value| value.ends_with("ntds.dit")));
     }
 }
