@@ -52,6 +52,9 @@ impl Normalizer {
             SensorPayload::Registry(fields) => self.normalize_registry(event, fields.clone()),
             SensorPayload::ImageLoad(fields) => self.normalize_image_load(fields.clone()),
             SensorPayload::Scripting(fields) => self.normalize_powershell(fields.clone()),
+            SensorPayload::PowerShellModule(fields) => {
+                self.normalize_powershell_module(fields.clone())
+            }
             SensorPayload::Wmi(fields) => self.normalize_wmi(fields.clone()),
             SensorPayload::Service(fields) => self.normalize_service(event, fields.clone()),
             SensorPayload::Task(fields) => self.normalize_task(event, fields.clone()),
@@ -279,6 +282,14 @@ impl Normalizer {
         Some(EventFields::PowerShellScript(fields))
     }
 
+    fn normalize_powershell_module(
+        &self,
+        mut fields: PowerShellModuleFields,
+    ) -> Option<EventFields> {
+        self.resolve_user_field(&mut fields.user);
+        Some(EventFields::PowerShellModule(fields))
+    }
+
     fn normalize_wmi(&self, mut fields: WmiEventFields) -> Option<EventFields> {
         self.resolve_user_field(&mut fields.user);
         Some(EventFields::WmiEvent(fields))
@@ -353,6 +364,7 @@ impl Normalizer {
             EventFields::DnsQuery(f) => f.process_id.as_deref(),
             EventFields::ImageLoad(f) => f.process_id.as_deref(),
             EventFields::PowerShellScript(f) => f.process_id.as_deref(),
+            EventFields::PowerShellModule(f) => f.process_id.as_deref(),
             EventFields::WmiEvent(f) => f.process_id.as_deref(),
             EventFields::ServiceCreation(f) => f.process_id.as_deref(),
             EventFields::TaskCreation(f) => f.process_id.as_deref(),

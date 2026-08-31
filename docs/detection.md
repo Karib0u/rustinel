@@ -110,6 +110,7 @@ tracked by [#195](https://github.com/Karib0u/rustinel/issues/195).
 | `registry_event` / `registry_*` | Yes | No | No | Windows only |
 | `image_load` | Yes | No | No | Windows only |
 | `ps_script` | Yes | No | No | Windows only |
+| `ps_module` | Yes | No | No | Windows only, requires Module Logging policy, see below |
 | `wmi_event` | Yes | No | No | Windows only, see below |
 | `service_creation` | Yes | No | No | Windows only |
 | `task_creation` | Yes | No | No | Windows only |
@@ -173,6 +174,37 @@ For rule authors: `wmi_event` rules selecting on `EventID` do not match. Rules
 matching `Operation`, `Query`, `EventNamespace`, `Image`, `User`, or
 `DestinationHostname` do. WMI *persistence* telemetry is not collected at all.
 
+#### PowerShell logsources
+
+Both PowerShell families come from one provider,
+`Microsoft-Windows-PowerShell`, split by event ID:
+
+| Family | Event | Fields | Host policy required |
+| --- | --- | --- | --- |
+| `ps_script` | 4104 | `ScriptBlockText`, `ScriptBlockId`, `Path` | Script Block Logging, except for blocks Windows flags as suspicious |
+| `ps_module` | 4103 | `ContextInfo`, `Payload` | Module Logging, always |
+
+Module logging is **off by default**, and unlike script block logging it has no
+automatic path: with the policy disabled, PowerShell writes no 4103 at all, so
+`ps_module` rules see nothing however the session is configured. Enable **Turn
+on Module Logging** under *Windows Components > Windows PowerShell* in Group
+Policy, with module names set to `*`, or set the equivalent registry values:
+
+```powershell
+$key = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging'
+New-Item -Path "$key\ModuleNames" -Force | Out-Null
+New-ItemProperty -Path $key -Name EnableModuleLogging -Value 1 -PropertyType DWord -Force
+New-ItemProperty -Path "$key\ModuleNames" -Name '*' -Value '*' -PropertyType String -Force
+```
+
+For rule authors: `ContextInfo` and `Payload` are free-form provider text, not
+parsed fields. `ContextInfo` is a newline-separated `name = value` block (host
+application, command name, user, shell ID) and `Payload` is the
+parameter-binding transcript. Windows writes **both in the host's display
+language**, so a rule that matches a label (`Host Application =`) rather than a
+value only fires on an English host. PowerShell 7 uses a different provider and
+is not collected.
+
 ### Field model
 
 Sigma evaluates the shared `NormalizedEvent` model using Sysmon-style field
@@ -191,6 +223,8 @@ names.
   version resource on process creation and image load. They are absent on Linux
   and macOS, and on any image whose file is unreadable when the event is
   decoded (deleted, locked, or unversioned).
+- **PowerShell:** `ScriptBlockText`, `ScriptBlockId`, `Path` on `ps_script`;
+  `ContextInfo`, `Payload` on `ps_module`
 
 Per-platform process notes:
 

@@ -23,8 +23,8 @@ use tokio::sync::mpsc::Sender;
 
 use crate::models::{
     DnsQueryFields, EventCategory, EventFields, FileEventFields, ImageLoadFields,
-    NetworkConnectionFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
-    ServiceCreationFields, TaskCreationFields, WmiEventFields,
+    NetworkConnectionFields, PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields,
+    RegistryEventFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
 
 /// Cross-platform sensor interface.
@@ -238,6 +238,7 @@ pub enum SensorPayload {
     Registry(RegistryEventFields),
     ImageLoad(ImageLoadFields),
     Scripting(PowerShellScriptFields),
+    PowerShellModule(PowerShellModuleFields),
     Wmi(WmiEventFields),
     Service(ServiceCreationFields),
     Task(TaskCreationFields),
@@ -254,6 +255,7 @@ impl SensorPayload {
             Self::Registry(_) => EventCategory::Registry,
             Self::ImageLoad(_) => EventCategory::ImageLoad,
             Self::Scripting(_) => EventCategory::Scripting,
+            Self::PowerShellModule(_) => EventCategory::PowerShellModule,
             Self::Wmi(_) => EventCategory::Wmi,
             Self::Service(_) => EventCategory::Service,
             Self::Task(_) => EventCategory::Task,
@@ -271,6 +273,7 @@ impl SensorPayload {
             Self::Registry(fields) => EventFields::RegistryEvent(fields),
             Self::ImageLoad(fields) => EventFields::ImageLoad(fields),
             Self::Scripting(fields) => EventFields::PowerShellScript(fields),
+            Self::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
             Self::Wmi(fields) => EventFields::WmiEvent(fields),
             Self::Service(fields) => EventFields::ServiceCreation(fields),
             Self::Task(fields) => EventFields::TaskCreation(fields),
@@ -290,6 +293,7 @@ impl TryFrom<EventFields> for SensorPayload {
             EventFields::RegistryEvent(fields) => Ok(Self::Registry(fields)),
             EventFields::ImageLoad(fields) => Ok(Self::ImageLoad(fields)),
             EventFields::PowerShellScript(fields) => Ok(Self::Scripting(fields)),
+            EventFields::PowerShellModule(fields) => Ok(Self::PowerShellModule(fields)),
             EventFields::WmiEvent(fields) => Ok(Self::Wmi(fields)),
             EventFields::ServiceCreation(fields) => Ok(Self::Service(fields)),
             EventFields::TaskCreation(fields) => Ok(Self::Task(fields)),
