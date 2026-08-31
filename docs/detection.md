@@ -115,6 +115,33 @@ tracked by [#195](https://github.com/Karib0u/rustinel/issues/195).
 | `service_creation` | Yes | No | No | Windows only |
 | `task_creation` | Yes | No | No | Windows only |
 
+The Windows Security channel is a family of its own. Rules for it carry no
+`category` — `product: windows`, `service: security`, and an `EventID`
+selection — so they are routed by channel rather than by category:
+
+| Event ID | Event | Key fields |
+| --- | --- | --- |
+| 4624 | An account was successfully logged on | `LogonType`, `AuthenticationPackageName`, `LogonProcessName`, `TargetUserName`, `WorkstationName`, `IpAddress` |
+| 4656 | A handle to an object was requested | `ObjectType`, `ObjectName`, `AccessMask`, `AccessList`, `ProcessName` |
+| 4663 | An attempt was made to access an object | `ObjectType`, `ObjectName`, `AccessMask`, `AccessList`, `ProcessName` |
+| 4697 | A service was installed in the system | `ServiceName`, `ServiceFileName`, `ServiceType`, `ServiceStartType`, `ServiceAccount` |
+| 5136 | A directory service object was modified | `ObjectDN`, `ObjectClass`, `AttributeLDAPDisplayName`, `AttributeValue`, `OperationType` |
+| 5145 | A network share object was checked | `ShareName`, `ShareLocalPath`, `RelativeTargetName`, `AccessMask`, `AccessList`, `IpAddress` |
+
+Every one of them also carries the `Subject*` identity block
+(`SubjectUserSid`, `SubjectUserName`, `SubjectDomainName`, `SubjectLogonId`).
+An event ID outside this list is not subscribed to, so a rule selecting on one
+loads and never matches. The authoritative list is `SUPPORTED_EVENTS` in
+`src/sensor/windows/event_log/security.rs`.
+
+Values are kept exactly as Windows renders them, because that is what rules for
+this channel are written against: `SubjectLogonId` matches `0x3e4`, not `996`,
+and `AccessList` matches the raw `%%4417` access-right codes. `ProcessId` is
+likewise the channel's own hex.
+
+Five of the six need audit policy that is off by default — see
+[Windows audit policy](operations.md#windows-audit-policy).
+
 macOS telemetry has two sources: Endpoint Security for process and file events
 (`provider: esf`), and `/dev/bpf` capture for network and DNS (`provider: bpf`).
 Its coverage mirrors Linux.

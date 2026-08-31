@@ -26,7 +26,8 @@ use tokio::sync::mpsc::Sender;
 use crate::models::{
     DnsQueryFields, EventCategory, EventFields, FileEventFields, ImageLoadFields,
     NetworkConnectionFields, PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields,
-    RegistryEventFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
+    RegistryEventFields, SecurityAuditFields, ServiceCreationFields, TaskCreationFields,
+    WmiEventFields,
 };
 
 /// Cross-platform sensor interface.
@@ -81,6 +82,8 @@ pub enum SensorAction {
     Load,
     Execute,
     Register,
+    /// A subject asked for, or exercised, access to a securable object.
+    Access,
 }
 
 /// Stable process identity used to avoid PID reuse collisions.
@@ -244,6 +247,7 @@ pub enum SensorPayload {
     Wmi(WmiEventFields),
     Service(ServiceCreationFields),
     Task(TaskCreationFields),
+    Security(SecurityAuditFields),
 }
 
 impl SensorPayload {
@@ -261,6 +265,7 @@ impl SensorPayload {
             Self::Wmi(_) => EventCategory::Wmi,
             Self::Service(_) => EventCategory::Service,
             Self::Task(_) => EventCategory::Task,
+            Self::Security(_) => EventCategory::Security,
         }
     }
 
@@ -279,6 +284,7 @@ impl SensorPayload {
             Self::Wmi(fields) => EventFields::WmiEvent(fields),
             Self::Service(fields) => EventFields::ServiceCreation(fields),
             Self::Task(fields) => EventFields::TaskCreation(fields),
+            Self::Security(fields) => EventFields::SecurityAudit(fields),
         }
     }
 }
@@ -299,6 +305,7 @@ impl TryFrom<EventFields> for SensorPayload {
             EventFields::WmiEvent(fields) => Ok(Self::Wmi(fields)),
             EventFields::ServiceCreation(fields) => Ok(Self::Service(fields)),
             EventFields::TaskCreation(fields) => Ok(Self::Task(fields)),
+            EventFields::SecurityAudit(fields) => Ok(Self::Security(fields)),
             other => Err(other),
         }
     }

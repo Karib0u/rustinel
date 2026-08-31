@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::EventCategory;
 
@@ -25,6 +25,7 @@ pub enum EventFields {
     WmiEvent(WmiEventFields),
     ServiceCreation(ServiceCreationFields),
     TaskCreation(TaskCreationFields),
+    SecurityAudit(SecurityAuditFields),
     Generic(HashMap<String, String>),
 }
 
@@ -59,6 +60,7 @@ impl EventFields {
             EventCategory::Wmi => serde_json::from_value(payload).map(Self::WmiEvent),
             EventCategory::Service => serde_json::from_value(payload).map(Self::ServiceCreation),
             EventCategory::Task => serde_json::from_value(payload).map(Self::TaskCreation),
+            EventCategory::Security => serde_json::from_value(payload).map(Self::SecurityAudit),
         }
     }
 }
@@ -416,4 +418,72 @@ pub struct TaskCreationFields {
 
     #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+}
+
+/// Windows Security channel audit fields (Sigma: `windows/security`).
+///
+/// Every other category is a single event shape, so a struct of named options
+/// models it exactly. The Security channel is not: one logsource carries event
+/// families whose field sets barely overlap — a logon (4624), a handle request
+/// (4656), a share access (5145) and a directory service change (5136) share
+/// only the `Subject*` identity block — and each family the collector grows
+/// brings its own. Keeping the record as the event's own field names avoids a
+/// union struct that would be `None` in almost every slot on every event.
+///
+/// The names and the values are Windows' own, exactly as the channel renders
+/// them, because that is what Sigma rules for this logsource are written
+/// against: `SubjectLogonId` matches `0x3e4`, not `996`, and `AccessList`
+/// matches the raw `%%4417` access-right codes.
+///
+/// The set is not open-ended. `sensor::windows::event_log::security` holds one
+/// allowlist per supported event ID, and that table is the single statement of
+/// which fields this collector populates.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecurityAuditFields {
+    pub fields: BTreeMap<String, String>,
+}
+
+impl SecurityAuditFields {
+    /// Read a decoded field by its Windows name.
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.fields.get(name).map(String::as_str)
+    }
+
+    /// Record a decoded field, ignoring empty values.
+    ///
+    /// The channel writes `-` for a property that does not apply to the
+    /// instance of the event, which is not a value a rule should be able to
+    /// match on, so it is dropped like an empty one.
+    pub fn insert(&mut self, name: &str, value: &str) {
+        if value.is_empty() || value == "-" {
+            return;
+        }
+        self.fields.insert(name.to_string(), value.to_string());
+    }
+
+    /// The process this event is attributed to, if it carries one.
+    ///
+    /// The Security channel renders process IDs in hex (`0x4d8`), unlike every
+    /// other field in the model that holds a decimal PID string. The raw
+    /// rendering stays in [`Self::fields`] for rules to match; this is the
+    /// parse the pipeline itself needs for process-cache lookups.
+    pub fn process_id(&self) -> Option<u32> {
+        parse_windows_process_id(self.get("ProcessId")?)
+    }
+}
+
+/// Parse a process ID as the Windows Security channel renders it.
+///
+/// Accepts the hex form the channel emits and a plain decimal, so a value that
+/// arrives already normalized is not rejected.
+pub fn parse_windows_process_id(value: &str) -> Option<u32> {
+    let value = value.trim();
+    match value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+        None => value.parse::<u32>().ok(),
+    }
 }

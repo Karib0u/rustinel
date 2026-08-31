@@ -58,6 +58,7 @@ impl Normalizer {
             SensorPayload::Wmi(fields) => self.normalize_wmi(fields.clone()),
             SensorPayload::Service(fields) => self.normalize_service(event, fields.clone()),
             SensorPayload::Task(fields) => self.normalize_task(event, fields.clone()),
+            SensorPayload::Security(fields) => Some(EventFields::SecurityAudit(fields.clone())),
         }?;
 
         Some(NormalizedEvent {
@@ -364,6 +365,7 @@ impl Normalizer {
             EventFields::WmiEvent(f) => f.process_id.as_deref(),
             EventFields::ServiceCreation(f) => f.process_id.as_deref(),
             EventFields::TaskCreation(f) => f.process_id.as_deref(),
+            EventFields::SecurityAudit(f) => f.get("ProcessId"),
             EventFields::RemoteThread(f) => f.source_process_id.as_deref(),
             EventFields::ProcessCreation(_) | EventFields::Generic(_) => None,
         };
