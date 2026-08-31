@@ -125,6 +125,8 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             original_file_name: Some("curl.exe".to_string()),
             product: Some("curl".to_string()),
             description: Some("test process".to_string()),
+            company: None,
+            file_version: None,
             target_image: None,
             command_line: Some(format!("{image} https://{TEST_DOMAIN}")),
             process_id: Some(TEST_PID.to_string()),

@@ -39,6 +39,12 @@ pub struct ProcessMetadata {
     /// PE metadata: File description
     #[allow(dead_code)]
     pub description: Option<String>,
+    /// PE metadata: Company name
+    #[allow(dead_code)]
+    pub company: Option<String>,
+    /// PE metadata: File version
+    #[allow(dead_code)]
+    pub file_version: Option<String>,
     /// Process working directory
     #[allow(dead_code)]
     pub current_directory: Option<String>,
@@ -101,6 +107,8 @@ impl ProcessCache {
     /// * `original_filename` - PE metadata: Original filename
     /// * `product` - PE metadata: Product name
     /// * `description` - PE metadata: File description
+    /// * `company` - PE metadata: Company name
+    /// * `file_version` - PE metadata: File version
     /// * `current_directory` - Process working directory
     /// * `integrity_level` - Process integrity level
     /// * `logon_id` - Logon session ID
@@ -119,6 +127,8 @@ impl ProcessCache {
         original_filename: Option<String>,
         product: Option<String>,
         description: Option<String>,
+        company: Option<String>,
+        file_version: Option<String>,
         current_directory: Option<String>,
         integrity_level: Option<String>,
         logon_id: Option<String>,
@@ -143,6 +153,8 @@ impl ProcessCache {
                     original_filename,
                     product,
                     description,
+                    company,
+                    file_version,
                     current_directory,
                     integrity_level,
                     logon_id,
@@ -340,6 +352,8 @@ mod tests {
             pid,
             creation_time,
             format!("process-{pid}"),
+            None,
+            None,
             None,
             None,
             None,

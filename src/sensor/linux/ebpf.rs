@@ -460,6 +460,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     original_file_name: None,
                     product: None,
                     description: None,
+                    company: None,
+                    file_version: None,
                     target_image: None,
                     command_line: resolve_command_line(
                         ev.kernel_command_line(),
@@ -506,6 +508,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 original_file_name: None,
                 product: None,
                 description: None,
+                company: None,
+                file_version: None,
                 target_image: None,
                 command_line: None,
                 process_id: Some(ev.pid.to_string()),

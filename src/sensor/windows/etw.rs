@@ -22,6 +22,7 @@ use crate::sensor::network_events::{
     classify_kernel_network_event, decode_etw_ipv4, decode_etw_port, NetworkAddressFamily,
 };
 use crate::sensor::{Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorPayload};
+use crate::utils::pe;
 use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line};
 
 use super::event_log::EventLogSubscriptions;
@@ -1038,29 +1039,22 @@ fn decode_process(
     let parent_image = raw_parent_image.map(|path| convert_nt_to_dos(&path));
     let current_directory = raw_current_directory.map(|path| convert_nt_to_dos(&path));
 
-    let (original_file_name, product, description) = if action == SensorAction::Start {
-        if let Some(path) = image.as_deref() {
-            if let Some(metadata) = parse_metadata(path) {
-                (
-                    metadata.original_filename,
-                    metadata.product,
-                    metadata.description,
-                )
-            } else {
-                (None, None, None)
-            }
-        } else {
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
+    // Version resources are only worth reading on a start: on a stop the image
+    // is often already gone, and the fields describe the binary, not the exit.
+    let pe_metadata = match image.as_deref() {
+        Some(path) if action == SensorAction::Start => parse_metadata(path),
+        _ => None,
     };
+    let (original_file_name, product, description, company, file_version) =
+        pe::version_fields(pe_metadata);
 
     let mut fields = ProcessCreationFields {
         image: image.clone(),
         original_file_name,
         product,
         description,
+        company,
+        file_version,
         target_image: try_get_string(parser, mappings.get_etw_field("TargetImage")?)
             .map(|path| convert_nt_to_dos(&path)),
         command_line: try_get_string(parser, mappings.get_etw_field("CommandLine")?),
@@ -1452,19 +1446,9 @@ fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option<DecodedEtw
     let image_loaded = try_get_string(parser, mappings.get_etw_field("ImageLoaded")?)
         .map(|path| convert_nt_to_dos(&path));
 
-    let (original_file_name, product, description) = if let Some(path) = image_loaded.as_deref() {
-        if let Some(metadata) = parse_metadata(path) {
-            (
-                metadata.original_filename,
-                metadata.product,
-                metadata.description,
-            )
-        } else {
-            (None, None, None)
-        }
-    } else {
-        (None, None, None)
-    };
+    let pe_metadata = image_loaded.as_deref().and_then(parse_metadata);
+    let (original_file_name, product, description, company, file_version) =
+        pe::version_fields(pe_metadata);
 
     let fields = ImageLoadFields {
         image_loaded,
@@ -1474,6 +1458,8 @@ fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option<DecodedEtw
         original_file_name,
         product,
         description,
+        company,
+        file_version,
         signed: try_get_string(parser, mappings.get_etw_field("Signed")?),
         signature: try_get_string(parser, mappings.get_etw_field("Signature")?),
         user: try_get_string(parser, mappings.get_etw_field("User")?),

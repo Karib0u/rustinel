@@ -323,6 +323,8 @@ mod tests {
             original_file_name: None,
             product: None,
             description: None,
+            company: None,
+            file_version: None,
             target_image: None,
             command_line: Some("/usr/bin/bash -c id".to_string()),
             process_id: Some("42".to_string()),

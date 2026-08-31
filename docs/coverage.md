@@ -85,6 +85,11 @@ whole snapshot was taken before that change and re-deriving one row against a
 different corpus would make the totals inconsistent; the next measurement is
 what moves the headline.
 
+`Company` is no longer one of them: it is now read from the PE version
+resource, alongside `FileVersion`
+([#303](https://github.com/Karib0u/rustinel/issues/303)). The table above
+predates that change and still counts its 21 rules as blocked.
+
 ### Linux: one source dominates
 
 **54 of the 65 blocked Linux rules are `auditd`**, and nothing else reaches 4.
