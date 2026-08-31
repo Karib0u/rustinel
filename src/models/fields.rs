@@ -396,6 +396,17 @@ pub struct WmiEventFields {
 /// Maps to Windows Event ID 7045 (A service was installed)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceCreationFields {
+    /// Windows Event Log provider that wrote the record, as Sigma names it.
+    ///
+    /// This is the `<Provider Name=..>` of the originating record
+    /// (`Service Control Manager` for 7045), not
+    /// [`NormalizedEvent::provider`](crate::models::NormalizedEvent), which
+    /// names the Rustinel sensor that collected it (`windows_event_log`).
+    /// Most `service: system` rules select on `Provider_Name` alongside
+    /// `EventID`, so they cannot fire without it.
+    #[serde(rename = "Provider_Name", skip_serializing_if = "Option::is_none")]
+    pub provider_name: Option<String>,
+
     #[serde(rename = "ServiceName", skip_serializing_if = "Option::is_none")]
     pub service_name: Option<String>,
 

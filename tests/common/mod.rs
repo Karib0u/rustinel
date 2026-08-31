@@ -10,7 +10,7 @@ use rustinel::config::IocConfig;
 use rustinel::models::ecs::EcsAlert;
 use rustinel::models::{
     Alert, DnsQueryFields, EventFields, FileEventFields, NetworkConnectionFields, NormalizedEvent,
-    PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields,
+    PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, ServiceCreationFields,
 };
 use rustinel::normalizer::Normalizer;
 use rustinel::sensor::{
@@ -31,6 +31,11 @@ pub const TEST_DESTINATION_IP: &str = "198.51.100.10";
 pub const TEST_DESTINATION_PORT: u16 = 443;
 pub const TEST_DOMAIN: &str = "example.test";
 pub const TEST_YARA_MARKER: &str = "RUSTINEL_TEST_MARKER";
+pub const TEST_SERVICE_NAME: &str = "RustinelTestSvc";
+pub const TEST_SERVICE_IMAGE_PATH: &str = r"C:\Windows\Temp\rustinel-fixture-service.exe";
+/// The Windows Event Log provider behind event 7045, as `service: system`
+/// rules select on it.
+pub const TEST_SERVICE_PROVIDER: &str = "Service Control Manager";
 
 pub struct TestNormalizer {
     pub normalizer: Normalizer,
@@ -137,6 +142,36 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             current_directory: Some(temp_current_directory(platform).to_string()),
             integrity_level: None,
             user: Some(TEST_USER.to_string()),
+        }),
+    }
+}
+
+/// A Windows System 7045 record as the event log source decodes it.
+///
+/// `provider` is the Rustinel sensor that collected the record; the Windows
+/// provider that wrote it travels in the payload as `Provider_Name`.
+pub fn service_installation_event() -> SensorEvent {
+    SensorEvent {
+        platform: Platform::Windows,
+        provider: "windows_event_log",
+        action: SensorAction::Register,
+        normalization: SensorNormalization {
+            event_id: 7045,
+            action_code: 0,
+        },
+        pid: None,
+        timestamp: test_time(),
+        process_start_key: None,
+        payload: SensorPayload::Service(ServiceCreationFields {
+            provider_name: Some(TEST_SERVICE_PROVIDER.to_string()),
+            service_name: Some(TEST_SERVICE_NAME.to_string()),
+            service_file_name: Some(TEST_SERVICE_IMAGE_PATH.to_string()),
+            service_type: Some("user mode service".to_string()),
+            start_type: Some("demand start".to_string()),
+            account_name: Some("LocalSystem".to_string()),
+            user: None,
+            process_id: None,
+            image: None,
         }),
     }
 }
@@ -422,6 +457,30 @@ detection:
     DestinationPort: "{TEST_DESTINATION_PORT}"
   condition: selection
 level: medium
+"#
+            ),
+        )
+    }
+
+    /// A `service: system` rule shaped like SigmaHQ's
+    /// `windows/builtin/system/service_control_manager` family: it selects on
+    /// `Provider_Name`, `EventID`, and `ImagePath`, which is why none of them
+    /// may be missing for the rule to fire.
+    pub fn write_service_rule(&self) -> PathBuf {
+        self.write_rule(
+            "service.yml",
+            &format!(
+                r#"title: Test Service Installation
+logsource:
+  product: windows
+  service: system
+detection:
+  selection:
+    Provider_Name: "{TEST_SERVICE_PROVIDER}"
+    EventID: 7045
+    ImagePath|contains: "rustinel-fixture-service.exe"
+  condition: selection
+level: high
 "#
             ),
         )

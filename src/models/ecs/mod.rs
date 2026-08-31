@@ -120,6 +120,7 @@ impl From<&Alert> for EcsAlert {
             edr_service_type: None,
             edr_service_start_type: None,
             edr_service_account_name: None,
+            edr_event_log_provider_name: None,
             edr_task_name: None,
             edr_task_content: None,
             edr_task_user_name: None,
@@ -268,6 +269,7 @@ impl From<&Alert> for EcsAlert {
                 }
             }
             EventFields::ServiceCreation(f) => {
+                ecs.edr_event_log_provider_name = f.provider_name.clone();
                 ecs.service_name = f.service_name.clone();
                 ecs.edr_service_executable = f.service_file_name.clone();
                 ecs.edr_service_type = f.service_type.clone();
@@ -490,12 +492,13 @@ mod tests {
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
                 platform: Platform::Windows,
-                provider: "etw".to_string(),
+                provider: "windows_event_log".to_string(),
                 category: EventCategory::Service,
                 event_id: 7045,
                 event_id_string: "7045".to_string(),
                 opcode: 0,
                 fields: EventFields::ServiceCreation(ServiceCreationFields {
+                    provider_name: Some("Service Control Manager".to_string()),
                     service_name: Some("BackdoorSvc".to_string()),
                     service_file_name: Some(r"C:\Temp\evil.exe".to_string()),
                     service_type: Some("0x10".to_string()),
@@ -518,6 +521,14 @@ mod tests {
             ecs.edr_service_executable,
             Some(r"C:\Temp\evil.exe".to_string())
         );
+        // The two providers are different things and both are reported: the
+        // sensor that collected the record, and the Windows provider that
+        // wrote it.
+        assert_eq!(ecs.event_provider, "windows_event_log");
+        assert_eq!(
+            ecs.edr_event_log_provider_name,
+            Some("Service Control Manager".to_string())
+        );
         assert_eq!(ecs.edr_rule_severity, "Critical");
         assert_eq!(ecs.event_severity, Some(100));
     }
@@ -539,6 +550,7 @@ mod tests {
                 event_id_string: "7045".to_string(),
                 opcode: 0,
                 fields: EventFields::ServiceCreation(ServiceCreationFields {
+                    provider_name: Some("Service Control Manager".to_string()),
                     service_name: Some("UpdaterSvc".to_string()),
                     service_file_name: Some(r"C:\Temp\updater.exe".to_string()),
                     service_type: None,
