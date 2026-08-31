@@ -20,6 +20,7 @@ pub(super) fn ecs_event_category(category: EventCategory) -> Vec<String> {
         EventCategory::Dns => vec!["network".to_string()],
         EventCategory::ImageLoad => vec!["library".to_string()],
         EventCategory::Scripting => vec!["process".to_string()],
+        EventCategory::PowerShellModule => vec!["process".to_string()],
         EventCategory::Wmi => vec!["api".to_string()],
         EventCategory::Service => vec!["configuration".to_string()],
         EventCategory::Task => vec!["configuration".to_string()],
@@ -49,6 +50,7 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
         EventCategory::Dns => vec!["protocol".to_string()],
         EventCategory::ImageLoad => vec!["start".to_string()],
         EventCategory::Scripting => vec!["info".to_string()],
+        EventCategory::PowerShellModule => vec!["info".to_string()],
         EventCategory::Wmi => vec!["info".to_string()],
         EventCategory::Service => {
             if event_id == 7045 {
@@ -94,6 +96,7 @@ pub(super) fn ecs_event_action(
         EventCategory::Dns => "dns-query",
         EventCategory::ImageLoad => "image-load",
         EventCategory::Scripting => "powershell-script",
+        EventCategory::PowerShellModule => "powershell-module",
         EventCategory::Wmi => "wmi-operation",
         EventCategory::Service => {
             if event_id == 7045 {
@@ -122,6 +125,7 @@ pub(super) fn event_dataset(category: EventCategory) -> String {
         EventCategory::Dns => "dns",
         EventCategory::ImageLoad => "library",
         EventCategory::Scripting => "scripting",
+        EventCategory::PowerShellModule => "powershell_module",
         EventCategory::Wmi => "wmi",
         EventCategory::Service => "service",
         EventCategory::Task => "task",
