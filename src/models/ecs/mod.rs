@@ -16,7 +16,8 @@ pub use alert::{DnsAnswer, EcsAlert, ReplayProvenance};
 use crate::models::{Alert, EventFields};
 use event::{
     alert_severity_to_event_severity, ecs_event_action, ecs_event_category, ecs_event_type,
-    event_dataset, event_provider, host_os_family, host_os_type, network_direction_from_category,
+    ecs_object_access_category, event_dataset, event_provider, host_os_family, host_os_type,
+    network_direction_from_category,
 };
 use helpers::{basename, file_extension_from_path, parse_bool, parse_u16, parse_u64};
 use network::{extract_ips, network_transport_from_opcode, network_type_from_ip};
@@ -30,7 +31,7 @@ impl From<&Alert> for EcsAlert {
     fn from(alert: &Alert) -> Self {
         let opcode = alert.event.opcode;
         let event_id = alert.event.event_id;
-        let event_category = ecs_event_category(alert.event.category);
+        let event_category = ecs_event_category(alert.event.category, event_id);
         let event_type = ecs_event_type(alert.event.category, opcode, event_id);
         let event_action = ecs_event_action(alert.event.category, opcode, event_id);
         let event_code = if !alert.event.event_id_string.is_empty() {
@@ -133,6 +134,7 @@ impl From<&Alert> for EcsAlert {
             edr_remote_thread_start_module: None,
             edr_remote_thread_start_function: None,
             edr_process_target_image: None,
+            edr_security: None,
             related_ip: None,
             related_user: None,
             edr_match: alert.match_details.clone(),
@@ -287,6 +289,48 @@ impl From<&Alert> for EcsAlert {
                 ecs.edr_remote_thread_start_module = f.start_module.clone();
                 ecs.edr_remote_thread_start_function = f.start_function.clone();
                 apply_user_fields(&mut ecs, f.user.as_deref());
+            }
+            EventFields::SecurityAudit(f) => {
+                // Windows names the acting identity in three separate fields;
+                // the rest of the model carries one `DOMAIN\\user` string, so
+                // recompose it before handing it to the shared user mapping.
+                let subject = match (f.get("SubjectDomainName"), f.get("SubjectUserName")) {
+                    (Some(domain), Some(name)) => Some(format!("{domain}\\{name}")),
+                    (None, Some(name)) => Some(name.to_string()),
+                    _ => None,
+                };
+                apply_user_fields(&mut ecs, subject.as_deref());
+                if ecs.user_id.is_none() {
+                    ecs.user_id = f.get("SubjectUserSid").map(str::to_string);
+                }
+                ecs.winlog_logon_id = f.get("SubjectLogonId").map(str::to_string);
+
+                // 4624 and 5145 name the machine the request came *from*.
+                ecs.source_ip = f.get("IpAddress").map(str::to_string);
+                ecs.source_port = parse_u16(&f.get("IpPort").map(str::to_string));
+
+                ecs.process_executable = f.get("ProcessName").map(str::to_string);
+                ecs.process_pid = f.process_id().map(u64::from);
+
+                ecs.service_name = f.get("ServiceName").map(str::to_string);
+                ecs.edr_service_executable = f.get("ServiceFileName").map(str::to_string);
+                ecs.edr_service_type = f.get("ServiceType").map(str::to_string);
+                ecs.edr_service_start_type = f.get("ServiceStartType").map(str::to_string);
+                ecs.edr_service_account_name = f.get("ServiceAccount").map(str::to_string);
+
+                if matches!(f.get("ObjectType"), Some("File") | Some("Directory")) {
+                    ecs.file_path = f.get("ObjectName").map(str::to_string);
+                }
+                if matches!(f.get("ObjectType"), Some("Key")) {
+                    ecs.registry_path = f.get("ObjectName").map(str::to_string);
+                }
+                if matches!(event_id, 4656 | 4663 | 5145) {
+                    ecs.event_category = ecs_object_access_category(f.get("ObjectType"));
+                }
+
+                if !f.fields.is_empty() {
+                    ecs.edr_security = Some(f.fields.clone());
+                }
             }
             EventFields::Generic(_) => {
                 // Generic events don't have structured field mapping

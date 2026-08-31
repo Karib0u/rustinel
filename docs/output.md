@@ -131,6 +131,7 @@ Format:
 | WMI | `edr.wmi` |
 | Service | `edr.service` |
 | Task | `edr.task` |
+| Security channel | `edr.security` |
 
 The full field set depends on event type and platform. Windows alerts can include PE metadata, registry details, PowerShell content, and service or task context. Linux and macOS alerts currently focus on process, network, file, and DNS fields.
 
@@ -139,6 +140,14 @@ Alerts on events read from the Windows Event Log carry
 (`Service Control Manager` for service installations). It is a different thing
 from `event.provider`, which names the Rustinel sensor, and it is what Sigma
 sees as `Provider_Name`.
+
+Windows Security channel alerts additionally carry `edr.security`, a nested
+object holding the decoded audit record under its own Windows field names
+(`ObjectName`, `ShareName`, `AttributeValue`, ...). The fields that map onto ECS
+— identity, source address, process, service — are also lifted into the standard
+ECS fields, so `edr.security` is the lossless copy rather than the only one. It
+is nested rather than flattened so a Windows field name can never collide with
+an ECS one.
 
 ## Behavioral Recordings
 

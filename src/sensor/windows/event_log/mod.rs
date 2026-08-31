@@ -4,6 +4,7 @@
 //! subscription lifecycle, native handles, shutdown, and sensor-channel
 //! delivery stay shared across System, Security, and Application sources.
 
+mod security;
 mod service;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +63,7 @@ pub(super) struct EventLogSubscriptions {
 
 impl EventLogSubscriptions {
     pub(super) fn start(tx: Sender<SensorEvent>, shutdown: Arc<AtomicBool>) -> Result<Self> {
-        let sources = [service::source()];
+        let sources = [service::source(), security::source()];
         let mut workers = Vec::with_capacity(sources.len());
 
         for source in sources {

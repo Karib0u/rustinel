@@ -11,7 +11,7 @@ pub(super) fn alert_severity_to_event_severity(severity: AlertSeverity) -> u8 {
     }
 }
 
-pub(super) fn ecs_event_category(category: EventCategory) -> Vec<String> {
+pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<String> {
     match category {
         EventCategory::Process => vec!["process".to_string()],
         EventCategory::Network => vec!["network".to_string()],
@@ -24,7 +24,38 @@ pub(super) fn ecs_event_category(category: EventCategory) -> Vec<String> {
         EventCategory::Wmi => vec!["api".to_string()],
         EventCategory::Service => vec!["configuration".to_string()],
         EventCategory::Task => vec!["configuration".to_string()],
+        // The Security channel is one logsource carrying unrelated event
+        // families, so its ECS mapping is driven by the audit event ID rather
+        // than by the category. Object-access events name the kind of object
+        // they touched in `ObjectType`, which the field mapper reads to refine
+        // this default.
+        EventCategory::Security => match event_id {
+            4624 => vec!["authentication".to_string(), "session".to_string()],
+            4697 => vec!["configuration".to_string()],
+            5136 => vec!["iam".to_string()],
+            _ => vec!["file".to_string()],
+        },
     }
+}
+
+/// ECS `event.category` for an object-access audit event, from its `ObjectType`.
+///
+/// Windows names the object kind rather than the ECS category, and audits the
+/// same event ID over files, registry keys and process tokens alike.
+pub(super) fn ecs_object_access_category(object_type: Option<&str>) -> Vec<String> {
+    let category = match object_type {
+        Some("Key") => "registry",
+        Some("Process") | Some("Thread") | Some("Token") => "process",
+        Some("SAM")
+        | Some("SAM_DOMAIN")
+        | Some("SAM_USER")
+        | Some("SAM_GROUP")
+        | Some("SAM_ALIAS")
+        | Some("SAM_SERVER")
+        | Some("directoryService") => "iam",
+        _ => "file",
+    };
+    vec![category.to_string()]
 }
 
 pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16) -> Vec<String> {
@@ -66,6 +97,12 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
                 vec!["change".to_string()]
             }
         }
+        EventCategory::Security => match event_id {
+            4624 => vec!["start".to_string()],
+            4697 => vec!["creation".to_string()],
+            5136 => vec!["change".to_string()],
+            _ => vec!["access".to_string()],
+        },
     }
 }
 
@@ -112,6 +149,15 @@ pub(super) fn ecs_event_action(
                 "task-change"
             }
         }
+        EventCategory::Security => match event_id {
+            4624 => "logged-in",
+            4656 => "handle-requested",
+            4663 => "object-access-attempted",
+            4697 => "service-installed",
+            5136 => "directory-service-object-modified",
+            5145 => "network-share-object-checked",
+            _ => "security-audit",
+        },
     };
     Some(action.to_string())
 }
@@ -129,6 +175,7 @@ pub(super) fn event_dataset(category: EventCategory) -> String {
         EventCategory::Wmi => "wmi",
         EventCategory::Service => "service",
         EventCategory::Task => "task",
+        EventCategory::Security => "security",
     };
     format!("{}.{}", EVENT_MODULE, suffix)
 }

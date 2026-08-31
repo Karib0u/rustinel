@@ -2,6 +2,7 @@ use super::helpers::{basename, parse_u64};
 use super::user::apply_user_fields;
 use crate::models::{MatchDetails, ProcessContext};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Serialize)]
 pub struct DnsAnswer {
@@ -444,6 +445,18 @@ pub struct EcsAlert {
         skip_serializing_if = "Option::is_none"
     )]
     pub edr_process_target_image: Option<String>,
+
+    // ========================================================================
+    // Windows Security Channel Fields
+    // ========================================================================
+    /// The decoded Security audit record, under its own Windows field names.
+    ///
+    /// The channel's event families have almost no fields in common, so the
+    /// ones that map onto ECS are lifted into the standard fields above and the
+    /// whole record is carried here as well. Nested rather than flattened so a
+    /// Windows field name can never collide with an ECS one.
+    #[serde(rename = "edr.security", skip_serializing_if = "Option::is_none")]
+    pub edr_security: Option<BTreeMap<String, String>>,
 
     // ========================================================================
     // Related Fields
