@@ -151,6 +151,71 @@ The Service Control Manager runs the managed binary directly. Note that Windows
 services start with `C:\Windows\System32` as the working directory, which is why
 managed installs use an absolute managed config path.
 
+## Windows Audit Policy
+
+Rustinel subscribes to the Security channel, but Windows only writes to it what
+the host's audit policy tells it to. Every event below is subscribed to and
+decoded; the ones whose policy is off simply never occur, so the rules that
+need them load and stay silent. **Enabling this policy is the operator's
+decision, not Rustinel's** — the agent never changes it.
+
+| Event | Subcategory | Subcategory GUID | On by default |
+| --- | --- | --- | --- |
+| 4624 logon | Logon | `{0CCE9215-…}` | Yes |
+| 4697 service installed | Security System Extension | `{0CCE9211-…}` | No |
+| 4656 handle requested | File System, Registry, Kernel Object, SAM | `{0CCE921D-…}`, `{0CCE921E-…}`, `{0CCE921F-…}`, `{0CCE9220-…}` | No |
+| 4663 object access | File System, Registry, Kernel Object | `{0CCE921D-…}`, `{0CCE921E-…}`, `{0CCE921F-…}` | No |
+| 5145 network share object checked | Detailed File Share | `{0CCE9244-…}` | No |
+| 5136 directory service object modified | Directory Service Changes | `{0CCE923C-…}` | No (domain controllers) |
+
+All GUIDs end in `-69AE-11D9-BED3-505054503030`.
+
+Turn a subcategory on with `auditpol`, from an elevated prompt:
+
+```bat
+auditpol /set /subcategory:"Security System Extension" /success:enable
+```
+
+```bat
+auditpol /set /subcategory:"Detailed File Share" /success:enable /failure:enable
+```
+
+Check what is currently enabled:
+
+```bat
+auditpol /get /category:*
+```
+
+**`auditpol` takes the *localized* subcategory name.** On a non-English Windows
+the commands above fail with *the parameter is incorrect*; use the GUID, which
+is the same on every locale:
+
+```bat
+auditpol /set /subcategory:{0CCE9211-69AE-11D9-BED3-505054503030} /success:enable
+```
+
+`auditpol /list /subcategory:* /v` prints the local names next to their GUIDs.
+Before changing policy on a host you do not own, take a copy you can put back:
+
+```bat
+auditpol /backup /file:C:\auditpol-before.csv
+```
+
+Two caveats worth knowing before turning these on:
+
+- **4656 and 4663 additionally need a SACL on the object.** The subcategory only
+  enables the *mechanism*; nothing is logged until an audit entry is placed on
+  the file, key, or object of interest (its **Properties → Security → Advanced →
+  Auditing** tab). Enabling the subcategory alone produces no events.
+- **Detailed File Share and Kernel Object auditing are high volume.** 5145 fires
+  once per share access check. On a file server this can dominate the Security
+  channel. Enable it deliberately, and size the channel accordingly
+  (`wevtutil sl Security /ms:<bytes>`).
+
+Group Policy configures the same settings at
+*Computer Configuration → Windows Settings → Security Settings → Advanced Audit
+Policy Configuration*.
+
 ## Monitoring Telemetry Loss
 
 Sensor channels are bounded and shed events under burst load, which produces a
