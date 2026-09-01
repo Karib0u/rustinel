@@ -18,6 +18,11 @@
 //! affordable because the process session is small — flushing the 256 KB
 //! burst-absorbing session 200 times a second would hand over mostly empty
 //! buffers and give back what #312 bought.
+//!
+//! The two intervals are separate configuration options. `0` on the main
+//! session is a latency-for-syscalls trade an operator may reasonably want;
+//! `0` on the process session gives up roughly 40% of short-lived command
+//! lines, and has to be asked for on its own.
 
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,19 +43,20 @@ use crate::sensor::SensorEvent;
 pub(super) const DEFAULT_INTERVAL_MS: u64 = 20;
 const MIN_INTERVAL: Duration = Duration::from_millis(20);
 
-/// Handoff interval for the dedicated Kernel-Process session.
+/// Default handoff interval for the dedicated Kernel-Process session, in
+/// milliseconds.
 ///
-/// Not a tuning knob: it is set by how long a short-lived process lives, not by
-/// a latency preference. Measured on the Windows 11 lab VM over 2,000
+/// Barely a tuning knob: it is set by how long a short-lived process lives, not
+/// by a latency preference. Measured on the Windows 11 lab VM over 2,000
 /// `cmd /c echo` runs — 20 ms captured 61.5% of their command lines, 10 ms
 /// 99.9%, 5 ms 99.85%, 1 ms 99.8%, against 100% for the pre-#312 session. 5 ms
 /// is chosen over 10 ms for margin on a faster host: the sweep shows the cost
 /// is flat below 10 ms, with the agent's CPU indistinguishable across the whole
 /// range.
-const PROCESS_INTERVAL: Duration = Duration::from_millis(5);
+pub(super) const DEFAULT_PROCESS_INTERVAL_MS: u64 = 5;
 
-/// Floor for the process session, for an operator who configures a shorter
-/// interval than [`PROCESS_INTERVAL`] for the main one.
+/// Floor for the process session, so a misconfigured interval cannot turn the
+/// flush thread into a spin on the syscall.
 const PROCESS_MIN_INTERVAL: Duration = Duration::from_millis(1);
 
 const MAX_QUEUE_PERCENT_FOR_FLUSH: usize = 50;
@@ -85,21 +91,19 @@ pub(super) fn main_interval(interval_ms: u64) -> Option<Duration> {
     Some(Duration::from_millis(interval_ms).max(MIN_INTERVAL))
 }
 
-/// Handoff interval for the Kernel-Process session.
+/// Handoff interval for the Kernel-Process session, from
+/// `windows.etw_process_flush_interval_ms`.
 ///
-/// Fixed at [`PROCESS_INTERVAL`] rather than configured, because it is the
-/// back-fill race that sets it. The one thing the configuration still decides
-/// is whether forced flushing happens at all, and an operator who asks for a
-/// *faster* main session gets at least that on the process session too.
+/// Read from its own option rather than from the main session's, because
+/// `etw_flush_interval_ms = 0` is a reasonable thing for an operator to want —
+/// it trades alert latency for one less periodic syscall — and it must not
+/// silently take `CommandLine` collection down with it. Zero here disables the
+/// process handoff explicitly, at the documented cost.
 pub(super) fn process_interval(interval_ms: u64) -> Option<Duration> {
     if interval_ms == 0 {
         return None;
     }
-    Some(
-        Duration::from_millis(interval_ms)
-            .min(PROCESS_INTERVAL)
-            .max(PROCESS_MIN_INTERVAL),
-    )
+    Some(Duration::from_millis(interval_ms).max(PROCESS_MIN_INTERVAL))
 }
 
 pub(super) fn spawn(
@@ -212,26 +216,40 @@ mod tests {
     fn process_session_is_flushed_faster_than_the_main_one() {
         // The measured cliff: at the main session's 20 ms interval the
         // command-line back-fill captured 61.5% of `cmd /c echo` runs, and
-        // 99.85% at 5 ms. A process interval that tracked the main one would
+        // 99.85% at 5 ms. A process default that tracked the main one would
         // reintroduce #349.
-        assert!(PROCESS_INTERVAL < MIN_INTERVAL);
-        assert_eq!(
-            process_interval(DEFAULT_INTERVAL_MS),
-            Some(PROCESS_INTERVAL),
-            "the default configuration must not slow the process session down"
+        const { assert!(DEFAULT_PROCESS_INTERVAL_MS < DEFAULT_INTERVAL_MS) };
+        assert!(
+            process_interval(DEFAULT_PROCESS_INTERVAL_MS) < main_interval(DEFAULT_INTERVAL_MS),
+            "the process session must be handed its buffers sooner than the main one"
         );
         assert_eq!(
-            process_interval(10_000),
-            Some(PROCESS_INTERVAL),
-            "a relaxed main interval must not relax the back-fill race"
+            process_interval(DEFAULT_PROCESS_INTERVAL_MS),
+            Some(Duration::from_millis(DEFAULT_PROCESS_INTERVAL_MS))
         );
     }
 
     #[test]
-    fn a_faster_main_interval_is_honoured_by_the_process_session() {
-        assert_eq!(process_interval(2), Some(Duration::from_millis(2)));
-        // Still floored, so a misconfiguration cannot spin on the syscall.
+    fn the_two_intervals_are_configured_independently() {
+        // `etw_flush_interval_ms = 0` is a reasonable operator choice, and it
+        // must not take `CommandLine` collection down with it: the process
+        // session reads its own option, so nothing here consults the main one.
+        assert_eq!(
+            process_interval(DEFAULT_PROCESS_INTERVAL_MS),
+            Some(Duration::from_millis(5)),
+            "the process interval must not depend on the main session's"
+        );
+        // Only the main session is clamped to 20 ms; clamping the process
+        // session there is exactly the bug.
+        assert_eq!(main_interval(5), Some(MIN_INTERVAL));
+        assert_eq!(process_interval(5), Some(Duration::from_millis(5)));
+    }
+
+    #[test]
+    fn the_process_interval_is_floored_but_not_capped() {
         assert_eq!(process_interval(1), Some(PROCESS_MIN_INTERVAL));
+        assert_eq!(process_interval(2), Some(Duration::from_millis(2)));
+        assert_eq!(process_interval(50), Some(Duration::from_millis(50)));
     }
 
     #[test]

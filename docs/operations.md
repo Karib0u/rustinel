@@ -271,14 +271,14 @@ keeps the 32 KB buffer and raises the buffer *count* instead, so it has burst
 headroom without committing 32 MB to it.
 
 The forced handoff controls quiet-host delivery latency without changing the
-buffer pools, and runs on both sessions. Configure it with
-`windows.etw_flush_interval_ms`; `0` disables it on both. Rustinel pauses
-requests while its sensor queue is at least half full, when queueing controls
-latency instead.
+buffer pools, and runs on both sessions — each from its own option,
+`windows.etw_flush_interval_ms` and `windows.etw_process_flush_interval_ms`.
+Rustinel pauses requests while its sensor queue is at least half full, when
+queueing controls latency instead.
 
-The process session is flushed at a fixed 5 ms rather than at the configured
-interval, because what sets it is how long a short-lived process lives, not a
-latency preference. Over 2,000 `cmd /c echo` runs on the lab VM:
+The process session defaults to 5 ms rather than the main session's 20 ms,
+because what sets it is how long a short-lived process lives, not a latency
+preference. Over 2,000 `cmd /c echo` runs on the lab VM:
 
 | Process-session handoff | Command lines captured |
 | --- | --- |
@@ -287,9 +287,15 @@ latency preference. Over 2,000 `cmd /c echo` runs on the lab VM:
 | 5 ms | 99.85% |
 | 1 ms | 99.8% |
 
-Agent CPU was indistinguishable across that range. A process that exits before
-the back-fill can still have no `CommandLine`; the race is structural, and only
-its width is under Rustinel's control.
+Agent CPU was indistinguishable across that range. Setting
+`etw_process_flush_interval_ms = 0` disables the handoff and returns the process
+session to ETW's one-second timer, which is the 20 ms row and worse — treat it
+as giving up short-lived command lines deliberately. A process that exits before
+the back-fill can still have no `CommandLine` even at 5 ms; the race is
+structural, and only its width is under Rustinel's control. Rustinel narrows it
+on the decode side too: the back-fill runs as soon as the PID is parsed, ahead
+of PE version-resource parsing and every path conversion, so no avoidable work
+sits between the event arriving and the live-process read.
 
 The buffers are non-paged pool: 18 MB is committed for the life of the agent
 across both sessions and grows to at most 48 MB under load. Read the live values

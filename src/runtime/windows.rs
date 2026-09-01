@@ -213,6 +213,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         let context = CaptureContext::load(&options, "Windows ETW")?;
         ensure_administrator_privileges()?;
         let flush_interval_ms = context.config().windows.etw_flush_interval_ms;
+        let process_flush_interval_ms = context.config().windows.etw_process_flush_interval_ms;
         let session = context.start_recording(&options, Platform::Windows)?;
 
         // Cold start: seed the process cache so early events resolve parents.
@@ -229,7 +230,10 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         }
 
         let (sensor_tx, sensor_worker) = session.sensor_channel();
-        let sensor = Arc::new(EtwSensor::with_flush_interval(flush_interval_ms));
+        let sensor = Arc::new(EtwSensor::with_flush_intervals(
+            flush_interval_ms,
+            process_flush_interval_ms,
+        ));
         let sensor_for_trace = Arc::clone(&sensor);
         let mut trace_handle =
             tokio::task::spawn_blocking(move || sensor_for_trace.start(sensor_tx));
@@ -368,8 +372,9 @@ async fn run_edr(
         info!("Process snapshot not available on non-Windows platforms");
     }
 
-    let sensor = Arc::new(EtwSensor::with_flush_interval(
+    let sensor = Arc::new(EtwSensor::with_flush_intervals(
         cfg.windows.etw_flush_interval_ms,
+        cfg.windows.etw_process_flush_interval_ms,
     ));
 
     // Initialize Sigma engine

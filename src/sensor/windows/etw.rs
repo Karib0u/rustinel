@@ -780,17 +780,24 @@ struct DecodedEtwEvent {
 pub struct EtwSensor {
     shutdown: Arc<AtomicBool>,
     flush_interval_ms: u64,
+    process_flush_interval_ms: u64,
 }
 
 impl EtwSensor {
     pub fn new() -> Self {
-        Self::with_flush_interval(super::flush::DEFAULT_INTERVAL_MS)
+        Self::with_flush_intervals(
+            super::flush::DEFAULT_INTERVAL_MS,
+            super::flush::DEFAULT_PROCESS_INTERVAL_MS,
+        )
     }
 
-    pub fn with_flush_interval(flush_interval_ms: u64) -> Self {
+    /// The two sessions are configured separately on purpose; see
+    /// [`super::flush::process_interval`].
+    pub fn with_flush_intervals(flush_interval_ms: u64, process_flush_interval_ms: u64) -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
             flush_interval_ms,
+            process_flush_interval_ms,
         }
     }
 
@@ -987,7 +994,7 @@ impl EtwSensor {
             ),
             (
                 PROCESS_TRACE_SESSION_NAME,
-                super::flush::process_interval(self.flush_interval_ms),
+                super::flush::process_interval(self.process_flush_interval_ms),
             ),
         ]
         .map(|(name, interval)| {
@@ -1217,6 +1224,28 @@ fn decode_process(
     action: SensorAction,
 ) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::process_creation_mappings();
+
+    // The PID and the command line come first, and nothing is allowed between
+    // them and the back-fill below. Everything else this function does is
+    // reading a property out of a buffer that is already in memory; the
+    // back-fill is the one step racing a live process, and `parse_metadata`
+    // in particular opens and maps the image off disk. Decoding in field order
+    // put that read, and every path conversion, ahead of the race for no
+    // reason. See `PROCESS_TRACE_SESSION_NAME`.
+    let process_id = try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
+        .or_else(|| Some(record.process_id().to_string()));
+    let pid = process_id
+        .as_deref()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or_else(|| record.process_id());
+
+    // No Kernel-Process event version carries `CommandLine`, so this is a read
+    // of the live process's PEB and only succeeds while it still exists.
+    let mut command_line = try_get_string(parser, mappings.get_etw_field("CommandLine")?);
+    if action == SensorAction::Start && command_line.is_none() {
+        command_line = query_process_command_line(pid);
+    }
+
     let creation_time_opt = try_get_uint_as_u64(parser, "CreateTime")
         .or_else(|| try_get_uint_as_u64(parser, "ProcessStartTime"));
     let creation_time_with_fallback =
@@ -1249,7 +1278,7 @@ fn decode_process(
     let (original_file_name, product, description, company, file_version) =
         pe::version_fields(pe_metadata);
 
-    let mut fields = ProcessCreationFields {
+    let fields = ProcessCreationFields {
         image: image.clone(),
         original_file_name,
         product,
@@ -1258,9 +1287,8 @@ fn decode_process(
         file_version,
         target_image: try_get_string(parser, mappings.get_etw_field("TargetImage")?)
             .map(|path| convert_nt_to_dos(&path)),
-        command_line: try_get_string(parser, mappings.get_etw_field("CommandLine")?),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
-            .or_else(|| Some(record.process_id().to_string())),
+        command_line,
+        process_id,
         process_start_time: creation_time_with_fallback,
         parent_process_id: try_get_uint(parser, mappings.get_etw_field("ParentProcessId")?),
         parent_image,
@@ -1272,18 +1300,6 @@ fn decode_process(
             .and_then(|sid| integrity_level_from_sid(&sid)),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
     };
-
-    let pid = fields
-        .process_id
-        .as_deref()
-        .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or_else(|| record.process_id());
-
-    if action == SensorAction::Start && fields.command_line.is_none() {
-        if let Some(command_line) = query_process_command_line(pid) {
-            fields.command_line = Some(command_line);
-        }
-    }
 
     let process_start_key = match action {
         SensorAction::Start => {

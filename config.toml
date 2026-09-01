@@ -117,8 +117,24 @@ snapshot_interval_secs = 30 # a snapshot is also written at shutdown
 #   ETW's native flush timer has a one-second minimum. Rustinel requests an
 #   earlier handoff for partially filled buffers so isolated events reach the
 #   detector promptly. Set to 0 to use only ETW's native timer.
+#
+#   Rustinel runs two ETW sessions and they are tuned separately.
+#
+#   `etw_flush_interval_ms` is the main session (file, registry, network, DNS,
+#   PowerShell, WMI, tasks). It trades alert latency against one periodic
+#   syscall; 0 is a reasonable choice. Values below 20 are clamped to 20.
+#
+#   `etw_process_flush_interval_ms` is the Kernel-Process session, and it is
+#   NOT a latency preference. `CommandLine` is not carried by any ETW process
+#   event - it is read back out of the live process, so the event has to reach
+#   Rustinel before the process exits. Measured over 2,000 `cmd /c echo` runs:
+#   5 ms captured 99.9% of their command lines, 20 ms only 61.5%.
+#   SETTING THIS TO 0 GIVES UP ROUGHLY 40% OF SHORT-LIVED COMMAND LINES, and
+#   with them every Sigma process_creation rule that matches on CommandLine
+#   (78% of them). Raise it only if you have measured that you can afford to.
 [windows]
 etw_flush_interval_ms = 20
+etw_process_flush_interval_ms = 5
 
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
