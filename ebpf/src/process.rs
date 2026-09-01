@@ -255,12 +255,12 @@ unsafe fn read_argv(scratch: *mut ArgvSnapshot, argv: *const *const u8) {
             return;
         }
 
-        if offset + ARGV_ARG_MAX > ARGV_CAPACITY {
+        if offset + ARGV_ARG_MAX >= ARGV_CAPACITY {
             break;
         }
         // Redundant with the bound above, but it gives the verifier a hard
         // ceiling on the destination offset without tracking the loop state.
-        let base = offset & (ARGV_CAPACITY - 1);
+        let base = offset & (ARGV_CAPACITY - ARGV_ARG_MAX - 1);
 
         let dest =
             core::slice::from_raw_parts_mut((*scratch).args.as_mut_ptr().add(base), ARGV_ARG_MAX);
