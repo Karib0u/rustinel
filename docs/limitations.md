@@ -46,7 +46,7 @@ three platforms, but several Sysmon-style fields are unavailable.
   before any other decoding work, but a process that exits first still has no
   command line. Measured at 99.9% on 2,000 `cmd /c echo` runs and 4000/4000 on
   a 4,000-process fork tree. Setting `windows.etw_process_flush_interval_ms`
-  to `0` gives the loss back.
+  to `0` drops that to 16.6%.
   When the back-fill loses the race it returns nothing rather than another
   process's command line, but the failure is currently uncounted
   ([#304](https://github.com/Karib0u/rustinel/issues/304)).

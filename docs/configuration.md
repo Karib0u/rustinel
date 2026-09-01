@@ -323,10 +323,14 @@ syscall, and `0` is a reasonable choice.
 is read back out of the live process, so the event has to reach Rustinel before
 that process exits. Over 2,000 `cmd /c echo` runs on the lab VM, 5 ms captured
 99.9% of their command lines and 20 ms only 61.5%. **Setting
-`etw_process_flush_interval_ms = 0` gives up roughly 40% of short-lived command
-lines, and with them every Sigma `process_creation` rule that matches on
-`CommandLine` — 78% of them.** The two options are deliberately independent so
-that turning the main session's handoff off does not silently do this. See
+`etw_process_flush_interval_ms = 0` captured 16.6% — it gives up about 83% of
+short-lived command lines, and with them every Sigma `process_creation` rule
+that matches on `CommandLine`, 78% of them.** Zero is worse than a slow interval
+because the session then falls all the way back to ETW's one-second timer. The
+two options are deliberately independent so that turning the main session's
+handoff off does not silently do this — measured with
+`etw_flush_interval_ms = 0` and the process option left at 5 ms, command-line
+capture stayed at 100%. See
 [Windows ETW session buffers](operations.md#windows-etw-session-buffers) for the
 full sweep.
 

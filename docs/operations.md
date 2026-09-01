@@ -286,11 +286,14 @@ preference. Over 2,000 `cmd /c echo` runs on the lab VM:
 | 10 ms | 99.9% |
 | 5 ms | 99.85% |
 | 1 ms | 99.8% |
+| `0` (disabled — falls back to ETW's 1 s timer) | 16.6% |
 
-Agent CPU was indistinguishable across that range. Setting
-`etw_process_flush_interval_ms = 0` disables the handoff and returns the process
-session to ETW's one-second timer, which is the 20 ms row and worse — treat it
-as giving up short-lived command lines deliberately. A process that exits before
+Agent CPU was indistinguishable across the 1-20 ms range. Note that `0` is much
+worse than a slow interval, not equivalent to one: it returns the session to
+ETW's one-second timer. Treat it as giving up short-lived command lines
+deliberately. The main session's `etw_flush_interval_ms` is a separate option
+precisely so that setting *it* to `0` does not do this — measured that way,
+command-line capture stayed at 100%. A process that exits before
 the back-fill can still have no `CommandLine` even at 5 ms; the race is
 structural, and only its width is under Rustinel's control. Rustinel narrows it
 on the decode side too: the back-fill runs as soon as the PID is parsed, ahead

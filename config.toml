@@ -129,8 +129,9 @@ snapshot_interval_secs = 30 # a snapshot is also written at shutdown
 #   event - it is read back out of the live process, so the event has to reach
 #   Rustinel before the process exits. Measured over 2,000 `cmd /c echo` runs:
 #   5 ms captured 99.9% of their command lines, 20 ms only 61.5%.
-#   SETTING THIS TO 0 GIVES UP ROUGHLY 40% OF SHORT-LIVED COMMAND LINES, and
-#   with them every Sigma process_creation rule that matches on CommandLine
+#   SETTING THIS TO 0 GIVES UP ~83% OF SHORT-LIVED COMMAND LINES (measured:
+#   16.6% captured, because the session falls back to ETW's one-second timer),
+#   and with them every Sigma process_creation rule that matches on CommandLine
 #   (78% of them). Raise it only if you have measured that you can afford to.
 [windows]
 etw_flush_interval_ms = 20
