@@ -98,7 +98,7 @@ enabled = true
 snapshot_interval_secs = 30
 
 [windows]
-etw_flush_interval_ms = 100
+etw_flush_interval_ms = 20
 
 [response]
 enabled = false
@@ -309,12 +309,15 @@ buffer size or pool limits.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `etw_flush_interval_ms` | `100` | Partial-buffer handoff interval in milliseconds; `0` disables it |
+| `etw_flush_interval_ms` | `20` | Partial-buffer handoff interval in milliseconds; `0` disables it |
 
 Values below 20 ms are clamped to 20 ms. Rustinel pauses requests while the
 `sensor_events` queue is at least half full, when downstream queueing controls
-latency. ETW continues its normal full-buffer and timer-based delivery. Override
-the setting with `EDR__WINDOWS__ETW_FLUSH_INTERVAL_MS`.
+latency. The 20 ms default narrows the race for short-lived process command
+lines, but cannot recover a process that exits before the live-PEB back-fill;
+it also adds a small periodic flush cost. ETW continues its normal full-buffer
+and timer-based delivery. Override the setting with
+`EDR__WINDOWS__ETW_FLUSH_INTERVAL_MS`.
 
 ### Active response
 

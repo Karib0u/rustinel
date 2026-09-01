@@ -567,7 +567,7 @@ impl AppConfig {
             .set_default("telemetry.enabled", true)?
             .set_default("telemetry.snapshot_interval_secs", 30i64)?
             // Windows ETW delivery latency
-            .set_default("windows.etw_flush_interval_ms", 100i64)?;
+            .set_default("windows.etw_flush_interval_ms", 20i64)?;
 
         let builder = match selected_config {
             Some(path) => builder.add_source(config::File::from(path).required(true)),
@@ -825,7 +825,7 @@ impl Default for AppConfig {
                 snapshot_interval_secs: 30,
             },
             windows: WindowsConfig {
-                etw_flush_interval_ms: 100,
+                etw_flush_interval_ms: 20,
             },
         };
 
@@ -1169,7 +1169,25 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
     #[test]
     fn test_windows_etw_flush_default() {
         let cfg = AppConfig::default();
-        assert_eq!(cfg.windows.etw_flush_interval_ms, 100);
+        assert_eq!(cfg.windows.etw_flush_interval_ms, 20);
+    }
+
+    #[test]
+    fn config_builder_uses_windows_etw_flush_default() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg = AppConfig::from_options_with_environment(
+            ConfigLoadOptions {
+                explicit_config: None,
+                env_config: None,
+                managed_config: temp.path().join("missing-managed.toml"),
+                exe_config: None,
+                cwd_config: temp.path().join("missing-cwd.toml"),
+            },
+            Some(config::Map::new()),
+        )
+        .expect("load default config");
+
+        assert_eq!(cfg.windows.etw_flush_interval_ms, 20);
     }
 
     #[test]

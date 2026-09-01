@@ -118,7 +118,7 @@ snapshot_interval_secs = 30 # a snapshot is also written at shutdown
 #   earlier handoff for partially filled buffers so isolated events reach the
 #   detector promptly. Set to 0 to use only ETW's native timer.
 [windows]
-etw_flush_interval_ms = 100
+etw_flush_interval_ms = 20
 
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]
