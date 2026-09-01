@@ -304,20 +304,41 @@ that reduced visibility as a warning.
 ### Windows ETW delivery
 
 ETW's real-time session timer hands partially filled buffers to consumers once
-per second. Rustinel requests an earlier handoff without changing the session's
-buffer size or pool limits.
+per second. Rustinel requests an earlier handoff without changing either
+session's buffer size or pool limits.
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `etw_flush_interval_ms` | `20` | Partial-buffer handoff interval in milliseconds; `0` disables it |
+Rustinel runs two ETW sessions and each has its own interval, because they are
+flushed for different reasons.
 
-Values below 20 ms are clamped to 20 ms. Rustinel pauses requests while the
-`sensor_events` queue is at least half full, when downstream queueing controls
-latency. The 20 ms default narrows the race for short-lived process command
-lines, but cannot recover a process that exits before the live-PEB back-fill;
-it also adds a small periodic flush cost. ETW continues its normal full-buffer
-and timer-based delivery. Override the setting with
-`EDR__WINDOWS__ETW_FLUSH_INTERVAL_MS`.
+| Option | Default | Session | Description |
+| --- | --- | --- | --- |
+| `etw_flush_interval_ms` | `20` | `rustinel-etw-trace` | Partial-buffer handoff interval in milliseconds; `0` disables it. Values below 20 ms are clamped to 20 ms |
+| `etw_process_flush_interval_ms` | `5` | `rustinel-etw-process` | The same for the process session; `0` disables it. Values below 1 ms are clamped to 1 ms |
+
+On the main session the interval trades alert latency against one periodic
+syscall, and `0` is a reasonable choice.
+
+**On the process session it is not a latency preference - it decides whether
+`CommandLine` is collected at all.** No ETW process event carries the field; it
+is read back out of the live process, so the event has to reach Rustinel before
+that process exits. Over 2,000 `cmd /c echo` runs on the lab VM, 5 ms captured
+99.9% of their command lines and 20 ms only 61.5%. **Setting
+`etw_process_flush_interval_ms = 0` captured 16.6% - it gives up about 83% of
+short-lived command lines, and with them every Sigma `process_creation` rule
+that matches on `CommandLine`, 78% of them.** Zero is worse than a slow interval
+because the session then falls all the way back to ETW's one-second timer. The
+two options are deliberately independent so that turning the main session's
+handoff off does not silently do this - measured with
+`etw_flush_interval_ms = 0` and the process option left at 5 ms, command-line
+capture stayed at 100%. See
+[Windows ETW session buffers](operations.md#windows-etw-session-buffers) for the
+full sweep.
+
+Rustinel pauses requests while the `sensor_events` queue is at least half full,
+when downstream queueing controls latency. ETW continues its normal full-buffer
+and timer-based delivery. Override the settings with
+`EDR__WINDOWS__ETW_FLUSH_INTERVAL_MS` and
+`EDR__WINDOWS__ETW_PROCESS_FLUSH_INTERVAL_MS`.
 
 ### Active response
 

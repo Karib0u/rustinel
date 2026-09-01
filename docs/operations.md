@@ -236,43 +236,97 @@ for what to do about it.
 ### Windows ETW session buffers
 
 Those counters see only Rustinel's own queues. On Windows there is an earlier
-place events can be lost: the kernel's buffer pool for the `rustinel-etw-trace`
-session. If the pool fills before the sensor drains it, the kernel discards
-events and the sensor never sees them.
+place events can be lost: the kernel's buffer pool for Rustinel's ETW sessions.
+If a pool fills before the sensor drains it, the kernel discards events and the
+sensor never sees them.
 
-Rustinel sets the pool explicitly rather than inheriting library defaults:
+Rustinel runs **two** real-time sessions, because process events and everything
+else want opposite buffer sizing:
 
-| Setting | Value | Default it replaces |
+| Session | Providers | Why |
 | --- | --- | --- |
-| Buffer size | 256 KB | 32 KB |
-| Minimum buffers | 64 (16 MB committed at start) | 2 |
-| Maximum buffers | 128 (32 MB ceiling) | 24 (768 KB) |
-| Flush timer | 1 s | 1 s |
-| Forced partial-buffer handoff | 20 ms | disabled |
+| `rustinel-etw-trace` | File, Registry, Network, DNS, PowerShell, WMI, Task Scheduler | Burst headroom - these are the high-volume providers |
+| `rustinel-etw-process` | Kernel-Process | Latency - `CommandLine` is read from the live process, which must still exist |
+
+Both set the pool explicitly rather than inheriting library defaults:
+
+| Setting | `rustinel-etw-trace` | `rustinel-etw-process` | Default it replaces |
+| --- | --- | --- | --- |
+| Buffer size | 256 KB | 32 KB | 32 KB |
+| Minimum buffers | 64 (16 MB committed) | 64 (2 MB committed) | 2 |
+| Maximum buffers | 128 (32 MB ceiling) | 512 (16 MB ceiling) | 24 (768 KB) |
+| Flush timer | 1 s | 1 s | 1 s |
+| Forced partial-buffer handoff | 20 ms | 5 ms | disabled |
+
+A buffer is handed to the consumer when it fills, or when a flush is forced.
+Neither buffer size on its own gets a low-volume stream out quickly - a session
+carrying only process events does not fill a buffer of *any* size fast enough to
+beat a process that lives 20 ms, which is why the split had to come with a
+faster forced handoff (below). What the split buys is that the faster handoff is
+affordable: it applies to a small session rather than to the 256 KB pool sized
+to absorb bursts, where flushing 200 times a second would hand over mostly empty
+buffers and give back what
+[#312](https://github.com/Karib0u/rustinel/pull/312) bought. The process session
+keeps the 32 KB buffer and raises the buffer *count* instead, so it has burst
+headroom without committing 32 MB to it.
 
 The forced handoff controls quiet-host delivery latency without changing the
-buffer pool. Configure it with `windows.etw_flush_interval_ms`; `0` disables it.
+buffer pools, and runs on both sessions - each from its own option,
+`windows.etw_flush_interval_ms` and `windows.etw_process_flush_interval_ms`.
 Rustinel pauses requests while its sensor queue is at least half full, when
-queueing controls latency instead. The 20 ms default reduces the command-line
-back-fill race for short-lived processes at the cost of more frequent flush
-requests; a process that exits before the back-fill can still have no
-`CommandLine`.
+queueing controls latency instead.
 
-The buffers are non-paged pool: 16 MB is committed for the life of the agent and
-grows to at most 32 MB under load. Read the live values back with:
+The process session defaults to 5 ms rather than the main session's 20 ms,
+because what sets it is how long a short-lived process lives, not a latency
+preference. Over 2,000 `cmd /c echo` runs on the lab VM:
+
+| Process-session handoff | Command lines captured |
+| --- | --- |
+| 20 ms (the main session's interval) | 61.5% |
+| 10 ms | 99.9% |
+| 5 ms | 99.85% |
+| 1 ms | 99.8% |
+| `0` (disabled - falls back to ETW's 1 s timer) | 16.6% |
+
+Agent CPU was indistinguishable across the 1-20 ms range. Note that `0` is much
+worse than a slow interval, not equivalent to one: it returns the session to
+ETW's one-second timer. Treat it as giving up short-lived command lines
+deliberately. The main session's `etw_flush_interval_ms` is a separate option
+precisely so that setting *it* to `0` does not do this - measured that way,
+command-line capture stayed at 100%. A process that exits before
+the back-fill can still have no `CommandLine` even at 5 ms; the race is
+structural, and only its width is under Rustinel's control. Rustinel narrows it
+on the decode side too: the back-fill runs as soon as the PID is parsed, ahead
+of PE version-resource parsing and every path conversion, so no avoidable work
+sits between the event arriving and the live-process read.
+
+The buffers are non-paged pool: 18 MB is committed for the life of the agent
+across both sessions and grows to at most 48 MB under load. Read the live values
+back with:
 
 ```powershell
 Get-EtwTraceSession -Name rustinel-etw-trace
+Get-EtwTraceSession -Name rustinel-etw-process
 ```
 
-`logman query -ets` shows the same session but localizes its output, so prefer
+`logman query -ets` shows the same sessions but localizes its output, so prefer
 the cmdlet in scripts.
 
 This sizing absorbed a 4,000-process fork tree with no loss on a Windows 11 lab
 VM, where the library defaults lost 12-60% of process starts across identical
-runs ([#312](https://github.com/Karib0u/rustinel/pull/312)). It is a fixed
-configuration, not an adaptive one: a host that churns processes harder than
-that can still overrun a 32 MB pool, and kernel-side loss is not counted
+runs ([#312](https://github.com/Karib0u/rustinel/pull/312)). Re-measured on the
+same fork tree after the session split, with the pre-#312 configuration rebuilt
+on current code for comparison:
+
+| Configuration | Kernel loss | Command lines |
+| --- | --- | --- |
+| Pre-#312 (one 32 KB session, no handoff) | 51.4% | 1877 / 4000 |
+| 1.4.0 (one 256 KB session, 20 ms) | 0% | 3878 / 4000 |
+| Split sessions, 5 ms process handoff | 0% | 4000 / 4000 |
+
+It is a fixed configuration, not an adaptive one: a host that churns processes
+harder than that can still overrun either pool, and kernel-side loss is not
+counted
 anywhere yet ([#305](https://github.com/Karib0u/rustinel/issues/305)). Treat a
 recorded event count as an upper bound on what happened.
 
