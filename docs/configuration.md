@@ -52,7 +52,6 @@ owning account's configured ACLs.
 [scanner]
 sigma_enabled = true
 sigma_rules_path = "rules/current/sigma"
-sigma_engine = "builtin"
 yara_enabled = true
 yara_rules_path = "rules/current/yara"
 
@@ -149,7 +148,6 @@ directory = "C:\\Rustinel\\logs"
 | --- | --- | --- |
 | `sigma_enabled` | `true` | Enable Sigma rule evaluation |
 | `sigma_rules_path` | `rules/current/sigma` | Sigma rules directory, loaded recursively |
-| `sigma_engine` | `builtin` | Sigma matching backend: `builtin` or `rsigma` (needs the `rsigma-engine` build feature) |
 | `yara_enabled` | `true` | Enable YARA scanning |
 | `yara_rules_path` | `rules/current/yara` | YARA rules directory, loaded recursively |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped by YARA queueing and scanning |

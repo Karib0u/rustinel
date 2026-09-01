@@ -59,6 +59,8 @@ fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
 
         let alert = engine
             .check_event(&normalized)
+            .into_iter()
+            .next()
             .expect("process Sigma rule should match");
         assert_sigma_alert(&alert, "Test Process Curl");
 
@@ -108,6 +110,8 @@ level: high
 
     let alert = engine
         .check_event(&normalized)
+        .into_iter()
+        .next()
         .expect("integrity level Sigma rule should match");
     assert_sigma_alert(&alert, "Test System Integrity");
 
@@ -141,6 +145,8 @@ fn sigma_ps_module_detection_pipeline_maps_to_ecs() {
 
     let alert = engine
         .check_event(&normalized)
+        .into_iter()
+        .next()
         .expect("ps_module Sigma rule should match");
     assert_sigma_alert(&alert, "Test PowerShell Module Download");
 
@@ -182,6 +188,8 @@ level: medium
 
     let alert = engine
         .check_event(&normalized)
+        .into_iter()
+        .next()
         .expect("ps_script Sigma rule should still match");
     assert_sigma_alert(&alert, "Test PowerShell Script Block");
 
@@ -223,11 +231,15 @@ fn sigma_network_detection_pipeline_enriches_aggregates_and_maps_to_ecs() {
             .expect("repeated connection should remain available to detection");
         let repeated_alert = engine
             .check_event(&repeated)
+            .into_iter()
+            .next()
             .expect("repeated network connection should match Sigma");
         assert_sigma_alert(&repeated_alert, "Test Network Destination");
 
         let alert = engine
             .check_event(&first)
+            .into_iter()
+            .next()
             .expect("network Sigma rule should match");
         assert_sigma_alert(&alert, "Test Network Destination");
 
@@ -264,6 +276,8 @@ fn sigma_network_rule_loaded_after_first_connection_matches_repeat() {
 
     let alert = engine
         .check_event(&repeated)
+        .into_iter()
+        .next()
         .expect("a rule loaded after the first connection should match the repeat");
     assert_sigma_alert(&alert, "Test Network Destination");
 }
@@ -343,11 +357,15 @@ level: low
 
         let create_alert = engine
             .check_event(&create)
+            .into_iter()
+            .next()
             .expect("file create Sigma rule should match");
         assert_sigma_alert(&create_alert, "Test File Create");
 
         let rename_alert = engine
             .check_event(&rename)
+            .into_iter()
+            .next()
             .expect("file rename Sigma rule should match");
         assert_sigma_alert(&rename_alert, "Test File Rename");
 
@@ -402,6 +420,8 @@ fn sigma_service_detection_pipeline_matches_provider_name_and_image_path() {
 
     let alert = engine
         .check_event(&normalized)
+        .into_iter()
+        .next()
         .expect("service Sigma rule should match");
     assert_sigma_alert(&alert, "Test Service Installation");
 

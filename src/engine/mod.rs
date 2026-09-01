@@ -1,137 +1,45 @@
 //! Sigma detection engine module
 //!
-//! Integrates Sigma rule engine and handles rule loading.
-//! Checks normalized events against Sigma rules filtered by logsource.
+//! Rustinel evaluates Sigma with the RSigma library: `rsigma-parser` for rule
+//! parsing and `rsigma-eval` for matching. Rustinel keeps ownership of the
+//! surrounding machinery — event normalization, logsource classification and
+//! routing, ECS alerts, hot reload, and the IOC/YARA detectors — and hands
+//! RSigma only the detection logic.
+//!
+//! The module is laid out as:
+//!
+//! - `logsource` — logsource normalization, platform filtering, and the
+//!   event → candidate-logsource routing both loading and matching share.
+//! - `loader` — the rules-directory walk and collection load.
+//! - `store` — one synchronized `rsigma_eval::CorrelationEngine` and the
+//!   descriptions and counts Rustinel keeps beside it.
+//! - `alert` — mapping RSigma evaluation results onto Rustinel's [`Alert`].
 
 mod alert;
-mod condition;
 mod detect;
+mod event;
 mod handler;
 mod loader;
 mod logsource;
-mod matcher;
-mod rule;
 mod stats;
-
-// The RSigma library backend is compiled in only when the feature is enabled.
-// It runs alongside the built-in matcher and is selected at runtime via
-// `SigmaEngineKind`.
-#[cfg(feature = "rsigma-engine")]
-mod rsigma_adapter;
-#[cfg(feature = "rsigma-engine")]
-mod rsigma_backend;
+mod store;
 
 pub use detect::EventDetectors;
 pub use handler::{DetectionPipeline, NormalizedEventHandler};
-pub(crate) use logsource::{current_platform, platform_product, RuleLoadDecision};
+pub(crate) use logsource::{current_platform, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};
-pub(crate) use matcher::{FieldPattern, NumericOp, PatternMatcher};
-pub(crate) use rule::CompiledRule;
-pub use rule::{Detection, FieldCriterion, Selection, SigmaRule};
 pub use stats::{EngineStats, UnsupportedRule, UnsupportedRuleKind};
 
-use anyhow::{Context, Result};
-use base64::{engine::general_purpose, Engine as _};
-use evalexpr::*;
-use ipnetwork::IpNetwork;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
+use rsigma_eval::EvaluationResult;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::net::IpAddr;
-use std::path::Path;
-use std::sync::LazyLock;
-use tracing::{debug, info, warn};
 
-use crate::models::{
-    Alert, AlertSeverity, DetectionEngine, EventCategory, MatchDebugLevel, MatchDetails,
-    NormalizedEvent, SigmaFieldMatch, SigmaKeywordMatch, SigmaMatchDetails,
-};
+use crate::models::{Alert, AlertSeverity, MatchDebugLevel, NormalizedEvent};
 use crate::sensor::Platform;
-
-/// Which Sigma matching backend the engine uses at runtime.
-///
-/// Both variants always exist so configuration parses uniformly; selecting
-/// [`SigmaEngineKind::Rsigma`] requires a binary built with the `rsigma-engine`
-/// feature, which is validated at startup via [`SigmaEngineKind::is_available`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SigmaEngineKind {
-    /// Rustinel's built-in matcher.
-    #[default]
-    Builtin,
-    /// The RSigma library engine (`rsigma-parser` + `rsigma-eval`).
-    Rsigma,
-}
-
-impl SigmaEngineKind {
-    /// Parse an engine name (`builtin` or `rsigma`).
-    pub fn parse(value: &str) -> anyhow::Result<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "builtin" | "built-in" | "default" => Ok(Self::Builtin),
-            "rsigma" => Ok(Self::Rsigma),
-            other => Err(anyhow::anyhow!(
-                "unknown sigma engine '{other}' (expected 'builtin' or 'rsigma')"
-            )),
-        }
-    }
-
-    /// Whether this backend is compiled into the current binary.
-    pub fn is_available(self) -> bool {
-        match self {
-            Self::Builtin => true,
-            Self::Rsigma => cfg!(feature = "rsigma-engine"),
-        }
-    }
-
-    /// The lowercase engine name.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Builtin => "builtin",
-            Self::Rsigma => "rsigma",
-        }
-    }
-
-    /// Resolve the effective engine from an optional CLI override and the
-    /// configured value, validating that the chosen backend is compiled in.
-    pub fn resolve(cli: Option<SigmaEngineKind>, configured: &str) -> anyhow::Result<Self> {
-        let kind = match cli {
-            Some(kind) => kind,
-            None => Self::parse(configured)?,
-        };
-        if !kind.is_available() {
-            anyhow::bail!(
-                "the '{}' Sigma engine was requested but this binary was built without the \
-                 rsigma-engine feature; rebuild with `--features rsigma-engine` or select 'builtin'",
-                kind.as_str()
-            );
-        }
-        Ok(kind)
-    }
-}
-
-/// Controls logging verbosity when a rule's condition fails to evaluate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuleLogicErrorLogLevel {
-    Off,
-    Debug,
-    Warn,
-}
-
-impl RuleLogicErrorLogLevel {
-    pub(crate) fn from_logging_level(level: &str) -> Self {
-        let normalized = level.trim().to_ascii_lowercase();
-        match normalized.as_str() {
-            "debug" | "trace" => Self::Debug,
-            "warn" | "warning" => Self::Warn,
-            _ => Self::Off,
-        }
-    }
-}
 
 /// Ranking key for the default one-Sigma-alert-per-event policy.
 ///
 /// Several rules can match the same event, and Rustinel emits a single Sigma
-/// alert, so the backends must agree on which match wins. The policy is:
+/// alert, so the engine needs a total order over matches. The policy is:
 ///
 /// 1. Highest normalized severity (`critical > high > medium > low`).
 /// 2. On equal severity, rules carrying an `id` win over rules without one.
@@ -143,7 +51,7 @@ impl RuleLogicErrorLogLevel {
 /// ruleset was loaded. The best match is the *smallest* `MatchRank`; a fully
 /// equal rank keeps the first candidate seen.
 ///
-/// Emitting every matching rule is tracked separately by issue #195.
+/// Correlation results are appended after this single detection result.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct MatchRank<'a> {
     /// Reversed so that a higher severity yields a smaller rank.
@@ -170,30 +78,12 @@ impl<'a> MatchRank<'a> {
     }
 }
 
-/// Normalize a Sigma `level` string into an alert severity.
-pub(crate) fn severity_from_sigma_level(level: Option<&str>) -> AlertSeverity {
-    match level {
-        Some("critical") => AlertSeverity::Critical,
-        Some("high") => AlertSeverity::High,
-        Some("medium") => AlertSeverity::Medium,
-        _ => AlertSeverity::Low,
-    }
-}
-
-const MAX_SIGMA_MATCHES: usize = 16;
-const MAX_SIGMA_KEYWORD_MATCHES: usize = 8;
-const MAX_MATCH_VALUE_LEN: usize = 160;
-const MAX_PATTERN_LEN: usize = 160;
 pub struct Engine {
     /// Platform whose Sigma logsource rules should be accepted.
     platform: Platform,
-    /// Which matching backend is active for this engine instance.
-    engine_kind: SigmaEngineKind,
-    /// Compiled rules indexed by normalized logsource (built-in backend).
-    rules_by_logsource: HashMap<LogSourceKey, Vec<CompiledRule>>,
-    /// Per-logsource RSigma engines and descriptions (rsigma-engine backend).
-    #[cfg(feature = "rsigma-engine")]
-    rsigma: rsigma_backend::RsigmaStore,
+
+    /// One synchronized RSigma detection and correlation engine.
+    store: store::RuleStore,
 
     /// Total number of loaded rules
     rule_count: usize,
@@ -204,7 +94,7 @@ pub struct Engine {
     /// Failed rule paths and error messages (for diagnostics)
     failed_rules: Vec<(String, String)>,
 
-    /// Parsed documents that the active runtime cannot evaluate.
+    /// Parsed documents dropped because their rule references do not resolve.
     unsupported_rules: Vec<UnsupportedRule>,
 
     /// Rules skipped at load time due to unsupported logsource product.
@@ -225,9 +115,6 @@ pub struct Engine {
     /// Unknown logsource counts by normalized tuple.
     unknown_logsource_counts: HashMap<LogSourceKey, usize>,
 
-    /// Controls logging for rule logic evaluation errors (built-in backend).
-    rule_logic_error_log_level: RuleLogicErrorLogLevel,
-
     /// Controls whether match debug details are attached to alerts.
     match_debug: MatchDebugLevel,
 }
@@ -240,66 +127,28 @@ impl Engine {
 
     /// Creates a new engine instance for an explicit sensor platform.
     pub fn new_for_platform(platform: Platform) -> Self {
-        Self::new_inner(
-            platform,
-            SigmaEngineKind::Builtin,
-            RuleLogicErrorLogLevel::Warn,
-            MatchDebugLevel::Off,
-        )
+        Self::new_inner(platform, MatchDebugLevel::Off)
     }
 
-    /// Creates a new engine instance that derives rule-logic error logging
-    /// behavior from the provided logging level string.
-    #[allow(dead_code)]
-    pub fn new_with_logging_level(logging_level: &str) -> Self {
-        let level = RuleLogicErrorLogLevel::from_logging_level(logging_level);
-        Self::new_inner(
-            current_platform(),
-            SigmaEngineKind::Builtin,
-            level,
-            MatchDebugLevel::Off,
-        )
+    /// Creates a new engine instance for the current platform with an explicit
+    /// match-debug verbosity. Used by the hot-reload worker.
+    pub fn new_with_match_debug(match_debug: MatchDebugLevel) -> Self {
+        Self::new_inner(current_platform(), match_debug)
     }
 
-    /// Creates a new engine instance for the current platform, selecting the
-    /// backend and match-debug verbosity. Used by the hot-reload worker.
-    pub fn new_with_logging_level_and_match_debug(
-        logging_level: &str,
-        match_debug: MatchDebugLevel,
-        engine_kind: SigmaEngineKind,
-    ) -> Self {
-        Self::new_for_platform_with_logging_level_and_match_debug(
-            current_platform(),
-            logging_level,
-            match_debug,
-            engine_kind,
-        )
-    }
-
-    /// Creates a new engine instance for an explicit platform, backend, and
-    /// match-debug setting. Used at runtime startup.
-    pub fn new_for_platform_with_logging_level_and_match_debug(
+    /// Creates a new engine instance for an explicit platform and match-debug
+    /// setting. Used at runtime startup and by `rustinel replay`.
+    pub fn new_for_platform_with_match_debug(
         platform: Platform,
-        logging_level: &str,
         match_debug: MatchDebugLevel,
-        engine_kind: SigmaEngineKind,
     ) -> Self {
-        let level = RuleLogicErrorLogLevel::from_logging_level(logging_level);
-        Self::new_inner(platform, engine_kind, level, match_debug)
+        Self::new_inner(platform, match_debug)
     }
 
-    fn new_inner(
-        platform: Platform,
-        engine_kind: SigmaEngineKind,
-        level: RuleLogicErrorLogLevel,
-        match_debug: MatchDebugLevel,
-    ) -> Self {
+    fn new_inner(platform: Platform, match_debug: MatchDebugLevel) -> Self {
         Self {
             platform,
-            engine_kind,
-            rules_by_logsource: HashMap::new(),
-            #[cfg(feature = "rsigma-engine")]
-            rsigma: rsigma_backend::RsigmaStore::default(),
+            store: store::RuleStore::new(match_debug),
             rule_count: 0,
             rule_files_found: 0,
             failed_rules: Vec::new(),
@@ -310,43 +159,83 @@ impl Engine {
             inactive_collector_rules: 0,
             deferred_logsource_counts: HashMap::new(),
             unknown_logsource_counts: HashMap::new(),
-            rule_logic_error_log_level: level,
             match_debug,
         }
     }
 
-    /// The active detection backend.
-    pub fn engine_kind(&self) -> SigmaEngineKind {
-        self.engine_kind
-    }
+    /// Evaluate an event against the loaded rules.
+    ///
+    /// The result contains at most one detection alert, selected by
+    /// `MatchRank`, followed by every correlation alert that fired while the
+    /// event was processed. Detection results are deduplicated before they
+    /// reach the stateful correlation engine because a partial logsource can
+    /// match through more than one concrete event alias.
+    pub fn evaluate_event(&self, event: &NormalizedEvent) -> Vec<Alert> {
+        let results = {
+            let mut engine = self.store.lock();
+            let adapter = event::RsigmaEvent::new(event);
+            let mut detections = Vec::new();
+            let mut seen = HashSet::new();
 
-    /// Check an event against the loaded rules using the active backend.
-    pub fn check_event(&self, event: &NormalizedEvent) -> Option<Alert> {
-        match self.engine_kind {
-            SigmaEngineKind::Builtin => self.check_event_builtin(event),
-            #[cfg(feature = "rsigma-engine")]
-            SigmaEngineKind::Rsigma => self.check_event_rsigma(event),
-            // Unreachable in practice (startup validation rejects `rsigma`
-            // without the feature); fall back rather than panic.
-            #[cfg(not(feature = "rsigma-engine"))]
-            SigmaEngineKind::Rsigma => self.check_event_builtin(event),
+            for alias in Self::concrete_logsource_aliases_for_event(event) {
+                let logsource = rsigma_parser::LogSource {
+                    product: alias.product.clone(),
+                    service: alias.service.clone(),
+                    category: alias.category.clone(),
+                    ..Default::default()
+                };
+
+                for result in engine
+                    .engine()
+                    .evaluate_with_logsource(&adapter, &logsource)
+                    .into_iter()
+                    .filter(EvaluationResult::is_detection)
+                {
+                    let identity = (
+                        result.header.rule_id.clone(),
+                        result.header.rule_title.clone(),
+                    );
+                    if seen.insert(identity) {
+                        detections.push(result);
+                    }
+                }
+            }
+
+            engine.correlate_detections(&adapter, detections)
+        };
+
+        let mut best: Option<EvaluationResult> = None;
+        let mut correlations = Vec::new();
+        for mut result in results {
+            self.store.restore_synthetic_detection_id(&mut result);
+            if result.is_detection() {
+                let is_better = match &best {
+                    Some(current) => alert::result_rank(&result) < alert::result_rank(current),
+                    None => true,
+                };
+                if is_better {
+                    best = Some(result);
+                }
+            } else if result.is_correlation() {
+                correlations.push(result);
+            }
         }
+
+        let mut alerts = Vec::with_capacity(usize::from(best.is_some()) + correlations.len());
+        if let Some(result) = best {
+            alerts.push(self.build_alert(result, event));
+        }
+        alerts.extend(
+            correlations
+                .into_iter()
+                .map(|result| self.build_alert(result, event)),
+        );
+        alerts
     }
 
-    #[cfg(feature = "rsigma-engine")]
-    pub(crate) fn record_unsupported_rule(
-        &mut self,
-        source_path: &Path,
-        kind: UnsupportedRuleKind,
-        identity: impl Into<String>,
-        reason: impl Into<String>,
-    ) {
-        self.unsupported_rules.push(UnsupportedRule {
-            source_path: source_path.display().to_string(),
-            kind,
-            identity: identity.into(),
-            reason: reason.into(),
-        });
+    /// Compatibility alias for callers that used the pre-correlation name.
+    pub fn check_event(&self, event: &NormalizedEvent) -> Vec<Alert> {
+        self.evaluate_event(event)
     }
 }
 
@@ -369,742 +258,139 @@ mod tests {
         Engine::new_for_platform(Platform::Linux)
     }
 
+    fn logsource(
+        product: Option<&str>,
+        service: Option<&str>,
+        category: Option<&str>,
+    ) -> LogSource {
+        LogSource {
+            product: product.map(ToString::to_string),
+            service: service.map(ToString::to_string),
+            category: category.map(ToString::to_string),
+        }
+    }
+
+    /// Load one rule from a temporary file, exercising the real loader.
+    fn engine_with_rule(platform: Platform, rule_yaml: &str) -> Engine {
+        let dir = tempfile::tempdir().expect("temporary rule directory");
+        std::fs::write(dir.path().join("rule.yml"), rule_yaml).expect("write rule");
+        let mut engine = Engine::new_for_platform(platform);
+        engine.load_rules(dir.path()).expect("rules should load");
+        assert_eq!(
+            engine.stats().failed_rules,
+            Vec::<(String, String)>::new(),
+            "the fixture rule should load cleanly"
+        );
+        engine
+    }
+
     #[test]
-    fn test_engine_creation() {
+    fn new_engine_has_no_rules() {
         let engine = Engine::new();
         assert_eq!(engine.rule_count, 0);
+        assert_eq!(engine.stats().total_rules, 0);
     }
 
     #[test]
-    fn test_pattern_matching() {
-        let engine = Engine::new();
-
-        // Test exact match (case-insensitive by default)
-        let pattern = FieldPattern::Exact("whoami.exe".to_string(), false);
-        assert!(engine.matches_pattern("whoami.exe", &pattern, None));
-        assert!(engine.matches_pattern("WHOAMI.EXE", &pattern, None));
-        assert!(!engine.matches_pattern("cmd.exe", &pattern, None));
-
-        // Test exact match (case-sensitive)
-        let pattern = FieldPattern::Exact("whoami.exe".to_string(), true);
-        assert!(engine.matches_pattern("whoami.exe", &pattern, None));
-        assert!(!engine.matches_pattern("WHOAMI.EXE", &pattern, None));
-
-        // Test contains (case-insensitive)
-        let pattern = FieldPattern::Contains("whoami".to_string(), false);
-        assert!(engine.matches_pattern("whoami.exe", &pattern, None));
-        assert!(engine.matches_pattern("C:\\Windows\\System32\\whoami.exe", &pattern, None));
-
-        // Test starts with
-        let pattern = FieldPattern::StartsWith("C:\\Windows".to_string(), false);
-        assert!(engine.matches_pattern("C:\\Windows\\System32\\cmd.exe", &pattern, None));
-        assert!(!engine.matches_pattern("C:\\Temp\\test.exe", &pattern, None));
-    }
-
-    #[test]
-    fn test_string_pattern_parsing() {
-        let engine = Engine::new();
-
-        // Wildcard pattern
-        let pattern = engine.parse_string_pattern("*whoami*");
-        match pattern {
-            FieldPattern::Regex(_) => {}
-            _ => panic!("Expected regex pattern"),
-        }
-
-        // Exact pattern (default is case-insensitive)
-        let pattern = engine.parse_string_pattern("whoami.exe");
-        match pattern {
-            FieldPattern::Exact(s, cased) => {
-                assert_eq!(s, "whoami.exe");
-                assert!(!cased); // Default is case-insensitive
-            }
-            _ => panic!("Expected exact pattern"),
-        }
-    }
-
-    #[test]
-    fn test_sequence_endswith_modifier_respected() {
-        let engine = Engine::new();
-        let rule_yaml = r#"
-title: EndsWithList
-logsource:
-  category: process_creation
-detection:
-  selection:
-    Image|endswith:
-      - '.exe'
-      - '.com'
-  condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let compiled = engine.compile_rule(rule).unwrap();
-
-        let mut engine = Engine::new();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
-
-        let mut event = NormalizedEvent {
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            platform: Platform::Windows,
-            provider: "etw".to_string(),
-            category: EventCategory::Process,
-            event_id: 1,
-            event_id_string: "1".to_string(),
-            opcode: 1,
-            fields: EventFields::ProcessCreation(ProcessCreationFields {
-                image: Some("C:\\Windows\\System32\\cmd.exe".to_string()),
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                command_line: None,
-                process_id: Some("1234".to_string()),
-                process_start_time: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: None,
-            }),
-            process_context: None,
-        };
-
-        assert!(engine.check_event(&event).is_some());
-
-        if let EventFields::ProcessCreation(ref mut fields) = event.fields {
-            fields.image = Some("C:\\Windows\\System32\\cmd.exe.bak".to_string());
-        }
-
-        assert!(engine.check_event(&event).is_none());
-    }
-
-    #[test]
-    fn test_contains_all_modifier_requires_all_tokens() {
-        let engine = Engine::new();
-        let rule_yaml = r#"
-title: ContainsAllTokens
-logsource:
-  category: process_creation
-detection:
-  selection:
-    CommandLine|contains|all:
-      - 'foo'
-      - 'bar'
-  condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let compiled = engine.compile_rule(rule).unwrap();
-
-        let mut engine = Engine::new();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
-
-        let mut event = NormalizedEvent {
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            platform: Platform::Windows,
-            provider: "etw".to_string(),
-            category: EventCategory::Process,
-            event_id: 1,
-            event_id_string: "1".to_string(),
-            opcode: 1,
-            fields: EventFields::ProcessCreation(ProcessCreationFields {
-                image: Some("C:\\Windows\\System32\\cmd.exe".to_string()),
-                command_line: Some("foo baz".to_string()),
-                process_id: Some("1234".to_string()),
-                process_start_time: None,
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: None,
-            }),
-            process_context: None,
-        };
-
-        assert!(engine.check_event(&event).is_none());
-
-        if let EventFields::ProcessCreation(ref mut fields) = event.fields {
-            fields.command_line = Some("foo bar baz".to_string());
-        }
-
-        assert!(engine.check_event(&event).is_some());
-    }
-
-    #[test]
-    fn test_cased_sequence_respects_case() {
-        let engine = Engine::new();
-        let rule_yaml = r#"
-title: CaseSensitiveList
-logsource:
-  category: process_creation
-detection:
-  selection:
-    Image|cased:
-      - C:\Windows\System32\cmd.exe
-  condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let compiled = engine.compile_rule(rule).unwrap();
-
-        let mut engine = Engine::new();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
-
-        let mut event = NormalizedEvent {
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            platform: Platform::Windows,
-            provider: "etw".to_string(),
-            category: EventCategory::Process,
-            event_id: 1,
-            event_id_string: "1".to_string(),
-            opcode: 1,
-            fields: EventFields::ProcessCreation(ProcessCreationFields {
-                image: Some("c:\\windows\\system32\\cmd.exe".to_string()),
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                command_line: None,
-                process_id: Some("1234".to_string()),
-                process_start_time: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: None,
-            }),
-            process_context: None,
-        };
-
-        // Case should NOT match with different casing.
-        assert!(engine.check_event(&event).is_none());
-
-        if let EventFields::ProcessCreation(ref mut fields) = event.fields {
-            fields.image = Some("C:\\Windows\\System32\\cmd.exe".to_string());
-        }
-
-        // Exact case should match.
-        assert!(engine.check_event(&event).is_some());
-    }
-
-    #[test]
-    fn test_windash_contains_matches_substring() {
-        // Regression: `contains|windash` must match a substring, not require the
-        // whole field to equal the pattern (the encoded-PowerShell case).
-        let engine = Engine::new();
-        let rule_yaml = r#"
-title: WindashContains
-logsource:
-  category: process_creation
-detection:
-  selection:
-    CommandLine|contains|windash:
-      - ' -encodedcommand '
-  condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let compiled = engine.compile_rule(rule).unwrap();
-
-        let mut engine = Engine::new();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
-
-        let make_event = |cmd: &str| NormalizedEvent {
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            platform: Platform::Windows,
-            provider: "etw".to_string(),
-            category: EventCategory::Process,
-            event_id: 1,
-            event_id_string: "1".to_string(),
-            opcode: 1,
-            fields: EventFields::ProcessCreation(ProcessCreationFields {
-                image: Some(
-                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe".to_string(),
-                ),
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                command_line: Some(cmd.to_string()),
-                process_id: Some("1234".to_string()),
-                process_start_time: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: None,
-            }),
-            process_context: None,
-        };
-
-        // Real-world casing, as a substring (this used to NOT match).
-        assert!(engine
-            .check_event(&make_event(
-                "powershell.exe -NoProfile -EncodedCommand SQBFAFgA"
-            ))
-            .is_some());
-
-        // windash dash/slash variant also matches.
-        assert!(engine
-            .check_event(&make_event("powershell.exe /EncodedCommand SQBFAFgA"))
-            .is_some());
-
-        // Negative: no encoded-command flag present.
-        assert!(engine
-            .check_event(&make_event("powershell.exe -NoProfile -File script.ps1"))
-            .is_none());
-    }
-
-    #[test]
-    fn test_rule_loading() {
-        let mut engine = Engine::new();
-
-        // Try to load rules from the rules/sigma directory
-        // This test will pass even if the directory doesn't exist
-        let _ = engine.load_rules("rules/sigma");
-
-        // Get stats
-        let stats = engine.stats();
-
-        // If rules loaded, verify they're categorized
-        if stats.total_rules > 0 {
-            assert!(
-                !stats.rules_by_category.is_empty(),
-                "Rules should be categorized"
-            );
-        }
-    }
-
-    #[test]
-    fn test_event_matching() {
-        use crate::models::*;
-
-        let engine = Engine::new();
-
-        // Create a mock normalized event for whoami.exe
-        let event = NormalizedEvent {
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            platform: Platform::Windows,
-            provider: "etw".to_string(),
-            category: EventCategory::Process,
-            event_id: 1,
-            event_id_string: "1".to_string(),
-            opcode: 1,
-            fields: EventFields::ProcessCreation(ProcessCreationFields {
-                image: Some("C:\\Windows\\System32\\whoami.exe".to_string()),
-                command_line: Some("whoami".to_string()),
-                process_id: Some("1234".to_string()),
-                process_start_time: None,
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: Some("TestUser".to_string()),
-            }),
-            process_context: None,
-        };
-
-        // Check event (should return None since we haven't loaded rules in this test)
-        let result = engine.check_event(&event);
-
-        // In a test without rules loaded, this should be None
-        assert!(result.is_none());
-    }
-
-    // ===== NEW TESTS FOR ENHANCED SIGMA LOGIC =====
-
-    #[test]
-    fn test_transpile_basic_operators() {
-        let engine = Engine::new();
-        let keys = vec!["sel1".to_string(), "sel2".to_string()];
-
-        // Test AND operator
-        let result = engine.transpile_sigma_condition("sel1 and sel2", &keys);
-        assert_eq!(result, "sel1 && sel2");
-
-        // Test OR operator
-        let result = engine.transpile_sigma_condition("sel1 or sel2", &keys);
-        assert_eq!(result, "sel1 || sel2");
-
-        // Test NOT operator
-        let result = engine.transpile_sigma_condition("not sel1", &keys);
-        assert_eq!(result, "! sel1");
-
-        // Test uppercase variants
-        let result = engine.transpile_sigma_condition(
-            "sel1 AND sel2 OR sel3",
-            &["sel1".to_string(), "sel2".to_string(), "sel3".to_string()],
+    fn check_event_without_rules_does_not_alert() {
+        let engine = Engine::new_for_platform(Platform::Windows);
+        let event = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
         );
-        assert_eq!(result, "sel1 && sel2 || sel3");
+
+        assert!(engine.check_event(&event).is_empty());
     }
 
     #[test]
-    fn test_transpile_1_of_them() {
-        let engine = Engine::new();
-        let keys = vec![
-            "selection1".to_string(),
-            "selection2".to_string(),
-            "selection3".to_string(),
-        ];
+    fn non_matching_product_is_classified_as_a_mismatch() {
+        let source = logsource(Some("linux"), None, Some("process_creation"));
 
-        let result = engine.transpile_sigma_condition("1 of them", &keys);
-        assert!(result.contains("selection1"));
-        assert!(result.contains("selection2"));
-        assert!(result.contains("selection3"));
-        assert!(result.contains("||"));
-    }
-
-    #[test]
-    fn test_transpile_all_of_them() {
-        let engine = Engine::new();
-        let keys = vec!["sel1".to_string(), "sel2".to_string()];
-
-        let result = engine.transpile_sigma_condition("all of them", &keys);
-        assert!(result.contains("sel1"));
-        assert!(result.contains("sel2"));
-        assert!(result.contains("&&"));
-    }
-
-    #[test]
-    fn test_transpile_pattern_aggregation() {
-        let engine = Engine::new();
-        let keys = vec![
-            "selection_img".to_string(),
-            "selection_cmd".to_string(),
-            "other".to_string(),
-        ];
-
-        let result = engine.transpile_sigma_condition("all of selection*", &keys);
-        // Should only include keys starting with "selection"
-        assert!(result.contains("selection_img"));
-        assert!(result.contains("selection_cmd"));
-        assert!(!result.contains("other"));
-        assert!(result.contains("&&"));
-    }
-
-    #[test]
-    fn test_transpile_complex_expression() {
-        let engine = Engine::new();
-        let keys = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-
-        let result = engine.transpile_sigma_condition("(a or b) and not c", &keys);
-        assert_eq!(result, "(a || b) && ! c");
-    }
-
-    #[test]
-    fn test_check_condition_simple_and() {
-        let engine = Engine::new();
-        let mut results = HashMap::new();
-        results.insert("selection1".to_string(), true);
-        results.insert("selection2".to_string(), false);
-
-        // selection1 AND selection2 -> true AND false -> false
-        let is_match = engine.check_condition("selection1 and selection2", &results);
-        assert!(!is_match);
-
-        // Both true
-        results.insert("selection2".to_string(), true);
-        let is_match = engine.check_condition("selection1 and selection2", &results);
-        assert!(is_match);
-    }
-
-    #[test]
-    fn test_check_condition_and_not() {
-        let engine = Engine::new();
-        let mut results = HashMap::new();
-        results.insert("selection1".to_string(), true);
-        results.insert("selection2".to_string(), false);
-
-        // selection1 AND NOT selection2 -> true AND NOT false -> true AND true -> true
-        let is_match = engine.check_condition("selection1 and not selection2", &results);
-        assert!(is_match);
-
-        // Now make selection2 true
-        results.insert("selection2".to_string(), true);
-        // selection1 AND NOT selection2 -> true AND NOT true -> true AND false -> false
-        let is_match = engine.check_condition("selection1 and not selection2", &results);
-        assert!(!is_match);
-    }
-
-    #[test]
-    fn test_check_condition_1_of_them() {
-        let engine = Engine::new();
-        let mut results = HashMap::new();
-        results.insert("proc_creation".to_string(), false);
-        results.insert("file_event".to_string(), true);
-
-        // 1 of them -> proc_creation OR file_event -> false OR true -> true
-        let is_match = engine.check_condition("1 of them", &results);
-        assert!(is_match);
-
-        // All false
-        results.insert("file_event".to_string(), false);
-        let is_match = engine.check_condition("1 of them", &results);
-        assert!(!is_match);
-    }
-
-    #[test]
-    fn test_check_condition_parentheses() {
-        let engine = Engine::new();
-        let mut results = HashMap::new();
-        results.insert("a".to_string(), true);
-        results.insert("b".to_string(), false);
-        results.insert("c".to_string(), true);
-
-        // (a OR b) AND c -> (true OR false) AND true -> true AND true -> true
-        let is_match = engine.check_condition("(a or b) and c", &results);
-        assert!(is_match);
-
-        // a OR (b AND c) -> true OR (false AND true) -> true OR false -> true
-        let is_match = engine.check_condition("a or (b and c)", &results);
-        assert!(is_match);
-    }
-
-    #[test]
-    fn test_evaluate_selections() {
-        let engine = Engine::new();
-
-        // Create a test rule with multiple selections
-        let rule_yaml = r#"
-title: Test Rule
-logsource:
-  category: process_creation
-detection:
-  selection1:
-    Image: "*whoami.exe"
-  selection2:
-    CommandLine: "*priv*"
-  condition: selection1 and selection2
-level: high
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let compiled = engine.compile_rule(rule).unwrap();
-
-        // Create event that matches selection1 but not selection2
-        use crate::models::*;
-        let event = NormalizedEvent {
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            platform: Platform::Windows,
-            provider: "etw".to_string(),
-            category: EventCategory::Process,
-            event_id: 1,
-            event_id_string: "1".to_string(),
-            opcode: 1,
-            fields: EventFields::ProcessCreation(ProcessCreationFields {
-                image: Some("C:\\Windows\\System32\\whoami.exe".to_string()),
-                command_line: Some("whoami".to_string()),
-                process_id: None,
-                process_start_time: None,
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: None,
-            }),
-            process_context: None,
-        };
-
-        let results = engine.evaluate_selections(&event, &compiled);
-
-        assert_eq!(results.get("selection1"), Some(&true));
-        assert_eq!(results.get("selection2"), Some(&false));
-    }
-
-    #[test]
-    fn test_skip_non_windows_product_rule() {
-        let rule_yaml = r#"
-title: Linux Process Rule
-logsource:
-  product: linux
-  category: process_creation
-detection:
-  selection:
-    Image: "*bash"
-  condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
         assert_eq!(
-            windows_engine().classify_logsource(&rule.logsource).status,
+            windows_engine().classify_logsource(&source).status,
             LogSourceStatus::ProductMismatch
         );
         assert_eq!(
-            linux_engine().classify_logsource(&rule.logsource).status,
+            linux_engine().classify_logsource(&source).status,
             LogSourceStatus::Supported
         );
     }
 
     #[test]
-    fn test_skip_unsupported_service_rule() {
-        let rule_yaml = r#"
-title: Unsupported Service
-logsource:
-  product: windows
-  service: cloudtrail
-  category: process_creation
-detection:
-  selection:
-    Image: "*cmd.exe"
-  condition: selection
-"#;
+    fn unrecognized_service_is_classified_as_unknown() {
+        let source = logsource(
+            Some("windows"),
+            Some("cloudtrail"),
+            Some("process_creation"),
+        );
 
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
         assert_eq!(
-            windows_engine().classify_logsource(&rule.logsource).status,
+            windows_engine().classify_logsource(&source).status,
             LogSourceStatus::Unknown
         );
         assert_eq!(
-            linux_engine().classify_logsource(&rule.logsource).status,
+            linux_engine().classify_logsource(&source).status,
             LogSourceStatus::ProductMismatch
         );
     }
 
     #[test]
-    fn test_skip_unsupported_category_rule() {
-        let rule_yaml = r#"
-title: Unsupported Category
-logsource:
-  product: windows
-  category: process_tampering
-detection:
-  selection:
-    Image: "*cmd.exe"
-  condition: selection
-"#;
+    fn unsupported_category_is_classified_as_unknown() {
+        let source = logsource(Some("windows"), None, Some("process_tampering"));
 
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
         assert_eq!(
-            windows_engine().classify_logsource(&rule.logsource).status,
+            windows_engine().classify_logsource(&source).status,
             LogSourceStatus::Unknown
         );
     }
 
     #[test]
-    fn test_linux_sysmon_process_rule_matches_full_logsource() {
-        let rule_yaml = r#"
-title: Linux Sysmon Process
+    fn service_only_logsource_loads_without_a_category() {
+        let classification =
+            linux_engine().classify_logsource(&logsource(Some("linux"), Some("sysmon"), None));
+
+        assert_eq!(classification.status, LogSourceStatus::Supported);
+        assert_eq!(classification.collector_active, Some(true));
+    }
+
+    #[test]
+    fn deferred_linux_logsource_is_reported() {
+        let classification = linux_engine().classify_logsource(&logsource(
+            Some("linux"),
+            Some("auditd"),
+            Some("process_creation"),
+        ));
+
+        assert_eq!(classification.status, LogSourceStatus::Deferred);
+        assert_eq!(classification.collector_active, None);
+    }
+
+    #[test]
+    fn linux_sysmon_process_rule_matches_a_process_event() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Linux Sysmon Process
 logsource:
   product: linux
   service: sysmon
   category: process_creation
 detection:
   selection:
-    Image: "*bash"
+    Image|endswith: bash
   condition: selection
-"#;
+"#,
+        );
+        let event = process_event(Platform::Linux, "/usr/bin/bash", "/usr/bin/bash -c id");
 
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let mut engine = linux_engine();
-        let compiled = engine.compile_rule(rule).unwrap();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
-
-        let event = NormalizedEvent {
-            timestamp: "2025-01-01T00:00:00Z".to_string(),
-            platform: Platform::Linux,
-            provider: "ebpf".to_string(),
-            category: EventCategory::Process,
-            event_id: 1,
-            event_id_string: "1".to_string(),
-            opcode: 1,
-            fields: EventFields::ProcessCreation(ProcessCreationFields {
-                image: Some("/usr/bin/bash".to_string()),
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                command_line: Some("/usr/bin/bash -c id".to_string()),
-                process_id: Some("42".to_string()),
-                process_start_time: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: Some("alice".to_string()),
-            }),
-            process_context: None,
-        };
-
-        assert!(engine.check_event(&event).is_some());
+        assert!(!engine.check_event(&event).is_empty());
     }
 
     #[test]
-    fn test_linux_sysmon_service_only_rule_loads_without_category() {
-        let rule_yaml = r#"
-title: Linux Sysmon Any Category
-logsource:
-  product: linux
-  service: sysmon
-detection:
-  selection:
-    Image: "*bash"
-  condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let classification = linux_engine().classify_logsource(&rule.logsource);
-        assert_eq!(classification.status, LogSourceStatus::Supported);
-        assert_eq!(classification.collector_active, Some(true));
-    }
-
-    #[test]
-    fn test_generic_network_connection_rule_matches_linux_network_event() {
-        let rule_yaml = r#"
-title: Generic Network Connection
+    fn generic_network_rule_matches_a_linux_network_event() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Generic Network Connection
 logsource:
   category: network
   service: connection
@@ -1112,22 +398,14 @@ detection:
   selection:
     DestinationPort: "443"
   condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let mut engine = linux_engine();
-        let compiled = engine.compile_rule(rule).unwrap();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
+"#,
+        );
 
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
             platform: Platform::Linux,
             provider: "ebpf".to_string(),
-            category: EventCategory::Network,
+            category: crate::models::EventCategory::Network,
             event_id: 3,
             event_id_string: "3".to_string(),
             opcode: 12,
@@ -1146,13 +424,14 @@ detection:
             process_context: None,
         };
 
-        assert!(engine.check_event(&event).is_some());
+        assert!(!engine.check_event(&event).is_empty());
     }
 
     #[test]
-    fn test_linux_file_rename_rule_matches_source_and_target_fields() {
-        let rule_yaml = r#"
-title: Linux File Rename
+    fn file_rename_rule_matches_source_and_target_fields() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Linux File Rename
 logsource:
   product: linux
   category: file_rename
@@ -1161,22 +440,14 @@ detection:
     SourceFilename|endswith: "/old.txt"
     TargetFilename|endswith: "/new.txt"
   condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let mut engine = linux_engine();
-        let compiled = engine.compile_rule(rule).unwrap();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
+"#,
+        );
 
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
             platform: Platform::Linux,
             provider: "ebpf".to_string(),
-            category: EventCategory::File,
+            category: crate::models::EventCategory::File,
             event_id: 71,
             event_id_string: "71".to_string(),
             opcode: 71,
@@ -1193,13 +464,14 @@ detection:
             process_context: None,
         };
 
-        assert!(engine.check_event(&event).is_some());
+        assert!(!engine.check_event(&event).is_empty());
     }
 
     #[test]
-    fn test_generic_dns_rule_matches_linux_dns_event_via_alias_fields() {
-        let rule_yaml = r#"
-title: Generic DNS Query
+    fn generic_dns_rule_matches_via_alias_fields() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Generic DNS Query
 logsource:
   category: dns
 detection:
@@ -1207,22 +479,14 @@ detection:
     query: "example.com"
     record_type: "A"
   condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let mut engine = linux_engine();
-        let compiled = engine.compile_rule(rule).unwrap();
-        engine
-            .rules_by_logsource
-            .entry(compiled.logsource.clone())
-            .or_default()
-            .push(compiled);
+"#,
+        );
 
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
             platform: Platform::Linux,
             provider: "ebpf".to_string(),
-            category: EventCategory::Dns,
+            category: crate::models::EventCategory::Dns,
             event_id: 22,
             event_id_string: "22".to_string(),
             opcode: 0,
@@ -1237,136 +501,57 @@ detection:
             process_context: None,
         };
 
-        assert!(engine.check_event(&event).is_some());
+        assert!(!engine.check_event(&event).is_empty());
     }
 
     #[test]
-    fn test_linux_deferred_logsource_is_reported() {
-        let rule_yaml = r#"
-title: Deferred Auditd Rule
+    fn product_mismatched_rules_are_skipped_at_load_time() {
+        let engine = engine_with_rule(
+            Platform::Windows,
+            r#"title: Linux Only
 logsource:
   product: linux
-  service: auditd
   category: process_creation
 detection:
   selection:
-    exe: "/usr/bin/bash"
+    Image|endswith: bash
   condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let classification = linux_engine().classify_logsource(&rule.logsource);
-        assert_eq!(classification.status, LogSourceStatus::Deferred);
-        assert_eq!(classification.collector_active, None);
-    }
-
-    #[test]
-    fn test_unsupported_modifier_rejected_explicitly() {
-        let rule_yaml = r#"
-title: Unsupported Modifier
-logsource:
-  category: process_creation
-detection:
-  selection:
-    Image|foobar: "*cmd.exe"
-  condition: selection
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let error = windows_engine().compile_rule(rule).unwrap_err().to_string();
-        assert!(error.contains("Unsupported Sigma modifier"));
-    }
-
-    #[test]
-    fn test_compile_rule_builds_precompiled_condition_tree() {
-        let engine = Engine::new();
-        let rule_yaml = r#"
-title: Condition AST
-logsource:
-  product: windows
-  category: process_creation
-detection:
-  sel1:
-    Image: "*cmd.exe"
-  sel2:
-    CommandLine: "* /c *"
-  condition: sel1 and sel2
-"#;
-
-        let rule: SigmaRule = serde_yaml::from_str(rule_yaml).unwrap();
-        let compiled = engine.compile_rule(rule).unwrap();
-        assert!(compiled.transpiled_condition.is_some());
-        assert!(compiled.condition_tree.is_some());
-    }
-}
-
-#[cfg(test)]
-mod engine_kind_tests {
-    use super::SigmaEngineKind;
-
-    #[test]
-    fn parse_accepts_known_names_and_rejects_others() {
-        assert_eq!(
-            SigmaEngineKind::parse("builtin").unwrap(),
-            SigmaEngineKind::Builtin
+"#,
         );
-        assert_eq!(
-            SigmaEngineKind::parse(" RSIGMA ").unwrap(),
-            SigmaEngineKind::Rsigma
-        );
-        assert!(SigmaEngineKind::parse("bogus").is_err());
+
+        let stats = engine.stats();
+        assert_eq!(stats.total_rules, 0);
+        assert_eq!(stats.skipped_product_rules, 1);
     }
 
-    #[test]
-    fn availability_tracks_the_feature() {
-        assert!(SigmaEngineKind::Builtin.is_available());
-        assert_eq!(
-            SigmaEngineKind::Rsigma.is_available(),
-            cfg!(feature = "rsigma-engine")
-        );
-    }
-
-    #[test]
-    fn resolve_reads_the_configured_value() {
-        assert_eq!(
-            SigmaEngineKind::resolve(None, "builtin").unwrap(),
-            SigmaEngineKind::Builtin
-        );
-    }
-
-    #[test]
-    fn resolve_rejects_an_invalid_configured_value() {
-        assert!(SigmaEngineKind::resolve(None, "bogus").is_err());
-    }
-
-    #[test]
-    fn cli_override_takes_precedence_over_config() {
-        // Built-in is always available, so this holds in every build.
-        assert_eq!(
-            SigmaEngineKind::resolve(Some(SigmaEngineKind::Builtin), "rsigma").unwrap(),
-            SigmaEngineKind::Builtin
-        );
-    }
-
-    #[cfg(feature = "rsigma-engine")]
-    #[test]
-    fn resolve_rsigma_when_feature_enabled() {
-        assert_eq!(
-            SigmaEngineKind::resolve(None, "rsigma").unwrap(),
-            SigmaEngineKind::Rsigma
-        );
-        assert_eq!(
-            SigmaEngineKind::resolve(Some(SigmaEngineKind::Rsigma), "builtin").unwrap(),
-            SigmaEngineKind::Rsigma
-        );
-    }
-
-    #[cfg(not(feature = "rsigma-engine"))]
-    #[test]
-    fn resolve_rejects_rsigma_without_the_feature() {
-        let err = SigmaEngineKind::resolve(None, "rsigma").unwrap_err();
-        assert!(err.to_string().contains("rsigma-engine"));
-        // The CLI override path fails the same way.
-        assert!(SigmaEngineKind::resolve(Some(SigmaEngineKind::Rsigma), "builtin").is_err());
+    fn process_event(platform: Platform, image: &str, command_line: &str) -> NormalizedEvent {
+        NormalizedEvent {
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+            platform,
+            provider: "test".to_string(),
+            category: crate::models::EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                image: Some(image.to_string()),
+                command_line: Some(command_line.to_string()),
+                process_id: Some("1234".to_string()),
+                process_start_time: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                target_image: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: Some("TestUser".to_string()),
+            }),
+            process_context: None,
+        }
     }
 }

@@ -26,15 +26,11 @@ use serde_json::Value;
 use crate::models::NormalizedEvent;
 
 /// Borrowed [`rsigma_eval::Event`] view over a [`NormalizedEvent`].
-// Constructed by the RSigma-backed engine; the evaluation wiring lands in a
-// later commit of this change, so allow it to be unused until then.
-#[allow(dead_code)]
 pub(crate) struct RsigmaEvent<'a> {
     event: &'a NormalizedEvent,
 }
 
 impl<'a> RsigmaEvent<'a> {
-    #[allow(dead_code)]
     pub(crate) fn new(event: &'a NormalizedEvent) -> Self {
         Self { event }
     }

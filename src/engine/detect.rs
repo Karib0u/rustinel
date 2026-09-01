@@ -42,15 +42,13 @@ impl EventDetectors {
 
     /// Evaluate one normalized event.
     ///
-    /// Returns every match, Sigma first and then IOC, in a deterministic order:
-    /// the same event evaluated against the same detectors always produces the
-    /// same alerts in the same sequence.
+    /// Returns the selected Sigma detection, any Sigma correlations, and IOC
+    /// matches in a deterministic order. The same event evaluated against the
+    /// same detectors produces the same alerts in the same sequence.
     pub fn evaluate(&self, event: &NormalizedEvent) -> Vec<Alert> {
         let mut alerts = Vec::new();
 
-        if let Some(alert) = self.sigma.check_event(event) {
-            alerts.push(alert);
-        }
+        alerts.extend(self.sigma.evaluate_event(event));
 
         for ioc_match in self.ioc.check_event(event) {
             alerts.push(self.ioc.build_alert_for_match(&ioc_match, event));

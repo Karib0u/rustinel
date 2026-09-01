@@ -24,15 +24,9 @@ pub fn run(
     console_output: bool,
     log_level: Option<String>,
     config_path: Option<std::path::PathBuf>,
-    sigma_engine: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(run_macos_edr(
-        Some(console_output),
-        log_level,
-        config_path,
-        sigma_engine,
-    ))
+    runtime.block_on(run_macos_edr(Some(console_output), log_level, config_path))
 }
 
 /// macOS capture runtime: the same Endpoint Security and network sensors as
@@ -81,7 +75,6 @@ async fn run_macos_edr(
     console_output_override: Option<bool>,
     log_level_override: Option<String>,
     config_path: Option<std::path::PathBuf>,
-    sigma_engine_override: Option<crate::engine::SigmaEngineKind>,
 ) -> anyhow::Result<()> {
     // 1. Configuration
     let resolved_config_path = config::AppConfig::resolve_config_path(config_path.clone());
@@ -139,15 +132,8 @@ async fn run_macos_edr(
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
 
     // 5. Sigma engine
-    let engine_kind =
-        crate::engine::SigmaEngineKind::resolve(sigma_engine_override, &cfg.scanner.sigma_engine)?;
-    info!(target: TARGET_CONSOLE, engine = engine_kind.as_str(), "Selected Sigma engine");
-    let mut sigma_engine = Engine::new_for_platform_with_logging_level_and_match_debug(
-        Platform::MacOS,
-        &cfg.logging.level,
-        cfg.alerts.match_debug,
-        engine_kind,
-    );
+    let mut sigma_engine =
+        Engine::new_for_platform_with_match_debug(Platform::MacOS, cfg.alerts.match_debug);
 
     if cfg.scanner.sigma_enabled {
         info!(rules_path = ?cfg.scanner.sigma_rules_path, "Loading Sigma rules");
@@ -163,8 +149,6 @@ async fn run_macos_edr(
                 skipped_product_rules = stats.skipped_product_rules,
                 inactive_collector_rules = stats.inactive_collector_rules,
                 unsupported_rules = stats.unsupported_rules.len(),
-                unsupported_correlation_rules = stats.unsupported_correlation_rules,
-                unsupported_filter_rules = stats.unsupported_filter_rules,
                 "Sigma engine initialized"
             );
             for (logsource, count) in stats.rules_by_logsource {
@@ -235,9 +219,7 @@ async fn run_macos_edr(
             cfg.scanner.clone(),
             cfg.ioc.clone(),
             cfg.reload.clone(),
-            cfg.logging.level.clone(),
             cfg.alerts.match_debug,
-            engine_kind,
             resolved_config_path.clone(),
             response_config.clone(),
             rx,

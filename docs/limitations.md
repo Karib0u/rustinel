@@ -15,7 +15,6 @@ full rather than hide them.
 | Process events carry no hashes (`Hashes` / `Imphash`) | Windows |
 | Several modelled process fields are never populated | Windows |
 | Rules are silently inert when no collector backs their logsource | Engine |
-| No stateful correlation or filter evaluation | Engine |
 | Telemetry is dropped under burst load (counted, not prevented) | Pipeline |
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
@@ -238,17 +237,15 @@ would succeed.
   rules can never fire. This is worse than the general case above: the rule is
   not merely inert, it is counted as covered
   ([#293](https://github.com/Karib0u/rustinel/issues/293)).
-- **No stateful correlation or filter evaluation.** Each event is matched
-  independently, with no state, window, count, or throttle. Sigma correlation
-  and legacy aggregations (`| count() by ...`, `near`) are unsupported, so
-  brute-force, beaconing, and "N events in M minutes" detections cannot be
-  expressed. RSigma recognizes both document types and reports them as
-  unsupported with source context rather than evaluating them.
+- **Correlation state resets on Sigma reload.** A reload creates a fresh
+  correlation engine, so events in an open window are forgotten. Correlation
+  windows also rely on events arriving to trigger cleanup; there is no separate
+  eviction task yet. See [Correlation rules](detection.md#correlation-rules).
 - **Unsupported modifiers reject the whole rule.** A rule using a modifier
   outside the supported set is dropped at load, not partially matched.
-- **Only one alert per event.** When several rules match, the highest-severity
-  one is reported and the rest are not
-  ([#195](https://github.com/Karib0u/rustinel/issues/195)).
+- **Only one detection alert per event.** When several detection rules match,
+  the highest-severity one is reported. Correlation alerts are added separately
+  when their windows fire.
 
 ## Pipeline and operations
 
@@ -304,5 +301,5 @@ Planned work is tracked in
 uncommitted backlog in
 [open issues](https://github.com/Karib0u/rustinel/issues). The largest items are
 richer process telemetry (hashes, integrity level, token fields), correlation
-and temporal rules, real backpressure rather than only counting what was shed,
-YARA scanning of newly written files, and macOS hardening.
+state preservation across reloads, real backpressure rather than only counting
+what was shed, YARA scanning of newly written files, and macOS hardening.

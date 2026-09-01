@@ -56,6 +56,7 @@ fn build_yara_match_details(
     Some(MatchDetails {
         summary,
         sigma: None,
+        correlation: None,
         yara: Some(YaraMatchDetails { rules: vec![rule] }),
     })
 }

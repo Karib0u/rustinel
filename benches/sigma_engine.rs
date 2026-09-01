@@ -1,42 +1,20 @@
-//! Throughput benchmark for `Engine::check_event`.
-//!
-//! The Sigma backend is selected at compile time, so this benchmark measures
-//! whichever engine is built. Compare the two by running it once per backend:
+//! Throughput benchmark for `Engine::evaluate_event`.
 //!
 //! ```sh
-//! cargo bench --bench sigma_backend                          # built-in
-//! cargo bench --bench sigma_backend --features rsigma-engine # RSigma
+//! cargo bench --bench sigma_engine
 //! ```
-//!
-//! Results are labelled with the active backend so the two runs do not clobber
-//! each other's Criterion baselines.
 
 use std::collections::HashMap;
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use rustinel::engine::{Engine, SigmaEngineKind};
+use rustinel::engine::Engine;
 use rustinel::models::{EventCategory, EventFields, MatchDebugLevel, NormalizedEvent};
 use rustinel::sensor::Platform;
 use tempfile::TempDir;
 
-#[cfg(feature = "rsigma-engine")]
-const ENGINE_KIND: SigmaEngineKind = SigmaEngineKind::Rsigma;
-#[cfg(not(feature = "rsigma-engine"))]
-const ENGINE_KIND: SigmaEngineKind = SigmaEngineKind::Builtin;
-
-#[cfg(feature = "rsigma-engine")]
-const BACKEND: &str = "rsigma";
-#[cfg(not(feature = "rsigma-engine"))]
-const BACKEND: &str = "builtin";
-
 fn engine() -> Engine {
-    Engine::new_for_platform_with_logging_level_and_match_debug(
-        Platform::Linux,
-        "info",
-        MatchDebugLevel::Off,
-        ENGINE_KIND,
-    )
+    Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off)
 }
 
 /// A representative Linux ruleset covering the common logsource families and
@@ -109,7 +87,7 @@ level: medium
 const SYNTHETIC_RULES_PER_FAMILY: usize = 500;
 
 /// Writes the matching ruleset plus a large set of synthetic rules that never
-/// match the sample events, so `check_event` pays the cost of scanning a
+/// match the sample events, so `evaluate_event` pays the cost of scanning a
 /// realistically sized bucket before its one hit (or miss).
 fn write_scaled_rules(dir: &std::path::Path, per_family: usize) {
     write_rules(dir);
@@ -221,7 +199,7 @@ fn sample_events() -> Vec<NormalizedEvent> {
     ]
 }
 
-fn bench_check_event(c: &mut Criterion) {
+fn bench_evaluate_event(c: &mut Criterion) {
     let tempdir = TempDir::new().expect("bench tempdir");
     write_rules(tempdir.path());
     let mut engine = engine();
@@ -230,16 +208,16 @@ fn bench_check_event(c: &mut Criterion) {
         .expect("bench rules should load");
     let events = sample_events();
 
-    c.bench_function(&format!("check_event/{BACKEND}/mixed"), |b| {
+    c.bench_function("evaluate_event/mixed", |b| {
         b.iter(|| {
             for ev in &events {
-                black_box(engine.check_event(black_box(ev)));
+                black_box(engine.evaluate_event(black_box(ev)));
             }
         });
     });
 }
 
-fn bench_check_event_large(c: &mut Criterion) {
+fn bench_evaluate_event_large(c: &mut Criterion) {
     let tempdir = TempDir::new().expect("bench tempdir");
     write_scaled_rules(tempdir.path(), SYNTHETIC_RULES_PER_FAMILY);
     let mut engine = engine();
@@ -248,14 +226,14 @@ fn bench_check_event_large(c: &mut Criterion) {
         .expect("bench rules should load");
     let events = sample_events();
 
-    c.bench_function(&format!("check_event/{BACKEND}/large"), |b| {
+    c.bench_function("evaluate_event/large", |b| {
         b.iter(|| {
             for ev in &events {
-                black_box(engine.check_event(black_box(ev)));
+                black_box(engine.evaluate_event(black_box(ev)));
             }
         });
     });
 }
 
-criterion_group!(benches, bench_check_event, bench_check_event_large);
+criterion_group!(benches, bench_evaluate_event, bench_evaluate_event_large);
 criterion_main!(benches);

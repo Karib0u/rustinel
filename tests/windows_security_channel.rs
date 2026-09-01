@@ -292,6 +292,8 @@ level: high
         let normalized = normalize(&event);
         let alert = engine
             .check_event(&normalized)
+            .into_iter()
+            .next()
             .unwrap_or_else(|| panic!("{filename} should match {expected_rule}"));
         assert_eq!(alert.rule_name, expected_rule);
         assert_ecs_field_eq(&ecs_json(&alert), "event.dataset", "edr.security");
@@ -324,7 +326,7 @@ level: low
         SensorAction::Register,
         &[("ServiceName", "RustinelIssue315")],
     );
-    assert!(engine.check_event(&normalize(&event)).is_none());
+    assert!(engine.check_event(&normalize(&event)).is_empty());
 }
 
 #[test]
@@ -363,6 +365,8 @@ level: high
     );
     let alert = engine
         .check_event(&normalize(&event))
+        .into_iter()
+        .next()
         .expect("the share rule should match");
     let json = ecs_json(&alert);
 
@@ -424,6 +428,8 @@ level: low
         );
         let alert = engine
             .check_event(&normalize(&event))
+            .into_iter()
+            .next()
             .expect("the handle rule should match");
         let json = ecs_json(&alert);
         assert_ecs_field_eq(

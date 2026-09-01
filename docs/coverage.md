@@ -22,9 +22,9 @@ The other 585 corpus rules target cloud, network, and appliance sources (Azure,
 AWS, Okta, Zeek, M365…). Rustinel is an endpoint sensor and does not claim them.
 
 No rule matches on substituted or wrong data on any platform, and **no rule in
-the public corpus uses Sigma correlation**, so the lack of stateful correlation
-(see [Limitations](limitations.md#detection-engine-sigma)) costs nothing against
-SigmaHQ, though it still matters for custom rules.
+the public corpus uses Sigma correlation**. Custom rule packs can use the
+stateful correlation support; its reload and cleanup limits are listed under
+[Limitations](limitations.md#detection-engine-sigma).
 
 ## What blocks the rest
 

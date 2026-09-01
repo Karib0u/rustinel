@@ -16,28 +16,17 @@ resolver = "2"
 [lints.rust]
 warnings = "deny"
 
-[features]
-# Opt-in RSigma library backend: swaps Rustinel's built-in Sigma matcher for
-# rsigma-parser + rsigma-eval while keeping Rustinel-owned normalization,
-# logsource routing, ECS alerts, hot reload, and IOC/YARA.
-rsigma-engine = ["dep:rsigma-parser", "dep:rsigma-eval"]
-
 [dependencies]
-# Sigma detection engine
-# Using regex for pattern matching in Sigma rules
+# Sigma detection engine: rule parsing (rsigma-parser) plus stateless detection
+# and stateful correlation evaluation (rsigma-eval). Rustinel keeps ownership of
+# normalization, logsource routing, ECS alerts, hot reload, and IOC/YARA.
+rsigma-parser = "0.21"
+rsigma-eval = "0.21"
+
 regex = "1.10"
 
-# Boolean expression evaluator for Sigma logic
-evalexpr = "11.3.1"
-
-# Optional RSigma library backend (enabled by the `rsigma-engine` feature):
-# parsing (rsigma-parser) and stateless evaluation (rsigma-eval).
-rsigma-parser = { version = "0.21", optional = true }
-rsigma-eval = { version = "0.21", optional = true }
-
-# Network and encoding utilities for Sigma
+# Network and encoding utilities
 ipnetwork = "0.21.1"
-base64 = "0.23"
 digest = "0.11"
 hex = "0.4"
 md-5 = "0.11"
@@ -109,8 +98,7 @@ windows-service = "0.8.1"
 tempfile = "3.8"
 criterion = "0.8"
 
-# Compare the built-in Sigma engine (default) against the RSigma backend by
-# running `cargo bench` and `cargo bench --features rsigma-engine`.
+# Sigma detection throughput, measured with `cargo bench --bench sigma_engine`.
 [[bench]]
-name = "sigma_backend"
+name = "sigma_engine"
 harness = false

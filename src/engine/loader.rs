@@ -1,4 +1,72 @@
-use super::*;
+//! Loading Sigma rules from disk.
+//!
+//! The directory walk parses each file into one accumulated
+//! [`rsigma_parser::SigmaCollection`]. Rustinel filters detection rules before
+//! passing the complete collection to one [`rsigma_eval::CorrelationEngine`].
+//! Keeping the collection intact until that call lets correlations and filters
+//! resolve rules across files and logsource buckets.
+
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use rsigma_parser::{
+    parse_sigma_yaml, CorrelationRule, FilterRule, FilterRuleTarget, SigmaCollection, SigmaRule,
+};
+use tracing::{debug, info, warn};
+
+use super::logsource::{logsource_key, normalize_logsource_in_place};
+use super::{Engine, RuleLoadDecision, UnsupportedRuleKind};
+
+fn document_identity(id: Option<&str>, title: &str) -> String {
+    match id {
+        Some(id) => format!("id '{id}', title '{title}'"),
+        None => format!("title '{title}'"),
+    }
+}
+
+/// Source paths for documents after the parser has grouped them by type.
+/// `SigmaCollection` intentionally does not retain this information.
+#[derive(Default)]
+struct DocumentSources {
+    correlations: std::collections::HashMap<String, String>,
+    filters: std::collections::HashMap<String, String>,
+}
+
+impl DocumentSources {
+    fn add_collection(&mut self, source_path: &str, collection: &SigmaCollection) {
+        for correlation in &collection.correlations {
+            self.correlations.insert(
+                document_identity(correlation.id.as_deref(), &correlation.title),
+                source_path.to_string(),
+            );
+        }
+        for filter in &collection.filters {
+            self.filters.insert(
+                document_identity(filter.id.as_deref(), &filter.title),
+                source_path.to_string(),
+            );
+        }
+    }
+
+    fn correlation_path(&self, correlation: &CorrelationRule) -> String {
+        self.correlations
+            .get(&document_identity(
+                correlation.id.as_deref(),
+                &correlation.title,
+            ))
+            .cloned()
+            .unwrap_or_else(|| "<unknown>".to_string())
+    }
+
+    fn filter_path(&self, filter: &FilterRule) -> String {
+        self.filters
+            .get(&document_identity(filter.id.as_deref(), &filter.title))
+            .cloned()
+            .unwrap_or_else(|| "<unknown>".to_string())
+    }
+}
 
 impl Engine {
     pub fn load_rules<P: AsRef<Path>>(&mut self, rules_dir: P) -> Result<()> {
@@ -11,7 +79,6 @@ impl Engine {
 
         info!("Loading Sigma rules from: {:?} (recursive)", rules_dir);
 
-        // Recursively load all rules
         self.load_rules_recursive(rules_dir)?;
 
         let stats = self.stats();
@@ -20,13 +87,12 @@ impl Engine {
             info!("  Logsource '{}': {} rules", logsource, count);
         }
         info!(
-            "Skipped rules - deferred: {}, unknown_logsource: {}, product_mismatch: {}, inactive_collectors: {}; unsupported documents - correlations: {}, filters: {}",
+            "Skipped rules - deferred: {}, unknown_logsource: {}, product_mismatch: {}, inactive_collectors: {}; dropped documents with unresolved references: {}",
             stats.skipped_deferred_rules,
             stats.skipped_unknown_logsource_rules,
             stats.skipped_product_rules,
             stats.inactive_collector_rules,
-            stats.unsupported_correlation_rules,
-            stats.unsupported_filter_rules
+            stats.unsupported_rules.len()
         );
 
         for unsupported in &stats.unsupported_rules {
@@ -35,7 +101,7 @@ impl Engine {
                 kind = %unsupported.kind,
                 identity = %unsupported.identity,
                 reason = %unsupported.reason,
-                "Sigma document is unsupported by the active runtime"
+                "Sigma document was dropped"
             );
         }
 
@@ -46,10 +112,20 @@ impl Engine {
         Ok(())
     }
 
-    /// Recursively load rules from a directory and its subdirectories
+    /// Parse all rule files, then compile the filtered collection once.
     pub(crate) fn load_rules_recursive<P: AsRef<Path>>(&mut self, dir: P) -> Result<()> {
-        let dir = dir.as_ref();
+        let mut collection = SigmaCollection::new();
+        let mut sources = DocumentSources::default();
+        self.collect_rules_recursive(dir.as_ref(), &mut collection, &mut sources)?;
+        self.load_collection(collection, sources)
+    }
 
+    fn collect_rules_recursive(
+        &mut self,
+        dir: &Path,
+        collection: &mut SigmaCollection,
+        sources: &mut DocumentSources,
+    ) -> Result<()> {
         let entries = fs::read_dir(dir).context("Failed to read directory")?;
 
         for entry in entries {
@@ -57,22 +133,25 @@ impl Engine {
             let path = entry.path();
 
             if path.is_dir() {
-                // Recursively process subdirectories
-                self.load_rules_recursive(&path)?;
-            } else if let Some(ext) = path.extension() {
-                // Only process .yml and .yaml files
-                if ext == "yml" || ext == "yaml" {
-                    self.rule_files_found += 1;
-                    match self.load_rule(&path) {
-                        Ok(()) => {
-                            debug!("Loaded rule: {:?}", path);
+                self.collect_rules_recursive(&path, collection, sources)?;
+            } else if matches!(
+                path.extension().and_then(|ext| ext.to_str()),
+                Some("yml" | "yaml")
+            ) {
+                self.rule_files_found += 1;
+                match Self::parse_rule_file(&path, collection, sources) {
+                    Ok(errors) => {
+                        let path_str = path.display().to_string();
+                        for error in errors {
+                            self.failed_rules.push((path_str.clone(), error));
                         }
-                        Err(e) => {
-                            let path_str = path.display().to_string();
-                            let err_msg = format!("{}", e);
-                            warn!("Failed to load rule {:?}: {}", path, e);
-                            self.failed_rules.push((path_str, err_msg));
-                        }
+                        debug!("Parsed rule file: {:?}", path);
+                    }
+                    Err(error) => {
+                        let path_str = path.display().to_string();
+                        let error_message = error.to_string();
+                        warn!("Failed to load rule {:?}: {}", path, error_message);
+                        self.failed_rules.push((path_str, error_message));
                     }
                 }
             }
@@ -81,103 +160,30 @@ impl Engine {
         Ok(())
     }
 
-    /// Parse Sigma rule documents from YAML content.
-    ///
-    /// Ordinary multi-document YAML files load one rule per document. Files
-    /// starting with `action: global` keep the existing template expansion
-    /// behavior. Other collection actions are only supported by the RSigma
-    /// backend and are rejected here with document context.
-    pub fn parse_rule_documents(content: &str) -> Result<Vec<SigmaRule>> {
-        let mut documents = Vec::new();
-        for (index, doc) in serde_yaml::Deserializer::from_str(content).enumerate() {
-            let document_number = index + 1;
-            let value = serde_yaml::Value::deserialize(doc)
-                .with_context(|| format!("Failed to parse YAML document {document_number}"))?;
+    fn parse_rule_file(
+        path: &Path,
+        collection: &mut SigmaCollection,
+        sources: &mut DocumentSources,
+    ) -> Result<Vec<String>> {
+        let content = fs::read_to_string(path).context("Failed to read rule file")?;
+        let parsed = parse_sigma_yaml(&content).map_err(|err| anyhow::anyhow!("{err}"))?;
+        let source_path = path.display().to_string();
+        let errors = parsed.errors.clone();
 
-            if !value.is_null() {
-                documents.push((document_number, value));
-            }
-        }
-
-        if documents.is_empty() {
-            return Err(anyhow::anyhow!("No YAML documents found"));
-        }
-
-        let is_global = documents
-            .first()
-            .and_then(|(_, doc)| doc.get("action"))
-            .and_then(|v| v.as_str())
-            .map(|s| s == "global")
-            .unwrap_or(false);
-
-        if is_global && documents.len() > 1 {
-            let global_metadata = &documents[0].1;
-            let mut rules = Vec::with_capacity(documents.len() - 1);
-
-            for (document_number, doc) in &documents[1..] {
-                let mut merged = global_metadata.clone();
-
-                if let Some(logsource) = doc.get("logsource") {
-                    merged["logsource"] = logsource.clone();
-                }
-                if let Some(detection) = doc.get("detection") {
-                    merged["detection"] = detection.clone();
-                }
-
-                if let Some(mapping) = merged.as_mapping_mut() {
-                    mapping.remove(serde_yaml::Value::String("action".to_string()));
-                }
-
-                rules.push(
-                    serde_yaml::from_value(merged).with_context(|| {
-                        format!(
-                            "Failed to parse merged global sub-rule from YAML document {document_number}"
-                        )
-                    })?,
-                );
-            }
-
-            return Ok(rules);
-        }
-
-        let mut rules = Vec::with_capacity(documents.len());
-        for (document_number, doc) in documents {
-            if let Some(action) = doc.get("action").and_then(|v| v.as_str()) {
-                return Err(anyhow::anyhow!(
-                    "Unsupported Sigma collection action '{action}' in YAML document {document_number}; the built-in backend only supports 'global'"
-                ));
-            }
-
-            rules.push(
-                serde_yaml::from_value(doc)
-                    .with_context(|| format!("Failed to parse YAML document {document_number}"))?,
-            );
-        }
-
-        Ok(rules)
+        sources.add_collection(&source_path, &parsed);
+        collection.rules.extend(parsed.rules);
+        collection.correlations.extend(parsed.correlations);
+        collection.filters.extend(parsed.filters);
+        Ok(errors)
     }
 
-    /// Load a single rule file, dispatching to the active backend.
-    pub(crate) fn load_rule<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        match self.engine_kind {
-            SigmaEngineKind::Builtin => self.load_rule_builtin(path),
-            #[cfg(feature = "rsigma-engine")]
-            SigmaEngineKind::Rsigma => self.load_rule_rsigma(path),
-            // Unreachable in practice: startup validation rejects `rsigma`
-            // without the feature. Fall back to the built-in matcher rather
-            // than panic if it is ever constructed directly.
-            #[cfg(not(feature = "rsigma-engine"))]
-            SigmaEngineKind::Rsigma => self.load_rule_builtin(path),
-        }
-    }
+    fn load_collection(&mut self, parsed: SigmaCollection, sources: DocumentSources) -> Result<()> {
+        let mut collection = SigmaCollection::new();
+        let mut loaded_rule_keys = HashSet::new();
+        let mut filter_rule_keys = HashSet::new();
 
-    /// Load a single rule file with the built-in matcher (supports
-    /// multi-document YAML for "action: global" rules).
-    pub(crate) fn load_rule_builtin<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let content = fs::read_to_string(path.as_ref()).context("Failed to read rule file")?;
-
-        for rule in Self::parse_rule_documents(&content)? {
-            let logsource = Self::normalized_logsource(&rule);
+        for mut rule in parsed.rules {
+            let logsource = logsource_key(&rule.logsource);
             let decision = self.rule_load_decision(&logsource);
             self.record_skip_for_logsource(decision, &logsource);
 
@@ -185,209 +191,159 @@ impl Engine {
                 continue;
             }
 
-            let compiled = self.compile_rule(rule)?;
-            let key = compiled.logsource.clone();
-            self.rules_by_logsource
-                .entry(key)
-                .or_default()
-                .push(compiled);
-            self.rule_count += 1;
+            // Route on the same normalized logsource the decision above used.
+            normalize_logsource_in_place(&mut rule.logsource);
+            add_detection_keys(&mut loaded_rule_keys, &rule);
+            add_filter_keys(&mut filter_rule_keys, &rule);
+            collection.rules.push(rule);
         }
 
+        let correlations =
+            retain_correlations(self, parsed.correlations, &sources, &loaded_rule_keys);
+        let mut filters = retain_filters(self, parsed.filters, &sources, &filter_rule_keys);
+        for filter in &mut filters {
+            if let Some(logsource) = filter.logsource.as_mut() {
+                normalize_logsource_in_place(logsource);
+            }
+        }
+        collection.correlations = correlations;
+        collection.filters = filters;
+
+        self.store.add_collection(&collection)?;
+        self.rule_count += collection.rules.len();
         Ok(())
     }
 
-    /// Compile a Sigma rule into efficient matching patterns
-    pub(crate) fn compile_rule(&self, rule: SigmaRule) -> Result<CompiledRule> {
-        let logsource = Self::normalized_logsource(&rule);
+    fn record_unresolved_reference(&mut self, source_path: &str, identity: String) {
+        self.record_unsupported_source(
+            source_path,
+            UnsupportedRuleKind::UnresolvedReference,
+            identity,
+            "references a rule not loaded on this platform",
+        );
+    }
 
-        let mut patterns: HashMap<String, Vec<FieldPattern>> = HashMap::new();
-        let mut selections: HashMap<String, Selection> = HashMap::new();
-
-        // Parse detection selections
-        for (selection_id, selection_value) in &rule.detection.selections {
-            // Skip condition keys
-            if selection_id == "condition" {
-                continue;
-            }
-
-            let mut field_criteria = Vec::new();
-            let mut keywords = Vec::new();
-            let mut alternative_field_criteria = Vec::new();
-
-            // Check if this is a sequence selection (YAML list)
-            if let Some(seq) = selection_value.as_sequence() {
-                // Sequence can be:
-                // - list of strings (keywords)
-                // - list of maps (OR between each map)
-                // - mixed (keywords + maps)
-                for item in seq {
-                    if let Some(s) = item.as_str() {
-                        keywords.push(self.parse_string_pattern(s));
-                    } else if let Some(fields) = item.as_mapping() {
-                        let criteria =
-                            self.compile_field_criteria_from_mapping(fields, &mut patterns)?;
-                        if !criteria.is_empty() {
-                            alternative_field_criteria.push(criteria);
-                        }
-                    }
-                }
-            } else if let Some(fields) = selection_value.as_mapping() {
-                // Field-based selection
-                field_criteria = self.compile_field_criteria_from_mapping(fields, &mut patterns)?;
-            }
-
-            // Store the compiled selection
-            selections.insert(
-                selection_id.clone(),
-                Selection {
-                    field_criteria,
-                    keywords,
-                    alternative_field_criteria,
-                },
-            );
-        }
-
-        let mut transpiled_condition = None;
-        let mut condition_tree = None;
-        if let Some(condition) = rule.detection.condition.as_deref() {
-            let selection_keys: Vec<String> = selections.keys().cloned().collect();
-            let transpiled = self.transpile_sigma_condition(condition, &selection_keys);
-            let tree = build_operator_tree(&transpiled).with_context(|| {
-                format!(
-                    "Failed to compile Sigma condition for rule '{}': {}",
-                    rule.title, condition
-                )
-            })?;
-            transpiled_condition = Some(transpiled);
-            condition_tree = Some(tree);
-        }
-
-        Ok(CompiledRule {
-            rule,
-            patterns,
-            selections,
-            logsource,
-            transpiled_condition,
-            condition_tree,
-        })
+    fn record_unsupported_source(
+        &mut self,
+        source_path: &str,
+        kind: UnsupportedRuleKind,
+        identity: String,
+        reason: &str,
+    ) {
+        self.unsupported_rules.push(super::UnsupportedRule {
+            source_path: source_path.to_string(),
+            kind,
+            identity,
+            reason: reason.to_string(),
+        });
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::Engine;
+fn add_detection_keys(keys: &mut HashSet<String>, rule: &SigmaRule) {
+    if let Some(id) = &rule.id {
+        keys.insert(id.clone());
+    }
+    if let Some(name) = &rule.name {
+        keys.insert(name.clone());
+    }
+}
 
-    fn rule_yaml(title: &str, event_id: u32) -> String {
-        format!(
-            r#"
-title: {title}
-logsource:
-  product: windows
-  category: process_creation
-detection:
-  selection:
-    EventID: {event_id}
-  condition: selection
-"#
-        )
+fn add_filter_keys(keys: &mut HashSet<String>, rule: &SigmaRule) {
+    add_detection_keys(keys, rule);
+    keys.insert(rule.title.clone());
+}
+
+fn add_correlation_keys(keys: &mut HashSet<String>, rule: &CorrelationRule) {
+    if let Some(id) = &rule.id {
+        keys.insert(id.clone());
+    }
+    if let Some(name) = &rule.name {
+        keys.insert(name.clone());
+    }
+}
+
+fn retain_correlations(
+    engine: &mut Engine,
+    correlations: Vec<CorrelationRule>,
+    sources: &DocumentSources,
+    loaded_rule_keys: &HashSet<String>,
+) -> Vec<CorrelationRule> {
+    let mut keep = vec![true; correlations.len()];
+
+    // A correlation may refer to another correlation. Remove invalid
+    // correlations to a fixed point so a dependent correlation is dropped when
+    // its target was dropped for an unresolved detection reference. Start with
+    // every correlation identifier known so valid cycles reach RSigma's cycle
+    // validator instead of being misreported as unresolved references.
+    loop {
+        let mut known = loaded_rule_keys.clone();
+        for (index, correlation) in correlations.iter().enumerate() {
+            if keep[index] {
+                add_correlation_keys(&mut known, correlation);
+            }
+        }
+
+        let mut changed = false;
+        for (index, correlation) in correlations.iter().enumerate() {
+            if keep[index]
+                && correlation
+                    .rules
+                    .iter()
+                    .any(|reference| !known.contains(reference))
+            {
+                keep[index] = false;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
     }
 
-    #[test]
-    fn parse_single_document_rule() {
-        let rules = Engine::parse_rule_documents(&rule_yaml("Single Rule", 1)).unwrap();
+    correlations
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, correlation)| {
+            if keep[index] {
+                Some(correlation)
+            } else {
+                let source_path = sources.correlation_path(&correlation);
+                engine.record_unresolved_reference(
+                    &source_path,
+                    document_identity(correlation.id.as_deref(), &correlation.title),
+                );
+                None
+            }
+        })
+        .collect()
+}
 
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].title, "Single Rule");
-    }
+fn retain_filters(
+    engine: &mut Engine,
+    filters: Vec<FilterRule>,
+    sources: &DocumentSources,
+    loaded_rule_keys: &HashSet<String>,
+) -> Vec<FilterRule> {
+    filters
+        .into_iter()
+        .filter_map(|filter| {
+            let keep = match &filter.rules {
+                FilterRuleTarget::Any => true,
+                FilterRuleTarget::Specific(references) => references
+                    .iter()
+                    .any(|reference| loaded_rule_keys.contains(reference)),
+            };
 
-    #[test]
-    fn parse_global_multi_document_rule_expands_sub_rules() {
-        let yaml = r#"
-action: global
-title: Global Rule
-logsource:
-  product: windows
-  category: process_creation
----
-detection:
-  selection:
-    EventID: 1
-  condition: selection
----
-detection:
-  selection:
-    EventID: 2
-  condition: selection
-"#;
-
-        let rules = Engine::parse_rule_documents(yaml).unwrap();
-
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].title, "Global Rule");
-        assert_eq!(rules[1].title, "Global Rule");
-        assert_eq!(rules[0].detection.selections["selection"]["EventID"], 1);
-        assert_eq!(rules[1].detection.selections["selection"]["EventID"], 2);
-    }
-
-    #[test]
-    fn parse_independent_multi_document_rules_loads_each_document() {
-        let yaml = format!(
-            "{}\n---\n{}",
-            rule_yaml("First Rule", 1),
-            rule_yaml("Second Rule", 2)
-        );
-
-        let rules = Engine::parse_rule_documents(&yaml).unwrap();
-
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].title, "First Rule");
-        assert_eq!(rules[1].title, "Second Rule");
-    }
-
-    #[test]
-    fn parse_many_independent_documents_loads_all_rules() {
-        let yaml = format!(
-            "{}\n---\n{}\n---\n{}",
-            rule_yaml("First Rule", 1),
-            rule_yaml("Second Rule", 2),
-            rule_yaml("Third Rule", 3)
-        );
-
-        let rules = Engine::parse_rule_documents(&yaml).unwrap();
-        let titles: Vec<_> = rules.iter().map(|rule| rule.title.as_str()).collect();
-
-        assert_eq!(titles, ["First Rule", "Second Rule", "Third Rule"]);
-    }
-
-    #[test]
-    fn parse_later_invalid_document_reports_document_number() {
-        let yaml = format!(
-            "{}\n---\ntitle: Broken Rule\nlogsource:\n  product: windows\n",
-            rule_yaml("First Rule", 1)
-        );
-
-        let error = Engine::parse_rule_documents(&yaml).unwrap_err().to_string();
-
-        assert!(error.contains("YAML document 2"));
-    }
-
-    #[test]
-    fn parse_later_malformed_yaml_reports_document_number() {
-        let yaml = format!("{}\n---\ntitle: [broken\n", rule_yaml("First Rule", 1));
-
-        let error = Engine::parse_rule_documents(&yaml).unwrap_err().to_string();
-
-        assert!(error.contains("YAML document 2"));
-    }
-
-    #[test]
-    fn parse_unsupported_collection_action_reports_document_number() {
-        let yaml = format!("{}\n---\naction: reset\n", rule_yaml("First Rule", 1));
-
-        let error = Engine::parse_rule_documents(&yaml).unwrap_err().to_string();
-
-        assert!(error.contains("Unsupported Sigma collection action 'reset'"));
-        assert!(error.contains("YAML document 2"));
-    }
+            if keep {
+                Some(filter)
+            } else {
+                let source_path = sources.filter_path(&filter);
+                engine.record_unresolved_reference(
+                    &source_path,
+                    document_identity(filter.id.as_deref(), &filter.title),
+                );
+                None
+            }
+        })
+        .collect()
 }

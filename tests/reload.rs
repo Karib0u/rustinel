@@ -6,7 +6,7 @@ use std::sync::Arc;
 use common::{dns_query_event, process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
     config::{ReloadConfig, ResponseConfig, ScannerConfig},
-    engine::{Engine, SigmaEngineKind},
+    engine::Engine,
     ioc::IocEngine,
     models::MatchDebugLevel,
     reload::{spawn_reload_worker, DetectorStore, ReloadTarget},
@@ -40,7 +40,6 @@ fn scanner_cfg(sigma: &SigmaFixture, yara: &YaraFixture) -> ScannerConfig {
     ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: sigma.rules_dir().to_path_buf(),
-        sigma_engine: "builtin".to_string(),
         yara_enabled: true,
         yara_rules_path: yara.rules_dir().to_path_buf(),
         yara_allowlist_paths: Vec::new(),
@@ -108,9 +107,7 @@ level: high
             debounce_ms: 100,
             fallback_poll_interval_ms: 60000,
         },
-        "info".to_string(),
         MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
         None,
         dummy_response_config(),
         rx,
@@ -127,13 +124,13 @@ level: high
         .normalizer
         .normalize(&common::network_connect_event(platform))
         .unwrap();
-    assert!(store.sigma().check_event(&network).is_some());
-    assert!(store.sigma().check_event(&process).is_none());
+    assert!(!store.sigma().check_event(&network).is_empty());
+    assert!(store.sigma().check_event(&process).is_empty());
 
     std::fs::remove_file(sigma.rules_dir().join("network.yml")).expect("remove rule B");
     tx.send(ReloadTarget::Sigma).expect("send empty reload");
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    assert!(store.sigma().check_event(&network).is_none());
+    assert!(store.sigma().check_event(&network).is_empty());
     drop(tx);
     handle.abort();
 }
@@ -166,9 +163,7 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
             debounce_ms: 100,
             fallback_poll_interval_ms: 60000,
         },
-        "info".to_string(),
         MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
         None,
         dummy_response_config(),
         rx,
@@ -225,9 +220,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
             debounce_ms: 100,
             fallback_poll_interval_ms: 60000,
         },
-        "info".to_string(),
         MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
         None,
         dummy_response_config(),
         rx,
@@ -260,7 +253,6 @@ async fn test_reload_poller_fallback_polling() {
     let scanner_cfg = ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: non_existent_dir.clone(),
-        sigma_engine: "builtin".to_string(),
         yara_enabled: false,
         yara_rules_path: PathBuf::from(""),
         yara_allowlist_paths: Vec::new(),
@@ -367,7 +359,6 @@ async fn test_reload_poller_handles_rule_tree_with_many_directories() {
     let scanner_cfg = ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: sigma_dir.clone(),
-        sigma_engine: "builtin".to_string(),
         yara_enabled: false,
         yara_rules_path: PathBuf::from(""),
         yara_allowlist_paths: Vec::new(),
@@ -475,9 +466,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
             debounce_ms: 100,
             fallback_poll_interval_ms: 60000,
         },
-        "info".to_string(),
         MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
         None,
         dummy_response_config(),
         rx,
@@ -496,7 +485,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
         .normalizer
         .normalize(&process_start_event(platform))
         .unwrap();
-    assert!(store.sigma().check_event(&proc_event).is_some());
+    assert!(!store.sigma().check_event(&proc_event).is_empty());
 
     // Delete the original valid YARA rule file and write an invalid YARA rule
     std::fs::remove_file(yara.rules_dir().join("marker.yar")).expect("remove valid yara rule");
@@ -547,9 +536,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
             debounce_ms: 100,
             fallback_poll_interval_ms: 60000,
         },
-        "info".to_string(),
         MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
         None,
         dummy_response_config(),
         rx,
@@ -567,7 +554,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
         .normalizer
         .normalize(&process_start_event(platform))
         .unwrap();
-    assert!(store.sigma().check_event(&proc_event).is_some());
+    assert!(!store.sigma().check_event(&proc_event).is_empty());
 
     // Write one valid and one invalid YARA rule file
     yara.write_default_rule();
@@ -639,9 +626,7 @@ min_severity = "high"
             debounce_ms: 100,
             fallback_poll_interval_ms: 60000,
         },
-        "info".to_string(),
         MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
         Some(config_file_path.clone()),
         response_config.clone(),
         rx,
@@ -754,9 +739,7 @@ min_severity = "critical"
             debounce_ms: 100,
             fallback_poll_interval_ms: 60000,
         },
-        "info".to_string(),
         MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
         Some(config_file_path.clone()),
         response_config.clone(),
         rx,

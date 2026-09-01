@@ -42,16 +42,9 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Some(Commands::Run {
-            no_console,
-            sigma_engine,
-            ..
-        }) => crate::runtime::windows::run_console(
-            !no_console,
-            cli.log_level,
-            cli.config,
-            sigma_engine.map(|engine| engine.kind()),
-        ),
+        Some(Commands::Run { no_console, .. }) => {
+            crate::runtime::windows::run_console(!no_console, cli.log_level, cli.config)
+        }
         Some(Commands::Capture { output }) => {
             crate::runtime::windows::run_capture(CaptureOptions {
                 output,
@@ -59,7 +52,7 @@ pub fn run() -> anyhow::Result<()> {
                 config_path: cli.config,
             })
         }
-        None => crate::runtime::windows::run_console(true, cli.log_level, cli.config, None),
+        None => crate::runtime::windows::run_console(true, cli.log_level, cli.config),
         Some(Commands::Doctor { .. }) => unreachable!("doctor is handled before service dispatch"),
         Some(Commands::Replay { .. }) => {
             unreachable!("replay is handled before service dispatch")
@@ -111,22 +104,15 @@ pub fn run() -> anyhow::Result<()> {
             force,
             catalog_url,
         }),
-        Some(Commands::Run {
-            no_console,
-            sigma_engine,
-            ..
-        }) => crate::runtime::linux::run(
-            !no_console,
-            cli.log_level,
-            cli.config,
-            sigma_engine.map(|engine| engine.kind()),
-        ),
+        Some(Commands::Run { no_console, .. }) => {
+            crate::runtime::linux::run(!no_console, cli.log_level, cli.config)
+        }
         Some(Commands::Capture { output }) => crate::runtime::linux::run_capture(CaptureOptions {
             output,
             log_level: cli.log_level,
             config_path: cli.config,
         }),
-        None => crate::runtime::linux::run(true, cli.log_level, cli.config, None),
+        None => crate::runtime::linux::run(true, cli.log_level, cli.config),
     }
 }
 
@@ -159,22 +145,15 @@ pub fn run() -> anyhow::Result<()> {
             force,
             catalog_url,
         }),
-        Some(Commands::Run {
-            no_console,
-            sigma_engine,
-            ..
-        }) => crate::runtime::macos::run(
-            !no_console,
-            cli.log_level,
-            cli.config,
-            sigma_engine.map(|engine| engine.kind()),
-        ),
+        Some(Commands::Run { no_console, .. }) => {
+            crate::runtime::macos::run(!no_console, cli.log_level, cli.config)
+        }
         Some(Commands::Capture { output }) => crate::runtime::macos::run_capture(CaptureOptions {
             output,
             log_level: cli.log_level,
             config_path: cli.config,
         }),
-        None => crate::runtime::macos::run(true, cli.log_level, cli.config, None),
+        None => crate::runtime::macos::run(true, cli.log_level, cli.config),
     }
 }
 

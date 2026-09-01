@@ -308,9 +308,6 @@ pub struct AppConfig {
 pub struct ScannerConfig {
     pub sigma_enabled: bool,
     pub sigma_rules_path: PathBuf,
-    /// Sigma matching backend: "builtin" (default) or "rsigma". Selecting
-    /// "rsigma" requires a binary built with the `rsigma-engine` feature.
-    pub sigma_engine: String,
     pub yara_enabled: bool,
     pub yara_rules_path: PathBuf,
     pub yara_allowlist_paths: Vec<String>,
@@ -509,7 +506,6 @@ impl AppConfig {
             // Scanner
             .set_default("scanner.sigma_enabled", true)?
             .set_default("scanner.sigma_rules_path", "rules/current/sigma")?
-            .set_default("scanner.sigma_engine", "builtin")?
             .set_default("scanner.yara_enabled", true)?
             .set_default("scanner.yara_rules_path", "rules/current/yara")?
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
@@ -763,7 +759,6 @@ impl Default for AppConfig {
             scanner: ScannerConfig {
                 sigma_enabled: true,
                 sigma_rules_path: PathBuf::from("rules/current/sigma"),
-                sigma_engine: "builtin".to_string(),
                 yara_enabled: true,
                 yara_rules_path: PathBuf::from("rules/current/yara"),
                 yara_allowlist_paths: Vec::new(),
@@ -1134,34 +1129,6 @@ paths_regex_path = "explicit-ioc/paths_regex.txt"
         assert_eq!(layout.yara_rules_dir, root.join("rules").join("yara"));
         assert_eq!(layout.ioc_dir, root.join("rules").join("ioc"));
         assert_eq!(layout.logs_dir, root.join("logs"));
-    }
-
-    #[test]
-    fn sigma_engine_defaults_to_builtin() {
-        assert_eq!(AppConfig::default().scanner.sigma_engine, "builtin");
-    }
-
-    #[test]
-    fn env_overrides_sigma_engine() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let mut environment = config::Map::new();
-        environment.insert(
-            "EDR__SCANNER__SIGMA_ENGINE".to_string(),
-            "rsigma".to_string(),
-        );
-
-        let cfg = AppConfig::from_options_with_environment(
-            ConfigLoadOptions {
-                explicit_config: None,
-                env_config: None,
-                managed_config: temp.path().join("missing-managed.toml"),
-                exe_config: None,
-                cwd_config: temp.path().join("missing-cwd.toml"),
-            },
-            Some(environment),
-        )
-        .expect("config should load");
-        assert_eq!(cfg.scanner.sigma_engine, "rsigma");
     }
 
     #[test]

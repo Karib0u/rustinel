@@ -132,37 +132,29 @@ what the fix was measured against directly.
 
 ## Sigma Engine Micro-Benchmark
 
-The `sigma_backend` Criterion benchmark compares the two Sigma backends in
-isolation. It measures `Engine::check_event` only, and is distinct from the
-agent-overhead scripts above.
-
-The backend is selected at compile time, so run it once per backend:
+The `sigma_engine` Criterion benchmark measures `Engine::evaluate_event` in
+isolation, and is distinct from the agent-overhead scripts above.
 
 ```sh
-cargo bench --bench sigma_backend                          # built-in matcher
-cargo bench --bench sigma_backend --features rsigma-engine # RSigma engine
+cargo bench --bench sigma_engine
 ```
 
-Both runs share inputs, so `check_event/builtin/*` and `check_event/rsigma/*`
-compare directly. Each iteration runs one pass over five normalized events
-against two rulesets: `mixed` (four matching rules, nothing to prune) and
-`large` (~2,000 rules, where per-rule scanning cost dominates).
+Each iteration runs one pass over five normalized events against two rulesets:
+`mixed` (four matching rules, nothing to prune) and `large` (~2,000 rules, where
+per-rule scanning cost dominates). Both use the synchronized RSigma engine.
 
 Indicative figures from a single macOS development machine. Re-run locally
 before quoting them:
 
-| Scenario | Ruleset | Built-in | RSigma | Delta |
-| --- | --- | --- | --- | --- |
-| `mixed` | 4 rules | 10.9 µs | 11.6 µs | RSigma ~6% slower |
-| `large` | ~2,000 rules | 284 µs | 204 µs | RSigma ~28% faster |
+| Scenario | Ruleset | Per iteration |
+| --- | --- | --- |
+| `mixed` | 4 rules | 11.6 µs |
+| `large` | ~2,000 rules | 204 µs |
 
-On trivial rulesets the built-in matcher is marginally faster: RSigma carries a
-small fixed per-event cost and there is nothing to prune. On realistic rulesets
-RSigma wins clearly, because its inverted rule index skips rules whose literals
-cannot be present while the built-in matcher scans each candidate bucket
-linearly. The advantage grows with rule count, so a full SigmaHQ-scale corpus
-would widen it.
+Cost grows far slower than rule count: the engine's inverted rule index skips
+rules whose literals cannot be present in the event, rather than scanning each
+candidate bucket linearly.
 
 This isolates matching throughput only: it excludes normalization, alert
 serialization, IOC and YARA, and the sensor pipeline. Source:
-[benches/sigma_backend.rs](https://github.com/Karib0u/rustinel/blob/main/benches/sigma_backend.rs).
+[benches/sigma_engine.rs](https://github.com/Karib0u/rustinel/blob/main/benches/sigma_engine.rs).

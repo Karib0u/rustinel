@@ -19,29 +19,6 @@ impl Cli {
     }
 }
 
-/// Sigma detection backend selectable at runtime.
-///
-/// Both variants parse in every build so the value is accepted uniformly;
-/// selecting `rsigma` on a binary built without the `rsigma-engine` feature
-/// fails at startup through the same resolver as the config and env value,
-/// with a clear "built without rsigma-engine" message.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SigmaEngineArg {
-    /// Rustinel's built-in matcher.
-    Builtin,
-    /// The RSigma library engine (requires the `rsigma-engine` build feature).
-    Rsigma,
-}
-
-impl SigmaEngineArg {
-    pub fn kind(self) -> crate::engine::SigmaEngineKind {
-        match self {
-            SigmaEngineArg::Builtin => crate::engine::SigmaEngineKind::Builtin,
-            SigmaEngineArg::Rsigma => crate::engine::SigmaEngineKind::Rsigma,
-        }
-    }
-}
-
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// Install Rustinel into the managed platform layout
@@ -70,10 +47,6 @@ pub enum Commands {
         /// Disable console output
         #[arg(long)]
         no_console: bool,
-        /// Sigma detection backend to use (built-in matcher or RSigma engine).
-        /// Overrides `scanner.sigma_engine` from the config file.
-        #[arg(long, value_enum, value_name = "ENGINE")]
-        sigma_engine: Option<SigmaEngineArg>,
     },
     /// Record endpoint behavior to a replayable file without evaluating detections
     ///
@@ -230,20 +203,6 @@ mod tests {
         };
 
         assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
-    }
-
-    #[test]
-    fn run_accepts_sigma_engine_flag_in_every_build() {
-        // `rsigma` must parse regardless of build features; availability is
-        // enforced later by the startup resolver, not by the argument parser.
-        let cli = Cli::try_parse_from(["rustinel", "run", "--sigma-engine", "rsigma"])
-            .expect("rsigma value should parse in every build");
-        match cli.command {
-            Some(Commands::Run { sigma_engine, .. }) => {
-                assert_eq!(sigma_engine, Some(SigmaEngineArg::Rsigma));
-            }
-            _ => panic!("expected run command"),
-        }
     }
 
     #[test]

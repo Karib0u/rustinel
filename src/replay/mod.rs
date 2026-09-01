@@ -37,7 +37,7 @@ use std::sync::Arc;
 use anyhow::{bail, Context};
 
 use crate::config::AppConfig;
-use crate::engine::{Engine, EventDetectors, SigmaEngineKind};
+use crate::engine::{Engine, EventDetectors};
 use crate::ioc::IocEngine;
 use crate::models::ecs::ReplayProvenance;
 use crate::models::DetectionEngine;
@@ -103,13 +103,8 @@ impl Replay {
         // follows the endpoint that was recorded rather than the host replaying
         // it. This is what lets a Windows recording be replayed anywhere.
         let platform = recording.manifest().platform;
-        let engine_kind = SigmaEngineKind::resolve(None, &config.scanner.sigma_engine)?;
-        let mut sigma = Engine::new_for_platform_with_logging_level_and_match_debug(
-            platform,
-            &config.logging.level,
-            config.alerts.match_debug,
-            engine_kind,
-        );
+        let mut sigma =
+            Engine::new_for_platform_with_match_debug(platform, config.alerts.match_debug);
 
         let mut configuration = Vec::new();
 
@@ -124,15 +119,14 @@ impl Replay {
                 })?;
             let stats = sigma.stats();
             configuration.push(format!(
-                "  sigma      {} rules for {} from {} ({} engine)",
+                "  sigma      {} rules for {} from {}",
                 stats.total_rules,
                 platform.as_str(),
                 config.scanner.sigma_rules_path.display(),
-                engine_kind.as_str(),
             ));
             if !stats.unsupported_rules.is_empty() {
                 configuration.push(format!(
-                    "             {} rule documents are unsupported by this runtime",
+                    "             {} rule documents were dropped because their references are unavailable",
                     stats.unsupported_rules.len()
                 ));
             }

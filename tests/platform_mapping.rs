@@ -354,7 +354,7 @@ fn same_file_action_yields_same_sigma_categories_on_every_platform() {
                     .expect("file event normalizes");
 
                 assert_eq!(
-                    engine.check_event(&normalized).is_some(),
+                    !engine.check_event(&normalized).is_empty(),
                     should_match,
                     "{action:?} on {platform:?} should {} match `{category}`",
                     if should_match { "" } else { "not" },
@@ -389,6 +389,6 @@ level: medium
             .normalizer
             .normalize(&process_start_event(platform))
             .expect("normalize process");
-        assert!(engine.check_event(&event).is_some());
+        assert!(!engine.check_event(&event).is_empty());
     }
 }
