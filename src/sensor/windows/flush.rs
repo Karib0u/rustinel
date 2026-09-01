@@ -25,7 +25,7 @@ use windows::Win32::System::Diagnostics::Etw::{
 use super::registry_value_data::session_handle;
 use crate::sensor::SensorEvent;
 
-pub(super) const DEFAULT_INTERVAL_MS: u64 = 100;
+pub(super) const DEFAULT_INTERVAL_MS: u64 = 20;
 const MIN_INTERVAL: Duration = Duration::from_millis(20);
 const MAX_QUEUE_PERCENT_FOR_FLUSH: usize = 50;
 const TRACE_NAME_BYTES: usize = 2 * 1024;
@@ -151,6 +151,7 @@ mod tests {
 
     #[test]
     fn interval_is_clamped_to_twenty_milliseconds() {
+        assert_eq!(DEFAULT_INTERVAL_MS, 20);
         assert_eq!(configured_interval(1), Some(MIN_INTERVAL));
         assert_eq!(
             configured_interval(DEFAULT_INTERVAL_MS),

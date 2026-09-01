@@ -40,11 +40,11 @@ three platforms, but several Sysmon-style fields are unavailable.
   do not carry it, and a mandatory label whose level Windows has not defined is
   reported as the raw `S-1-16-...` SID rather than dropped.
 - **Command line is back-filled, and can be lost.** No Kernel-Process event
-  carries `CommandLine`; it is obtained by querying the live process. Measured
-  at 100% on realistic workloads and 99.8% under process churn, the gap appears
-  only for processes killed before they execute. When the back-fill loses the
-  race it returns nothing rather than another process's command line, but the
-  failure is currently uncounted
+  carries `CommandLine`; it is obtained by querying the live process. The
+  default 20 ms ETW handoff narrows the race for short-lived processes, but a
+  process that exits before the back-fill still has no command line. When the
+  back-fill loses the race it returns nothing rather than another process's
+  command line, but the failure is currently uncounted
   ([#304](https://github.com/Karib0u/rustinel/issues/304)).
 - **Registry value data depends on an undocumented request (silent risk).**
   `Details` carries the value data, as Sysmon Event ID 13 defines it, because
