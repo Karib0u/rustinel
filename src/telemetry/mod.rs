@@ -14,7 +14,7 @@
 
 mod snapshot;
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
@@ -25,8 +25,8 @@ use tracing::warn;
 use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
-    snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, TelemetrySnapshot,
-    SNAPSHOT_FILE_NAME,
+    snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, RegistrySnapshot,
+    TelemetrySnapshot, SNAPSHOT_FILE_NAME,
 };
 
 /// Tracing target for pipeline telemetry accounting.
@@ -119,6 +119,163 @@ static CHANNELS: [ChannelCounters; 6] = [
     ChannelCounters::new(ChannelId::ActiveResponse),
     ChannelCounters::new(ChannelId::CaptureWriter),
 ];
+
+/// Which tier of the sensor's key-path index answered a lookup.
+///
+/// Mirrors the sensor's own enum so the platform-neutral telemetry module does
+/// not depend on a Windows-only type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryPathSource {
+    /// A naming event seen inside this session.
+    Session,
+    /// The startup handle-table snapshot of keys that were already open.
+    StartupSnapshot,
+    /// A key already closed by the time its write was decoded.
+    RecentlyClosed,
+}
+
+/// Windows registry key-path resolution accounting.
+///
+/// The registry sensor is the one place where an event can be lost *after* it
+/// reached the agent: `SetValueKey` carries no key path, so a write whose
+/// `KeyObject` resolves to nothing is dropped rather than emitted (#341). That
+/// gap was previously visible only as a `debug!` line the log rate limiter
+/// suppressed after the first occurrence, which meant nobody could tell a
+/// quiet endpoint from a blind one.
+///
+/// These counters make the gap a number. `resolution_rate_pct` is the figure
+/// that decides whether the classic kernel provider and its KCB rundown are
+/// worth the second trace session.
+///
+/// There is deliberately no `naming_query` counter: `QueryKey` declares a
+/// `KeyName` and delivers it empty on 100% of events (measured on Windows 11
+/// 26200), so it is not subscribed and could never contribute a name.
+#[derive(Debug, Default)]
+pub struct RegistryCounters {
+    /// Write events routed to registry telemetry: set, delete value, delete key.
+    events_received: AtomicU64,
+    /// Of those, the ones that got a key path.
+    events_resolved: AtomicU64,
+    /// Of those, the ones dropped for want of one.
+    events_unresolved: AtomicU64,
+    /// Resolved only because the startup handle-table snapshot knew the key.
+    resolved_from_snapshot: AtomicU64,
+    /// Resolved only because the key's `CloseKey` was decoded before its write.
+    resolved_after_close: AtomicU64,
+    /// `CreateKey` events that named a key.
+    naming_create: AtomicU64,
+    /// `OpenKey` events that named a key.
+    naming_open: AtomicU64,
+    /// Naming events skipped because the open failed and carried no key object.
+    naming_failed: AtomicU64,
+    /// Keys the startup snapshot covered.
+    snapshot_keys: AtomicUsize,
+    /// Whether the Windows sensor attempted its startup key rundown.
+    rundown_attempted: AtomicBool,
+}
+
+/// Process-wide registry accounting.
+pub static REGISTRY: RegistryCounters = RegistryCounters::new();
+
+impl RegistryCounters {
+    const fn new() -> Self {
+        Self {
+            events_received: AtomicU64::new(0),
+            events_resolved: AtomicU64::new(0),
+            events_unresolved: AtomicU64::new(0),
+            resolved_from_snapshot: AtomicU64::new(0),
+            resolved_after_close: AtomicU64::new(0),
+            naming_create: AtomicU64::new(0),
+            naming_open: AtomicU64::new(0),
+            naming_failed: AtomicU64::new(0),
+            snapshot_keys: AtomicUsize::new(0),
+            rundown_attempted: AtomicBool::new(false),
+        }
+    }
+
+    /// A write event resolved to a key path, and which tier of the index
+    /// answered. The two non-default tiers are each a class of event that
+    /// used to be dropped, so they are what the fix is measured by.
+    pub fn record_resolved(&self, source: RegistryPathSource) {
+        self.events_received.fetch_add(1, Ordering::Relaxed);
+        self.events_resolved.fetch_add(1, Ordering::Relaxed);
+        match source {
+            RegistryPathSource::Session => {}
+            RegistryPathSource::StartupSnapshot => {
+                self.resolved_from_snapshot.fetch_add(1, Ordering::Relaxed);
+            }
+            RegistryPathSource::RecentlyClosed => {
+                self.resolved_after_close.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// A write event was dropped because its key had no known path. Returns
+    /// the running total, which the caller uses to space its log line.
+    pub fn record_unresolved(&self) -> u64 {
+        self.events_received.fetch_add(1, Ordering::Relaxed);
+        self.events_unresolved.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// A naming event indexed a key path.
+    pub fn record_naming(&self, creates: bool) {
+        if creates {
+            self.naming_create.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.naming_open.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// A naming event that named nothing: the open failed, so it carries no
+    /// key object to index against.
+    pub fn record_naming_failed(&self) {
+        self.naming_failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Publish the size of the startup handle-table snapshot.
+    pub fn set_snapshot_keys(&self, keys: usize) {
+        self.snapshot_keys.store(keys, Ordering::Relaxed);
+        self.rundown_attempted.store(true, Ordering::Release);
+    }
+
+    /// Point-in-time view, or `None` when the registry sensor never ran.
+    pub fn snapshot(&self) -> Option<RegistrySnapshot> {
+        let received = self.events_received.load(Ordering::Relaxed);
+        let rundown_attempted = self.rundown_attempted.load(Ordering::Acquire);
+        if received == 0 && !rundown_attempted {
+            return None;
+        }
+        let snapshot_keys = self.snapshot_keys.load(Ordering::Relaxed);
+        Some(RegistrySnapshot {
+            events_received: received,
+            events_resolved: self.events_resolved.load(Ordering::Relaxed),
+            events_unresolved: self.events_unresolved.load(Ordering::Relaxed),
+            resolved_from_snapshot: self.resolved_from_snapshot.load(Ordering::Relaxed),
+            resolved_after_close: self.resolved_after_close.load(Ordering::Relaxed),
+            naming_create: self.naming_create.load(Ordering::Relaxed),
+            naming_open: self.naming_open.load(Ordering::Relaxed),
+            naming_failed: self.naming_failed.load(Ordering::Relaxed),
+            snapshot_keys,
+            rundown_attempted,
+        })
+    }
+
+    /// Reset every counter. Test-only, for the same reason as
+    /// [`ChannelCounters::reset`].
+    #[cfg(test)]
+    pub fn reset(&self) {
+        self.events_received.store(0, Ordering::Relaxed);
+        self.events_resolved.store(0, Ordering::Relaxed);
+        self.events_unresolved.store(0, Ordering::Relaxed);
+        self.resolved_from_snapshot.store(0, Ordering::Relaxed);
+        self.resolved_after_close.store(0, Ordering::Relaxed);
+        self.naming_create.store(0, Ordering::Relaxed);
+        self.naming_open.store(0, Ordering::Relaxed);
+        self.naming_failed.store(0, Ordering::Relaxed);
+        self.snapshot_keys.store(0, Ordering::Relaxed);
+        self.rundown_attempted.store(false, Ordering::Relaxed);
+    }
+}
 
 /// Atomic accounting for one bounded channel.
 ///
@@ -280,6 +437,18 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    #[test]
+    fn an_attempted_empty_registry_rundown_is_still_visible() {
+        let counters = RegistryCounters::new();
+        assert!(counters.snapshot().is_none());
+
+        counters.set_snapshot_keys(0);
+
+        let snapshot = counters.snapshot().expect("attempted rundown");
+        assert!(snapshot.rundown_attempted);
+        assert_eq!(snapshot.snapshot_keys, 0);
+    }
 
     /// Serializes tests that assert on the process-wide statics.
     fn counter_guard() -> std::sync::MutexGuard<'static, ()> {

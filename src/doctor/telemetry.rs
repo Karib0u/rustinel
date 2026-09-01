@@ -43,17 +43,22 @@ pub(crate) fn telemetry_results(
         );
     };
 
+    let mut results = registry_results(&snapshot);
+
     let dropping = snapshot.dropping_channels();
     if dropping.is_empty() {
-        let result = DiagnosticResult::pass(
-            "pipeline_telemetry",
-            format!(
-                "No telemetry dropped across {} events (snapshot from {})",
-                snapshot.total_accepted(),
-                snapshot.captured_at
+        results.insert(
+            0,
+            DiagnosticResult::pass(
+                "pipeline_telemetry",
+                format!(
+                    "No telemetry dropped across {} events (snapshot from {})",
+                    snapshot.total_accepted(),
+                    snapshot.captured_at
+                ),
             ),
         );
-        return (vec![result], Some(snapshot));
+        return (results, Some(snapshot));
     }
 
     let detail = dropping
@@ -77,14 +82,64 @@ pub(crate) fn telemetry_results(
          see docs/troubleshooting.md",
     );
 
-    (vec![result], Some(snapshot))
+    results.insert(0, result);
+    (results, Some(snapshot))
+}
+
+/// Registry key-path resolution, the one gap a channel counter cannot show.
+///
+/// A registry write whose key path cannot be recovered is discarded inside the
+/// sensor, before any channel sees it, so it appears in no drop count (#341).
+/// Empty on platforms without the ETW registry sensor.
+fn registry_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let Some(registry) = snapshot.registry.as_ref() else {
+        return Vec::new();
+    };
+
+    if registry.rundown_attempted && registry.snapshot_keys == 0 {
+        return vec![DiagnosticResult::warn(
+            "registry_path_resolution",
+            "Registry startup rundown found no open keys",
+            registry.describe(),
+        )
+        .with_fix(
+            "The sensor could not seed paths for handles older than the trace session. Check the \
+             agent log for the registry rundown failure and confirm the service has SYSTEM rights",
+        )];
+    }
+
+    // The threshold the #341 follow-up hangs on: below it, the classic kernel
+    // provider's KCB rundown is the next thing to try.
+    const TARGET_RATE_PCT: f64 = 99.9;
+
+    let rate = registry.resolution_rate_pct();
+    if registry.events_unresolved == 0 || rate >= TARGET_RATE_PCT {
+        return vec![DiagnosticResult::pass(
+            "registry_path_resolution",
+            registry.describe(),
+        )];
+    }
+
+    vec![DiagnosticResult::warn(
+        "registry_path_resolution",
+        format!(
+            "{} registry writes had no recoverable key path ({:.2}% resolved)",
+            registry.events_unresolved, rate,
+        ),
+        registry.describe(),
+    )
+    .with_fix(
+        "Those writes reached no rule. Writes by protected processes are expected here; a \
+         sustained rate below 99.9% otherwise means the key rundown missed keys - see \
+         docs/troubleshooting.md",
+    )]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::doctor::inspect::DiagnosticStatus;
-    use crate::telemetry::ChannelSnapshot;
+    use crate::telemetry::{ChannelSnapshot, RegistrySnapshot};
 
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         TelemetrySnapshot {
@@ -93,6 +148,7 @@ mod tests {
             captured_at: "2026-08-24T12:00:00Z".to_string(),
             uptime_secs: 3600,
             channels,
+            registry: None,
         }
     }
 
@@ -169,5 +225,71 @@ mod tests {
 
         assert!(read.is_none());
         assert_eq!(results[0].status, DiagnosticStatus::Warn);
+    }
+    fn registry(resolved: u64, unresolved: u64, from_snapshot: u64) -> RegistrySnapshot {
+        RegistrySnapshot {
+            rundown_attempted: true,
+            events_received: resolved + unresolved,
+            events_resolved: resolved,
+            events_unresolved: unresolved,
+            resolved_from_snapshot: from_snapshot,
+            resolved_after_close: 7,
+            naming_create: 10,
+            naming_open: 100,
+            naming_failed: 40,
+            snapshot_keys: 5_879,
+        }
+    }
+
+    #[test]
+    fn unresolved_registry_writes_are_reported_as_their_own_gap() {
+        // These never reach a channel, so no drop counter can show them: the
+        // sensor discards a registry write it cannot name (#341).
+        let mut snap = snapshot(vec![channel("sensor_events", 10_000, 0)]);
+        snap.registry = Some(registry(900, 100, 40));
+
+        let results = registry_results(&snap);
+
+        assert_eq!(results[0].id, "registry_path_resolution");
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.contains("100 registry writes"));
+        assert!(results[0].message.contains("90.00% resolved"));
+        assert!(results[0]
+            .detail
+            .as_deref()
+            .expect("detail")
+            .contains("40 rescued by the startup snapshot of 5879 keys"));
+    }
+
+    #[test]
+    fn a_registry_resolution_rate_at_target_passes() {
+        let mut snap = snapshot(vec![channel("sensor_events", 10_000, 0)]);
+        snap.registry = Some(registry(10_000, 1, 12));
+
+        let results = registry_results(&snap);
+
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+    }
+
+    #[test]
+    fn a_snapshot_without_registry_counters_adds_no_diagnostic() {
+        // Linux and macOS have no ETW registry sensor, and snapshots written
+        // before #341 carry no registry section.
+        let snap = snapshot(vec![channel("sensor_events", 10, 0)]);
+
+        assert!(registry_results(&snap).is_empty());
+    }
+
+    #[test]
+    fn an_empty_attempted_rundown_is_reported() {
+        let mut snap = snapshot(vec![channel("sensor_events", 0, 0)]);
+        let mut registry = registry(0, 0, 0);
+        registry.snapshot_keys = 0;
+        snap.registry = Some(registry);
+
+        let results = registry_results(&snap);
+
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.contains("rundown found no open keys"));
     }
 }

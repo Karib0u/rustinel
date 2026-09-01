@@ -430,6 +430,37 @@ A backed-up YARA queue is usually event volume rather than one stuck scan:
 `scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold
 its worker.
 
+### A registry rule did not fire on Windows
+
+Registry writes are the one kind of event that can be lost before any channel
+counts it: `SetValueKey` carries no key path, so a write whose key the sensor
+cannot name is discarded rather than emitted without a target. `rustinel doctor`
+reports that separately:
+
+```text
+  [WARN] registry_path_resolution: 118 registry writes had no recoverable key path (94.10% resolved)
+      detail: registry: 1882 of 2000 events resolved (94.10%), 213 rescued by the startup snapshot of 5879 keys
+```
+
+Keys opened after the agent starts are named by their own `OpenKey` event. Keys
+already open when it starts are named from the kernel handle table at startup;
+that is what `resolved_from_snapshot` counts. Keys already closed by the time
+their write is decoded are what `resolved_after_close` counts. The grace entry
+is accepted only when the write timestamp precedes that close by at most two
+seconds, preventing a recycled key pointer from inheriting an old path. What
+is left is writes by protected processes, whose handles the rundown cannot
+read, and short-lived keys whose
+naming event has not arrived at all; the agent log names the writing PID at
+`debug` level for the first twenty:
+
+```text
+Dropping registry event whose key path could not be resolved unresolved_registry_events=1 pid=3536
+```
+
+The measured rate on a mixed workload is 98.7%. A rate well below that, or PIDs
+that are neither protected system processes nor short-lived key users, means the
+rundown missed keys it should have covered and is worth reporting.
+
 ### I see “dropping event” or “queue full” in logs
 
 These messages mean the agent is under backpressure somewhere in the pipeline.

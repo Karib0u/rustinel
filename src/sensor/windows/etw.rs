@@ -28,8 +28,9 @@ use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line
 
 use super::event_log::EventLogSubscriptions;
 use super::file_paths::FilePathCache;
-use super::registry_paths::RegistryPathCache;
-use super::{field_maps, mapper, registry_value_data};
+use super::registry_paths::{PathSource, RegistryPathCache};
+use super::{field_maps, mapper, registry_rundown, registry_value_data};
+use crate::telemetry::RegistryPathSource;
 
 /// Fixed trace session name for stopping the trace on shutdown.
 pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
@@ -420,6 +421,24 @@ const KERNEL_FILE_EVENT_DELETE_PATH: u16 = 26;
 const KERNEL_FILE_EVENT_RENAME_PATH: u16 = 27;
 const KERNEL_FILE_EVENT_SET_LINK_PATH: u16 = 28;
 
+/// Map the sensor's index tier onto the telemetry module's, which is platform
+/// neutral and so cannot name a Windows-only type.
+fn registry_path_source(source: PathSource) -> RegistryPathSource {
+    match source {
+        PathSource::Session => RegistryPathSource::Session,
+        PathSource::StartupSnapshot => RegistryPathSource::StartupSnapshot,
+        PathSource::RecentlyClosed => RegistryPathSource::RecentlyClosed,
+    }
+}
+
+/// How many unresolved registry writes are logged individually before the
+/// line becomes a periodic volume report.
+///
+/// Enough PIDs to tell "the protected processes the key rundown cannot open",
+/// which is expected, from "keys the rundown should have covered", which is a
+/// bug, and few enough that a blind endpoint does not flood its own log.
+const UNRESOLVED_REGISTRY_SAMPLE: u64 = 20;
+
 /// Microsoft-Windows-Kernel-Registry manifest event IDs.
 ///
 /// The manifest declares opcodes 32-46 for event IDs 1-15, but the records the
@@ -656,13 +675,11 @@ struct EtwState {
     /// through them cannot be attributed until the handle is reopened. Dropping
     /// them is the right policy — a pathless event matches no rule — but without
     /// a count there is no way to tell a quiet endpoint from a blind one.
+    /// Registry resolution is accounted for in `telemetry.json` instead, by
+    /// [`crate::telemetry::REGISTRY`]: it needs more than a drop count because the
+    /// resolution rate and the share the startup key rundown rescued are what
+    /// say whether the sensor still has a blind spot (#341).
     unresolved_file_events: AtomicU64,
-    /// Registry events dropped because the `KeyObject` resolved to no path.
-    ///
-    /// Same blind spot as `unresolved_file_events`: a key opened before the
-    /// sensor started was never named, so writes through it cannot be
-    /// attributed until it is reopened.
-    unresolved_registry_events: AtomicU64,
 }
 
 impl EtwState {
@@ -672,7 +689,6 @@ impl EtwState {
             file_paths: Mutex::new(FilePathCache::new()),
             registry_paths: Mutex::new(RegistryPathCache::new()),
             unresolved_file_events: AtomicU64::new(0),
-            unresolved_registry_events: AtomicU64::new(0),
         }
     }
 
@@ -830,6 +846,30 @@ fn request_registry_value_data() {
     }
 }
 
+/// Seed the key-path index with the keys that were already open.
+///
+/// Deliberately after `trace.start()`: a key opened between the snapshot and
+/// the session start would be in neither, whereas one opened between the
+/// session start and the snapshot is in both, and the live index wins. Cost is
+/// a one-shot ~32 ms sweep of the handle table; see [`registry_rundown`].
+fn seed_registry_paths(state: &EtwState) {
+    let keys = registry_rundown::snapshot_open_keys();
+    let count = keys.len();
+    state.registry_paths().seed(keys);
+    crate::telemetry::REGISTRY.set_snapshot_keys(count);
+
+    if count == 0 {
+        // Not fatal, but it means every write through a pre-session handle is
+        // invisible again, so it must not be silent.
+        warn!(
+            "Registry key rundown found no open keys; writes through handles \
+             older than the trace session will be dropped"
+        );
+    } else {
+        info!("Registry key rundown seeded {count} pre-existing keys");
+    }
+}
+
 /// `ferrisetw` is built against a different `windows` version than this crate,
 /// so the two `GUID` types are distinct despite being the same four fields.
 fn to_windows_guid(guid: GUID) -> windows::core::GUID {
@@ -973,6 +1013,7 @@ impl EtwSensor {
         info!("ETW trace session '{TRACE_SESSION_NAME}' started successfully");
 
         request_registry_value_data();
+        seed_registry_paths(&state);
 
         // Dropping `main_trace` on this path stops the session it created, so
         // a half-started pair cannot be left behind for the next run to trip
@@ -1485,6 +1526,7 @@ fn decode_kernel_registry_record(
     let parser = Parser::create(record, &schema);
 
     let key_object = try_get_uint_as_u64(&parser, "KeyObject");
+    let event_at = record.raw_timestamp();
 
     let (action, target_object, value_name) = match route {
         KernelRegistryRoute::Name { creates } => {
@@ -1495,10 +1537,22 @@ fn decode_kernel_registry_record(
             // Indexing happens for both CreateKey and OpenKey, including the
             // creates that also emit: a key that is created is then written
             // through, and those writes carry only its `KeyObject`.
-            let path =
-                state
-                    .registry_paths()
-                    .learn(base_object, key_object, &base_name, &relative_name);
+            let path = state.registry_paths().learn_at(
+                base_object,
+                key_object,
+                &base_name,
+                &relative_name,
+                event_at,
+            );
+
+            // A failed open names nothing. 39% of `OpenKey` events on a
+            // measured idle desktop are failures carrying `KeyObject = 0`.
+            match key_object {
+                Some(object) if object != 0 && path.is_some() => {
+                    crate::telemetry::REGISTRY.record_naming(creates)
+                }
+                _ => crate::telemetry::REGISTRY.record_naming_failed(),
+            }
 
             if !creates {
                 return None;
@@ -1512,7 +1566,7 @@ fn decode_kernel_registry_record(
         }
         KernelRegistryRoute::Evict => {
             if let Some(object) = key_object {
-                state.registry_paths().forget(object);
+                state.registry_paths().forget_at(object, event_at);
             }
             return None;
         }
@@ -1520,13 +1574,17 @@ fn decode_kernel_registry_record(
             let value_name = try_get_string(&parser, "ValueName");
             // `KeyName` is declared on these events but measured empty on
             // Windows 11, so the index is the real source of the path.
+            let mut source = RegistryPathSource::Session;
             let path = try_get_string(&parser, "KeyName")
                 .filter(|name| !name.is_empty())
                 .or_else(|| {
                     state
                         .registry_paths()
-                        .resolve(key_object)
-                        .map(str::to_string)
+                        .resolve_at(key_object, event_at)
+                        .map(|resolved| {
+                            source = registry_path_source(resolved.source);
+                            resolved.path.to_string()
+                        })
                 });
 
             // Sysmon reports a value write as `<key>\<value>` on Event ID 13,
@@ -1539,18 +1597,28 @@ fn decode_kernel_registry_record(
             });
 
             match path {
-                Some(path) => (action, path, value_name),
+                Some(path) => {
+                    crate::telemetry::REGISTRY.record_resolved(source);
+                    (action, path, value_name)
+                }
                 None => {
-                    // Counted rather than silently discarded, for the same
-                    // reason as the file index: this is the sensor's blind
-                    // spot and its size is the only measure of it.
-                    let unresolved = state
-                        .unresolved_registry_events
-                        .fetch_add(1, Ordering::Relaxed)
-                        + 1;
-                    if unresolved == 1 || unresolved.is_multiple_of(10_000) {
+                    // Counted in `telemetry.json` rather than only logged: the
+                    // log line below is rate limited, so it can report that
+                    // the sensor is blind but never how blind. This is the one
+                    // place an event is lost after reaching the agent.
+                    let unresolved = crate::telemetry::REGISTRY.record_unresolved();
+                    // The writer's PID is what makes the residue actionable:
+                    // after the startup key rundown what is left is supposed
+                    // to be the protected processes it cannot open, and a
+                    // sample of PIDs is how that gets confirmed rather than
+                    // assumed. Hence a short unsampled prefix: one line per
+                    // event tells nothing about *who* before falling back to
+                    // a volume report.
+                    if unresolved <= UNRESOLVED_REGISTRY_SAMPLE || unresolved.is_multiple_of(10_000)
+                    {
                         debug!(
                             unresolved_registry_events = unresolved,
+                            pid = record.process_id(),
                             "Dropping registry event whose key path could not be resolved"
                         );
                     }

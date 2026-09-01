@@ -60,22 +60,35 @@ three platforms, but several Sysmon-style fields are unavailable.
 - **Registry `TargetObject` is not always a full path (silent risk).** The path
   is composed from the `CreateKey`/`OpenKey` events that named the key, so it is
   a full NT path (`\REGISTRY\MACHINE\...`) only when the parent open was also
-  observed. Hive prefixes are never rewritten to `HKLM`/`HKCU`, so
-  `startswith` matches on a hive abbreviation miss.
-- **Writes through handles or keys opened before startup are invisible (silent
-  risk).** Kernel-File and Kernel-Registry identify targets by kernel pointer,
-  so the sensor learns each path from the open that named it. Anything already
-  open when the sensor starts cannot be attributed, and those events are dropped
-  rather than emitted without a path. Long-lived holders such as database files
-  and service logs stay unobserved until the handle is closed and reopened, which
-  for some services means until reboot. Counted as `unresolved_file_events` and
-  `unresolved_registry_events`.
+  observed, or the parent handle was covered by the startup key rundown below.
+  Hive prefixes are never rewritten to `HKLM`/`HKCU`, so `startswith` matches on
+  a hive abbreviation miss.
+- **File writes through handles opened before startup are invisible (silent
+  risk).** Kernel-File identifies targets by kernel pointer, so the sensor learns
+  each path from the open that named it. A file already open when the sensor
+  starts cannot be attributed, and those events are dropped rather than emitted
+  without a path. Long-lived holders such as database files and service logs stay
+  unobserved until the handle is closed and reopened, which for some services
+  means until reboot. Counted as `unresolved_file_events`.
+- **A small share of registry writes is still unattributed (silent risk).**
+  Registry keys open before the trace session are named from the kernel handle
+  table at startup, which covered 5,908 of 6,644 open keys (88.9%) in 32 ms on a
+  measured Windows 11 desktop. The rest belong to protected processes such as
+  System, smss, csrss, wininit, services, lsass, and the Defender services, whose
+  handles refuse `PROCESS_DUP_HANDLE` even to SYSTEM. Separately, the trace can
+  still deliver events for a short-lived key out of order despite disabling
+  per-processor buffering. A timestamp-checked, bounded grace index absorbs most
+  of that but not all. The measured resolution rate is 98.7% under a mixed
+  workload, with short-lived keys accounting for the residue. The `registry`
+  section of `telemetry.json` and the `registry_path_resolution` check in
+  `rustinel doctor` report the live rate, and the agent log carries the writing
+  PID for the first events that fail.
 - **Extreme process bursts can still be lost in the kernel (silent risk).** Both
-  ETW sessions use an explicitly sized buffer pool - 256 KB × 64-128 (32 MB
-  ceiling) for the main session, 32 KB × 64-512 (16 MB ceiling) for the process
-  session - where the pool that absorbed a 4,000-process fork tree with no loss
-  was the former and the library defaults lost 12-60%. A host that churns harder
-  can still overrun them, and nothing counts the overrun
+  ETW sessions use an explicitly sized buffer pool: 256 KB × 64-128 (32 MB
+  ceiling) for the main session and 32 KB × 64-512 (16 MB ceiling) for the
+  process session. The main pool absorbed a 4,000-process fork tree with no loss,
+  while the library defaults lost 12-60%. A host that churns harder can still
+  overrun them, and nothing counts the overrun
   ([#305](https://github.com/Karib0u/rustinel/issues/305)), so a recorded event
   count is an upper bound. See
   [Windows ETW session buffers](operations.md#windows-etw-session-buffers).

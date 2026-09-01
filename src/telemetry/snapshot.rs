@@ -76,6 +76,65 @@ impl ChannelSnapshot {
     }
 }
 
+/// Registry key-path resolution at a point in time.
+///
+/// Windows only, and absent from the snapshot on other platforms and before
+/// the registry sensor has started.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistrySnapshot {
+    /// Whether the Windows sensor attempted its startup key rundown.
+    #[serde(default)]
+    pub rundown_attempted: bool,
+    /// Registry write events the sensor decoded.
+    pub events_received: u64,
+    /// Those that reached the detectors with a key path.
+    pub events_resolved: u64,
+    /// Those dropped because their `KeyObject` matched no known path.
+    pub events_unresolved: u64,
+    /// Resolved only because the startup handle-table snapshot knew the key:
+    /// writes through a handle older than the trace session, which were
+    /// dropped outright before #341.
+    pub resolved_from_snapshot: u64,
+    /// Resolved only because the key's `CloseKey` was decoded before the write
+    /// itself for a key that is opened, written and closed in one burst.
+    pub resolved_after_close: u64,
+    /// `CreateKey` events that contributed a name.
+    pub naming_create: u64,
+    /// `OpenKey` events that contributed a name.
+    pub naming_open: u64,
+    /// Naming events skipped because the open failed and named nothing.
+    pub naming_failed: u64,
+    /// Keys covered by the startup handle-table snapshot.
+    pub snapshot_keys: usize,
+}
+
+impl RegistrySnapshot {
+    /// Share of registry write events that reached the detectors with a path.
+    ///
+    /// This is the number the #341 follow-up hangs on: below 99.9% and the
+    /// classic kernel provider's KCB rundown is worth a second trace session.
+    pub fn resolution_rate_pct(&self) -> f64 {
+        let seen = self.events_resolved.saturating_add(self.events_unresolved);
+        if seen == 0 {
+            return 100.0;
+        }
+        (self.events_resolved as f64 / seen as f64) * 100.0
+    }
+
+    /// One-line operator summary.
+    pub fn describe(&self) -> String {
+        format!(
+            "registry: {} of {} events resolved ({:.2}%), {} rescued by the startup snapshot of {} keys, {} by the close grace",
+            self.events_resolved,
+            self.events_resolved.saturating_add(self.events_unresolved),
+            self.resolution_rate_pct(),
+            self.resolved_from_snapshot,
+            self.snapshot_keys,
+            self.resolved_after_close,
+        )
+    }
+}
+
 /// Every channel's counters, plus enough context to know how old they are.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TelemetrySnapshot {
@@ -88,6 +147,10 @@ pub struct TelemetrySnapshot {
     /// How long that agent had been running.
     pub uptime_secs: u64,
     pub channels: Vec<ChannelSnapshot>,
+    /// Registry key-path resolution. Absent on platforms without the ETW
+    /// registry sensor, and on snapshots written before #341.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<RegistrySnapshot>,
 }
 
 impl TelemetrySnapshot {
@@ -102,6 +165,7 @@ impl TelemetrySnapshot {
                 .iter()
                 .map(|channel| channel.counters().snapshot())
                 .collect(),
+            registry: super::REGISTRY.snapshot(),
         }
     }
 
@@ -267,6 +331,7 @@ mod tests {
             captured_at: "2026-08-24T00:00:00Z".to_string(),
             uptime_secs: 60,
             channels,
+            registry: None,
         }
     }
 
