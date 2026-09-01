@@ -41,9 +41,10 @@ three platforms, but several Sysmon-style fields are unavailable.
   reported as the raw `S-1-16-...` SID rather than dropped.
 - **Command line is back-filled, and can be lost.** No Kernel-Process event
   carries `CommandLine`; it is obtained by querying the live process. Process
-  events are collected on their own small-buffer ETW session so they reach the
-  sensor while the process is still alive, and the 20 ms handoff narrows the
-  window further, but a process that exits first still has no command line.
+  events are collected on their own ETW session, flushed every 5 ms so they
+  reach the sensor while the process is still alive, but a process that exits
+  first still has no command line. Measured at 99.85% on 2,000 `cmd /c echo`
+  runs and 4000/4000 on a 4,000-process fork tree.
   When the back-fill loses the race it returns nothing rather than another
   process's command line, but the failure is currently uncounted
   ([#304](https://github.com/Karib0u/rustinel/issues/304)).

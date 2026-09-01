@@ -304,18 +304,23 @@ that reduced visibility as a warning.
 ### Windows ETW delivery
 
 ETW's real-time session timer hands partially filled buffers to consumers once
-per second. Rustinel requests an earlier handoff without changing the session's
-buffer size or pool limits.
+per second. Rustinel requests an earlier handoff without changing either
+session's buffer size or pool limits.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `etw_flush_interval_ms` | `20` | Partial-buffer handoff interval in milliseconds; `0` disables it |
 
-Values below 20 ms are clamped to 20 ms. Rustinel pauses requests while the
-`sensor_events` queue is at least half full, when downstream queueing controls
-latency. The 20 ms default narrows the race for short-lived process command
-lines, but cannot recover a process that exits before the live-PEB back-fill;
-it also adds a small periodic flush cost. ETW continues its normal full-buffer
+This sets the interval for the main session, `rustinel-etw-trace`. Values below
+20 ms are clamped to 20 ms. The dedicated `rustinel-etw-process` session is
+flushed every 5 ms regardless — that interval is set by how long a short-lived
+process lives, not by a latency preference, and a longer one loses command lines
+(see [Windows ETW session buffers](operations.md#windows-etw-session-buffers)).
+Setting this option to `0` disables forced flushing on both sessions; setting it
+below 5 ms speeds up both.
+
+Rustinel pauses requests while the `sensor_events` queue is at least half full,
+when downstream queueing controls latency. ETW continues its normal full-buffer
 and timer-based delivery. Override the setting with
 `EDR__WINDOWS__ETW_FLUSH_INTERVAL_MS`.
 

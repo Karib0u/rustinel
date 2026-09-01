@@ -256,23 +256,40 @@ Both set the pool explicitly rather than inheriting library defaults:
 | Minimum buffers | 64 (16 MB committed) | 64 (2 MB committed) | 2 |
 | Maximum buffers | 128 (32 MB ceiling) | 512 (16 MB ceiling) | 24 (768 KB) |
 | Flush timer | 1 s | 1 s | 1 s |
-| Forced partial-buffer handoff | 20 ms | 20 ms | disabled |
+| Forced partial-buffer handoff | 20 ms | 5 ms | disabled |
 
-A buffer is handed to the consumer when it fills. A 256 KB buffer carrying only
-process events takes a long time to fill on a quiet host — long enough that
-`cmd /c echo` has exited before the sensor can read its command line, which is
-the regression a single 256 KB session introduced in 1.4.0
-([#349](https://github.com/Karib0u/rustinel/issues/349)). The process session
-keeps the 32 KB buffer that fills quickly, and raises the buffer *count*
-instead, so it has burst headroom without the latency.
+A buffer is handed to the consumer when it fills, or when a flush is forced.
+Neither buffer size on its own gets a low-volume stream out quickly — a session
+carrying only process events does not fill a buffer of *any* size fast enough to
+beat a process that lives 20 ms, which is why the split had to come with a
+faster forced handoff (below). What the split buys is that the faster handoff is
+affordable: it applies to a small session rather than to the 256 KB pool sized
+to absorb bursts, where flushing 200 times a second would hand over mostly empty
+buffers and give back what
+[#312](https://github.com/Karib0u/rustinel/pull/312) bought. The process session
+keeps the 32 KB buffer and raises the buffer *count* instead, so it has burst
+headroom without committing 32 MB to it.
 
 The forced handoff controls quiet-host delivery latency without changing the
 buffer pools, and runs on both sessions. Configure it with
-`windows.etw_flush_interval_ms`; `0` disables it. Rustinel pauses requests while
-its sensor queue is at least half full, when queueing controls latency instead.
-The 20 ms default reduces the command-line back-fill race for short-lived
-processes at the cost of more frequent flush requests; a process that exits
-before the back-fill can still have no `CommandLine`.
+`windows.etw_flush_interval_ms`; `0` disables it on both. Rustinel pauses
+requests while its sensor queue is at least half full, when queueing controls
+latency instead.
+
+The process session is flushed at a fixed 5 ms rather than at the configured
+interval, because what sets it is how long a short-lived process lives, not a
+latency preference. Over 2,000 `cmd /c echo` runs on the lab VM:
+
+| Process-session handoff | Command lines captured |
+| --- | --- |
+| 20 ms (the main session's interval) | 61.5% |
+| 10 ms | 99.9% |
+| 5 ms | 99.85% |
+| 1 ms | 99.8% |
+
+Agent CPU was indistinguishable across that range. A process that exits before
+the back-fill can still have no `CommandLine`; the race is structural, and only
+its width is under Rustinel's control.
 
 The buffers are non-paged pool: 18 MB is committed for the life of the agent
 across both sessions and grows to at most 48 MB under load. Read the live values
@@ -288,9 +305,19 @@ the cmdlet in scripts.
 
 This sizing absorbed a 4,000-process fork tree with no loss on a Windows 11 lab
 VM, where the library defaults lost 12-60% of process starts across identical
-runs ([#312](https://github.com/Karib0u/rustinel/pull/312)). It is a fixed
-configuration, not an adaptive one: a host that churns processes harder than
-that can still overrun either pool, and kernel-side loss is not counted
+runs ([#312](https://github.com/Karib0u/rustinel/pull/312)). Re-measured on the
+same fork tree after the session split, with the pre-#312 configuration rebuilt
+on current code for comparison:
+
+| Configuration | Kernel loss | Command lines |
+| --- | --- | --- |
+| Pre-#312 (one 32 KB session, no handoff) | 51.4% | 1877 / 4000 |
+| 1.4.0 (one 256 KB session, 20 ms) | 0% | 3878 / 4000 |
+| Split sessions, 5 ms process handoff | 0% | 4000 / 4000 |
+
+It is a fixed configuration, not an adaptive one: a host that churns processes
+harder than that can still overrun either pool, and kernel-side loss is not
+counted
 anywhere yet ([#305](https://github.com/Karib0u/rustinel/issues/305)). Treat a
 recorded event count as an upper bound on what happened.
 
