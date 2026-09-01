@@ -7,6 +7,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Update this commit deliberately when the rules repository's atomic suite changes.
+  RUSTINEL_RULES_REF: cf8c52db9031b2251d552a82cdf9499b279e74c5
 
 permissions:
   contents: read
@@ -261,6 +263,170 @@ jobs:
           path: rustinel-*-${{ matrix.target }}.tar.gz
           retention-days: 1
 
+  atomic-release:
+    name: Atomic Release (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    needs:
+      - build-linux-x86_64
+      - build-linux-arm64
+      - build-windows
+      - build-macos
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            runner: ubuntu-latest
+            platform: linux
+            artifact: rustinel-linux-x86_64
+          - label: linux-arm64
+            runner: ubuntu-24.04-arm
+            platform: linux
+            artifact: rustinel-linux-arm64
+          - label: windows-x86_64
+            runner: windows-latest
+            platform: windows
+            artifact: rustinel-windows-x86_64
+          - label: macos-arm64
+            runner: macos-latest
+            platform: macos
+            artifact: rustinel-macos-arm64
+          - label: macos-x86_64
+            # macos-13 is retired; use the supported Intel runner.
+            runner: macos-15-intel
+            platform: macos
+            artifact: rustinel-macos-x86_64
+            experimental: true
+    # Intel macOS remains optional because the hosted runner is legacy.
+    continue-on-error: ${{ matrix.experimental || false }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ matrix.artifact }}
+          path: release-artifact/
+
+      - name: Check out pinned rules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Karib0u/rustinel-rules
+          ref: ${{ env.RUSTINEL_RULES_REF }}
+          path: rustinel-rules
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+
+      - name: Build pinned rules pack
+        working-directory: rustinel-rules
+        run: |
+          uv sync --frozen
+          uv run python tools/validate.py
+          uv run python tools/build_packs.py
+
+      - name: Check atomic coverage metadata
+        working-directory: rustinel-rules
+        run: python tests/atomic/run_atomics.py --check-coverage --strict-essential
+
+      - name: Prepare Linux artifact
+        if: matrix.platform == 'linux'
+        run: |
+          test -f release-artifact/rustinel
+          chmod +x release-artifact/rustinel
+          echo "RUSTINEL_ENGINE_BIN=$GITHUB_WORKSPACE/release-artifact/rustinel" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Prepare Windows artifact
+        if: matrix.platform == 'windows'
+        run: |
+          if (!(Test-Path release-artifact\rustinel.exe)) {
+            throw "Release executable not found"
+          }
+          "RUSTINEL_ENGINE_BIN=$env:GITHUB_WORKSPACE\release-artifact\rustinel.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Prepare signed macOS artifact
+        if: matrix.platform == 'macos'
+        run: |
+          package="$(find release-artifact -type f -name '*.tar.gz' -print -quit)"
+          test -n "$package"
+          mkdir -p "$RUNNER_TEMP/rustinel-package"
+          tar -xzf "$package" -C "$RUNNER_TEMP/rustinel-package"
+          app="$(find "$RUNNER_TEMP/rustinel-package" -type d -name Rustinel.app -print -quit)"
+          test -n "$app"
+          codesign --verify --deep --strict "$app"
+          binary="$app/Contents/MacOS/rustinel"
+          test -x "$binary"
+          echo "RUSTINEL_ENGINE_BIN=$binary" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Exclude workspace from Defender (Windows, for EICAR)
+        if: matrix.platform == 'windows'
+        run: Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE" -ErrorAction SilentlyContinue
+        shell: pwsh
+
+      - name: Run atomic tests (Linux)
+        if: matrix.platform == 'linux'
+        working-directory: rustinel-rules
+        run: |
+          sudo -E python3 tests/atomic/run_atomics.py \
+            --platform linux \
+            --engine-bin "$RUSTINEL_ENGINE_BIN" \
+            --engine-dir "$GITHUB_WORKSPACE/rustinel-rules/tests/atomic/.engine" \
+            --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
+            --pack auto
+        shell: bash
+
+      - name: Run atomic tests (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: rustinel-rules
+        run: |
+          python tests\atomic\run_atomics.py `
+            --platform windows `
+            --engine-bin "$env:RUSTINEL_ENGINE_BIN" `
+            --engine-dir "$env:GITHUB_WORKSPACE\rustinel-rules\tests\atomic\.engine" `
+            --rules-dir "$env:GITHUB_WORKSPACE\rustinel-rules" `
+            --pack auto
+        shell: pwsh
+
+      - name: Run atomic tests (macOS)
+        if: matrix.platform == 'macos'
+        working-directory: rustinel-rules
+        run: |
+          sudo -E python3 tests/atomic/run_atomics.py \
+            --platform macos \
+            --engine-bin "$RUSTINEL_ENGINE_BIN" \
+            --engine-dir "$GITHUB_WORKSPACE/rustinel-rules/tests/atomic/.engine" \
+            --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
+            --pack auto
+        shell: bash
+
+      - name: Prepare atomic logs for upload (Unix)
+        if: always() && matrix.platform != 'windows'
+        run: |
+          if [ -d rustinel-rules/tests/atomic/.engine/logs ]; then
+            sudo chown -R "$(id -u):$(id -g)" rustinel-rules/tests/atomic/.engine/logs
+          fi
+        shell: bash
+
+      - name: Upload atomic report and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7
+        with:
+          name: atomic-release-${{ matrix.label }}
+          path: |
+            rustinel-rules/tests/atomic/report-*.json
+            rustinel-rules/tests/atomic/.engine/engine.stdout.log
+            rustinel-rules/tests/atomic/.engine/logs/
+          include-hidden-files: true
+          if-no-files-found: warn
+
   publish:
     name: Publish Release
     runs-on: ubuntu-latest
@@ -269,6 +435,7 @@ jobs:
       - build-linux-arm64
       - build-windows
       - build-macos
+      - atomic-release
     permissions:
       contents: write # create the GitHub Release and upload release assets
       id-token: write

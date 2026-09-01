@@ -10,6 +10,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Update this commit deliberately when the rules repository's atomic suite changes.
+  RUSTINEL_RULES_REF: cf8c52db9031b2251d552a82cdf9499b279e74c5
 
 permissions:
   contents: read
@@ -202,3 +204,117 @@ jobs:
         with:
           lookup-only: true
       - run: cargo test --locked --verbose
+
+  # Bootstrap only: keep this visible on pull requests while the short-lived
+  # process race is stabilized. Remove continue-on-error and make both matrix
+  # checks required in branch protection once the suite is reliable.
+  atomic-pr:
+    name: Atomic PR (${{ matrix.platform }})
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ${{ matrix.os }}
+    needs: ebpf-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          cache: false
+          rustflags: ""
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          lookup-only: true
+
+      - name: Download eBPF artifact
+        if: matrix.platform == 'linux'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: rustinel-ebpf-object
+          path: ebpf/
+
+      - name: Build PR binary
+        run: cargo build --locked --release --features rsigma-engine
+
+      - name: Check out pinned rules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Karib0u/rustinel-rules
+          ref: ${{ env.RUSTINEL_RULES_REF }}
+          path: rustinel-rules
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+
+      - name: Build pinned rules pack
+        working-directory: rustinel-rules
+        run: |
+          uv sync --frozen
+          uv run python tools/validate.py
+          uv run python tools/build_packs.py
+
+      - name: Check atomic coverage metadata
+        working-directory: rustinel-rules
+        run: python tests/atomic/run_atomics.py --check-coverage --strict-essential
+
+      - name: Exclude workspace from Defender (Windows, for EICAR)
+        if: matrix.platform == 'windows'
+        run: Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE" -ErrorAction SilentlyContinue
+        shell: pwsh
+
+      - name: Run atomic tests (Linux)
+        if: matrix.platform == 'linux'
+        working-directory: rustinel-rules
+        run: |
+          sudo -E python3 tests/atomic/run_atomics.py \
+            --platform linux \
+            --engine-bin "$GITHUB_WORKSPACE/target/release/rustinel" \
+            --engine-dir "$GITHUB_WORKSPACE/rustinel-rules/tests/atomic/.engine" \
+            --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
+            --pack auto
+        shell: bash
+
+      - name: Run atomic tests (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: rustinel-rules
+        run: |
+          python tests\atomic\run_atomics.py `
+            --platform windows `
+            --engine-bin "$env:GITHUB_WORKSPACE\target\release\rustinel.exe" `
+            --engine-dir "$env:GITHUB_WORKSPACE\rustinel-rules\tests\atomic\.engine" `
+            --rules-dir "$env:GITHUB_WORKSPACE\rustinel-rules" `
+            --pack auto
+        shell: pwsh
+
+      - name: Prepare atomic logs for upload (Unix)
+        if: always() && matrix.platform != 'windows'
+        run: |
+          if [ -d rustinel-rules/tests/atomic/.engine/logs ]; then
+            sudo chown -R "$(id -u):$(id -g)" rustinel-rules/tests/atomic/.engine/logs
+          fi
+        shell: bash
+
+      - name: Upload atomic report and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7
+        with:
+          name: atomic-pr-${{ matrix.platform }}
+          path: |
+            rustinel-rules/tests/atomic/report-*.json
+            rustinel-rules/tests/atomic/.engine/engine.stdout.log
+            rustinel-rules/tests/atomic/.engine/logs/
+          include-hidden-files: true
+          if-no-files-found: warn

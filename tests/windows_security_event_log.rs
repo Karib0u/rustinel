@@ -1,6 +1,6 @@
 #![cfg(windows)]
 
-//! Privileged smoke test for the Security channel source.
+//! Privileged end-to-end test for the Security channel source.
 //!
 //! Unlike System 7045, nothing in the Security channel is audited by default
 //! except logons, so the test turns the *Security System Extension*
@@ -81,7 +81,7 @@ impl Drop for AuditPolicy {
 }
 
 #[test]
-#[ignore = "requires Administrator privileges and changes audit policy; runs in the Windows privileged smoke job"]
+#[ignore = "requires Administrator privileges and changes audit policy; run manually on a Windows lab host"]
 fn a_service_installation_reaches_the_sensor_as_security_event_4697() {
     let _audit_policy = AuditPolicy::enable_success();
 
