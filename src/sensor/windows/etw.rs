@@ -43,7 +43,8 @@ pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
 /// alive. `cmd /c echo` lives 10-30 ms. Every other provider needs the
 /// opposite — the wide buffer pool of [`session_properties`], which is what
 /// makes a buffer take a long time to fill and be handed over. One session
-/// cannot satisfy both; two can. See [`process_session_properties`].
+/// cannot satisfy both; two can. See [`process_session_properties`] and
+/// [`super::flush`], which flushes this session four times as often.
 pub(super) const PROCESS_TRACE_SESSION_NAME: &str = "rustinel-etw-process";
 const WINDOWS_EPOCH_DELTA_100NS: i64 = 116444736000000000;
 
@@ -975,17 +976,22 @@ impl EtwSensor {
         info!("ETW trace session '{PROCESS_TRACE_SESSION_NAME}' started successfully");
 
         // Decouples delivery latency from the session `FlushTimer`, whose floor
-        // is one second. Both sessions get one: the process session because the
-        // back-fill race is measured in tens of milliseconds, the main session
-        // because alert latency is dominated by it. Each pauses when downstream
+        // is one second. Both sessions get one, at different intervals: the
+        // main session's bounds alert latency, the process session's has to
+        // beat process exit. See `super::flush`. Each pauses when downstream
         // queueing, rather than ETW buffering, controls latency.
-        let flushers = [TRACE_SESSION_NAME, PROCESS_TRACE_SESSION_NAME].map(|name| {
-            super::flush::spawn(
-                name,
-                self.flush_interval_ms,
-                Arc::clone(&self.shutdown),
-                tx.clone(),
-            )
+        let flushers = [
+            (
+                TRACE_SESSION_NAME,
+                super::flush::main_interval(self.flush_interval_ms),
+            ),
+            (
+                PROCESS_TRACE_SESSION_NAME,
+                super::flush::process_interval(self.flush_interval_ms),
+            ),
+        ]
+        .map(|(name, interval)| {
+            super::flush::spawn(name, interval, Arc::clone(&self.shutdown), tx.clone())
         });
 
         let process_worker = self.spawn_process_trace_worker(process_handle);
