@@ -245,8 +245,8 @@ else want opposite buffer sizing:
 
 | Session | Providers | Why |
 | --- | --- | --- |
-| `rustinel-etw-trace` | File, Registry, Network, DNS, PowerShell, WMI, Task Scheduler | Burst headroom — these are the high-volume providers |
-| `rustinel-etw-process` | Kernel-Process | Latency — `CommandLine` is read from the live process, which must still exist |
+| `rustinel-etw-trace` | File, Registry, Network, DNS, PowerShell, WMI, Task Scheduler | Burst headroom - these are the high-volume providers |
+| `rustinel-etw-process` | Kernel-Process | Latency - `CommandLine` is read from the live process, which must still exist |
 
 Both set the pool explicitly rather than inheriting library defaults:
 
@@ -259,7 +259,7 @@ Both set the pool explicitly rather than inheriting library defaults:
 | Forced partial-buffer handoff | 20 ms | 5 ms | disabled |
 
 A buffer is handed to the consumer when it fills, or when a flush is forced.
-Neither buffer size on its own gets a low-volume stream out quickly — a session
+Neither buffer size on its own gets a low-volume stream out quickly - a session
 carrying only process events does not fill a buffer of *any* size fast enough to
 beat a process that lives 20 ms, which is why the split had to come with a
 faster forced handoff (below). What the split buys is that the faster handoff is
@@ -271,7 +271,7 @@ keeps the 32 KB buffer and raises the buffer *count* instead, so it has burst
 headroom without committing 32 MB to it.
 
 The forced handoff controls quiet-host delivery latency without changing the
-buffer pools, and runs on both sessions — each from its own option,
+buffer pools, and runs on both sessions - each from its own option,
 `windows.etw_flush_interval_ms` and `windows.etw_process_flush_interval_ms`.
 Rustinel pauses requests while its sensor queue is at least half full, when
 queueing controls latency instead.
@@ -286,13 +286,13 @@ preference. Over 2,000 `cmd /c echo` runs on the lab VM:
 | 10 ms | 99.9% |
 | 5 ms | 99.85% |
 | 1 ms | 99.8% |
-| `0` (disabled — falls back to ETW's 1 s timer) | 16.6% |
+| `0` (disabled - falls back to ETW's 1 s timer) | 16.6% |
 
 Agent CPU was indistinguishable across the 1-20 ms range. Note that `0` is much
 worse than a slow interval, not equivalent to one: it returns the session to
 ETW's one-second timer. Treat it as giving up short-lived command lines
 deliberately. The main session's `etw_flush_interval_ms` is a separate option
-precisely so that setting *it* to `0` does not do this — measured that way,
+precisely so that setting *it* to `0` does not do this - measured that way,
 command-line capture stayed at 100%. A process that exits before
 the back-fill can still have no `CommandLine` even at 5 ms; the race is
 structural, and only its width is under Rustinel's control. Rustinel narrows it

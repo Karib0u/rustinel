@@ -462,9 +462,9 @@ pub struct WindowsConfig {
     /// [`Self::etw_flush_interval_ms`]: on the main session the interval trades
     /// alert latency against a periodic syscall, and either answer is
     /// defensible. On the process session it decides whether `CommandLine` is
-    /// collected at all — the field is read from the live process, and the
+    /// collected at all - the field is read from the live process, and the
     /// default 5 ms captured 99.9% of short-lived processes against 61.5% at
-    /// the main session's 20 ms. Zero disables it, and gives up roughly 40% of
+    /// the main session's 20 ms. Zero disables it, and gives up roughly 83% of
     /// short-lived command lines with it.
     pub etw_process_flush_interval_ms: u64,
 }

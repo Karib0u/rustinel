@@ -71,9 +71,9 @@ three platforms, but several Sysmon-style fields are unavailable.
   for some services means until reboot. Counted as `unresolved_file_events` and
   `unresolved_registry_events`.
 - **Extreme process bursts can still be lost in the kernel (silent risk).** Both
-  ETW sessions use an explicitly sized buffer pool — 256 KB × 64-128 (32 MB
+  ETW sessions use an explicitly sized buffer pool - 256 KB × 64-128 (32 MB
   ceiling) for the main session, 32 KB × 64-512 (16 MB ceiling) for the process
-  session — where the pool that absorbed a 4,000-process fork tree with no loss
+  session - where the pool that absorbed a 4,000-process fork tree with no loss
   was the former and the library defaults lost 12-60%. A host that churns harder
   can still overrun them, and nothing counts the overrun
   ([#305](https://github.com/Karib0u/rustinel/issues/305)), so a recorded event

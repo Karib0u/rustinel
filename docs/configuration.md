@@ -318,17 +318,17 @@ flushed for different reasons.
 On the main session the interval trades alert latency against one periodic
 syscall, and `0` is a reasonable choice.
 
-**On the process session it is not a latency preference — it decides whether
+**On the process session it is not a latency preference - it decides whether
 `CommandLine` is collected at all.** No ETW process event carries the field; it
 is read back out of the live process, so the event has to reach Rustinel before
 that process exits. Over 2,000 `cmd /c echo` runs on the lab VM, 5 ms captured
 99.9% of their command lines and 20 ms only 61.5%. **Setting
-`etw_process_flush_interval_ms = 0` captured 16.6% — it gives up about 83% of
+`etw_process_flush_interval_ms = 0` captured 16.6% - it gives up about 83% of
 short-lived command lines, and with them every Sigma `process_creation` rule
 that matches on `CommandLine`, 78% of them.** Zero is worse than a slow interval
 because the session then falls all the way back to ETW's one-second timer. The
 two options are deliberately independent so that turning the main session's
-handoff off does not silently do this — measured with
+handoff off does not silently do this - measured with
 `etw_flush_interval_ms = 0` and the process option left at 5 ms, command-line
 capture stayed at 100%. See
 [Windows ETW session buffers](operations.md#windows-etw-session-buffers) for the

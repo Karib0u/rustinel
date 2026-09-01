@@ -15,7 +15,7 @@
 //! a race against process exit: `CommandLine` is read out of the live process,
 //! and on this lab VM a `cmd /c echo` is gone often enough that a 20 ms handoff
 //! captured only 60% of them, against 99.9% at 5 ms. That rate is only
-//! affordable because the process session is small — flushing the 256 KB
+//! affordable because the process session is small - flushing the 256 KB
 //! burst-absorbing session 200 times a second would hand over mostly empty
 //! buffers and give back what #312 bought.
 //!
@@ -31,6 +31,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use anyhow::{Context, Result};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 use windows::core::PCWSTR;
@@ -49,7 +50,7 @@ const MIN_INTERVAL: Duration = Duration::from_millis(20);
 ///
 /// Barely a tuning knob: it is set by how long a short-lived process lives, not
 /// by a latency preference. Measured on the Windows 11 lab VM over 2,000
-/// `cmd /c echo` runs — 20 ms captured 61.5% of their command lines, 10 ms
+/// `cmd /c echo` runs - 20 ms captured 61.5% of their command lines, 10 ms
 /// 99.9%, 5 ms 99.85%, 1 ms 99.8%, against 100% for the pre-#312 session. 5 ms
 /// is chosen over 10 ms for margin on a faster host: the sweep shows the cost
 /// is flat below 10 ms, with the agent's CPU indistinguishable across the whole
@@ -96,8 +97,8 @@ pub(super) fn main_interval(interval_ms: u64) -> Option<Duration> {
 /// `windows.etw_process_flush_interval_ms`.
 ///
 /// Read from its own option rather than from the main session's, because
-/// `etw_flush_interval_ms = 0` is a reasonable thing for an operator to want —
-/// it trades alert latency for one less periodic syscall — and it must not
+/// `etw_flush_interval_ms = 0` is a reasonable thing for an operator to want -
+/// it trades alert latency for one less periodic syscall - and it must not
 /// silently take `CommandLine` collection down with it. Zero here disables the
 /// process handoff explicitly, and measures 16.6% short-lived command-line
 /// capture against 99.9% at the 5 ms default.
@@ -113,18 +114,14 @@ pub(super) fn spawn(
     interval: Option<Duration>,
     shutdown: Arc<AtomicBool>,
     sensor_tx: Sender<SensorEvent>,
-) -> Option<JoinHandle<()>> {
-    let interval = interval?;
-
-    let handle = match session_handle(session_name) {
-        Ok(handle) => handle,
-        Err(err) => {
-            warn!(
-                "Forced ETW flush disabled: could not resolve control handle for '{session_name}': {err:#}"
-            );
-            return None;
-        }
+) -> Result<Option<JoinHandle<()>>> {
+    let Some(interval) = interval else {
+        return Ok(None);
     };
+
+    let handle = session_handle(session_name).with_context(|| {
+        format!("could not resolve forced ETW flush handle for session '{session_name}'")
+    })?;
 
     info!(
         "Forced ETW flush enabled: every {} ms while the sensor queue is below {}% (session '{}')",
@@ -134,11 +131,13 @@ pub(super) fn spawn(
     );
 
     let name = session_name.to_string();
-    thread::Builder::new()
+    let worker = thread::Builder::new()
         .name("etw-flush".into())
         .spawn(move || run(handle, interval, shutdown, sensor_tx, &name))
-        .map_err(|err| warn!("Failed to spawn ETW flush thread: {err}"))
-        .ok()
+        .with_context(|| {
+            format!("failed to spawn ETW flush thread for session '{session_name}'")
+        })?;
+    Ok(Some(worker))
 }
 
 fn queue_is_backed_up<T>(sensor_tx: &Sender<T>) -> bool {

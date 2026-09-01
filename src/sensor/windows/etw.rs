@@ -41,7 +41,7 @@ pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
 /// Kernel-Process event version, so it is read back out of the PEB in
 /// [`decode_process`], and that read only succeeds while the process is still
 /// alive. `cmd /c echo` lives 10-30 ms. Every other provider needs the
-/// opposite — the wide buffer pool of [`session_properties`], which is what
+/// opposite - the wide buffer pool of [`session_properties`], which is what
 /// makes a buffer take a long time to fill and be handed over. One session
 /// cannot satisfy both; two can. See [`process_session_properties`] and
 /// [`super::flush`], which flushes this session four times as often.
@@ -111,7 +111,7 @@ fn session_properties() -> TraceProperties {
 ///
 /// The small buffer is the point of the second session. A buffer is handed to
 /// the consumer when it fills, and a 256 KB buffer carrying only process and
-/// image-load events takes far longer to fill than a 32 KB one — on a quiet
+/// image-load events takes far longer to fill than a 32 KB one - on a quiet
 /// host it never does, and delivery falls back on the flush timer. That is the
 /// regression #349 describes: the back-fill race window went from ~8-16 ms to
 /// ~100 ms-1 s when #312 widened the shared session, and a `cmd /c echo` exits
@@ -127,8 +127,8 @@ const PROCESS_SESSION_MIN_BUFFERS: u32 = 64;
 /// The buffer counts are set explicitly for the same reason [`session_properties`]
 /// sets them: left at `0` the kernel picks at most 24 buffers, a 768 KB ceiling
 /// that lost 12-60% of process starts under a fork tree (#312). Small buffers
-/// and a deep pool are not in tension — the first bounds latency, the second
-/// bounds burst loss — so this session keeps 1.3.0's latency without giving up
+/// and a deep pool are not in tension - the first bounds latency, the second
+/// bounds burst loss - so this session keeps 1.3.0's latency without giving up
 /// #312's headroom for the events that matter most to it.
 const PROCESS_SESSION_MAX_BUFFERS: u32 = 512;
 
@@ -137,7 +137,7 @@ const PROCESS_SESSION_MAX_BUFFERS: u32 = 512;
 /// Deliberately close to `ferrisetw`'s defaults, which is what Rustinel ran on
 /// before #312: the same 32 KB buffer and the same one-second flush timer, with
 /// only the pool depth raised. The logging mode is inherited for the same
-/// reason as the main session — event order within a session is load-bearing —
+/// reason as the main session - event order within a session is load-bearing -
 /// though nothing on this session pairs events the way the path caches do.
 fn process_session_properties() -> TraceProperties {
     TraceProperties {
@@ -342,7 +342,7 @@ impl EtwProviders {
     /// stay with the others: [`RegistryPathCache`] resolves a write's key by
     /// pairing it with the earlier `OpenKey` that named it, and that pairing
     /// only holds within one session's ordering. Process events are the one
-    /// stream nothing else is paired against — arriving *earlier* than the rest
+    /// stream nothing else is paired against - arriving *earlier* than the rest
     /// is strictly better for `ProcessCache` enrichment, never worse.
     fn process_session() -> Vec<EtwProvider> {
         vec![Self::kernel_process()]
@@ -921,7 +921,7 @@ fn build_session(
 ///
 /// Stopping a trace from `shutdown()` makes `process()` return an error by
 /// design; only a failure while the sensor is supposed to keep running is a
-/// real one, and it must reach the caller — logging alone buries the ETW error
+/// real one, and it must reach the caller - logging alone buries the ETW error
 /// code in the operational log (#256).
 fn interpret_process_result(
     session_name: &str,
@@ -982,26 +982,41 @@ impl EtwSensor {
             .map_err(|err| anyhow::anyhow!("Failed to start ETW process trace: {err:?}"))?;
         info!("ETW trace session '{PROCESS_TRACE_SESSION_NAME}' started successfully");
 
-        // Decouples delivery latency from the session `FlushTimer`, whose floor
-        // is one second. Both sessions get one, at different intervals: the
-        // main session's bounds alert latency, the process session's has to
-        // beat process exit. See `super::flush`. Each pauses when downstream
-        // queueing, rather than ETW buffering, controls latency.
-        let flushers = [
-            (
-                TRACE_SESSION_NAME,
-                super::flush::main_interval(self.flush_interval_ms),
-            ),
-            (
-                PROCESS_TRACE_SESSION_NAME,
-                super::flush::process_interval(self.process_flush_interval_ms),
-            ),
-        ]
-        .map(|(name, interval)| {
-            super::flush::spawn(name, interval, Arc::clone(&self.shutdown), tx.clone())
-        });
+        // Check the worker before blocking on the main session. Otherwise a
+        // thread-creation failure would leave the sensor running forever with
+        // no consumer for process events.
+        let process_worker = self.spawn_process_trace_worker(process_handle)?;
 
-        let process_worker = self.spawn_process_trace_worker(process_handle);
+        // The process flusher is required whenever its interval is enabled:
+        // without it, short-lived command-line capture falls back to 16.6%.
+        let process_flusher = match super::flush::spawn(
+            PROCESS_TRACE_SESSION_NAME,
+            super::flush::process_interval(self.process_flush_interval_ms),
+            Arc::clone(&self.shutdown),
+            tx.clone(),
+        ) {
+            Ok(flusher) => flusher,
+            Err(err) => {
+                self.shutdown.store(true, Ordering::Relaxed);
+                drop(process_trace);
+                let _ = process_worker.join();
+                return Err(err);
+            }
+        };
+
+        // Failure of the main session's optional latency optimization keeps
+        // the existing behavior: ETW's native timer still delivers events.
+        let main_flusher = super::flush::spawn(
+            TRACE_SESSION_NAME,
+            super::flush::main_interval(self.flush_interval_ms),
+            Arc::clone(&self.shutdown),
+            tx.clone(),
+        )
+        .unwrap_or_else(|err| {
+            warn!("Forced ETW flush disabled for main session: {err:#}");
+            None
+        });
+        let flushers = [main_flusher, process_flusher];
 
         let main_result = interpret_process_result(
             TRACE_SESSION_NAME,
@@ -1016,12 +1031,9 @@ impl EtwSensor {
         self.shutdown.store(true, Ordering::Relaxed);
         let _ = stop_trace_by_name(PROCESS_TRACE_SESSION_NAME);
 
-        let process_result = match process_worker {
-            Ok(worker) => worker
-                .join()
-                .unwrap_or_else(|_| Err(anyhow::anyhow!("ETW process trace thread panicked"))),
-            Err(err) => Err(err),
-        };
+        let process_result = process_worker
+            .join()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("ETW process trace thread panicked")));
 
         for flusher in flushers.into_iter().flatten() {
             let _ = flusher.join();
@@ -1033,7 +1045,7 @@ impl EtwSensor {
 
     /// Run the Kernel-Process session on its own thread.
     ///
-    /// A second `process()` cannot share the main thread — the call blocks
+    /// A second `process()` cannot share the main thread - the call blocks
     /// until its session stops. The handle is processed rather than the trace
     /// itself so the `UserTrace` stays with the caller, which is what stops the
     /// session when this function's caller returns.
@@ -1054,7 +1066,7 @@ impl EtwSensor {
                 // The main session's `process()` is blocking, so a failure here
                 // would otherwise sit unnoticed until the agent is stopped by
                 // hand, with every process event missing in the meantime. Stop
-                // the main session to make the failure reach the caller — the
+                // the main session to make the failure reach the caller - the
                 // same contract `run_subscription` uses for the event logs.
                 if result.is_err() && !shutdown.swap(true, Ordering::Relaxed) {
                     let _ = stop_trace_by_name(TRACE_SESSION_NAME);
