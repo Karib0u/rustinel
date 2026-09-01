@@ -40,11 +40,15 @@ three platforms, but several Sysmon-style fields are unavailable.
   do not carry it, and a mandatory label whose level Windows has not defined is
   reported as the raw `S-1-16-...` SID rather than dropped.
 - **Command line is back-filled, and can be lost.** No Kernel-Process event
-  carries `CommandLine`; it is obtained by querying the live process. The
-  default 20 ms ETW handoff narrows the race for short-lived processes, but a
-  process that exits before the back-fill still has no command line. When the
-  back-fill loses the race it returns nothing rather than another process's
-  command line, but the failure is currently uncounted
+  carries `CommandLine`; it is obtained by querying the live process. Process
+  events are collected on their own ETW session, flushed every 5 ms so they
+  reach the sensor while the process is still alive, and the back-fill runs
+  before any other decoding work, but a process that exits first still has no
+  command line. Measured at 99.9% on 2,000 `cmd /c echo` runs and 4000/4000 on
+  a 4,000-process fork tree. Setting `windows.etw_process_flush_interval_ms`
+  to `0` drops that to 16.6%.
+  When the back-fill loses the race it returns nothing rather than another
+  process's command line, but the failure is currently uncounted
   ([#304](https://github.com/Karib0u/rustinel/issues/304)).
 - **Registry value data depends on an undocumented request (silent risk).**
   `Details` carries the value data, as Sysmon Event ID 13 defines it, because
@@ -66,11 +70,12 @@ three platforms, but several Sysmon-style fields are unavailable.
   and service logs stay unobserved until the handle is closed and reopened, which
   for some services means until reboot. Counted as `unresolved_file_events` and
   `unresolved_registry_events`.
-- **Extreme process bursts can still be lost in the kernel (silent risk).** The
-  ETW session uses an explicitly sized buffer pool (256 KB × 64-128, 32 MB
-  ceiling) that absorbed a 4,000-process fork tree with no loss, where the
-  library defaults lost 12-60%. A host that churns harder can still overrun it,
-  and nothing counts the overrun
+- **Extreme process bursts can still be lost in the kernel (silent risk).** Both
+  ETW sessions use an explicitly sized buffer pool - 256 KB × 64-128 (32 MB
+  ceiling) for the main session, 32 KB × 64-512 (16 MB ceiling) for the process
+  session - where the pool that absorbed a 4,000-process fork tree with no loss
+  was the former and the library defaults lost 12-60%. A host that churns harder
+  can still overrun them, and nothing counts the overrun
   ([#305](https://github.com/Karib0u/rustinel/issues/305)), so a recorded event
   count is an upper bound. See
   [Windows ETW session buffers](operations.md#windows-etw-session-buffers).
