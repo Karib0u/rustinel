@@ -236,43 +236,61 @@ for what to do about it.
 ### Windows ETW session buffers
 
 Those counters see only Rustinel's own queues. On Windows there is an earlier
-place events can be lost: the kernel's buffer pool for the `rustinel-etw-trace`
-session. If the pool fills before the sensor drains it, the kernel discards
-events and the sensor never sees them.
+place events can be lost: the kernel's buffer pool for Rustinel's ETW sessions.
+If a pool fills before the sensor drains it, the kernel discards events and the
+sensor never sees them.
 
-Rustinel sets the pool explicitly rather than inheriting library defaults:
+Rustinel runs **two** real-time sessions, because process events and everything
+else want opposite buffer sizing:
 
-| Setting | Value | Default it replaces |
+| Session | Providers | Why |
 | --- | --- | --- |
-| Buffer size | 256 KB | 32 KB |
-| Minimum buffers | 64 (16 MB committed at start) | 2 |
-| Maximum buffers | 128 (32 MB ceiling) | 24 (768 KB) |
-| Flush timer | 1 s | 1 s |
-| Forced partial-buffer handoff | 20 ms | disabled |
+| `rustinel-etw-trace` | File, Registry, Network, DNS, PowerShell, WMI, Task Scheduler | Burst headroom — these are the high-volume providers |
+| `rustinel-etw-process` | Kernel-Process | Latency — `CommandLine` is read from the live process, which must still exist |
+
+Both set the pool explicitly rather than inheriting library defaults:
+
+| Setting | `rustinel-etw-trace` | `rustinel-etw-process` | Default it replaces |
+| --- | --- | --- | --- |
+| Buffer size | 256 KB | 32 KB | 32 KB |
+| Minimum buffers | 64 (16 MB committed) | 64 (2 MB committed) | 2 |
+| Maximum buffers | 128 (32 MB ceiling) | 512 (16 MB ceiling) | 24 (768 KB) |
+| Flush timer | 1 s | 1 s | 1 s |
+| Forced partial-buffer handoff | 20 ms | 20 ms | disabled |
+
+A buffer is handed to the consumer when it fills. A 256 KB buffer carrying only
+process events takes a long time to fill on a quiet host — long enough that
+`cmd /c echo` has exited before the sensor can read its command line, which is
+the regression a single 256 KB session introduced in 1.4.0
+([#349](https://github.com/Karib0u/rustinel/issues/349)). The process session
+keeps the 32 KB buffer that fills quickly, and raises the buffer *count*
+instead, so it has burst headroom without the latency.
 
 The forced handoff controls quiet-host delivery latency without changing the
-buffer pool. Configure it with `windows.etw_flush_interval_ms`; `0` disables it.
-Rustinel pauses requests while its sensor queue is at least half full, when
-queueing controls latency instead. The 20 ms default reduces the command-line
-back-fill race for short-lived processes at the cost of more frequent flush
-requests; a process that exits before the back-fill can still have no
-`CommandLine`.
+buffer pools, and runs on both sessions. Configure it with
+`windows.etw_flush_interval_ms`; `0` disables it. Rustinel pauses requests while
+its sensor queue is at least half full, when queueing controls latency instead.
+The 20 ms default reduces the command-line back-fill race for short-lived
+processes at the cost of more frequent flush requests; a process that exits
+before the back-fill can still have no `CommandLine`.
 
-The buffers are non-paged pool: 16 MB is committed for the life of the agent and
-grows to at most 32 MB under load. Read the live values back with:
+The buffers are non-paged pool: 18 MB is committed for the life of the agent
+across both sessions and grows to at most 48 MB under load. Read the live values
+back with:
 
 ```powershell
 Get-EtwTraceSession -Name rustinel-etw-trace
+Get-EtwTraceSession -Name rustinel-etw-process
 ```
 
-`logman query -ets` shows the same session but localizes its output, so prefer
+`logman query -ets` shows the same sessions but localizes its output, so prefer
 the cmdlet in scripts.
 
 This sizing absorbed a 4,000-process fork tree with no loss on a Windows 11 lab
 VM, where the library defaults lost 12-60% of process starts across identical
 runs ([#312](https://github.com/Karib0u/rustinel/pull/312)). It is a fixed
 configuration, not an adaptive one: a host that churns processes harder than
-that can still overrun a 32 MB pool, and kernel-side loss is not counted
+that can still overrun either pool, and kernel-side loss is not counted
 anywhere yet ([#305](https://github.com/Karib0u/rustinel/issues/305)). Treat a
 recorded event count as an upper bound on what happened.
 

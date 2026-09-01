@@ -27,7 +27,7 @@ use windows::Win32::System::Threading::{CreateEventW, ResetEvent, WaitForSingleO
 
 use crate::sensor::SensorEvent;
 
-use super::etw::TRACE_SESSION_NAME;
+use super::etw::{PROCESS_TRACE_SESSION_NAME, TRACE_SESSION_NAME};
 
 const EVENT_LOG_WAIT: Duration = Duration::from_millis(250);
 
@@ -145,8 +145,12 @@ fn run_subscription(
 
     if result.is_err() && !shutdown.swap(true, Ordering::Relaxed) {
         // ETW processing is blocking. Stop it so an event log failure reaches
-        // the sensor caller instead of silently removing telemetry.
-        let _ = ferrisetw::trace::stop_trace_by_name(TRACE_SESSION_NAME);
+        // the sensor caller instead of silently removing telemetry. Both
+        // sessions are stopped: each has a thread parked in `process()`, and
+        // leaving either running holds the sensor open.
+        for session in [TRACE_SESSION_NAME, PROCESS_TRACE_SESSION_NAME] {
+            let _ = ferrisetw::trace::stop_trace_by_name(session);
+        }
     }
 
     result
