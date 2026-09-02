@@ -20,6 +20,8 @@ full rather than hide them.
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
 | Image paths are truncated, and truncation is unmarked on process events | Linux |
+| `Protocol` is reported as `tcp` on every connection, including UDP | Linux |
+| `file_change` is advertised as collected but no sensor emits it | Linux, macOS |
 
 ## Windows (ETW and Event Log)
 
@@ -123,6 +125,11 @@ three platforms, but several Sysmon-style fields are unavailable.
   the host's display language, so rules matching English labels do not fire on
   a localized host. See
   [Detection](detection.md#powershell-logsources).
+- **`TaskContent` is always empty (silent risk).** Scheduled-task telemetry
+  comes from TaskScheduler event 106, which carries only the task name and user
+  context. `TaskContent` is modelled and exposed to Sigma but never populated,
+  so rules inspecting a task's XML definition cannot match
+  ([#296](https://github.com/Karib0u/rustinel/issues/296)).
 - **DNS `RecordType` is always empty**, and there is no network data-volume
   telemetry, so exfil-by-volume heuristics are not expressible.
 
@@ -178,8 +185,11 @@ The Linux sensor covers process, network, file, and DNS.
   absent rather than misreported. Because capture is at syscall entry, failed
   connections are reported as connections, and `SourceIp`/`SourcePort` are not
   yet assigned ([#299](https://github.com/Karib0u/rustinel/issues/299),
-  [#301](https://github.com/Karib0u/rustinel/issues/301)). Only AF_INET and
-  AF_INET6.
+  [#301](https://github.com/Karib0u/rustinel/issues/301)). `Protocol` is reported
+  as `tcp` on every event even though the hook also captures UDP connects, so
+  a rule selecting `Protocol: 'udp'` never matches and one selecting `'tcp'`
+  matches UDP traffic ([#300](https://github.com/Karib0u/rustinel/issues/300)). Only
+  AF_INET and AF_INET6.
 - **No library-load, module-load, or ptrace events.** Sigma rules in those
   categories never match.
 - **Kernel requirements.** Linux 5.8+ with BTF and `CAP_BPF` + `CAP_PERFMON` +
@@ -202,6 +212,12 @@ would succeed.
   `RUSTINEL_BPF_INTERFACE`). A wire capture also cannot say who opened the
   connection, so `Initiated` is left absent and rules selecting on it — either
   value — do not match on macOS.
+- **`User` is the real UID, not the effective one (silent risk).** Process,
+  exit, and file events report `token.ruid()`. Sigma's `User` is the identity a
+  process is operating under, which is the effective UID; the two differ for
+  setuid and seteuid processes, so a rule filtering `User: 'root'` does not see
+  a privileged process as root
+  ([#327](https://github.com/Karib0u/rustinel/issues/327)).
 - **Memory scanning is restricted.** YARA memory scanning uses `task_for_pid`,
   which generally needs root plus SIP/AMFI relaxation or an entitlement; when
   denied it silently returns nothing. File scanning is unaffected.
@@ -215,6 +231,13 @@ would succeed.
   [Sigma Coverage](coverage.md) for the measured share of SigmaHQ that can fire
   per platform; per-rule diagnostics are tracked by
   [#184](https://github.com/Karib0u/rustinel/issues/184).
+- **`file_change` is advertised as collected on Linux and macOS but is not
+  (silent risk).** The category is listed among the active logsources on both
+  platforms, so its rules are reported as backed by a live collector. Neither
+  sensor emits the metadata-change action that `file_change` denotes, so those
+  rules can never fire. This is worse than the general case above: the rule is
+  not merely inert, it is counted as covered
+  ([#293](https://github.com/Karib0u/rustinel/issues/293)).
 - **No stateful correlation or filter evaluation.** Each event is matched
   independently, with no state, window, count, or throttle. Sigma correlation
   and legacy aggregations (`| count() by ...`, `near`) are unsupported, so
