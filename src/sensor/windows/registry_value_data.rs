@@ -9,8 +9,7 @@
 //! The request is an `EnableTraceEx2` filter descriptor whose four payload
 //! bytes have bit `0x2` set. It is undocumented and unsupported by `ferrisetw`,
 //! which is why the provider is re-enabled by hand here once the session is up;
-//! [`super::etw`] treats a failure as non-fatal and keeps the value-name
-//! behaviour.
+//! [`super::etw`] treats a failure as non-fatal and leaves `Details` absent.
 //!
 //! Measured on Windows 11 26200 by enabling the provider once per candidate
 //! payload and writing a known value under each:
@@ -206,8 +205,8 @@ fn event_id_filter(event_ids: &[u16]) -> Vec<u16> {
 /// `Binary Data` for anything that is not a string or an integer — so matching
 /// it is what makes the 180 `Details` rules mean what they say.
 ///
-/// Returns `None` when there is nothing to render, which is the caller's signal
-/// to fall back to the value name.
+/// Returns `None` when there is nothing to render, so the decoder can leave
+/// `Details` absent.
 pub(super) fn format_value_data(value_type: u32, data: &[u8]) -> Option<String> {
     if data.is_empty() {
         return None;
@@ -327,9 +326,9 @@ mod tests {
     }
 
     #[test]
-    fn empty_capture_asks_the_caller_to_fall_back() {
-        // The build may not populate `CapturedData` at all; that path has to
-        // keep the pre-#292 value-name behaviour rather than emit nothing.
+    fn empty_capture_leaves_details_absent() {
+        // The build may not populate `CapturedData` at all. In that case the
+        // decoder must not substitute the semantically different value name.
         assert_eq!(format_value_data(REG_SZ, &[]), None);
         assert_eq!(format_value_data(REG_DWORD, &[]), None);
     }

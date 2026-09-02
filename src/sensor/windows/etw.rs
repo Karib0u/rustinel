@@ -810,8 +810,7 @@ impl EtwSensor {
 ///
 /// This cannot be part of building the provider: `ferrisetw` has no way to
 /// express the filter payload it needs, so the provider is re-enabled by hand
-/// on the running session. A failure is logged and tolerated — `Details` then
-/// falls back to the value name, exactly as before #292 — because the
+/// on the running session. A failure is logged and tolerated because the
 /// mechanism is undocumented and may not hold on every Windows build.
 fn request_registry_value_data() {
     let provider = EtwProviders::kernel_registry();
@@ -825,7 +824,7 @@ fn request_registry_value_data() {
         Ok(()) => info!("Registry value data capture enabled"),
         Err(err) => warn!(
             "Could not enable registry value data capture ({err:#}); \
-             registry Details will carry the value name"
+             registry Details will be unavailable"
         ),
     }
 }
@@ -1486,7 +1485,7 @@ fn decode_kernel_registry_record(
 
     let key_object = try_get_uint_as_u64(&parser, "KeyObject");
 
-    let (action, target_object, value_name) = match route {
+    let (action, target_object) = match route {
         KernelRegistryRoute::Name { creates } => {
             let base_object = try_get_uint_as_u64(&parser, "BaseObject");
             let base_name = try_get_string(&parser, "BaseName").unwrap_or_default();
@@ -1508,7 +1507,7 @@ fn decode_kernel_registry_record(
             // the disposition check every key open would surface as a
             // `registry_add`.
             refine_registry_create_action(&parser)?;
-            (SensorAction::Create, path?, None)
+            (SensorAction::Create, path?)
         }
         KernelRegistryRoute::Evict => {
             if let Some(object) = key_object {
@@ -1539,7 +1538,7 @@ fn decode_kernel_registry_record(
             });
 
             match path {
-                Some(path) => (action, path, value_name),
+                Some(path) => (action, path),
                 None => {
                     // Counted rather than silently discarded, for the same
                     // reason as the file index: this is the sensor's blind
@@ -1563,7 +1562,7 @@ fn decode_kernel_registry_record(
     let mappings = field_maps::registry_event_mappings();
     let fields = RegistryEventFields {
         target_object: Some(target_object),
-        details: registry_details(&parser, value_name.as_deref()),
+        details: registry_details(&parser),
         process_id: try_get_uint(&parser, mappings.get_etw_field("ProcessId")?),
         image: try_get_string(&parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
@@ -1588,15 +1587,10 @@ fn decode_kernel_registry_record(
 }
 
 /// `Details` for a registry event: the value *data*, as Sysmon Event ID 13
-/// defines it, falling back to the value name.
-///
-/// The fallback is not dead code. `CapturedData` is only populated because
-/// [`registry_value_data::request_value_data`] asked for it through an
-/// undocumented filter payload, and that request can fail — on a Windows build
-/// that does not honour it, or if the re-enable itself failed and was logged as
-/// a warning. Emitting nothing there would be a regression on the pre-#292
-/// behaviour, so the name is still better than an absent field.
-fn registry_details(parser: &Parser, value_name: Option<&str>) -> Option<String> {
+/// defines it. If captured data is unavailable or cannot be rendered, the
+/// field stays absent rather than carrying the semantically different value
+/// name.
+fn registry_details(parser: &Parser) -> Option<String> {
     let captured = parser
         .try_parse::<Vec<u8>>(field_maps::registry_event_mappings().get_etw_field("Details")?)
         .unwrap_or_default();
@@ -1604,7 +1598,6 @@ fn registry_details(parser: &Parser, value_name: Option<&str>) -> Option<String>
         try_get_uint_as_u64(parser, registry_value_data::VALUE_TYPE_PROPERTY).unwrap_or(0);
 
     registry_value_data::format_value_data(value_type as u32, &captured)
-        .or_else(|| value_name.map(str::to_string))
 }
 
 fn decode_network(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
@@ -2091,13 +2084,13 @@ mod tests {
     }
 
     #[test]
-    fn registry_details_reads_the_value_data_property() {
+    fn registry_details_maps_only_to_the_value_data_property() {
         // `Details` meant `ValueName` until #292, which made 180 SigmaHQ rules
         // match the name of the value instead of what was written into it.
         assert_eq!(
             field_maps::registry_event_mappings().get_etw_field("Details"),
             Some("CapturedData"),
-            "Details must map to the value data, with ValueName only as fallback"
+            "Details must map only to the value data"
         );
     }
 

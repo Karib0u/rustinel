@@ -73,8 +73,7 @@ pub fn file_event_mappings() -> &'static FieldMapping {
 static REGISTRY_EVENT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
         // Sysmon Event ID 13 defines `Details` as the value data, not its
-        // name; `CapturedData` is empty unless the session asks for it, and
-        // `registry_details` falls back to `ValueName` when it is.
+        // name. When `CapturedData` is unavailable, `Details` stays absent.
         ("Details", CAPTURED_DATA_PROPERTY),
         ("ProcessId", "ProcessID"),
         ("Image", "ImageName"),
