@@ -301,6 +301,27 @@ nothing was dropped and warns with per-channel totals when something was;
 leaves drop totals visible only in the operational log, and `doctor` reports
 that reduced visibility as a warning.
 
+On Windows the snapshot also carries a `registry` section, because a registry
+write can be lost *before* any channel sees it: `SetValueKey` carries no key
+path, so a write whose key cannot be named is discarded inside the sensor and
+appears in no channel count.
+
+| Field | Meaning |
+| --- | --- |
+| `rundown_attempted` | Whether the Windows sensor attempted its startup key snapshot |
+| `events_received` | Registry write events the sensor decoded |
+| `events_resolved` | Those that reached the detectors with a key path |
+| `events_unresolved` | Those discarded for want of one, which is the detection gap |
+| `resolved_from_snapshot` | Resolved only by the startup key rundown, i.e. writes through a handle older than the trace session |
+| `resolved_after_close` | Resolved only because the key's `CloseKey` was decoded before the write itself |
+| `naming_create` / `naming_open` | Events that contributed a key path |
+| `naming_failed` | Naming events that named nothing because the open failed |
+| `snapshot_keys` | Keys the startup rundown covered |
+
+`rustinel doctor` reports these as `registry_path_resolution`, which warns below
+a 99.9% resolution rate. Writes by protected processes are the expected residue;
+see [Limitations](limitations.md).
+
 ### Windows ETW delivery
 
 ETW's real-time session timer hands partially filled buffers to consumers once

@@ -6,6 +6,7 @@ mod flush;
 mod loss;
 pub mod mapper;
 mod registry_paths;
+mod registry_rundown;
 mod registry_value_data;
 
 pub use etw::EtwSensor;

@@ -176,8 +176,10 @@ pipeline drop counters.
 The `pipeline_telemetry` check reports how much telemetry the agent shed under
 load, per channel, from the snapshot the running agent writes - so a detection
 gap can be sized without searching the operational log. `--json` carries the
-raw per-channel counters under `telemetry`. See
-[Pipeline Telemetry](configuration.md#pipeline-telemetry).
+raw per-channel counters under `telemetry`. On Windows the
+`registry_path_resolution` check reports the share of registry writes that
+reached the detectors with a key path, which is the one gap the channel counters
+cannot show. See [Pipeline Telemetry](configuration.md#pipeline-telemetry).
 
 Exit codes are intended for automation:
 
