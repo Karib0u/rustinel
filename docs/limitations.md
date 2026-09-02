@@ -70,14 +70,14 @@ three platforms, but several Sysmon-style fields are unavailable.
   and service logs stay unobserved until the handle is closed and reopened, which
   for some services means until reboot. Counted as `unresolved_file_events` and
   `unresolved_registry_events`.
-- **Extreme process bursts can still be lost in the kernel (silent risk).** Both
+- **Extreme process bursts can still be lost in the kernel.** Both
   ETW sessions use an explicitly sized buffer pool - 256 KB × 64-128 (32 MB
   ceiling) for the main session, 32 KB × 64-512 (16 MB ceiling) for the process
   session - where the pool that absorbed a 4,000-process fork tree with no loss
   was the former and the library defaults lost 12-60%. A host that churns harder
-  can still overrun them, and nothing counts the overrun
-  ([#305](https://github.com/Karib0u/rustinel/issues/305)), so a recorded event
-  count is an upper bound. See
+  can still overrun them. The sensor polls ETW's cumulative loss counters and
+  warns when they increase; behavioral capture also records the combined count
+  as `events.source_lost` and marks the recording incomplete. See
   [Windows ETW session buffers](operations.md#windows-etw-session-buffers).
 - **WMI event IDs are not Sysmon's (silent risk).** `Microsoft-Windows-WMI-Activity`
   has no equivalent of Sysmon's `wmi_event` 19/20/21, and numbers its own

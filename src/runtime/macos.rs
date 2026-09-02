@@ -70,7 +70,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         CaptureSession::wait_for_shutdown().await;
         esf_sensor.shutdown();
         bpf_sensor.shutdown();
-        session.finish(sensor_worker).await
+        session.finish(sensor_worker, 0).await
     })
 }
 

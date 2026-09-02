@@ -200,7 +200,11 @@ impl CaptureSession {
     /// Drain queued events, finalize the manifest, and report final counts.
     ///
     /// Call after the sensors have been shut down.
-    pub(crate) async fn finish(self, sensor_worker: JoinHandle<()>) -> anyhow::Result<()> {
+    pub(crate) async fn finish(
+        self,
+        sensor_worker: JoinHandle<()>,
+        source_lost: u64,
+    ) -> anyhow::Result<()> {
         drop(self.router);
         let _ = sensor_worker.await;
         self.progress.abort();
@@ -208,7 +212,7 @@ impl CaptureSession {
 
         let payload_path = self.recorder.payload_path().to_path_buf();
         let manifest_path = self.recorder.manifest_path().to_path_buf();
-        let manifest = self.recorder.finish().await?;
+        let manifest = self.recorder.finish_with_source_loss(source_lost).await?;
 
         info!(
             target: "capture",
@@ -216,6 +220,7 @@ impl CaptureSession {
             received = manifest.events.received,
             written = manifest.events.written,
             lost = manifest.events.lost,
+            source_lost = manifest.events.source_lost,
             "Capture finished"
         );
 
@@ -223,15 +228,15 @@ impl CaptureSession {
         eprintln!("Recording: {}", payload_path.display());
         eprintln!("Manifest:  {}", manifest_path.display());
         eprintln!(
-            "Events:    {} recorded, {} lost",
-            manifest.events.written, manifest.events.lost
+            "Events:    {} recorded, {} writer lost, {} source lost",
+            manifest.events.written, manifest.events.lost, manifest.events.source_lost
         );
         eprintln!("Status:    {}", manifest.status.as_str());
         if manifest.status != CaptureStatus::Complete {
             eprintln!(
                 "This recording is incomplete and will be rejected by replay. \
-                 {} events could not be written.",
-                manifest.events.lost
+                 {} events could not be written and {} were lost at the source.",
+                manifest.events.lost, manifest.events.source_lost
             );
         }
 

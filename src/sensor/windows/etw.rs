@@ -779,6 +779,7 @@ struct DecodedEtwEvent {
 /// Windows ETW sensor implementation.
 pub struct EtwSensor {
     shutdown: Arc<AtomicBool>,
+    loss_counters: Arc<super::loss::LossCounters>,
     flush_interval_ms: u64,
     process_flush_interval_ms: u64,
 }
@@ -796,6 +797,7 @@ impl EtwSensor {
     pub fn with_flush_intervals(flush_interval_ms: u64, process_flush_interval_ms: u64) -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
+            loss_counters: Arc::new(super::loss::LossCounters::new()),
             flush_interval_ms,
             process_flush_interval_ms,
         }
@@ -803,6 +805,11 @@ impl EtwSensor {
 
     pub fn is_shutdown(&self) -> bool {
         self.shutdown.load(Ordering::Relaxed)
+    }
+
+    /// Cumulative kernel-buffer loss across both ETW sessions.
+    pub fn events_lost(&self) -> u64 {
+        self.loss_counters.total()
     }
 }
 
@@ -987,6 +994,33 @@ impl EtwSensor {
         // no consumer for process events.
         let process_worker = self.spawn_process_trace_worker(process_handle)?;
 
+        let loss_monitor = match super::loss::spawn(
+            [
+                (TRACE_SESSION_NAME, super::loss::Session::Main),
+                (PROCESS_TRACE_SESSION_NAME, super::loss::Session::Process),
+            ],
+            Arc::clone(&self.shutdown),
+            Arc::clone(&self.loss_counters),
+        ) {
+            Ok(worker) => worker,
+            Err(err) => {
+                self.shutdown.store(true, Ordering::Relaxed);
+                let _ = super::loss::stop_and_record(
+                    TRACE_SESSION_NAME,
+                    super::loss::Session::Main,
+                    &self.loss_counters,
+                );
+                let _ = super::loss::stop_and_record(
+                    PROCESS_TRACE_SESSION_NAME,
+                    super::loss::Session::Process,
+                    &self.loss_counters,
+                );
+                let _ = process_worker.join();
+                drop(process_trace);
+                return Err(err);
+            }
+        };
+
         // The process flusher is required whenever its interval is enabled:
         // without it, short-lived command-line capture falls back to 16.6%.
         let process_flusher = match super::flush::spawn(
@@ -998,8 +1032,19 @@ impl EtwSensor {
             Ok(flusher) => flusher,
             Err(err) => {
                 self.shutdown.store(true, Ordering::Relaxed);
-                drop(process_trace);
+                let _ = super::loss::stop_and_record(
+                    TRACE_SESSION_NAME,
+                    super::loss::Session::Main,
+                    &self.loss_counters,
+                );
+                let _ = super::loss::stop_and_record(
+                    PROCESS_TRACE_SESSION_NAME,
+                    super::loss::Session::Process,
+                    &self.loss_counters,
+                );
                 let _ = process_worker.join();
+                let _ = loss_monitor.join();
+                drop(process_trace);
                 return Err(err);
             }
         };
@@ -1029,7 +1074,16 @@ impl EtwSensor {
         // the worker can be joined; `process_trace` would do the same on drop,
         // but only after the join has already deadlocked.
         self.shutdown.store(true, Ordering::Relaxed);
-        let _ = stop_trace_by_name(PROCESS_TRACE_SESSION_NAME);
+        let _ = super::loss::stop_and_record(
+            TRACE_SESSION_NAME,
+            super::loss::Session::Main,
+            &self.loss_counters,
+        );
+        let _ = super::loss::stop_and_record(
+            PROCESS_TRACE_SESSION_NAME,
+            super::loss::Session::Process,
+            &self.loss_counters,
+        );
 
         let process_result = process_worker
             .join()
@@ -1038,6 +1092,7 @@ impl EtwSensor {
         for flusher in flushers.into_iter().flatten() {
             let _ = flusher.join();
         }
+        let _ = loss_monitor.join();
 
         drop(process_trace);
         main_result.and(process_result)
@@ -1054,6 +1109,7 @@ impl EtwSensor {
         handle: ferrisetw::native::TraceHandle,
     ) -> Result<std::thread::JoinHandle<Result<()>>> {
         let shutdown = Arc::clone(&self.shutdown);
+        let loss_counters = Arc::clone(&self.loss_counters);
         std::thread::Builder::new()
             .name("etw-process-trace".into())
             .spawn(move || {
@@ -1069,7 +1125,11 @@ impl EtwSensor {
                 // the main session to make the failure reach the caller - the
                 // same contract `run_subscription` uses for the event logs.
                 if result.is_err() && !shutdown.swap(true, Ordering::Relaxed) {
-                    let _ = stop_trace_by_name(TRACE_SESSION_NAME);
+                    let _ = super::loss::stop_and_record(
+                        TRACE_SESSION_NAME,
+                        super::loss::Session::Main,
+                        &loss_counters,
+                    );
                 }
 
                 result
@@ -1083,6 +1143,7 @@ impl Sensor for EtwSensor {
         info!("Starting ETW sensor...");
 
         self.shutdown.store(false, Ordering::Relaxed);
+        self.loss_counters.reset();
         let event_logs = EventLogSubscriptions::start(tx.clone(), Arc::clone(&self.shutdown))?;
 
         // A session left running by a previous process keeps its old buffer
@@ -1102,7 +1163,12 @@ impl Sensor for EtwSensor {
 
         for session in [TRACE_SESSION_NAME, PROCESS_TRACE_SESSION_NAME] {
             info!("Stopping ETW trace session '{session}'...");
-            if let Err(err) = stop_trace_by_name(session) {
+            let kind = if session == TRACE_SESSION_NAME {
+                super::loss::Session::Main
+            } else {
+                super::loss::Session::Process
+            };
+            if let Err(err) = super::loss::stop_and_record(session, kind, &self.loss_counters) {
                 warn!("Failed to stop trace session '{session}': {err:?}");
             }
         }

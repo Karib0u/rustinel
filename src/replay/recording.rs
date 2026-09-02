@@ -158,11 +158,13 @@ fn verify(
 
     if manifest.status != CaptureStatus::Complete {
         bail!(
-            "recording {} is incomplete: the capture session was interrupted or lost {} of {} \
-             events, so replaying it would report detections over a stream with holes in it",
+            "recording {} is incomplete: the capture session was interrupted, lost {} of {} \
+             received events, or lost {} events at the source, so replaying it would report \
+             detections over a stream with holes in it",
             payload_path.display(),
             manifest.events.lost,
-            manifest.events.received
+            manifest.events.received,
+            manifest.events.source_lost
         );
     }
 
@@ -299,6 +301,7 @@ mod tests {
                 received: 3,
                 written: 2,
                 lost: 1,
+                source_lost: 0,
             };
         });
 
