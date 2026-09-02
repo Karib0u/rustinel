@@ -325,10 +325,10 @@ on current code for comparison:
 | Split sessions, 5 ms process handoff | 0% | 4000 / 4000 |
 
 It is a fixed configuration, not an adaptive one: a host that churns processes
-harder than that can still overrun either pool, and kernel-side loss is not
-counted
-anywhere yet ([#305](https://github.com/Karib0u/rustinel/issues/305)). Treat a
-recorded event count as an upper bound on what happened.
+harder than that can still overrun either pool. Rustinel polls each session's
+cumulative `EventsLost` counter once per second and emits a rate-limited warning
+when it increases. Behavioral recordings also store the combined value as
+`events.source_lost` and are marked incomplete when it is non-zero.
 
 ## Upgrades
 

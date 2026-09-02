@@ -262,7 +262,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
             }
         }
 
-        session.finish(sensor_worker).await?;
+        session.finish(sensor_worker, sensor.events_lost()).await?;
 
         match sensor_failure {
             Some(err) => Err(err),

@@ -3,6 +3,7 @@ mod event_log;
 mod field_maps;
 mod file_paths;
 mod flush;
+mod loss;
 pub mod mapper;
 mod registry_paths;
 mod registry_value_data;
