@@ -479,6 +479,10 @@ mod tests {
         assert_eq!(ecs.process_pid, Some(1234));
         assert_eq!(ecs.process_name.as_deref(), Some("cmd.exe"));
         assert_eq!(ecs.user_name.as_deref(), Some("SYSTEM"));
+        assert!(ecs.edr_process_target_image.is_none());
+
+        let json = serde_json::to_value(&ecs).expect("ECS alert serializes");
+        assert!(json.get("edr.process.target_image").is_none());
     }
 
     #[test]

@@ -1363,7 +1363,7 @@ mod round_trip_tests {
             process_context: None,
         };
 
-        for field in ["ProcessId", "ParentProcessId", "User"] {
+        for field in ["ProcessId", "ParentProcessId", "User", "TargetImage"] {
             assert_eq!(event.get_field(field), None, "{field} should stay absent");
             assert!(
                 event
@@ -1373,6 +1373,14 @@ mod round_trip_tests {
                 "{field} should not appear in flattened fields"
             );
         }
+
+        let json = serde_json::to_value(&event).expect("event serializes");
+        assert!(
+            json.get("fields")
+                .and_then(|fields| fields.get("TargetImage"))
+                .is_none(),
+            "recorded process creation must omit TargetImage"
+        );
     }
 
     #[test]
