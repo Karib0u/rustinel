@@ -54,7 +54,7 @@ three platforms, but several Sysmon-style fields are unavailable.
   `Details` carries the value data, as Sysmon Event ID 13 defines it, because
   the session asks Kernel-Registry for it with an undocumented filter payload.
   That is not contractual: if a future Windows build stops honouring it,
-  `Details` falls back to the value *name* and a warning is logged at startup.
+  `Details` is absent and a warning is logged at startup.
   Binary values render as `Binary Data`, matching Sysmon, so their content is
   not searchable.
 - **Registry `TargetObject` is not always a full path (silent risk).** The path
