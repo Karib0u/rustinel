@@ -9,7 +9,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use anyhow::Result;
 use rsigma_eval::{CorrelationConfig, CorrelationEngine, EvaluationResult, MatchDetailLevel};
-use rsigma_parser::SigmaCollection;
+use rsigma_parser::{FilterRuleTarget, SigmaCollection};
 
 use super::logsource::logsource_key;
 use super::LogSourceKey;
@@ -89,6 +89,41 @@ impl RuleStore {
                     synthetic_ids.push((name.to_string(), rule.title.clone()));
                 }
             }
+        }
+
+        // The evaluator resolves filter targets by ID or title, while Sigma
+        // also permits the detection rule's name. Expand name references to
+        // every effective ID before handing the collection to the evaluator.
+        let mut filter_targets_by_name: HashMap<String, Vec<String>> = HashMap::new();
+        for rule in &compiled_collection.rules {
+            let Some(name) = rule.name.as_ref() else {
+                continue;
+            };
+            let effective_target = rule.id.as_ref().unwrap_or(&rule.title);
+            filter_targets_by_name
+                .entry(name.clone())
+                .or_default()
+                .push(effective_target.clone());
+        }
+        for filter in &mut compiled_collection.filters {
+            let FilterRuleTarget::Specific(references) = &mut filter.rules else {
+                continue;
+            };
+            let mut expanded = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for reference in references.iter() {
+                if seen.insert(reference.clone()) {
+                    expanded.push(reference.clone());
+                }
+                if let Some(targets) = filter_targets_by_name.get(reference) {
+                    for target in targets {
+                        if seen.insert(target.clone()) {
+                            expanded.push(target.clone());
+                        }
+                    }
+                }
+            }
+            *references = expanded;
         }
 
         let mut engine = self.lock();

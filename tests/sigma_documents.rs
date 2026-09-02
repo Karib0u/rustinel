@@ -394,3 +394,165 @@ level: high
         Some("temporal")
     );
 }
+
+#[test]
+fn invalid_compiled_rule_does_not_discard_valid_rule_files() {
+    let fixture = TempDir::new().expect("temporary rule directory");
+    fs::write(
+        fixture.path().join("valid.yml"),
+        r#"title: Valid Curl Rule
+id: valid-curl-rule
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image: /usr/bin/curl
+  condition: selection
+"#,
+    )
+    .expect("write valid rule");
+    fs::write(
+        fixture.path().join("invalid.yml"),
+        r#"title: Invalid CIDR Rule
+id: invalid-cidr-rule
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|cidr: definitely-not-a-cidr
+  condition: selection
+---
+title: Correlation For Invalid Rule
+id: correlation-for-invalid-rule
+correlation:
+  type: event_count
+  rules:
+    - invalid-cidr-rule
+  timespan: 5m
+  condition:
+    gte: 2
+"#,
+    )
+    .expect("write invalid rule");
+
+    let engine = engine_for(fixture.path());
+    let stats = engine.stats();
+    assert_eq!(stats.total_rules, 1);
+    assert_eq!(stats.failed_rules.len(), 1);
+    assert!(stats.failed_rules[0].0.ends_with("invalid.yml"));
+    assert_eq!(stats.unsupported_rules.len(), 1);
+    assert!(stats.unsupported_rules[0]
+        .identity
+        .contains("correlation-for-invalid-rule"));
+
+    let alerts = engine.check_event(&process_event("2026-01-01T00:00:00Z", "alice"));
+    assert_eq!(alerts.len(), 1);
+    assert_eq!(alerts[0].rule_name, "Valid Curl Rule");
+}
+
+#[test]
+fn filter_can_target_name_of_rule_that_also_has_an_id() {
+    let fixture = TempDir::new().expect("temporary rule directory");
+    fs::write(
+        fixture.path().join("rules.yml"),
+        r#"title: Named Curl Rule
+id: named-curl-id
+name: named-curl-rule
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image: /usr/bin/curl
+  condition: selection
+---
+title: Suppress Alice By Name
+filter:
+  rules:
+    - named-curl-rule
+  selection:
+    User: alice
+  condition: not selection
+"#,
+    )
+    .expect("write named filter fixture");
+
+    let engine = engine_for(fixture.path());
+    assert!(engine
+        .check_event(&process_event("2026-01-01T00:00:00Z", "alice"))
+        .is_empty());
+    assert_eq!(
+        engine
+            .check_event(&process_event("2026-01-01T00:00:01Z", "bob"))
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn temporal_without_condition_requires_every_referenced_rule() {
+    let fixture = TempDir::new().expect("temporary rule directory");
+    fs::write(
+        fixture.path().join("rules.yml"),
+        r#"title: Curl Process For Implicit Temporal
+id: implicit-curl-process
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image: /usr/bin/curl
+  condition: selection
+---
+title: HTTPS For Implicit Temporal
+id: implicit-https-connection
+logsource:
+  product: linux
+  category: network_connection
+detection:
+  selection:
+    DestinationPort: '443'
+  condition: selection
+---
+title: Implicit Curl Then HTTPS
+id: implicit-curl-then-https
+correlation:
+  type: temporal
+  rules:
+    - implicit-curl-process
+    - implicit-https-connection
+  group-by:
+    - User
+  timespan: 5m
+level: high
+---
+title: Explicit Any Curl Or HTTPS
+id: explicit-any-curl-or-https
+correlation:
+  type: temporal
+  rules:
+    - implicit-curl-process
+    - implicit-https-connection
+  group-by:
+    - User
+  timespan: 5m
+  condition:
+    gte: 1
+level: medium
+"#,
+    )
+    .expect("write implicit temporal fixture");
+
+    let engine = engine_for(fixture.path());
+    let process = engine.check_event(&process_event("2026-01-01T00:00:00Z", "alice"));
+    assert_eq!(process.len(), 2);
+    assert_eq!(process[0].rule_name, "Curl Process For Implicit Temporal");
+    assert_eq!(process[1].rule_name, "Explicit Any Curl Or HTTPS");
+
+    let network = engine.check_event(&network_event("2026-01-01T00:00:01Z", "alice"));
+    assert_eq!(network.len(), 3);
+    assert_eq!(network[1].rule_name, "Implicit Curl Then HTTPS");
+    assert_eq!(network[2].rule_name, "Explicit Any Curl Or HTTPS");
+}

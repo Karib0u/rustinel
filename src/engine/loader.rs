@@ -12,8 +12,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rsigma_parser::{
-    parse_sigma_yaml, CorrelationRule, FilterRule, FilterRuleTarget, SigmaCollection, SigmaRule,
+    parse_sigma_yaml, ConditionOperator, CorrelationCondition, CorrelationRule, CorrelationType,
+    FilterRule, FilterRuleTarget, SigmaCollection, SigmaRule,
 };
+use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use super::logsource::{logsource_key, normalize_logsource_in_place};
@@ -30,12 +32,27 @@ fn document_identity(id: Option<&str>, title: &str) -> String {
 /// `SigmaCollection` intentionally does not retain this information.
 #[derive(Default)]
 struct DocumentSources {
+    rules: std::collections::HashMap<String, String>,
     correlations: std::collections::HashMap<String, String>,
     filters: std::collections::HashMap<String, String>,
+    /// Temporal correlations whose source omitted `condition`. The parser AST
+    /// otherwise makes omission indistinguishable from an explicit `gte: 1`.
+    temporal_without_condition: HashSet<String>,
 }
 
 impl DocumentSources {
-    fn add_collection(&mut self, source_path: &str, collection: &SigmaCollection) {
+    fn add_collection(
+        &mut self,
+        source_path: &str,
+        content: &str,
+        collection: &SigmaCollection,
+    ) -> Result<()> {
+        for rule in &collection.rules {
+            self.rules.insert(
+                document_identity(rule.id.as_deref(), &rule.title),
+                source_path.to_string(),
+            );
+        }
         for correlation in &collection.correlations {
             self.correlations.insert(
                 document_identity(correlation.id.as_deref(), &correlation.title),
@@ -48,6 +65,37 @@ impl DocumentSources {
                 source_path.to_string(),
             );
         }
+
+        // Preserve whether the source omitted the temporal condition before
+        // the parser replaces that omission with its current default.
+        for document in serde_yaml::Deserializer::from_str(content) {
+            let value = serde_yaml::Value::deserialize(document)
+                .context("Failed to inspect parsed Sigma document")?;
+            let Some(correlation) = value.get("correlation") else {
+                continue;
+            };
+            if correlation.get("type").and_then(|value| value.as_str()) != Some("temporal")
+                || correlation.get("condition").is_some()
+            {
+                continue;
+            }
+
+            let Some(title) = value.get("title").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let id = value.get("id").and_then(|value| value.as_str());
+            self.temporal_without_condition
+                .insert(document_identity(id, title));
+        }
+
+        Ok(())
+    }
+
+    fn rule_path(&self, rule: &SigmaRule) -> String {
+        self.rules
+            .get(&document_identity(rule.id.as_deref(), &rule.title))
+            .cloned()
+            .unwrap_or_else(|| "<unknown>".to_string())
     }
 
     fn correlation_path(&self, correlation: &CorrelationRule) -> String {
@@ -65,6 +113,13 @@ impl DocumentSources {
             .get(&document_identity(filter.id.as_deref(), &filter.title))
             .cloned()
             .unwrap_or_else(|| "<unknown>".to_string())
+    }
+
+    fn temporal_condition_was_omitted(&self, correlation: &CorrelationRule) -> bool {
+        self.temporal_without_condition.contains(&document_identity(
+            correlation.id.as_deref(),
+            &correlation.title,
+        ))
     }
 }
 
@@ -170,7 +225,7 @@ impl Engine {
         let source_path = path.display().to_string();
         let errors = parsed.errors.clone();
 
-        sources.add_collection(&source_path, &parsed);
+        sources.add_collection(&source_path, &content, &parsed)?;
         collection.rules.extend(parsed.rules);
         collection.correlations.extend(parsed.correlations);
         collection.filters.extend(parsed.filters);
@@ -193,13 +248,26 @@ impl Engine {
 
             // Route on the same normalized logsource the decision above used.
             normalize_logsource_in_place(&mut rule.logsource);
+            // Keep a bad but parseable rule from making the final batched
+            // compilation reject every valid rule in the directory.
+            if let Err(error) = rsigma_eval::compile_rule(&rule) {
+                self.failed_rules.push((
+                    sources.rule_path(&rule),
+                    format!(
+                        "{}: {error}",
+                        document_identity(rule.id.as_deref(), &rule.title)
+                    ),
+                ));
+                continue;
+            }
             add_detection_keys(&mut loaded_rule_keys, &rule);
             add_filter_keys(&mut filter_rule_keys, &rule);
             collection.rules.push(rule);
         }
 
-        let correlations =
+        let mut correlations =
             retain_correlations(self, parsed.correlations, &sources, &loaded_rule_keys);
+        normalize_implicit_temporal_conditions(&mut correlations, &sources);
         let mut filters = retain_filters(self, parsed.filters, &sources, &filter_rule_keys);
         for filter in &mut filters {
             if let Some(logsource) = filter.logsource.as_mut() {
@@ -236,6 +304,31 @@ impl Engine {
             identity,
             reason: reason.to_string(),
         });
+    }
+}
+
+fn normalize_implicit_temporal_conditions(
+    correlations: &mut [CorrelationRule],
+    sources: &DocumentSources,
+) {
+    for correlation in correlations {
+        if correlation.correlation_type != CorrelationType::Temporal
+            || !sources.temporal_condition_was_omitted(correlation)
+        {
+            continue;
+        }
+
+        let required_rules = correlation
+            .rules
+            .iter()
+            .collect::<HashSet<_>>()
+            .len()
+            .max(1) as u64;
+        correlation.condition = CorrelationCondition::Threshold {
+            predicates: vec![(ConditionOperator::Gte, required_rules)],
+            field: None,
+            percentile: None,
+        };
     }
 }
 
