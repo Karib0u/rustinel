@@ -164,7 +164,7 @@ impl Sensor for EbpfSensor {
             "sys_exit_renameat2",
         )?;
         attach_tracepoint(&mut bpf, "handle_file_close", "syscalls", "sys_enter_close")?;
-        attach_tracepoint(&mut bpf, "handle_file_dup2", "syscalls", "sys_enter_dup2")?;
+        attach_optional_tracepoint(&mut bpf, "handle_file_dup2", "syscalls", "sys_enter_dup2")?;
         attach_tracepoint(&mut bpf, "handle_file_dup3", "syscalls", "sys_enter_dup3")?;
         attach_optional_tracepoint(
             &mut bpf,

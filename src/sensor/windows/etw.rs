@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -22,7 +22,10 @@ use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::{
     classify_kernel_network_event, decode_etw_ipv4, decode_etw_port, NetworkAddressFamily,
 };
-use crate::sensor::{Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorPayload};
+use crate::sensor::{
+    Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
+    SensorPayload,
+};
 use crate::utils::pe;
 use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line};
 
@@ -48,6 +51,12 @@ pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
 /// [`super::flush`], which flushes this session four times as often.
 pub(super) const PROCESS_TRACE_SESSION_NAME: &str = "rustinel-etw-process";
 const WINDOWS_EPOCH_DELTA_100NS: i64 = 116444736000000000;
+
+/// Registry writes held briefly while their `OpenKey` or `CreateKey` naming
+/// event catches up in the ETW stream.
+const PENDING_REGISTRY_EVENT_CAPACITY: usize = 4096;
+const PENDING_REGISTRY_EVENTS_PER_KEY: usize = 8;
+const REGISTRY_NAME_REORDER_WINDOW_100NS: u64 = 2 * 10_000_000;
 
 /// Size of one ETW session buffer, in KB.
 ///
@@ -661,6 +670,166 @@ fn refine_registry_create_action(parser: &Parser) -> Option<()> {
     }
 }
 
+struct PendingRegistryEvent {
+    action: SensorAction,
+    value_name: Option<String>,
+    fields: RegistryEventFields,
+    pid: Option<u32>,
+    normalization: SensorNormalization,
+    timestamp: SystemTime,
+    event_at: i64,
+}
+
+impl PendingRegistryEvent {
+    fn into_sensor_event(mut self, key_path: &str) -> SensorEvent {
+        let target_object = match self.value_name.as_deref() {
+            Some(value) if !value.is_empty() => format!("{key_path}\\{value}"),
+            _ => key_path.to_string(),
+        };
+        self.fields.target_object = Some(target_object);
+
+        SensorEvent {
+            platform: Platform::Windows,
+            provider: "etw",
+            action: self.action,
+            normalization: self.normalization,
+            pid: self.pid,
+            timestamp: self.timestamp,
+            process_start_key: None,
+            payload: SensorPayload::Registry(self.fields),
+        }
+    }
+}
+
+/// Bounded writes that arrived before the naming event for their key object.
+///
+/// The kernel provider normally emits `OpenKey` before `SetValueKey`, but ETW
+/// buffers can deliver the adjacent records in the opposite order. Keeping a
+/// short pending window closes that race without retaining stale kernel
+/// pointers long enough for address reuse to misattribute a write.
+struct PendingRegistryEvents {
+    by_key_object: HashMap<u64, Vec<PendingRegistryEvent>>,
+    insertion_order: VecDeque<u64>,
+    event_count: usize,
+}
+
+impl PendingRegistryEvents {
+    fn new() -> Self {
+        Self {
+            by_key_object: HashMap::new(),
+            insertion_order: VecDeque::new(),
+            event_count: 0,
+        }
+    }
+
+    /// Queue one unresolved write and return how many older writes had to be
+    /// discarded because they expired or the bounded queue was full.
+    fn insert(&mut self, key_object: u64, event: PendingRegistryEvent) -> usize {
+        let mut dropped = self.expire(event.event_at);
+
+        if let Some(events) = self.by_key_object.get_mut(&key_object) {
+            if events.len() == PENDING_REGISTRY_EVENTS_PER_KEY {
+                events.remove(0);
+                self.event_count -= 1;
+                dropped += 1;
+            }
+            events.push(event);
+            self.event_count += 1;
+            if self.event_count > PENDING_REGISTRY_EVENT_CAPACITY {
+                dropped += self.evict_oldest_key();
+            }
+            return dropped;
+        }
+
+        while self.event_count >= PENDING_REGISTRY_EVENT_CAPACITY {
+            dropped += self.evict_oldest_key();
+        }
+
+        self.by_key_object.insert(key_object, vec![event]);
+        self.insertion_order.push_back(key_object);
+        self.event_count += 1;
+        dropped
+    }
+
+    /// Resolve all recent writes for a key and return the events plus the
+    /// number of stale writes that were discarded.
+    fn resolve(
+        &mut self,
+        key_object: u64,
+        key_path: &str,
+        named_at: i64,
+    ) -> (Vec<SensorEvent>, usize) {
+        let mut dropped = self.expire(named_at);
+        let Some(events) = self.by_key_object.remove(&key_object) else {
+            return (Vec::new(), dropped);
+        };
+        self.insertion_order.retain(|object| *object != key_object);
+        self.event_count = self.event_count.saturating_sub(events.len());
+
+        let mut resolved = Vec::with_capacity(events.len());
+        for event in events {
+            if event.event_at.abs_diff(named_at) <= REGISTRY_NAME_REORDER_WINDOW_100NS {
+                resolved.push(event.into_sensor_event(key_path));
+            } else {
+                dropped += 1;
+            }
+        }
+        (resolved, dropped)
+    }
+
+    fn expire(&mut self, now: i64) -> usize {
+        let mut dropped = 0;
+        while let Some(key_object) = self.insertion_order.front().copied() {
+            let Some(events) = self.by_key_object.get_mut(&key_object) else {
+                self.insertion_order.pop_front();
+                continue;
+            };
+
+            let before = events.len();
+            events.retain(|event| {
+                now.checked_sub(event.event_at)
+                    .is_none_or(|age| age < 0 || age as u64 <= REGISTRY_NAME_REORDER_WINDOW_100NS)
+            });
+            let expired = before - events.len();
+            dropped += expired;
+            self.event_count = self.event_count.saturating_sub(expired);
+
+            if events.is_empty() {
+                self.by_key_object.remove(&key_object);
+                self.insertion_order.pop_front();
+            } else {
+                break;
+            }
+        }
+        dropped
+    }
+
+    fn evict_oldest_key(&mut self) -> usize {
+        while let Some(key_object) = self.insertion_order.pop_front() {
+            if let Some(events) = self.by_key_object.remove(&key_object) {
+                self.event_count = self.event_count.saturating_sub(events.len());
+                return events.len();
+            }
+        }
+        0
+    }
+}
+
+#[derive(Default)]
+struct DecodedEtwEvents {
+    primary: Option<SensorEvent>,
+    replayed: Vec<SensorEvent>,
+}
+
+impl DecodedEtwEvents {
+    fn single(primary: Option<SensorEvent>) -> Self {
+        Self {
+            primary,
+            replayed: Vec::new(),
+        }
+    }
+}
+
 /// Shared state the ETW callback carries across events.
 ///
 /// The path index has to outlive a single event: the naming event and the
@@ -669,6 +838,7 @@ struct EtwState {
     routing: EtwRouting,
     file_paths: Mutex<FilePathCache>,
     registry_paths: Mutex<RegistryPathCache>,
+    pending_registry_events: Mutex<PendingRegistryEvents>,
     /// File events dropped because neither identifier resolved to a path.
     ///
     /// Handles opened before the sensor started were never indexed, so writes
@@ -688,6 +858,7 @@ impl EtwState {
             routing: EtwRouting::new(),
             file_paths: Mutex::new(FilePathCache::new()),
             registry_paths: Mutex::new(RegistryPathCache::new()),
+            pending_registry_events: Mutex::new(PendingRegistryEvents::new()),
             unresolved_file_events: AtomicU64::new(0),
         }
     }
@@ -707,6 +878,12 @@ impl EtwState {
     /// OS-invoked ETW callback would take the sensor down.
     fn registry_paths(&self) -> MutexGuard<'_, RegistryPathCache> {
         self.registry_paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn pending_registry_events(&self) -> MutexGuard<'_, PendingRegistryEvents> {
+        self.pending_registry_events
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -935,20 +1112,19 @@ fn build_session(
             .level(provider_def.level)
             .any(provider_def.keywords)
             .add_callback(move |record, schema_locator| {
-                let Some(event) = decode_record(record, schema_locator, &state) else {
-                    return;
-                };
-
-                // Blocking inside an ETW callback stalls the trace
-                // session and loses events in the kernel buffer instead,
-                // so overflow is shed. The telemetry counters record both
-                // outcomes and emit the rate-limited cumulative warning.
-                if let Err(TrySendError::Closed(_)) = crate::telemetry::try_send(
-                    crate::telemetry::ChannelId::SensorEvents,
-                    &tx,
-                    event,
-                ) {
-                    trace!("Sensor event channel closed; dropping ETW event");
+                let decoded = decode_record(record, schema_locator, &state);
+                for event in decoded.replayed.into_iter().chain(decoded.primary) {
+                    // Blocking inside an ETW callback stalls the trace
+                    // session and loses events in the kernel buffer instead,
+                    // so overflow is shed. The telemetry counters record both
+                    // outcomes and emit the rate-limited cumulative warning.
+                    if let Err(TrySendError::Closed(_)) = crate::telemetry::try_send(
+                        crate::telemetry::ChannelId::SensorEvents,
+                        &tx,
+                        event,
+                    ) {
+                        trace!("Sensor event channel closed; dropping ETW event");
+                    }
                 }
             });
 
@@ -1219,12 +1395,21 @@ fn decode_record(
     record: &EventRecord,
     schema_locator: &SchemaLocator,
     state: &EtwState,
+) -> DecodedEtwEvents {
+    if record.provider_id() == state.routing.kernel_registry_guid {
+        return decode_kernel_registry_record(record, schema_locator, state);
+    }
+
+    DecodedEtwEvents::single(decode_single_record(record, schema_locator, state))
+}
+
+fn decode_single_record(
+    record: &EventRecord,
+    schema_locator: &SchemaLocator,
+    state: &EtwState,
 ) -> Option<SensorEvent> {
     if record.provider_id() == state.routing.kernel_file_guid {
         return decode_kernel_file_record(record, schema_locator, state);
-    }
-    if record.provider_id() == state.routing.kernel_registry_guid {
-        return decode_kernel_registry_record(record, schema_locator, state);
     }
 
     let (category, action) = state.routing.route(record)?;
@@ -1572,10 +1757,12 @@ fn decode_kernel_registry_record(
     record: &EventRecord,
     schema_locator: &SchemaLocator,
     state: &EtwState,
-) -> Option<SensorEvent> {
+) -> DecodedEtwEvents {
     // Checked before the schema lookup so unrouted events cost only an
     // integer match.
-    let route = kernel_registry_route(record.event_id())?;
+    let Some(route) = kernel_registry_route(record.event_id()) else {
+        return DecodedEtwEvents::default();
+    };
 
     let schema = match schema_locator.event_schema(record) {
         Ok(schema) => schema,
@@ -1585,7 +1772,7 @@ fn decode_kernel_registry_record(
                 record.event_id(),
                 err
             );
-            return None;
+            return DecodedEtwEvents::default();
         }
     };
     let parser = Parser::create(record, &schema);
@@ -1593,7 +1780,7 @@ fn decode_kernel_registry_record(
     let key_object = try_get_uint_as_u64(&parser, "KeyObject");
     let event_at = record.raw_timestamp();
 
-    let (action, target_object) = match route {
+    match route {
         KernelRegistryRoute::Name { creates } => {
             let base_object = try_get_uint_as_u64(&parser, "BaseObject");
             let base_name = try_get_string(&parser, "BaseName").unwrap_or_default();
@@ -1619,21 +1806,37 @@ fn decode_kernel_registry_record(
                 _ => crate::telemetry::REGISTRY.record_naming_failed(),
             }
 
-            if !creates {
-                return None;
+            let (replayed, dropped) = match (key_object, path.as_deref()) {
+                (Some(object), Some(path)) if object != 0 => state
+                    .pending_registry_events()
+                    .resolve(object, path, event_at),
+                _ => (Vec::new(), 0),
+            };
+            record_unresolved_registry_events(dropped, record.process_id());
+            for _ in &replayed {
+                crate::telemetry::REGISTRY.record_resolved(RegistryPathSource::Session);
             }
+
             // `NtCreateKey` opens existing keys just as readily as it makes new
             // ones — the same trap as `IRP_MJ_CREATE` on the file side. Without
             // the disposition check every key open would surface as a
             // `registry_add`.
-            refine_registry_create_action(&parser)?;
-            (SensorAction::Create, path?)
+            let primary = if creates && refine_registry_create_action(&parser).is_some() {
+                path.and_then(|path| {
+                    pending_registry_event(&parser, record, SensorAction::Create, None)
+                        .map(|event| event.into_sensor_event(&path))
+                })
+            } else {
+                None
+            };
+
+            DecodedEtwEvents { primary, replayed }
         }
         KernelRegistryRoute::Evict => {
             if let Some(object) = key_object {
                 state.registry_paths().forget_at(object, event_at);
             }
-            return None;
+            DecodedEtwEvents::default()
         }
         KernelRegistryRoute::Emit(action) => {
             let value_name = try_get_string(&parser, "ValueName");
@@ -1652,72 +1855,71 @@ fn decode_kernel_registry_record(
                         })
                 });
 
-            // Sysmon reports a value write as `<key>\<value>` on Event ID 13,
-            // and `registry_set` rules are written against that shape — an
-            // `endswith: '\Run\Foo'` rule needs the value name in the path,
-            // not only in `Details`.
-            let path = path.map(|path| match value_name.as_deref() {
-                Some(value) if !value.is_empty() => format!("{path}\\{value}"),
-                _ => path,
-            });
+            let Some(event) = pending_registry_event(&parser, record, action, value_name) else {
+                return DecodedEtwEvents::default();
+            };
 
-            match path {
+            match path.as_deref() {
                 Some(path) => {
                     crate::telemetry::REGISTRY.record_resolved(source);
-                    (action, path)
+                    DecodedEtwEvents::single(Some(event.into_sensor_event(path)))
                 }
                 None => {
-                    // Counted in `telemetry.json` rather than only logged: the
-                    // log line below is rate limited, so it can report that
-                    // the sensor is blind but never how blind. This is the one
-                    // place an event is lost after reaching the agent.
-                    let unresolved = crate::telemetry::REGISTRY.record_unresolved();
-                    // The writer's PID is what makes the residue actionable:
-                    // after the startup key rundown what is left is supposed
-                    // to be the protected processes it cannot open, and a
-                    // sample of PIDs is how that gets confirmed rather than
-                    // assumed. Hence a short unsampled prefix: one line per
-                    // event tells nothing about *who* before falling back to
-                    // a volume report.
-                    if unresolved <= UNRESOLVED_REGISTRY_SAMPLE || unresolved.is_multiple_of(10_000)
-                    {
-                        debug!(
-                            unresolved_registry_events = unresolved,
-                            pid = record.process_id(),
-                            "Dropping registry event whose key path could not be resolved"
-                        );
+                    if let Some(object) = key_object.filter(|object| *object != 0) {
+                        let dropped = state.pending_registry_events().insert(object, event);
+                        record_unresolved_registry_events(dropped, record.process_id());
+                    } else {
+                        record_unresolved_registry_events(1, record.process_id());
                     }
-                    return None;
+                    DecodedEtwEvents::default()
                 }
             }
         }
-    };
+    }
+}
 
+fn pending_registry_event(
+    parser: &Parser,
+    record: &EventRecord,
+    action: SensorAction,
+    value_name: Option<String>,
+) -> Option<PendingRegistryEvent> {
     let mappings = field_maps::registry_event_mappings();
     let fields = RegistryEventFields {
-        target_object: Some(target_object),
-        details: registry_details(&parser),
-        process_id: try_get_uint(&parser, mappings.get_etw_field("ProcessId")?),
-        image: try_get_string(&parser, mappings.get_etw_field("Image")?)
+        target_object: None,
+        details: registry_details(parser),
+        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
-        event_type: try_get_string(&parser, "EventType"),
-        user: try_get_string(&parser, mappings.get_etw_field("User")?),
-        new_name: try_get_string(&parser, "NewName"),
+        event_type: try_get_string(parser, "EventType"),
+        user: try_get_string(parser, mappings.get_etw_field("User")?),
+        new_name: try_get_string(parser, "NewName"),
     };
 
     let pid = parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id()));
     let normalization = mapper::normalization_for_record(EventCategory::Registry, action, record);
 
-    Some(SensorEvent {
-        platform: Platform::Windows,
-        provider: "etw",
+    Some(PendingRegistryEvent {
         action,
-        normalization,
+        value_name,
+        fields,
         pid,
+        normalization,
         timestamp: filetime_to_system_time(record.raw_timestamp()),
-        process_start_key: None,
-        payload: SensorPayload::Registry(fields),
+        event_at: record.raw_timestamp(),
     })
+}
+
+fn record_unresolved_registry_events(count: usize, pid: u32) {
+    for _ in 0..count {
+        let unresolved = crate::telemetry::REGISTRY.record_unresolved();
+        if unresolved <= UNRESOLVED_REGISTRY_SAMPLE || unresolved.is_multiple_of(10_000) {
+            debug!(
+                unresolved_registry_events = unresolved,
+                pid, "Dropping registry event whose key path could not be resolved"
+            );
+        }
+    }
 }
 
 /// `Details` for a registry event: the value *data*, as Sysmon Event ID 13
@@ -2015,6 +2217,93 @@ fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pending_registry_set(event_at: i64, value_name: &str) -> PendingRegistryEvent {
+        PendingRegistryEvent {
+            action: SensorAction::Set,
+            value_name: Some(value_name.to_string()),
+            fields: RegistryEventFields {
+                target_object: None,
+                details: Some("notepad.exe".to_string()),
+                process_id: Some("42".to_string()),
+                image: None,
+                event_type: None,
+                user: None,
+                new_name: None,
+            },
+            pid: Some(42),
+            normalization: SensorNormalization {
+                event_id: 13,
+                action_code: 39,
+            },
+            timestamp: UNIX_EPOCH,
+            event_at,
+        }
+    }
+
+    #[test]
+    fn registry_write_is_replayed_when_name_arrives_late() {
+        let mut pending = PendingRegistryEvents::new();
+        assert_eq!(pending.insert(7, pending_registry_set(100, "Startup")), 0);
+
+        let (events, dropped) = pending.resolve(7, r"\REGISTRY\USER\S-1-5-21\Run", 110);
+
+        assert_eq!(dropped, 0);
+        assert_eq!(events.len(), 1);
+        assert_eq!(pending.event_count, 0);
+        let SensorPayload::Registry(fields) = &events[0].payload else {
+            panic!("replayed event must keep its registry payload");
+        };
+        assert_eq!(
+            fields.target_object.as_deref(),
+            Some(r"\REGISTRY\USER\S-1-5-21\Run\Startup")
+        );
+        assert_eq!(events[0].action, SensorAction::Set);
+    }
+
+    #[test]
+    fn stale_registry_write_is_not_replayed_for_reused_pointer() {
+        let mut pending = PendingRegistryEvents::new();
+        assert_eq!(pending.insert(7, pending_registry_set(100, "Old")), 0);
+
+        let named_at = 100 + REGISTRY_NAME_REORDER_WINDOW_100NS as i64 + 1;
+        let (events, dropped) = pending.resolve(7, r"\REGISTRY\MACHINE\NewKey", named_at);
+
+        assert!(events.is_empty());
+        assert_eq!(dropped, 1);
+        assert_eq!(pending.event_count, 0);
+    }
+
+    #[test]
+    fn registry_pending_queue_is_bounded_per_key() {
+        let mut pending = PendingRegistryEvents::new();
+        let mut dropped = 0;
+        for index in 0..=PENDING_REGISTRY_EVENTS_PER_KEY {
+            dropped += pending.insert(7, pending_registry_set(100, &format!("Value{index}")));
+        }
+
+        let (events, resolved_drops) = pending.resolve(7, r"\REGISTRY\MACHINE\Run", 110);
+
+        assert_eq!(dropped, 1);
+        assert_eq!(resolved_drops, 0);
+        assert_eq!(events.len(), PENDING_REGISTRY_EVENTS_PER_KEY);
+    }
+
+    #[test]
+    fn registry_pending_queue_is_globally_bounded() {
+        let mut pending = PendingRegistryEvents::new();
+        for key_object in 1..=PENDING_REGISTRY_EVENT_CAPACITY as u64 {
+            assert_eq!(
+                pending.insert(key_object, pending_registry_set(100, "Value")),
+                0
+            );
+        }
+
+        let dropped = pending.insert(1, pending_registry_set(100, "SecondValue"));
+
+        assert!(dropped >= 1);
+        assert!(pending.event_count <= PENDING_REGISTRY_EVENT_CAPACITY);
+    }
 
     #[test]
     fn session_properties_are_set_explicitly() {
