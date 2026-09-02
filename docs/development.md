@@ -168,8 +168,9 @@ that each action should produce. The rules checkout is pinned in both CI
 workflows so changes to detection content are introduced deliberately.
 
 The pull request checks are currently visible but non-blocking while the
-short-lived process race is stabilized. Once the suite is reliable, remove the
-PR job's `continue-on-error` setting and require both matrix checks in branch
+short-lived process race is stabilized. The same checks run as blocking jobs
+after a push to the default branch. Once the suite is reliable, remove the
+conditional `continue-on-error` setting and require both matrix checks in branch
 protection.
 
 Release tags run the same suite against the Linux x86_64, Linux arm64, Windows,

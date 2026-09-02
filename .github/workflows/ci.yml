@@ -75,8 +75,6 @@ jobs:
           rustflags: ""
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
 
       - name: Install bpf-linker
         run: command -v bpf-linker >/dev/null 2>&1 || cargo install bpf-linker --version 0.10.4 --locked
@@ -108,8 +106,6 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -130,8 +126,6 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - run: cargo clippy --locked --all-targets -- -D clippy::all
 
   clippy-macos:
@@ -147,8 +141,6 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - run: cargo clippy --locked --all-targets -- -D clippy::all
 
   test-linux:
@@ -164,8 +156,6 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -185,8 +175,6 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - run: cargo test --locked --verbose
 
   test-macos:
@@ -201,17 +189,14 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - run: cargo test --locked --verbose
 
-  # Bootstrap only: keep this visible on pull requests while the short-lived
-  # process race is stabilized. Remove continue-on-error and make both matrix
-  # checks required in branch protection once the suite is reliable.
-  atomic-pr:
-    name: Atomic PR (${{ matrix.platform }})
-    if: github.event_name == 'pull_request'
-    continue-on-error: true
+  # Bootstrap only: keep pull request failures non-blocking while the short-lived
+  # process race is stabilized. Pushes to main remain blocking so the default
+  # branch is only green when the atomic suite passes.
+  atomic:
+    name: Atomic (${{ matrix.platform }})
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ matrix.os }}
     needs: ebpf-build
     strategy:
@@ -233,8 +218,6 @@ jobs:
           rustflags: ""
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
 
       - name: Download eBPF artifact
         if: matrix.platform == 'linux'
@@ -311,7 +294,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: atomic-pr-${{ matrix.platform }}
+          name: atomic-${{ matrix.platform }}
           path: |
             rustinel-rules/tests/atomic/report-*.json
             rustinel-rules/tests/atomic/.engine/engine.stdout.log

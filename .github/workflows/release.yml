@@ -36,10 +36,6 @@ jobs:
         with:
           cache: false
           rustflags: ""
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
-
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -73,10 +69,6 @@ jobs:
         with:
           cache: false
           rustflags: ""
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
-
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -109,9 +101,6 @@ jobs:
         with:
           cache: false
           rustflags: ""
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - run: cargo build --locked --release --features rsigma-engine
 
       - name: Verify binary
@@ -175,9 +164,6 @@ jobs:
         with:
           cache: false
           rustflags: ""
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          lookup-only: true
       - run: rustup target add "$TARGET"
         env:
           TARGET: ${{ matrix.target }}
