@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Karib0u/rustinel/security/advisories/new
+    about: Privately report a security vulnerability to the maintainers.
