@@ -17,7 +17,7 @@ impl Drop for TemporaryService {
 }
 
 #[test]
-#[ignore = "requires Administrator privileges; runs in the Windows privileged smoke job"]
+#[ignore = "requires Administrator privileges; run manually on a Windows lab host"]
 fn service_installation_reaches_the_normalized_sensor_channel() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(256);
     let sensor = Arc::new(EtwSensor::new());

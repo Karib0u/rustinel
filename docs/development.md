@@ -149,7 +149,7 @@ cargo test --locked --test yara_memory
 
 Cargo auto-discovers the integration tests in `tests/*.rs`. The normal suite uses synthetic events and temporary Sigma, YARA, and IOC fixtures, so it does not require administrator/root privileges.
 
-Ignored smoke tests cover live process memory scanning and active-response termination. Build the test target first, then opt in explicitly:
+Ignored live tests cover process memory scanning and active-response termination. Build the test target first, then opt in explicitly:
 
 ```bash
 cargo build --locked --example memory_target
@@ -158,6 +158,24 @@ cargo test --locked --test active_response -- --include-ignored
 ```
 
 Those ignored tests may require administrator rights on Windows or a controlled Linux host with permissive process-memory access.
+
+### Atomic Detection Gates
+
+Pull requests run the rules repository's atomic detection suite against fresh
+Linux and Windows engine builds. The suite starts each binary with the required
+privileges, performs safe platform-specific actions, and checks for the alert
+that each action should produce. The rules checkout is pinned in both CI
+workflows so changes to detection content are introduced deliberately.
+
+The pull request checks are currently visible but non-blocking while the
+short-lived process race is stabilized. The same checks run as blocking jobs
+after a push to the default branch. Once the suite is reliable, remove the
+conditional `continue-on-error` setting and require both matrix checks in branch
+protection.
+
+Release tags run the same suite against the Linux x86_64, Linux arm64, Windows,
+and signed macOS artifacts before `publish` can run. The Intel macOS leg is
+optional because it uses the legacy hosted runner.
 
 ### Replay Regression Fixture
 

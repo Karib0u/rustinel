@@ -1,9 +1,9 @@
-//! End-to-end smoke test for `rustinel capture`.
+//! End-to-end test for `rustinel capture`.
 //!
 //! Capture drives the real sensors, so this needs the same privileges as
-//! `rustinel run` and is ignored by default. It runs in the privileged smoke
-//! job, where it is the only check that a clean Ctrl-C really produces a
-//! complete NDJSON/manifest pair.
+//! `rustinel run` and is ignored by default. Run it manually on a controlled
+//! privileged host when checking that a clean Ctrl-C produces a complete
+//! NDJSON/manifest pair.
 
 #![cfg(unix)]
 
@@ -50,7 +50,7 @@ fn read_manifest(path: &Path) -> CaptureManifest {
 }
 
 #[test]
-#[ignore = "requires sensor privileges; runs in the privileged smoke job"]
+#[ignore = "requires sensor privileges; run manually on a controlled host"]
 fn ctrl_c_finalizes_a_complete_recording() {
     let temp = tempfile::tempdir().expect("tempdir");
     let config_path = write_config(temp.path());
@@ -122,7 +122,7 @@ fn ctrl_c_finalizes_a_complete_recording() {
 }
 
 #[test]
-#[ignore = "requires sensor privileges; runs in the privileged smoke job"]
+#[ignore = "requires sensor privileges; run manually on a controlled host"]
 fn a_killed_capture_leaves_an_incomplete_recording() {
     let temp = tempfile::tempdir().expect("tempdir");
     let config_path = write_config(temp.path());

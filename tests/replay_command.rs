@@ -1,7 +1,7 @@
 //! End-to-end checks for `rustinel replay`.
 //!
 //! Replay is the one command that runs the whole detection path without a
-//! sensor, so unlike the capture smoke test these run unprivileged in ordinary
+//! sensor, so unlike the live capture test these run unprivileged in ordinary
 //! CI, on whatever platform CI happens to be.
 
 use std::path::{Path, PathBuf};
