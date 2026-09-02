@@ -1485,7 +1485,7 @@ fn decode_kernel_registry_record(
 
     let key_object = try_get_uint_as_u64(&parser, "KeyObject");
 
-    let (action, target_object, value_name) = match route {
+    let (action, target_object) = match route {
         KernelRegistryRoute::Name { creates } => {
             let base_object = try_get_uint_as_u64(&parser, "BaseObject");
             let base_name = try_get_string(&parser, "BaseName").unwrap_or_default();
@@ -1507,7 +1507,7 @@ fn decode_kernel_registry_record(
             // the disposition check every key open would surface as a
             // `registry_add`.
             refine_registry_create_action(&parser)?;
-            (SensorAction::Create, path?, None)
+            (SensorAction::Create, path?)
         }
         KernelRegistryRoute::Evict => {
             if let Some(object) = key_object {
@@ -1538,7 +1538,7 @@ fn decode_kernel_registry_record(
             });
 
             match path {
-                Some(path) => (action, path, value_name),
+                Some(path) => (action, path),
                 None => {
                     // Counted rather than silently discarded, for the same
                     // reason as the file index: this is the sensor's blind
