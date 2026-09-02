@@ -1297,8 +1297,8 @@ fn decode_process(
         description,
         company,
         file_version,
-        target_image: try_get_string(parser, mappings.get_etw_field("TargetImage")?)
-            .map(|path| convert_nt_to_dos(&path)),
+        // Process creation describes one image and has no target process.
+        target_image: None,
         command_line,
         process_id,
         process_start_time: creation_time_with_fallback,

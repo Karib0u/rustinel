@@ -35,7 +35,6 @@ static PROCESS_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
         ("Image", "ImageName"),
         ("OriginalFileName", "OriginalFileName"),
-        ("TargetImage", "ImageName"),
         ("CommandLine", "CommandLine"),
         ("ProcessId", "ProcessID"),
         ("ParentProcessId", "ParentProcessID"),
@@ -220,6 +219,11 @@ mod tests {
         // event. An entry here would only advertise a field nothing can fill.
         assert_eq!(mappings.get_etw_field("LogonId"), None);
         assert_eq!(mappings.get_etw_field("LogonGuid"), None);
+
+        // Process creation has no target process. Mapping this to ImageName
+        // duplicated Image and gave TargetImage a meaning it does not have.
+        assert_eq!(mappings.get_etw_field("Image"), Some("ImageName"));
+        assert_eq!(mappings.get_etw_field("TargetImage"), None);
     }
 
     #[test]
