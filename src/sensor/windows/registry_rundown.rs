@@ -222,9 +222,10 @@ fn query_handle_table() -> Option<Vec<u64>> {
 /// a `Vec<u64>`, so the entry array is aligned by construction.
 fn parse_entries(table: &[u64]) -> &[SystemHandleTableEntryInfoEx] {
     const _: () = assert!(align_of::<SystemHandleTableEntryInfoEx>() <= align_of::<u64>());
-    const _: () = assert!(size_of::<SystemHandleInformationExHeader>() % size_of::<u64>() == 0);
+    const _: () =
+        assert!(size_of::<SystemHandleInformationExHeader>().is_multiple_of(size_of::<u64>()));
 
-    let bytes = table.len() * size_of::<u64>();
+    let bytes = size_of_val(table);
     let header_size = size_of::<SystemHandleInformationExHeader>();
     let entry_size = size_of::<SystemHandleTableEntryInfoEx>();
     if bytes < header_size {
@@ -341,13 +342,15 @@ fn key_name(handle: HANDLE) -> Option<String> {
     let name_bytes = u32::from_ne_bytes(buffer[..4].try_into().ok()?) as usize;
     // A truncated read would give a partial path, which is worse than none:
     // it would be indexed as if it were the whole key.
-    if name_bytes == 0 || name_bytes % 2 != 0 || 4 + name_bytes > buffer.len() {
+    if name_bytes == 0 || !name_bytes.is_multiple_of(2) || 4 + name_bytes > buffer.len() {
         return None;
     }
 
     let units: Vec<u16> = buffer[4..4 + name_bytes]
-        .chunks_exact(2)
-        .map(|pair| u16::from_ne_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_ne_bytes(*pair))
         .collect();
     let name = String::from_utf16_lossy(&units);
     (!name.is_empty()).then_some(name)
