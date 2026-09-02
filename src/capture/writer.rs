@@ -62,6 +62,7 @@ impl CaptureCounters {
             received: self.received.load(Ordering::Relaxed),
             written: self.written.load(Ordering::Relaxed),
             lost: self.lost.load(Ordering::Relaxed),
+            source_lost: 0,
         }
     }
 }
@@ -238,7 +239,15 @@ impl CaptureRecorder {
     ///
     /// The recording is marked [`CaptureStatus::Complete`] only when every
     /// received event reached the payload.
-    pub async fn finish(mut self) -> anyhow::Result<CaptureManifest> {
+    pub async fn finish(self) -> anyhow::Result<CaptureManifest> {
+        self.finish_with_source_loss(0).await
+    }
+
+    /// Finalize the recording with loss reported by the event source itself.
+    pub async fn finish_with_source_loss(
+        mut self,
+        source_lost: u64,
+    ) -> anyhow::Result<CaptureManifest> {
         // Dropping every sender ends the writer loop once the queue drains.
         drop(self.tx.take());
         drop(self.sink);
@@ -248,8 +257,10 @@ impl CaptureRecorder {
             .await
             .context("capture writer task failed to complete")?;
 
-        let events = self.counters.snapshot();
+        let mut events = self.counters.snapshot();
+        events.source_lost = source_lost;
         let status = if events.lost == 0
+            && events.source_lost == 0
             && !digest.write_failed
             && !self.forced_incomplete.load(Ordering::Relaxed)
         {
@@ -465,9 +476,25 @@ mod tests {
                 received: 3,
                 written: 3,
                 lost: 0,
+                source_lost: 0,
             }
         );
         assert_eq!(manifest.status, CaptureStatus::Complete);
+    }
+
+    #[tokio::test]
+    async fn source_loss_marks_the_manifest_incomplete() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let payload = temp.path().join("session.ndjson");
+        let recorder = CaptureRecorder::start(payload, Platform::Windows).expect("capture starts");
+
+        let manifest = recorder
+            .finish_with_source_loss(7)
+            .await
+            .expect("capture finalizes");
+
+        assert_eq!(manifest.events.source_lost, 7);
+        assert_eq!(manifest.status, CaptureStatus::Incomplete);
     }
 
     #[tokio::test]

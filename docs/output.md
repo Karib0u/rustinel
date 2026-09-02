@@ -188,7 +188,7 @@ The manifest records what the payload contains and whether it can be trusted:
   "started_at": "2026-08-16T09:12:40Z",
   "ended_at": "2026-08-16T09:14:02Z",
   "status": "complete",
-  "events": { "received": 1841, "written": 1841, "lost": 0 },
+  "events": { "received": 1841, "written": 1841, "lost": 0, "source_lost": 0 },
   "payload_bytes": 612884,
   "payload_sha256": "9f2c…"
 }
@@ -197,9 +197,11 @@ The manifest records what the payload contains and whether it can be trusted:
 `status` is the field that matters. The manifest is written as `incomplete` when
 the session starts and is only rewritten as `complete` at clean shutdown with
 every received event accounted for. A recording is therefore `incomplete`
-whenever the process was killed before it could finalize, or events were lost
-because the writer could not keep up. `received` always equals
-`written + lost`, so loss is visible rather than implied.
+whenever the process was killed before it could finalize, events were lost
+because the writer could not keep up, or the source reported loss before the
+events reached the sensor. `received` always equals `written + lost`;
+`source_lost` is separate because those events were never received. On Windows,
+`source_lost` is the cumulative `EventsLost` count across both ETW sessions.
 
 Recordings are as sensitive as alerts, and often more so: they contain full
 command lines, file paths, network destinations, and user names for *all*

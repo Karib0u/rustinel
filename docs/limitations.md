@@ -54,7 +54,7 @@ three platforms, but several Sysmon-style fields are unavailable.
   `Details` carries the value data, as Sysmon Event ID 13 defines it, because
   the session asks Kernel-Registry for it with an undocumented filter payload.
   That is not contractual: if a future Windows build stops honouring it,
-  `Details` falls back to the value *name* and a warning is logged at startup.
+  `Details` is absent and a warning is logged at startup.
   Binary values render as `Binary Data`, matching Sysmon, so their content is
   not searchable.
 - **Registry `TargetObject` is not always a full path (silent risk).** The path
@@ -83,14 +83,14 @@ three platforms, but several Sysmon-style fields are unavailable.
   section of `telemetry.json` and the `registry_path_resolution` check in
   `rustinel doctor` report the live rate, and the agent log carries the writing
   PID for the first events that fail.
-- **Extreme process bursts can still be lost in the kernel (silent risk).** Both
+- **Extreme process bursts can still be lost in the kernel.** Both
   ETW sessions use an explicitly sized buffer pool: 256 KB × 64-128 (32 MB
   ceiling) for the main session and 32 KB × 64-512 (16 MB ceiling) for the
   process session. The main pool absorbed a 4,000-process fork tree with no loss,
   while the library defaults lost 12-60%. A host that churns harder can still
-  overrun them, and nothing counts the overrun
-  ([#305](https://github.com/Karib0u/rustinel/issues/305)), so a recorded event
-  count is an upper bound. See
+  overrun them. The sensor polls ETW's cumulative loss counters and
+  warns when they increase; behavioral capture also records the combined count
+  as `events.source_lost` and marks the recording incomplete. See
   [Windows ETW session buffers](operations.md#windows-etw-session-buffers).
 - **WMI event IDs are not Sysmon's (silent risk).** `Microsoft-Windows-WMI-Activity`
   has no equivalent of Sysmon's `wmi_event` 19/20/21, and numbers its own

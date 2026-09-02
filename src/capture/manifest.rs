@@ -64,6 +64,10 @@ pub struct CaptureEventCounts {
     /// Events dropped because the queue was full, or that failed to serialize
     /// or write.
     pub lost: u64,
+    /// Events dropped before reaching the sensor, such as Windows ETW kernel
+    /// buffer loss.
+    #[serde(default)]
+    pub source_lost: u64,
 }
 
 /// Sidecar describing a behavioral recording.
@@ -179,6 +183,7 @@ mod tests {
             received: 3,
             written: 3,
             lost: 0,
+            source_lost: 0,
         };
         manifest.payload_bytes = 128;
         manifest.payload_sha256 = Some("abc123".to_string());
@@ -202,5 +207,18 @@ mod tests {
         manifest.schema_version = CAPTURE_SCHEMA_VERSION + 1;
 
         assert!(!manifest.is_replayable());
+    }
+
+    #[test]
+    fn older_manifests_default_source_loss_to_zero() {
+        let json = r#"{
+            "received": 10,
+            "written": 9,
+            "lost": 1
+        }"#;
+
+        let events: CaptureEventCounts = serde_json::from_str(json).expect("events deserialize");
+
+        assert_eq!(events.source_lost, 0);
     }
 }

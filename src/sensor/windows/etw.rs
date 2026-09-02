@@ -795,6 +795,7 @@ struct DecodedEtwEvent {
 /// Windows ETW sensor implementation.
 pub struct EtwSensor {
     shutdown: Arc<AtomicBool>,
+    loss_counters: Arc<super::loss::LossCounters>,
     flush_interval_ms: u64,
     process_flush_interval_ms: u64,
 }
@@ -812,6 +813,7 @@ impl EtwSensor {
     pub fn with_flush_intervals(flush_interval_ms: u64, process_flush_interval_ms: u64) -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
+            loss_counters: Arc::new(super::loss::LossCounters::new()),
             flush_interval_ms,
             process_flush_interval_ms,
         }
@@ -820,14 +822,18 @@ impl EtwSensor {
     pub fn is_shutdown(&self) -> bool {
         self.shutdown.load(Ordering::Relaxed)
     }
+
+    /// Cumulative kernel-buffer loss across both ETW sessions.
+    pub fn events_lost(&self) -> u64 {
+        self.loss_counters.total()
+    }
 }
 
 /// Ask the registry provider to include value data, once the session exists.
 ///
 /// This cannot be part of building the provider: `ferrisetw` has no way to
 /// express the filter payload it needs, so the provider is re-enabled by hand
-/// on the running session. A failure is logged and tolerated — `Details` then
-/// falls back to the value name, exactly as before #292 — because the
+/// on the running session. A failure is logged and tolerated because the
 /// mechanism is undocumented and may not hold on every Windows build.
 fn request_registry_value_data() {
     let provider = EtwProviders::kernel_registry();
@@ -841,7 +847,7 @@ fn request_registry_value_data() {
         Ok(()) => info!("Registry value data capture enabled"),
         Err(err) => warn!(
             "Could not enable registry value data capture ({err:#}); \
-             registry Details will carry the value name"
+             registry Details will be unavailable"
         ),
     }
 }
@@ -1028,6 +1034,33 @@ impl EtwSensor {
         // no consumer for process events.
         let process_worker = self.spawn_process_trace_worker(process_handle)?;
 
+        let loss_monitor = match super::loss::spawn(
+            [
+                (TRACE_SESSION_NAME, super::loss::Session::Main),
+                (PROCESS_TRACE_SESSION_NAME, super::loss::Session::Process),
+            ],
+            Arc::clone(&self.shutdown),
+            Arc::clone(&self.loss_counters),
+        ) {
+            Ok(worker) => worker,
+            Err(err) => {
+                self.shutdown.store(true, Ordering::Relaxed);
+                let _ = super::loss::stop_and_record(
+                    TRACE_SESSION_NAME,
+                    super::loss::Session::Main,
+                    &self.loss_counters,
+                );
+                let _ = super::loss::stop_and_record(
+                    PROCESS_TRACE_SESSION_NAME,
+                    super::loss::Session::Process,
+                    &self.loss_counters,
+                );
+                let _ = process_worker.join();
+                drop(process_trace);
+                return Err(err);
+            }
+        };
+
         // The process flusher is required whenever its interval is enabled:
         // without it, short-lived command-line capture falls back to 16.6%.
         let process_flusher = match super::flush::spawn(
@@ -1039,8 +1072,19 @@ impl EtwSensor {
             Ok(flusher) => flusher,
             Err(err) => {
                 self.shutdown.store(true, Ordering::Relaxed);
-                drop(process_trace);
+                let _ = super::loss::stop_and_record(
+                    TRACE_SESSION_NAME,
+                    super::loss::Session::Main,
+                    &self.loss_counters,
+                );
+                let _ = super::loss::stop_and_record(
+                    PROCESS_TRACE_SESSION_NAME,
+                    super::loss::Session::Process,
+                    &self.loss_counters,
+                );
                 let _ = process_worker.join();
+                let _ = loss_monitor.join();
+                drop(process_trace);
                 return Err(err);
             }
         };
@@ -1070,7 +1114,16 @@ impl EtwSensor {
         // the worker can be joined; `process_trace` would do the same on drop,
         // but only after the join has already deadlocked.
         self.shutdown.store(true, Ordering::Relaxed);
-        let _ = stop_trace_by_name(PROCESS_TRACE_SESSION_NAME);
+        let _ = super::loss::stop_and_record(
+            TRACE_SESSION_NAME,
+            super::loss::Session::Main,
+            &self.loss_counters,
+        );
+        let _ = super::loss::stop_and_record(
+            PROCESS_TRACE_SESSION_NAME,
+            super::loss::Session::Process,
+            &self.loss_counters,
+        );
 
         let process_result = process_worker
             .join()
@@ -1079,6 +1132,7 @@ impl EtwSensor {
         for flusher in flushers.into_iter().flatten() {
             let _ = flusher.join();
         }
+        let _ = loss_monitor.join();
 
         drop(process_trace);
         main_result.and(process_result)
@@ -1095,6 +1149,7 @@ impl EtwSensor {
         handle: ferrisetw::native::TraceHandle,
     ) -> Result<std::thread::JoinHandle<Result<()>>> {
         let shutdown = Arc::clone(&self.shutdown);
+        let loss_counters = Arc::clone(&self.loss_counters);
         std::thread::Builder::new()
             .name("etw-process-trace".into())
             .spawn(move || {
@@ -1110,7 +1165,11 @@ impl EtwSensor {
                 // the main session to make the failure reach the caller - the
                 // same contract `run_subscription` uses for the event logs.
                 if result.is_err() && !shutdown.swap(true, Ordering::Relaxed) {
-                    let _ = stop_trace_by_name(TRACE_SESSION_NAME);
+                    let _ = super::loss::stop_and_record(
+                        TRACE_SESSION_NAME,
+                        super::loss::Session::Main,
+                        &loss_counters,
+                    );
                 }
 
                 result
@@ -1124,6 +1183,7 @@ impl Sensor for EtwSensor {
         info!("Starting ETW sensor...");
 
         self.shutdown.store(false, Ordering::Relaxed);
+        self.loss_counters.reset();
         let event_logs = EventLogSubscriptions::start(tx.clone(), Arc::clone(&self.shutdown))?;
 
         // A session left running by a previous process keeps its old buffer
@@ -1143,7 +1203,12 @@ impl Sensor for EtwSensor {
 
         for session in [TRACE_SESSION_NAME, PROCESS_TRACE_SESSION_NAME] {
             info!("Stopping ETW trace session '{session}'...");
-            if let Err(err) = stop_trace_by_name(session) {
+            let kind = if session == TRACE_SESSION_NAME {
+                super::loss::Session::Main
+            } else {
+                super::loss::Session::Process
+            };
+            if let Err(err) = super::loss::stop_and_record(session, kind, &self.loss_counters) {
                 warn!("Failed to stop trace session '{session}': {err:?}");
             }
         }
@@ -1338,8 +1403,8 @@ fn decode_process(
         description,
         company,
         file_version,
-        target_image: try_get_string(parser, mappings.get_etw_field("TargetImage")?)
-            .map(|path| convert_nt_to_dos(&path)),
+        // Process creation describes one image and has no target process.
+        target_image: None,
         command_line,
         process_id,
         process_start_time: creation_time_with_fallback,
@@ -1528,7 +1593,7 @@ fn decode_kernel_registry_record(
     let key_object = try_get_uint_as_u64(&parser, "KeyObject");
     let event_at = record.raw_timestamp();
 
-    let (action, target_object, value_name) = match route {
+    let (action, target_object) = match route {
         KernelRegistryRoute::Name { creates } => {
             let base_object = try_get_uint_as_u64(&parser, "BaseObject");
             let base_name = try_get_string(&parser, "BaseName").unwrap_or_default();
@@ -1562,7 +1627,7 @@ fn decode_kernel_registry_record(
             // the disposition check every key open would surface as a
             // `registry_add`.
             refine_registry_create_action(&parser)?;
-            (SensorAction::Create, path?, None)
+            (SensorAction::Create, path?)
         }
         KernelRegistryRoute::Evict => {
             if let Some(object) = key_object {
@@ -1599,7 +1664,7 @@ fn decode_kernel_registry_record(
             match path {
                 Some(path) => {
                     crate::telemetry::REGISTRY.record_resolved(source);
-                    (action, path, value_name)
+                    (action, path)
                 }
                 None => {
                     // Counted in `telemetry.json` rather than only logged: the
@@ -1631,7 +1696,7 @@ fn decode_kernel_registry_record(
     let mappings = field_maps::registry_event_mappings();
     let fields = RegistryEventFields {
         target_object: Some(target_object),
-        details: registry_details(&parser, value_name.as_deref()),
+        details: registry_details(&parser),
         process_id: try_get_uint(&parser, mappings.get_etw_field("ProcessId")?),
         image: try_get_string(&parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
@@ -1656,15 +1721,10 @@ fn decode_kernel_registry_record(
 }
 
 /// `Details` for a registry event: the value *data*, as Sysmon Event ID 13
-/// defines it, falling back to the value name.
-///
-/// The fallback is not dead code. `CapturedData` is only populated because
-/// [`registry_value_data::request_value_data`] asked for it through an
-/// undocumented filter payload, and that request can fail — on a Windows build
-/// that does not honour it, or if the re-enable itself failed and was logged as
-/// a warning. Emitting nothing there would be a regression on the pre-#292
-/// behaviour, so the name is still better than an absent field.
-fn registry_details(parser: &Parser, value_name: Option<&str>) -> Option<String> {
+/// defines it. If captured data is unavailable or cannot be rendered, the
+/// field stays absent rather than carrying the semantically different value
+/// name.
+fn registry_details(parser: &Parser) -> Option<String> {
     let captured = parser
         .try_parse::<Vec<u8>>(field_maps::registry_event_mappings().get_etw_field("Details")?)
         .unwrap_or_default();
@@ -1672,7 +1732,6 @@ fn registry_details(parser: &Parser, value_name: Option<&str>) -> Option<String>
         try_get_uint_as_u64(parser, registry_value_data::VALUE_TYPE_PROPERTY).unwrap_or(0);
 
     registry_value_data::format_value_data(value_type as u32, &captured)
-        .or_else(|| value_name.map(str::to_string))
 }
 
 fn decode_network(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
@@ -2159,13 +2218,13 @@ mod tests {
     }
 
     #[test]
-    fn registry_details_reads_the_value_data_property() {
+    fn registry_details_maps_only_to_the_value_data_property() {
         // `Details` meant `ValueName` until #292, which made 180 SigmaHQ rules
         // match the name of the value instead of what was written into it.
         assert_eq!(
             field_maps::registry_event_mappings().get_etw_field("Details"),
             Some("CapturedData"),
-            "Details must map to the value data, with ValueName only as fallback"
+            "Details must map only to the value data"
         );
     }
 

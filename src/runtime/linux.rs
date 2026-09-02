@@ -54,7 +54,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
 
         CaptureSession::wait_for_shutdown().await;
         sensor.shutdown();
-        session.finish(sensor_worker).await
+        session.finish(sensor_worker, 0).await
     })
 }
 
