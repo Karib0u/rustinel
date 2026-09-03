@@ -153,6 +153,12 @@ impl CaptureSession {
         let router = Arc::clone(&self.router);
         let worker = tokio::task::spawn_blocking(move || {
             while let Some(event) = rx.blocking_recv() {
+                #[cfg(windows)]
+                let event = {
+                    let mut event = event;
+                    crate::sensor::windows::enrich_event(&mut event);
+                    event
+                };
                 router.route_event(&event);
             }
         });

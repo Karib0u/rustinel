@@ -297,8 +297,9 @@ command-line capture stayed at 100%. A process that exits before
 the back-fill can still have no `CommandLine` even at 5 ms; the race is
 structural, and only its width is under Rustinel's control. Rustinel narrows it
 on the decode side too: the back-fill runs as soon as the PID is parsed, ahead
-of PE version-resource parsing and every path conversion, so no avoidable work
-sits between the event arriving and the live-process read.
+of every path conversion, so no avoidable work sits between the event arriving
+and the live-process read. PE version-resource parsing runs later in the sensor
+worker, after the bounded channel, so its file I/O cannot stall the ETW callback.
 
 The buffers are non-paged pool: 18 MB is committed for the life of the agent
 across both sessions and grows to at most 48 MB under load. Read the live values

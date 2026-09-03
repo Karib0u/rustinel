@@ -1,3 +1,4 @@
+mod enrichment;
 pub mod etw;
 mod event_log;
 mod field_maps;
@@ -9,4 +10,5 @@ mod registry_paths;
 mod registry_rundown;
 mod registry_value_data;
 
+pub(crate) use enrichment::enrich_event;
 pub use etw::EtwSensor;
