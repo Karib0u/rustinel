@@ -649,7 +649,10 @@ async fn run_edr(
     let router_clone = Arc::clone(&router);
     let sensor_worker_handle = tokio::task::spawn_blocking(move || {
         info!(target: "sensor", "Sensor event worker thread started");
-        while let Some(event) = sensor_rx.blocking_recv() {
+        while let Some(mut event) = sensor_rx.blocking_recv() {
+            // PE parsing opens and maps the image, so it must happen after the
+            // bounded channel rather than in the ETW callback.
+            crate::sensor::windows::enrich_event(&mut event);
             router_clone.route_event(&event);
         }
         info!(target: "sensor", "Sensor event worker thread shutting down");

@@ -26,8 +26,7 @@ use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
 };
-use crate::utils::pe;
-use crate::utils::{convert_nt_to_dos, parse_metadata, query_process_command_line};
+use crate::utils::{convert_nt_to_dos, query_process_command_line};
 
 use super::event_log::EventLogSubscriptions;
 use super::file_paths::FilePathCache;
@@ -1529,12 +1528,9 @@ fn decode_process(
     let mappings = field_maps::process_creation_mappings();
 
     // The PID and the command line come first, and nothing is allowed between
-    // them and the back-fill below. Everything else this function does is
-    // reading a property out of a buffer that is already in memory; the
-    // back-fill is the one step racing a live process, and `parse_metadata`
-    // in particular opens and maps the image off disk. Decoding in field order
-    // put that read, and every path conversion, ahead of the race for no
-    // reason. See `PROCESS_TRACE_SESSION_NAME`.
+    // them and the back-fill below. Everything else this function does reads
+    // data already carried by the event. PE metadata is added by the consumer
+    // after the bounded channel. See `PROCESS_TRACE_SESSION_NAME`.
     let process_id = try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
         .or_else(|| Some(record.process_id().to_string()));
     let pid = process_id
@@ -1572,22 +1568,13 @@ fn decode_process(
     let parent_image = raw_parent_image.map(|path| convert_nt_to_dos(&path));
     let current_directory = raw_current_directory.map(|path| convert_nt_to_dos(&path));
 
-    // Version resources are only worth reading on a start: on a stop the image
-    // is often already gone, and the fields describe the binary, not the exit.
-    let pe_metadata = match image.as_deref() {
-        Some(path) if action == SensorAction::Start => parse_metadata(path),
-        _ => None,
-    };
-    let (original_file_name, product, description, company, file_version) =
-        pe::version_fields(pe_metadata);
-
     let fields = ProcessCreationFields {
         image: image.clone(),
-        original_file_name,
-        product,
-        description,
-        company,
-        file_version,
+        original_file_name: None,
+        product: None,
+        description: None,
+        company: None,
+        file_version: None,
         // Process creation describes one image and has no target process.
         target_image: None,
         command_line,
@@ -2005,20 +1992,16 @@ fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option<DecodedEtw
     let image_loaded = try_get_string(parser, mappings.get_etw_field("ImageLoaded")?)
         .map(|path| convert_nt_to_dos(&path));
 
-    let pe_metadata = image_loaded.as_deref().and_then(parse_metadata);
-    let (original_file_name, product, description, company, file_version) =
-        pe::version_fields(pe_metadata);
-
     let fields = ImageLoadFields {
         image_loaded,
         process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
-        original_file_name,
-        product,
-        description,
-        company,
-        file_version,
+        original_file_name: None,
+        product: None,
+        description: None,
+        company: None,
+        file_version: None,
         signed: try_get_string(parser, mappings.get_etw_field("Signed")?),
         signature: try_get_string(parser, mappings.get_etw_field("Signature")?),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
