@@ -261,11 +261,9 @@ fn drain_events(
 
             match decoded {
                 Ok(event) => {
-                    if let Err(TrySendError::Closed(_)) = crate::telemetry::try_send(
-                        crate::telemetry::ChannelId::SensorEvents,
-                        tx,
-                        event,
-                    ) {
+                    if let Err(TrySendError::Closed(_)) =
+                        crate::telemetry::try_send_sensor_event(tx, event)
+                    {
                         trace!(
                             source = source.name,
                             "Sensor event channel closed; dropping event"

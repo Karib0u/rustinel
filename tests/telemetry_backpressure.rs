@@ -147,6 +147,8 @@ fn snapshot_with(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         captured_at: "2026-08-24T09:30:00Z".to_string(),
         uptime_secs: 7200,
         channels,
+        sensor_events_by_category: Vec::new(),
+        windows_process_command_line: None,
         registry: None,
     }
 }

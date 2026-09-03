@@ -731,7 +731,7 @@ fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
     // Both the full and closed cases are already counted; the reason is in the
     // rate-limited warning the telemetry module emits.
-    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
+    let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
 
 fn resolved_linux_user(uid: u32) -> String {

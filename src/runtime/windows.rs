@@ -14,6 +14,8 @@ use crate::sensor::windows::EtwSensor;
 use crate::sensor::{Platform, Sensor, SensorEvent, SensorEventRouter};
 use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
 use crate::{config, reload, scanner};
+
+const SENSOR_EVENT_CHANNEL_CAPACITY: usize = 32_768;
 use arc_swap::ArcSwap;
 use std::sync::Arc;
 use tokio::runtime::Builder;
@@ -643,7 +645,7 @@ async fn run_edr(
     info!("");
 
     // Start shared sensor event pipeline
-    let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(8192);
+    let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(SENSOR_EVENT_CHANNEL_CAPACITY);
     let router_clone = Arc::clone(&router);
     let sensor_worker_handle = tokio::task::spawn_blocking(move || {
         info!(target: "sensor", "Sensor event worker thread started");

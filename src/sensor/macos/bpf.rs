@@ -643,7 +643,7 @@ fn record_type_name(qtype: u16) -> Option<&'static str> {
 /// overflow that buffer instead. Overflow is shed and counted — see
 /// [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
-    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
+    let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
 
 fn read_u32(buf: &[u8], at: usize) -> u32 {
