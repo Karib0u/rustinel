@@ -9,9 +9,13 @@ use pelite::resources::Resources;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
-use std::path::Path;
-use std::sync::RwLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use tracing::debug;
+
+use crate::utils::file_identity::{self, FileIdentity};
+
+const PE_CACHE_MAX_ENTRIES: usize = 1024;
 
 /// PE metadata extracted from version resources
 #[derive(Debug, Clone)]
@@ -59,14 +63,73 @@ pub fn version_fields(metadata: Option<PeMetadata>) -> PeVersionFields {
         .unwrap_or_default()
 }
 
-/// Global PE metadata cache: DOS Path -> PeMetadata
-/// This prevents repeated disk I/O for frequently spawned processes (cmd.exe, svchost.exe)
-static PE_CACHE: OnceLock<RwLock<HashMap<String, Option<PeMetadata>>>> = OnceLock::new();
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PeCacheKey {
+    path: PathBuf,
+    identity: FileIdentity,
+}
 
-use std::sync::OnceLock;
+struct PeCacheEntry {
+    metadata: Option<PeMetadata>,
+    last_used: u64,
+}
 
-fn get_cache() -> &'static RwLock<HashMap<String, Option<PeMetadata>>> {
-    PE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+struct PeMetadataCache {
+    entries: HashMap<PeCacheKey, PeCacheEntry>,
+    capacity: usize,
+    access_counter: u64,
+}
+
+impl PeMetadataCache {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            capacity,
+            access_counter: 0,
+        }
+    }
+
+    fn get(&mut self, key: &PeCacheKey) -> Option<Option<PeMetadata>> {
+        let entry = self.entries.get_mut(key)?;
+        self.access_counter = self.access_counter.wrapping_add(1);
+        entry.last_used = self.access_counter;
+        Some(entry.metadata.clone())
+    }
+
+    fn insert(&mut self, key: PeCacheKey, metadata: Option<PeMetadata>) {
+        self.access_counter = self.access_counter.wrapping_add(1);
+        self.entries.insert(
+            key,
+            PeCacheEntry {
+                metadata,
+                last_used: self.access_counter,
+            },
+        );
+
+        if self.entries.len() > self.capacity {
+            let least_recent = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(key, _)| key.clone());
+            if let Some(key) = least_recent {
+                self.entries.remove(&key);
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.access_counter = 0;
+    }
+}
+
+/// Global bounded cache. File identity includes size and timestamps, so replacing
+/// a binary at the same path cannot reuse metadata from the previous file.
+static PE_CACHE: OnceLock<Mutex<PeMetadataCache>> = OnceLock::new();
+
+fn get_cache() -> &'static Mutex<PeMetadataCache> {
+    PE_CACHE.get_or_init(|| Mutex::new(PeMetadataCache::with_capacity(PE_CACHE_MAX_ENTRIES)))
 }
 
 /// Parse PE metadata from a file
@@ -83,62 +146,57 @@ fn get_cache() -> &'static RwLock<HashMap<String, Option<PeMetadata>>> {
 ///   - No version resources present
 ///
 /// # Performance
-/// Uses a two-layer caching strategy:
-/// 1. Memory cache (HashMap) - checked first
-/// 2. Disk read (memory-mapped) - only if cache miss
-///
-/// Typical latency:
-/// - Cache hit: ~100ns
-/// - Cache miss: ~1-5ms (disk I/O + parsing)
+/// Uses a bounded in-memory LRU cache before memory-mapping and parsing the file.
 ///
 /// # Thread Safety
 /// This function is thread-safe and can be called from multiple threads concurrently.
 pub fn parse_metadata<P: AsRef<Path>>(path: P) -> Option<PeMetadata> {
     let path = path.as_ref();
-    let path_str = path.to_string_lossy().to_string();
+    let file = open_file(path)?;
+    let Some(identity) = file_identity::from_file(&file) else {
+        return parse_metadata_impl(path, &file);
+    };
+    let key = PeCacheKey {
+        path: path.to_path_buf(),
+        identity,
+    };
 
     // Check cache first (fast path)
-    {
-        let cache = get_cache().read().unwrap();
-        if let Some(cached) = cache.get(&path_str) {
-            return cached.clone();
-        }
+    if let Some(cached) = get_cache().lock().unwrap().get(&key) {
+        return cached;
     }
 
     // Cache miss - parse from disk (slow path)
-    let metadata = parse_metadata_impl(path);
+    let metadata = parse_metadata_impl(path, &file);
 
     // Store in cache (even if None, to avoid repeated failed attempts)
-    {
-        let mut cache = get_cache().write().unwrap();
-        cache.insert(path_str.clone(), metadata.clone());
-    }
+    get_cache().lock().unwrap().insert(key, metadata.clone());
 
     metadata
 }
 
-/// Internal implementation of PE metadata parsing
-fn parse_metadata_impl(path: &Path) -> Option<PeMetadata> {
-    // Try to open the file with shared read access
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(e) => {
-            // Common errors:
-            // - NotFound: Process already exited
-            // - PermissionDenied: File locked or protected
-            if e.kind() != io::ErrorKind::NotFound {
+fn open_file(path: &Path) -> Option<File> {
+    match File::open(path) {
+        Ok(file) => Some(file),
+        Err(error) => {
+            // NotFound is expected for short-lived processes that exit before
+            // their image can be inspected.
+            if error.kind() != io::ErrorKind::NotFound {
                 debug!(
                     "Failed to open file for PE parsing: {} - {}",
                     path.display(),
-                    e
+                    error
                 );
             }
-            return None;
+            None
         }
-    };
+    }
+}
 
+/// Internal implementation of PE metadata parsing
+fn parse_metadata_impl(path: &Path, file: &File) -> Option<PeMetadata> {
     // Memory-map the file (zero-copy)
-    let mmap = match unsafe { Mmap::map(&file) } {
+    let mmap = match unsafe { Mmap::map(file) } {
         Ok(m) => m,
         Err(e) => {
             debug!("Failed to memory-map file: {} - {}", path.display(), e);
@@ -231,7 +289,7 @@ fn extract_version_info(resources: Resources<'_>) -> Option<PeMetadata> {
 /// This is useful for testing or if you need to force re-parsing
 #[allow(dead_code)]
 pub fn clear_cache() {
-    let mut cache = get_cache().write().unwrap();
+    let mut cache = get_cache().lock().unwrap();
     cache.clear();
     debug!("Cleared PE metadata cache");
 }
@@ -239,6 +297,7 @@ pub fn clear_cache() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     #[cfg(windows)]
@@ -292,6 +351,56 @@ mod tests {
 
         // Both should return the same result
         assert_eq!(meta1.is_some(), meta2.is_some());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_cache_is_bounded_and_least_recently_used() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let mut keys = Vec::new();
+        for name in ["one.exe", "two.exe", "three.exe"] {
+            let path = tempdir.path().join(name);
+            fs::write(&path, name).expect("write cache fixture");
+            let file = File::open(&path).expect("open cache fixture");
+            keys.push(PeCacheKey {
+                path,
+                identity: file_identity::from_file(&file).expect("file identity"),
+            });
+        }
+
+        let mut cache = PeMetadataCache::with_capacity(2);
+        cache.insert(keys[0].clone(), None);
+        cache.insert(keys[1].clone(), None);
+        assert!(cache.get(&keys[0]).is_some());
+        cache.insert(keys[2].clone(), None);
+
+        assert_eq!(cache.entries.len(), 2);
+        assert!(cache.get(&keys[0]).is_some());
+        assert!(cache.get(&keys[1]).is_none());
+        assert!(cache.get(&keys[2]).is_some());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_replacing_file_invalidates_cached_metadata() {
+        clear_cache();
+        let windows_dir = PathBuf::from(std::env::var_os("WINDIR").expect("WINDIR"));
+        let cmd = windows_dir.join("System32").join("cmd.exe");
+        let notepad = windows_dir.join("System32").join("notepad.exe");
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let cached_path = tempdir.path().join("cached.exe");
+
+        fs::copy(&cmd, &cached_path).expect("copy cmd.exe");
+        let before = parse_metadata(&cached_path)
+            .and_then(|metadata| metadata.original_filename)
+            .expect("cmd.exe OriginalFilename");
+
+        fs::copy(&notepad, &cached_path).expect("replace with notepad.exe");
+        let after = parse_metadata(&cached_path)
+            .and_then(|metadata| metadata.original_filename)
+            .expect("notepad.exe OriginalFilename");
+
+        assert_ne!(before.to_ascii_lowercase(), after.to_ascii_lowercase());
     }
 
     #[test]
