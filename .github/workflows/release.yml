@@ -21,6 +21,8 @@ jobs:
   ci:
     name: CI Gates
     uses: ./.github/workflows/ci.yml
+    with:
+      skip_atomics: true
     permissions:
       contents: read
 

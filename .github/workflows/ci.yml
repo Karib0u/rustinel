@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [master, main]
   workflow_call:
+    inputs:
+      skip_atomics:
+        description: Skip source-built atomic tests when release artifacts will be tested
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -196,6 +202,7 @@ jobs:
   # branch is only green when the atomic suite passes.
   atomic:
     name: Atomic (${{ matrix.platform }})
+    if: ${{ !inputs.skip_atomics }}
     continue-on-error: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ matrix.os }}
     needs: ebpf-build
