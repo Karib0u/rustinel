@@ -766,8 +766,12 @@ min_severity = "critical"
     let (response_engine, response_worker) =
         rustinel::response::ResponseEngine::new(response_config.clone());
 
-    // Build a critical-severity alert with a non-protected PID and image
-    let alert = build_critical_process_alert(9999, "/tmp/evil");
+    // Build a critical-severity alert with a non-protected PID distinct from this process.
+    let test_pid = std::process::id()
+        .checked_add(1)
+        .filter(|pid| *pid > 4)
+        .unwrap_or(5);
+    let alert = build_critical_process_alert(test_pid, "/tmp/evil");
 
     // Before reload: response is disabled
     let decision_before = response_engine.decision_for_alert(&alert);
@@ -796,7 +800,7 @@ min_severity = "critical"
     assert!(
         matches!(
             decision_after,
-            rustinel::response::ResponseDecision::Terminate { pid: 9999, .. }
+            rustinel::response::ResponseDecision::Terminate { pid, .. } if pid == test_pid
         ),
         "expected Terminate, got: {:?}",
         decision_after,
