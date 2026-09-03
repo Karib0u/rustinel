@@ -412,6 +412,10 @@ fn watch_targets(
 ///
 /// Synchronous on purpose: `Watcher::watch()` blocks waiting on the watcher's own
 /// event thread, so callers run this on a blocking thread.
+fn should_wake_reload(kind: &notify::EventKind) -> bool {
+    !kind.is_access()
+}
+
 fn build_watcher(
     targets: &[(PathBuf, notify::RecursiveMode)],
     tx: mpsc::Sender<()>,
@@ -420,16 +424,20 @@ fn build_watcher(
 
     let mut watcher =
         match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            if res.is_ok() {
-                // Must not block: this runs on the watcher's event thread, the same
-                // thread `watch()` waits on for its acknowledgement. A recursive
-                // registration over a large tree emits an event per directory, which
-                // would fill the channel before the receive loop starts and deadlock
-                // setup. A full channel already means a wake-up is pending, and the
-                // loop re-fingerprints everything after debouncing, so dropping the
-                // signal costs nothing.
-                let _ = tx.try_send(());
+            let Ok(event) = res else {
+                return;
+            };
+            if !should_wake_reload(&event.kind) {
+                return;
             }
+            // Must not block: this runs on the watcher's event thread, the same
+            // thread `watch()` waits on for its acknowledgement. A recursive
+            // registration over a large tree emits an event per directory, which
+            // would fill the channel before the receive loop starts and deadlock
+            // setup. A full channel already means a wake-up is pending, and the
+            // loop re-fingerprints everything after debouncing, so dropping the
+            // signal costs nothing.
+            let _ = tx.try_send(());
         }) {
             Ok(w) => w,
             Err(e) => {
@@ -455,6 +463,22 @@ fn build_watcher(
     }
 
     Some(watcher)
+}
+
+#[cfg(test)]
+mod watcher_tests {
+    use notify::event::{AccessKind, AccessMode, CreateKind};
+
+    use super::should_wake_reload;
+
+    #[test]
+    fn access_events_do_not_wake_reload_fingerprinting() {
+        let access = notify::EventKind::Access(AccessKind::Open(AccessMode::Read));
+        let create = notify::EventKind::Create(CreateKind::File);
+
+        assert!(!should_wake_reload(&access));
+        assert!(should_wake_reload(&create));
+    }
 }
 
 pub fn spawn_reload_poller(
