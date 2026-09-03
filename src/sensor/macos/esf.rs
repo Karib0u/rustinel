@@ -578,7 +578,7 @@ fn system_time_nanos(time: SystemTime) -> u64 {
 /// The ESF message handler runs on the client's own queue and must return
 /// promptly, so overflow is shed and counted — see [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
-    let _ = crate::telemetry::try_send(crate::telemetry::ChannelId::SensorEvents, tx, event);
+    let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
 
 #[cfg(test)]

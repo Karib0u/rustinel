@@ -25,9 +25,13 @@ use tracing::warn;
 use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
-    snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, RegistrySnapshot,
-    TelemetrySnapshot, SNAPSHOT_FILE_NAME,
+    snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot,
+    ProcessCommandLineSnapshot, RegistrySnapshot, SensorEventCategorySnapshot, TelemetrySnapshot,
+    SNAPSHOT_FILE_NAME,
 };
+
+use crate::models::EventCategory;
+use crate::sensor::SensorEvent;
 
 /// Tracing target for pipeline telemetry accounting.
 pub const TARGET_TELEMETRY: &str = "telemetry";
@@ -277,6 +281,134 @@ impl RegistryCounters {
     }
 }
 
+/// Windows process command-line collection after every available fallback.
+#[derive(Debug, Default)]
+pub struct ProcessCommandLineCounters {
+    attempted: AtomicU64,
+    captured: AtomicU64,
+    missed: AtomicU64,
+}
+
+/// Process-wide command-line accounting. It remains idle outside Windows.
+pub static WINDOWS_PROCESS_COMMAND_LINE: ProcessCommandLineCounters =
+    ProcessCommandLineCounters::new();
+
+impl ProcessCommandLineCounters {
+    const fn new() -> Self {
+        Self {
+            attempted: AtomicU64::new(0),
+            captured: AtomicU64::new(0),
+            missed: AtomicU64::new(0),
+        }
+    }
+
+    pub fn record(&self, captured: bool) {
+        self.attempted.fetch_add(1, Ordering::Relaxed);
+        if captured {
+            self.captured.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.missed.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn snapshot(&self) -> Option<ProcessCommandLineSnapshot> {
+        let attempted = self.attempted.load(Ordering::Relaxed);
+        if attempted == 0 {
+            return None;
+        }
+        Some(ProcessCommandLineSnapshot {
+            attempted,
+            captured: self.captured.load(Ordering::Relaxed),
+            missed: self.missed.load(Ordering::Relaxed),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct SensorEventCategoryCounters {
+    accepted: AtomicU64,
+    dropped: AtomicU64,
+}
+
+impl SensorEventCategoryCounters {
+    const fn new() -> Self {
+        Self {
+            accepted: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
+        }
+    }
+
+    fn record_accepted(&self) {
+        self.accepted.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_dropped(&self) {
+        self.dropped.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 12] = [
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
+];
+
+fn sensor_event_category(category: EventCategory) -> (usize, &'static str) {
+    match category {
+        EventCategory::Process => (0, "process"),
+        EventCategory::Network => (1, "network"),
+        EventCategory::File => (2, "file"),
+        EventCategory::Registry => (3, "registry"),
+        EventCategory::Dns => (4, "dns"),
+        EventCategory::ImageLoad => (5, "image_load"),
+        EventCategory::Scripting => (6, "scripting"),
+        EventCategory::PowerShellModule => (7, "powershell_module"),
+        EventCategory::Wmi => (8, "wmi"),
+        EventCategory::Service => (9, "service"),
+        EventCategory::Task => (10, "task"),
+        EventCategory::Security => (11, "security"),
+    }
+}
+
+fn sensor_event_category_snapshots() -> Vec<SensorEventCategorySnapshot> {
+    [
+        EventCategory::Process,
+        EventCategory::Network,
+        EventCategory::File,
+        EventCategory::Registry,
+        EventCategory::Dns,
+        EventCategory::ImageLoad,
+        EventCategory::Scripting,
+        EventCategory::PowerShellModule,
+        EventCategory::Wmi,
+        EventCategory::Service,
+        EventCategory::Task,
+        EventCategory::Security,
+    ]
+    .into_iter()
+    .filter_map(|category| {
+        let (index, name) = sensor_event_category(category);
+        let counters = &SENSOR_EVENT_CATEGORIES[index];
+        let accepted = counters.accepted.load(Ordering::Relaxed);
+        let dropped = counters.dropped.load(Ordering::Relaxed);
+        (accepted > 0 || dropped > 0).then(|| SensorEventCategorySnapshot {
+            category: name.to_string(),
+            accepted,
+            dropped,
+        })
+    })
+    .collect()
+}
+
 /// Atomic accounting for one bounded channel.
 ///
 /// All counters are `Relaxed`: they are independent totals read for reporting,
@@ -432,11 +564,50 @@ pub fn try_send<T>(channel: ChannelId, tx: &Sender<T>, value: T) -> Result<(), T
     }
 }
 
+/// Send one sensor event while retaining accepted and dropped counts by category.
+#[allow(clippy::result_large_err)]
+pub fn try_send_sensor_event(
+    tx: &Sender<SensorEvent>,
+    value: SensorEvent,
+) -> Result<(), TrySendError<SensorEvent>> {
+    let (index, _) = sensor_event_category(value.category());
+    match try_send(ChannelId::SensorEvents, tx, value) {
+        Ok(()) => {
+            SENSOR_EVENT_CATEGORIES[index].record_accepted();
+            Ok(())
+        }
+        Err(err @ TrySendError::Full(_)) => {
+            SENSOR_EVENT_CATEGORIES[index].record_dropped();
+            Err(err)
+        }
+        Err(err @ TrySendError::Closed(_)) => Err(err),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    #[test]
+    fn process_command_line_fidelity_counts_hits_and_misses() {
+        let counters = ProcessCommandLineCounters::new();
+        assert!(counters.snapshot().is_none());
+
+        counters.record(true);
+        counters.record(false);
+        counters.record(true);
+
+        assert_eq!(
+            counters.snapshot(),
+            Some(ProcessCommandLineSnapshot {
+                attempted: 3,
+                captured: 2,
+                missed: 1,
+            })
+        );
+    }
 
     #[test]
     fn an_attempted_empty_registry_rundown_is_still_visible() {

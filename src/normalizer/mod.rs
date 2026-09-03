@@ -11,7 +11,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::models::*;
-use crate::sensor::{SensorAction, SensorEvent, SensorPayload};
+use crate::sensor::{Platform, SensorAction, SensorEvent, SensorPayload};
 use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, Protocol, SidCache};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
 
@@ -109,6 +109,10 @@ impl Normalizer {
             if let Some(command_line) = query_process_command_line(pid) {
                 fields.command_line = Some(command_line);
             }
+        }
+
+        if event.platform == Platform::Windows && event.action == SensorAction::Start {
+            crate::telemetry::WINDOWS_PROCESS_COMMAND_LINE.record(fields.command_line.is_some());
         }
 
         if event.action == SensorAction::Start {

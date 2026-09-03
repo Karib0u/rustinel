@@ -301,6 +301,12 @@ nothing was dropped and warns with per-channel totals when something was;
 leaves drop totals visible only in the operational log, and `doctor` reports
 that reduced visibility as a warning.
 
+`sensor_events_by_category` splits accepted and dropped ingress events into
+process, network, file, registry, DNS, image-load, scripting, PowerShell
+module, WMI, service, task, and security categories. On Windows,
+`windows_process_command_line` reports attempted, captured, and missed command
+lines after the normalizer has tried its final live-process fallback.
+
 On Windows the snapshot also carries a `registry` section, because a registry
 write can be lost *before* any channel sees it: `SetValueKey` carries no key
 path, so a write whose key cannot be named is discarded inside the sensor and
@@ -337,7 +343,8 @@ flushed for different reasons.
 | `etw_process_flush_interval_ms` | `5` | `rustinel-etw-process` | The same for the process session; `0` disables it. Values below 1 ms are clamped to 1 ms |
 
 On the main session the interval trades alert latency against one periodic
-syscall, and `0` is a reasonable choice.
+syscall, and `0` is a reasonable choice. Forced main-session flushes pause when
+the shared sensor queue is at least half full.
 
 **On the process session it is not a latency preference - it decides whether
 `CommandLine` is collected at all.** No ETW process event carries the field; it
@@ -351,7 +358,8 @@ because the session then falls all the way back to ETW's one-second timer. The
 two options are deliberately independent so that turning the main session's
 handoff off does not silently do this - measured with
 `etw_flush_interval_ms = 0` and the process option left at 5 ms, command-line
-capture stayed at 100%. See
+capture stayed at 100%. Process-session flushes continue under shared queue
+pressure so the live lookup is not delayed until after process exit. See
 [Windows ETW session buffers](operations.md#windows-etw-session-buffers) for the
 full sweep.
 

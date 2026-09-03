@@ -273,8 +273,14 @@ headroom without committing 32 MB to it.
 The forced handoff controls quiet-host delivery latency without changing the
 buffer pools, and runs on both sessions - each from its own option,
 `windows.etw_flush_interval_ms` and `windows.etw_process_flush_interval_ms`.
-Rustinel pauses requests while its sensor queue is at least half full, when
-queueing controls latency instead.
+The main session pauses requests while its sensor queue is at least half full,
+when queueing controls latency instead. The process session does not pause:
+delaying that callback also delays the live-process `CommandLine` lookup and
+can lose the field when a short-lived process exits.
+
+The Windows sensor queue holds up to 32,768 events. Its telemetry snapshot
+reports the peak depth plus accepted and dropped events by category, so burst
+headroom and any detection gap can be measured directly.
 
 The process session defaults to 5 ms rather than the main session's 20 ms,
 because what sets it is how long a short-lived process lives, not a latency

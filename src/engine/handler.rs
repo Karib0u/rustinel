@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::alerts::AlertSink;
 use crate::capture::CaptureSink;
@@ -146,7 +146,7 @@ impl SensorEventHandler for NormalizedEventHandler {
                     self.normalizer
                         .enrich_process_context(&mut alert.event, event.pid.unwrap_or(0));
 
-                    info!(
+                    debug!(
                         target: TARGET_ENGINE,
                         engine = ?alert.engine,
                         rule = %alert.rule_name,

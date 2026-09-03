@@ -108,6 +108,31 @@ pub struct RegistrySnapshot {
     pub snapshot_keys: usize,
 }
 
+/// Sensor queue traffic for one normalized event category.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SensorEventCategorySnapshot {
+    pub category: String,
+    pub accepted: u64,
+    pub dropped: u64,
+}
+
+/// Fidelity of the best-effort Windows process command-line back-fill.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessCommandLineSnapshot {
+    pub attempted: u64,
+    pub captured: u64,
+    pub missed: u64,
+}
+
+impl ProcessCommandLineSnapshot {
+    pub fn capture_rate_pct(&self) -> f64 {
+        if self.attempted == 0 {
+            return 100.0;
+        }
+        (self.captured as f64 / self.attempted as f64) * 100.0
+    }
+}
+
 impl RegistrySnapshot {
     /// Share of registry write events that reached the detectors with a path.
     ///
@@ -147,6 +172,12 @@ pub struct TelemetrySnapshot {
     /// How long that agent had been running.
     pub uptime_secs: u64,
     pub channels: Vec<ChannelSnapshot>,
+    /// Sensor ingress volume and loss split by event category.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sensor_events_by_category: Vec<SensorEventCategorySnapshot>,
+    /// Final command-line availability for accepted Windows process starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_process_command_line: Option<ProcessCommandLineSnapshot>,
     /// Registry key-path resolution. Absent on platforms without the ETW
     /// registry sensor, and on snapshots written before #341.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -165,6 +196,8 @@ impl TelemetrySnapshot {
                 .iter()
                 .map(|channel| channel.counters().snapshot())
                 .collect(),
+            sensor_events_by_category: super::sensor_event_category_snapshots(),
+            windows_process_command_line: super::WINDOWS_PROCESS_COMMAND_LINE.snapshot(),
             registry: super::REGISTRY.snapshot(),
         }
     }
@@ -331,6 +364,8 @@ mod tests {
             captured_at: "2026-08-24T00:00:00Z".to_string(),
             uptime_secs: 60,
             channels,
+            sensor_events_by_category: Vec::new(),
+            windows_process_command_line: None,
             registry: None,
         }
     }
@@ -378,6 +413,17 @@ mod tests {
 
         assert!(idle.is_idle());
         assert_eq!(idle.drop_rate_pct(), 0.0);
+    }
+
+    #[test]
+    fn process_command_line_capture_rate_uses_all_attempts() {
+        let fidelity = ProcessCommandLineSnapshot {
+            attempted: 4,
+            captured: 3,
+            missed: 1,
+        };
+
+        assert_eq!(fidelity.capture_rate_pct(), 75.0);
     }
 
     #[test]

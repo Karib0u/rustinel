@@ -467,7 +467,7 @@ These messages mean the agent is under backpressure somewhere in the pipeline.
 Each bounded channel logs a cumulative line at most once a minute:
 
 ```text
-Pipeline channel full; shedding telemetry channel="sensor_events" capacity=8192 dropped_total=1204 accepted_total=1841204 suppressed_warnings=1202
+Pipeline channel full; shedding telemetry channel="sensor_events" capacity=32768 dropped_total=1204 accepted_total=1841204 suppressed_warnings=1202
 YARA queue full; dropping scan job
 IOC hash queue full; dropping job
 Active response queue full, dropping task

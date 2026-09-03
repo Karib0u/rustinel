@@ -1118,11 +1118,9 @@ fn build_session(
                     // session and loses events in the kernel buffer instead,
                     // so overflow is shed. The telemetry counters record both
                     // outcomes and emit the rate-limited cumulative warning.
-                    if let Err(TrySendError::Closed(_)) = crate::telemetry::try_send(
-                        crate::telemetry::ChannelId::SensorEvents,
-                        &tx,
-                        event,
-                    ) {
+                    if let Err(TrySendError::Closed(_)) =
+                        crate::telemetry::try_send_sensor_event(&tx, event)
+                    {
                         trace!("Sensor event channel closed; dropping ETW event");
                     }
                 }
@@ -1244,6 +1242,7 @@ impl EtwSensor {
             super::flush::process_interval(self.process_flush_interval_ms),
             Arc::clone(&self.shutdown),
             tx.clone(),
+            false,
         ) {
             Ok(flusher) => flusher,
             Err(err) => {
@@ -1272,6 +1271,7 @@ impl EtwSensor {
             super::flush::main_interval(self.flush_interval_ms),
             Arc::clone(&self.shutdown),
             tx.clone(),
+            true,
         )
         .unwrap_or_else(|err| {
             warn!("Forced ETW flush disabled for main session: {err:#}");

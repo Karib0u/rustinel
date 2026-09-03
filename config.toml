@@ -122,13 +122,15 @@ snapshot_interval_secs = 30 # a snapshot is also written at shutdown
 #
 #   `etw_flush_interval_ms` is the main session (file, registry, network, DNS,
 #   PowerShell, WMI, tasks). It trades alert latency against one periodic
-#   syscall; 0 is a reasonable choice. Values below 20 are clamped to 20.
+#   syscall; 0 is a reasonable choice. Values below 20 are clamped to 20. Its
+#   forced flush pauses when the shared sensor queue is at least half full.
 #
 #   `etw_process_flush_interval_ms` is the Kernel-Process session, and it is
 #   NOT a latency preference. `CommandLine` is not carried by any ETW process
 #   event - it is read back out of the live process, so the event has to reach
 #   Rustinel before the process exits. Measured over 2,000 `cmd /c echo` runs:
 #   5 ms captured 99.9% of their command lines, 20 ms only 61.5%.
+#   This session keeps flushing under queue pressure to preserve that lookup.
 #   SETTING THIS TO 0 GIVES UP ~83% OF SHORT-LIVED COMMAND LINES (measured:
 #   16.6% captured, because the session falls back to ETW's one-second timer),
 #   and with them every Sigma process_creation rule that matches on CommandLine

@@ -148,6 +148,8 @@ mod tests {
             captured_at: "2026-08-24T12:00:00Z".to_string(),
             uptime_secs: 3600,
             channels,
+            sensor_events_by_category: Vec::new(),
+            windows_process_command_line: None,
             registry: None,
         }
     }

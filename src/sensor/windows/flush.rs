@@ -5,9 +5,10 @@
 //! second before the consumer sees it. `ControlTraceW(EVENT_TRACE_CONTROL_FLUSH)`
 //! requests the same handoff without changing the session buffer sizing.
 //!
-//! Forced flushing pauses while Rustinel's sensor queue is at least half full.
-//! At that point buffers already fill quickly and downstream queueing, rather
-//! than ETW's timer, controls alert latency.
+//! The main session pauses forced flushing while Rustinel's sensor queue is at
+//! least half full. The process session keeps flushing because delaying its
+//! callback also delays the live-process `CommandLine` lookup, and short-lived
+//! processes may exit before that lookup runs.
 //!
 //! The two sessions are flushed at different rates, because they are flushed
 //! for different reasons. The main session is flushed to bound *alert* latency,
@@ -114,6 +115,7 @@ pub(super) fn spawn(
     interval: Option<Duration>,
     shutdown: Arc<AtomicBool>,
     sensor_tx: Sender<SensorEvent>,
+    pause_on_backpressure: bool,
 ) -> Result<Option<JoinHandle<()>>> {
     let Some(interval) = interval else {
         return Ok(None);
@@ -123,17 +125,34 @@ pub(super) fn spawn(
         format!("could not resolve forced ETW flush handle for session '{session_name}'")
     })?;
 
-    info!(
-        "Forced ETW flush enabled: every {} ms while the sensor queue is below {}% (session '{}')",
-        interval.as_millis(),
-        MAX_QUEUE_PERCENT_FOR_FLUSH,
-        session_name
-    );
+    if pause_on_backpressure {
+        info!(
+            "Forced ETW flush enabled: every {} ms while the sensor queue is below {}% (session '{}')",
+            interval.as_millis(),
+            MAX_QUEUE_PERCENT_FOR_FLUSH,
+            session_name
+        );
+    } else {
+        info!(
+            "Forced ETW flush enabled: every {} ms without queue pausing (session '{}')",
+            interval.as_millis(),
+            session_name
+        );
+    }
 
     let name = session_name.to_string();
     let worker = thread::Builder::new()
         .name("etw-flush".into())
-        .spawn(move || run(handle, interval, shutdown, sensor_tx, &name))
+        .spawn(move || {
+            run(
+                handle,
+                interval,
+                shutdown,
+                sensor_tx,
+                pause_on_backpressure,
+                &name,
+            )
+        })
         .with_context(|| {
             format!("failed to spawn ETW flush thread for session '{session_name}'")
         })?;
@@ -146,11 +165,16 @@ fn queue_is_backed_up<T>(sensor_tx: &Sender<T>) -> bool {
     depth.saturating_mul(100) >= capacity.saturating_mul(MAX_QUEUE_PERCENT_FOR_FLUSH)
 }
 
+fn should_pause_flush<T>(sensor_tx: &Sender<T>, pause_on_backpressure: bool) -> bool {
+    pause_on_backpressure && queue_is_backed_up(sensor_tx)
+}
+
 fn run(
     handle: CONTROLTRACE_HANDLE,
     interval: Duration,
     shutdown: Arc<AtomicBool>,
     sensor_tx: Sender<SensorEvent>,
+    pause_on_backpressure: bool,
     name: &str,
 ) {
     let mut warned = false;
@@ -160,7 +184,7 @@ fn run(
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
-        if queue_is_backed_up(&sensor_tx) {
+        if should_pause_flush(&sensor_tx, pause_on_backpressure) {
             continue;
         }
 
@@ -261,5 +285,7 @@ mod tests {
         assert!(!queue_is_backed_up(&tx));
         tx.try_send(()).expect("second event fits");
         assert!(queue_is_backed_up(&tx));
+        assert!(should_pause_flush(&tx, true));
+        assert!(!should_pause_flush(&tx, false));
     }
 }
