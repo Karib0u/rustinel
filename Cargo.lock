@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "rustinel"
-version = "1.4.1"
+version = "1.5.0-rc.1"
 dependencies = [
  "anyhow",
  "arc-swap",
