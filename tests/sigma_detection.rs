@@ -131,9 +131,9 @@ level: high
 }
 
 /// `Provider_Name` is carried on the event and `ImagePath` is an alias resolved
-/// in `NormalizedEvent::get_field`, so both backends have to see them: the
-/// RSigma adapter reads fields through that same accessor, but enumerates them
-/// through serde, where the alias does not exist.
+/// in `NormalizedEvent::get_field`. The RSigma adapter reads both through that
+/// accessor, while its serde-based field enumeration sees only the stored
+/// `ServiceFileName` field.
 #[test]
 fn service_provider_and_image_path_rule_matches() {
     let fixture = SigmaFixture::new();
@@ -156,7 +156,7 @@ fn service_provider_and_image_path_rule_matches() {
 #[test]
 fn initiated_rules_separate_outbound_from_inbound_connections() {
     // Sysmon Event 3's `Initiated` is written as a string in rules even though
-    // the model holds a boolean, and the two backends have to agree on that.
+    // the model holds a boolean, so the event accessor exposes its string form.
     let fixture = SigmaFixture::new();
     fixture.write_rule(
         "net_inbound.yml",
