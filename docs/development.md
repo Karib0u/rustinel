@@ -1,5 +1,27 @@
 # Development
 
+## SigmaHQ compatibility gate
+
+Engine compatibility is checked against the active rule trees from the
+SigmaHQ commit pinned in `compatibility/sigmahq-baseline.json`. The gate loads
+the corpus through the RSigma parser for Windows, Linux, and macOS routing,
+then compares verdict and reason counts with the baseline. Parser or compiler
+failures, panics, unaccounted skip reasons, unknown unsupported-document
+reasons, and count drift fail the test. The emitted
+`sigma-compatibility.json` file is uploaded by CI for machine consumption.
+
+To reproduce the gate locally, check out the pinned SigmaHQ commit and run:
+
+```sh
+RUSTINEL_EBPF_STUB=1 \
+RUSTINEL_SIGMA_CORPUS_DIR=/path/to/sigma \
+cargo test --locked --test sigma_corpus_compatibility -- --include-ignored
+```
+
+This test only parses, compiles, and routes rules. Live atomic firing tests and
+curated detection packs belong in `rustinel-rules` and are not run by this
+gate.
+
 ## Build Matrix
 
 | Target | Tooling |
