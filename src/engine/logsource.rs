@@ -1,4 +1,7 @@
-use super::*;
+use super::Engine;
+use crate::models::{EventCategory, NormalizedEvent};
+use crate::sensor::Platform;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogSource {
@@ -151,12 +154,34 @@ pub(crate) fn platform_product(platform: Platform) -> &'static str {
     }
 }
 
-/// Field pattern for matching
-impl Engine {
-    pub(crate) fn normalized_logsource(rule: &SigmaRule) -> LogSourceKey {
-        LogSourceKey::from_logsource(&rule.logsource)
+/// Normalize an `rsigma-parser` logsource into Rustinel's routing key.
+pub(crate) fn logsource_key(logsource: &rsigma_parser::LogSource) -> LogSourceKey {
+    LogSourceKey {
+        product: LogSourceKey::normalize_value(logsource.product.as_deref()),
+        service: LogSourceKey::normalize_value(logsource.service.as_deref()),
+        category: LogSourceKey::normalize_value(logsource.category.as_deref()),
     }
+}
 
+/// Normalize a document's own logsource in place, so the value RSigma routes on
+/// is the one Rustinel judged.
+///
+/// [`Engine::rule_load_decision`] reads a rule's logsource through
+/// [`logsource_key`], which trims and lowercases it. RSigma then routes on the
+/// document's raw logsource, comparing case-insensitively but *not* trimming.
+/// Without this, a rule declaring `category: " dns "` is accepted at load,
+/// counted as loaded, and can never match — the silent-inert-rule failure this
+/// engine works hardest to avoid.
+///
+/// Only the three routing dimensions are touched: `definition` is free text,
+/// and RSigma's routing check ignores custom dimensions.
+pub(crate) fn normalize_logsource_in_place(logsource: &mut rsigma_parser::LogSource) {
+    logsource.product = LogSourceKey::normalize_value(logsource.product.as_deref());
+    logsource.service = LogSourceKey::normalize_value(logsource.service.as_deref());
+    logsource.category = LogSourceKey::normalize_value(logsource.category.as_deref());
+}
+
+impl Engine {
     pub(crate) fn is_supported_category(category: &str) -> bool {
         matches!(
             category,
@@ -449,6 +474,207 @@ impl Engine {
                 collector_active: true,
             } => {}
         }
+    }
+
+    pub(crate) fn concrete_logsource_aliases_for_event(
+        event: &NormalizedEvent,
+    ) -> Vec<LogSourceKey> {
+        let mut aliases = Vec::new();
+
+        match event.category {
+            EventCategory::Process => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some(platform_product(event.platform)),
+                    Some("sysmon"),
+                    Some("process_creation"),
+                ));
+            }
+            EventCategory::Network => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some(platform_product(event.platform)),
+                    Some("sysmon"),
+                    Some("network_connection"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    None,
+                    Some("connection"),
+                    Some("network"),
+                ));
+            }
+            EventCategory::File => {
+                for category in Self::sigma_file_categories_for_event(event) {
+                    aliases.push(LogSourceKey::from_parts(
+                        Some(platform_product(event.platform)),
+                        Some("sysmon"),
+                        Some(category),
+                    ));
+                }
+            }
+            EventCategory::Registry => {
+                for category in Self::sigma_registry_categories_for_event(event) {
+                    aliases.push(LogSourceKey::from_parts(
+                        Some(platform_product(event.platform)),
+                        Some("sysmon"),
+                        Some(category),
+                    ));
+                }
+            }
+            EventCategory::Dns => {
+                match event.platform {
+                    Platform::Windows => {
+                        aliases.push(LogSourceKey::from_parts(
+                            Some("windows"),
+                            Some("dns-client"),
+                            Some("dns_query"),
+                        ));
+                        aliases.push(LogSourceKey::from_parts(
+                            Some("windows"),
+                            Some("dns"),
+                            Some("dns_query"),
+                        ));
+                    }
+                    Platform::Linux => {
+                        aliases.push(LogSourceKey::from_parts(
+                            Some("linux"),
+                            Some("sysmon"),
+                            Some("dns_query"),
+                        ));
+                    }
+                    Platform::MacOS => {
+                        aliases.push(LogSourceKey::from_parts(
+                            Some("macos"),
+                            Some("sysmon"),
+                            Some("dns_query"),
+                        ));
+                    }
+                }
+
+                aliases.push(LogSourceKey::from_parts(None, None, Some("dns")));
+                aliases.push(LogSourceKey::from_parts(None, Some("dns"), Some("network")));
+            }
+            EventCategory::ImageLoad => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some(platform_product(event.platform)),
+                    Some("sysmon"),
+                    Some("image_load"),
+                ));
+            }
+            EventCategory::Scripting => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell"),
+                    Some("ps_script"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell-classic"),
+                    Some("ps_script"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("microsoft-windows-powershell"),
+                    Some("ps_script"),
+                ));
+            }
+            EventCategory::PowerShellModule => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell"),
+                    Some("ps_module"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell-classic"),
+                    Some("ps_module"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("microsoft-windows-powershell"),
+                    Some("ps_module"),
+                ));
+            }
+            EventCategory::Wmi => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("wmi"),
+                    Some("wmi_event"),
+                ));
+            }
+            EventCategory::Service => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("system"),
+                    Some("service_creation"),
+                ));
+            }
+            EventCategory::Task => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("taskscheduler"),
+                    Some("task_creation"),
+                ));
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("task scheduler"),
+                    Some("task_creation"),
+                ));
+            }
+            // The Security channel is addressed by channel alone: its Sigma
+            // rules carry no category and select on `EventID` instead.
+            EventCategory::Security => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("security"),
+                    None,
+                ));
+            }
+        }
+
+        aliases
+    }
+
+    /// Map a file event to its Sigma logsource categories.
+    ///
+    /// `file_change` corresponds to Sysmon Event ID 2, *file creation time
+    /// changed* — timestomping — not "the file was written". Rules in that
+    /// category are written against timestamp manipulation, so routing plain
+    /// writes there makes any rule that keys only on `TargetFilename` fire on
+    /// ordinary file activity. Writes are therefore reported under the base
+    /// `file_event` family only.
+    ///
+    /// The numbering comes from `sensor::FILE_EVENT_NORMALIZATION`, which is
+    /// the single table every platform sensor maps its file actions through.
+    pub(crate) fn sigma_file_categories_for_event(event: &NormalizedEvent) -> Vec<&'static str> {
+        match event.event_id {
+            2 => vec!["file_event", "file_change"],
+            11 => vec!["file_event", "file_create"],
+            23 => vec!["file_delete"],
+            65 => vec!["file_event"],
+            71 => vec!["file_event", "file_rename"],
+            _ => match event.opcode {
+                2 => vec!["file_event", "file_change"],
+                64 => vec!["file_event", "file_create"],
+                65 | 80 => vec!["file_event"],
+                70 | 72 => vec!["file_delete"],
+                71 => vec!["file_event", "file_rename"],
+                _ => vec!["file_event"],
+            },
+        }
+    }
+
+    pub(crate) fn sigma_registry_categories_for_event(
+        event: &NormalizedEvent,
+    ) -> Vec<&'static str> {
+        let mut categories = vec!["registry_event"];
+
+        match event.opcode {
+            36 => categories.push("registry_add"),
+            39 => categories.push("registry_set"),
+            38 | 41 => categories.push("registry_delete"),
+            _ => {}
+        }
+
+        categories
     }
 }
 

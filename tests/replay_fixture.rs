@@ -177,7 +177,6 @@ fn replay_reports_the_detectors_it_used_and_the_ones_it_skipped() {
         configuration.contains("2 rules for windows"),
         "{configuration}"
     );
-    assert!(configuration.contains("builtin engine"), "{configuration}");
     assert!(
         configuration.contains("YARA and hash IOC checks"),
         "skipped detectors are named rather than silently dropped:\n{configuration}"

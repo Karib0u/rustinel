@@ -453,21 +453,6 @@ fn platform_support_result() -> DiagnosticResult {
 fn config_safety_results(cfg: &AppConfig) -> Vec<DiagnosticResult> {
     let mut results = Vec::new();
 
-    match crate::engine::SigmaEngineKind::resolve(None, &cfg.scanner.sigma_engine) {
-        Ok(kind) => results.push(DiagnosticResult::pass(
-            "sigma_engine",
-            format!("Sigma engine '{}' is available", kind.as_str()),
-        )),
-        Err(err) => results.push(
-            DiagnosticResult::fail(
-                "sigma_engine",
-                "Configured Sigma engine is unavailable",
-                format!("{err}"),
-            )
-            .with_fix("Use scanner.sigma_engine = \"builtin\" or install a compatible build"),
-        ),
-    }
-
     let severity = cfg.response.min_severity.trim().to_ascii_lowercase();
     if matches!(severity.as_str(), "critical" | "high" | "medium" | "low") {
         results.push(DiagnosticResult::pass(

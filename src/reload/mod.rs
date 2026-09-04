@@ -71,17 +71,15 @@ impl DetectorStore {
 }
 
 // The worker is wired from the platform runtime with the full detector,
-// config, logging, backend, and channel context; grouping these into a struct
-// would only obscure the call sites.
+// config, and channel context; grouping these into a struct would only obscure
+// the call sites.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_reload_worker(
     store: Arc<DetectorStore>,
     scanner_cfg: ScannerConfig,
     ioc_cfg: IocConfig,
     reload_cfg: ReloadConfig,
-    log_level: String,
     match_debug: MatchDebugLevel,
-    engine_kind: crate::engine::SigmaEngineKind,
     config_path: Option<PathBuf>,
     response_config: Arc<ArcSwap<crate::config::ResponseConfig>>,
     mut reload_rx: mpsc::UnboundedReceiver<ReloadTarget>,
@@ -144,11 +142,7 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        let mut engine = Engine::new_with_logging_level_and_match_debug(
-                            &log_level,
-                            match_debug,
-                            engine_kind,
-                        );
+                        let mut engine = Engine::new_with_match_debug(match_debug);
 
                         match engine.load_rules(&scanner_cfg.sigma_rules_path) {
                             Ok(()) => {
@@ -178,7 +172,7 @@ pub fn spawn_reload_worker(
                                         target: "reload",
                                         path = ?scanner_cfg.sigma_rules_path,
                                         unsupported = ?stats.unsupported_rules,
-                                        "Some Sigma documents are unsupported by the active runtime"
+                                        "Some Sigma documents were dropped because their references are unavailable"
                                     );
                                 }
                                 store.swap_sigma(Arc::new(engine));
@@ -187,8 +181,6 @@ pub fn spawn_reload_worker(
                                     component = "sigma",
                                     total_rules = stats.total_rules,
                                     unsupported_rules = stats.unsupported_rules.len(),
-                                    unsupported_correlation_rules = stats.unsupported_correlation_rules,
-                                    unsupported_filter_rules = stats.unsupported_filter_rules,
                                     elapsed_ms = started.elapsed().as_millis() as u64,
                                     "Sigma rules hot-reloaded"
                                 );

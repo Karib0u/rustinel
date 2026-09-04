@@ -26,15 +26,11 @@ use serde_json::Value;
 use crate::models::NormalizedEvent;
 
 /// Borrowed [`rsigma_eval::Event`] view over a [`NormalizedEvent`].
-// Constructed by the RSigma-backed engine; the evaluation wiring lands in a
-// later commit of this change, so allow it to be unused until then.
-#[allow(dead_code)]
 pub(crate) struct RsigmaEvent<'a> {
     event: &'a NormalizedEvent,
 }
 
 impl<'a> RsigmaEvent<'a> {
-    #[allow(dead_code)]
     pub(crate) fn new(event: &'a NormalizedEvent) -> Self {
         Self { event }
     }
@@ -107,7 +103,8 @@ impl Event for RsigmaEvent<'_> {
 mod tests {
     use super::*;
     use crate::models::{
-        EventCategory, EventFields, NormalizedEvent, ProcessCreationFields, SecurityAuditFields,
+        EventCategory, EventFields, NetworkConnectionFields, NormalizedEvent,
+        ProcessCreationFields, SecurityAuditFields,
     };
     use crate::sensor::Platform;
     use std::collections::HashMap;
@@ -159,6 +156,35 @@ mod tests {
             .iter()
             .any(|value| value.as_ref() == "2026-01-01T00:00:00Z"));
         assert!(values.iter().any(|value| value.as_ref() == "1"));
+    }
+
+    #[test]
+    fn boolean_fields_are_not_keyword_values() {
+        let mut event = generic_event(&[]);
+        event.category = EventCategory::Network;
+        event.fields = EventFields::NetworkConnection(NetworkConnectionFields {
+            destination_ip: Some("198.51.100.10".to_string()),
+            source_ip: None,
+            destination_port: Some("443".to_string()),
+            source_port: None,
+            process_id: None,
+            image: None,
+            user: None,
+            destination_hostname: None,
+            protocol: Some("tcp".to_string()),
+            initiated: Some(true),
+        });
+        let adapter = RsigmaEvent::new(&event);
+
+        assert_eq!(
+            adapter.get_field("Initiated"),
+            Some(EventValue::Str(Cow::Borrowed("true")))
+        );
+        assert!(!adapter.any_string_value(&|value| value == "true"));
+        assert!(adapter
+            .all_string_values()
+            .iter()
+            .all(|value| value.as_ref() != "true"));
     }
 
     #[test]

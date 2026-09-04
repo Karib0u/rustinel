@@ -803,6 +803,7 @@ mod tests {
             match_details: Some(MatchDetails {
                 summary: "condition matched: selection1".to_string(),
                 sigma: None,
+                correlation: None,
                 yara: None,
             }),
         };

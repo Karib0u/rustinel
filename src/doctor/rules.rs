@@ -240,23 +240,9 @@ fn sensor_platform(platform: InstallPlatform) -> crate::sensor::Platform {
 }
 
 fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> DiagnosticResult {
-    let engine_kind = match crate::engine::SigmaEngineKind::resolve(None, &cfg.scanner.sigma_engine)
-    {
-        Ok(kind) => kind,
-        Err(err) => {
-            return DiagnosticResult::fail(
-                "sigma_rules_parse",
-                "Sigma rules could not be parsed",
-                format!("{err}"),
-            )
-            .with_fix("Correct scanner.sigma_engine before validating Sigma rules");
-        }
-    };
-    let mut engine = crate::engine::Engine::new_for_platform_with_logging_level_and_match_debug(
+    let mut engine = crate::engine::Engine::new_for_platform_with_match_debug(
         sensor_platform(platform),
-        &cfg.logging.level,
         cfg.alerts.match_debug,
-        engine_kind,
     );
 
     if let Err(err) = engine.load_rules(&cfg.scanner.sigma_rules_path) {
@@ -304,12 +290,12 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Diagnosti
         return DiagnosticResult::warn(
             "sigma_rules_unsupported",
             format!(
-                "{} Sigma documents are unsupported by the runtime",
+                "{} Sigma documents were dropped because their references are unavailable",
                 stats.unsupported_rules.len()
             ),
             detail,
         )
-        .with_fix("Use stateless Sigma rules until stateful support is implemented");
+        .with_fix("Restore the referenced rules or remove the dependent documents");
     }
 
     if stats.total_rules == 0 {

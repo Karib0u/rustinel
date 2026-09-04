@@ -3,11 +3,7 @@ mod common;
 
 use common::{process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
-    config::AppConfig,
-    engine::{Engine, SigmaEngineKind},
-    ioc::IocEngine,
-    models::MatchDebugLevel,
-    scanner::Scanner,
+    config::AppConfig, engine::Engine, ioc::IocEngine, models::MatchDebugLevel, scanner::Scanner,
     sensor::Platform,
 };
 
@@ -45,7 +41,7 @@ fn configured_paths_and_feature_flags_control_component_loading() {
         .normalizer
         .normalize(&process_start_event(Platform::Linux))
         .unwrap();
-    assert!(engine.check_event(&event).is_some());
+    assert!(!engine.check_event(&event).is_empty());
 
     let scanner = cfg
         .scanner
@@ -119,23 +115,26 @@ fn match_debug_configuration_controls_sigma_and_yara_details() {
         .normalize(&process_start_event(Platform::Linux))
         .unwrap();
 
-    let mut off = Engine::new_for_platform_with_logging_level_and_match_debug(
-        Platform::Linux,
-        "info",
-        MatchDebugLevel::Off,
-        SigmaEngineKind::Builtin,
-    );
+    let mut off = Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off);
     off.load_rules(sigma.rules_dir()).expect("load off rule");
-    assert!(off.check_event(&event).unwrap().match_details.is_none());
+    assert!(off
+        .check_event(&event)
+        .into_iter()
+        .next()
+        .expect("off rule should match")
+        .match_details
+        .is_none());
 
-    let mut full = Engine::new_for_platform_with_logging_level_and_match_debug(
-        Platform::Linux,
-        "info",
-        MatchDebugLevel::Full,
-        SigmaEngineKind::Builtin,
-    );
+    let mut full =
+        Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Full);
     full.load_rules(sigma.rules_dir()).expect("load full rule");
-    let details = full.check_event(&event).unwrap().match_details.unwrap();
+    let details = full
+        .check_event(&event)
+        .into_iter()
+        .next()
+        .expect("full rule should match")
+        .match_details
+        .unwrap();
     assert!(!details.sigma.expect("sigma details").matches.is_empty());
 
     let yara = YaraFixture::new();

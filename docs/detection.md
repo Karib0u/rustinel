@@ -4,7 +4,7 @@ Rustinel runs three detector paths over the same normalized events:
 
 | Detector | Input | Execution | Alert behavior |
 | --- | --- | --- | --- |
-| Sigma | Every normalized event | Inline | At most one alert per event, see [Match Selection](#match-selection) |
+| Sigma | Every normalized event | Inline | At most one detection alert plus correlation alerts, see [Match Selection](#match-selection) |
 | YARA | Process-start executable path | Background worker | One alert per matching rule |
 | IOC domains / IPs / paths | Every normalized event | Inline | Zero or more alerts per event |
 | IOC hashes | Process-start executable path | Background worker | Zero or more alerts per file |
@@ -13,67 +13,59 @@ All hits are written as ECS NDJSON and can feed the optional response engine.
 
 ## Sigma
 
-### Choosing an engine
+### The engine
 
-Two interchangeable Sigma matchers ship in the release binaries:
+Sigma matching is provided by the [RSigma](https://crates.io/crates/rsigma-eval)
+libraries — `rsigma-parser` for rule parsing, `rsigma-eval` for matching. There
+is no second backend and nothing to select: every build and every release binary
+uses it.
 
-- **`builtin`** (default): Rustinel's own matcher. Always available, and the
-  supported path.
-- **`rsigma`**: the `rsigma-parser` and `rsigma-eval` libraries. Opt-in and
-  experimental; covers a broader stateless surface (see
-  [Engine Conformance](#engine-conformance)).
+Rustinel owns everything around it — event normalization, logsource
+classification and routing, ECS output, hot reload, and the IOC and YARA
+detectors — and hands RSigma only the detection logic.
 
-Both reuse the same normalization, logsource classification, ECS output, hot
-reload, and IOC and YARA paths, so switching changes only Sigma matching
-internals.
+### Supported document types
 
-```sh
-rustinel run --sigma-engine rsigma   # or: --sigma-engine builtin (default)
-```
+| Sigma document | Status |
+| --- | --- |
+| Detection rules | Evaluated |
+| Collection actions `global`, `reset`, `repeat` | Expanded at load |
+| `N of` quantifiers such as `2 of selection*` | Evaluated |
+| Array-scope quantifiers `field[any]` / `field[all]` ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212)) | Evaluated |
+| `expand` modifier and `%placeholder%` expansion | Evaluated |
+| `sigma-version` aware evaluation ([SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) | Evaluated |
+| Correlation rules (`event_count`, `value_count`, `temporal`, …) | Evaluated with event-time windows |
+| Filter rules | Applied to their referenced detection rules |
 
-```toml
-[scanner]
-sigma_engine = "rsigma"
-```
+Correlation and filter documents load as part of the same collection as the
+detection rules they reference. A reference to a rule excluded for the active
+platform is dropped with its source path, identity, and reason, rather than
+making the rest of the collection fail to load. `rustinel doctor` reports those
+dropped documents.
 
-`EDR__SCANNER__SIGMA_ENGINE` works too. Requesting `rsigma` from a binary built
-without the `rsigma-engine` feature fails fast at startup rather than silently
-falling back. To compile it into your own build:
+### Correlation rules
 
-```sh
-cargo build --release --features rsigma-engine
-```
+RSigma evaluates correlation rules after the stateless detection pass. Rustinel
+loads all detection, correlation, and filter documents into one collection, so
+a correlation can reference a rule in another file or logsource family. Filters
+are applied before the collection is compiled.
 
-### Engine conformance
+For each event, Rustinel evaluates detection rules under the concrete logsources
+that can produce that event. It removes duplicate matches caused by overlapping
+aliases, then sends every remaining detection to one synchronized correlation
+engine. The alert list contains the best detection match, if any, followed by
+every correlation that fired for the event.
 
-Both backends agree on the common surface: the
-[supported modifiers](#supported-modifiers), wildcards, keyword search,
-list-as-OR and map-as-AND selections, and `1 of` / `all of` conditions.
-
-They differ here:
-
-| Sigma feature | Built-in | RSigma |
-| --- | --- | --- |
-| `N of` quantifiers such as `2 of selection*` | No (`1 of` and `all of` only) | Yes |
-| Array-scope quantifiers `field[any]` / `field[all]` ([SEP #212](https://github.com/SigmaHQ/sigma-specification/issues/212)) | No | Yes |
-| Collection actions `reset` and `repeat` (`global` works in both) | No | Yes, for stateless documents |
-| `expand` modifier and `%placeholder%` expansion | No | Yes |
-| `sigma-version` aware evaluation ([SEP #213](https://github.com/SigmaHQ/sigma-specification/issues/213)) | No | Yes |
-| Full rule metadata (status, date, author, references, …) | Dropped | Preserved |
-| Correlations (`event_count`, `value_count`, `temporal`, …) | No | Reported unsupported |
-| Filter rules | No | Reported unsupported |
-
-On an unsupported construct the built-in engine may skip the rule at load, fail
-to match, or mis-evaluate a complex condition. RSigma instead reports parsed
-correlation and filter documents as unsupported, with source path, identity, and
-reason, and counts them in startup and reload summaries. Stateful correlation is
-tracked by [#143](https://github.com/Karib0u/rustinel/issues/143).
+Correlation windows use `NormalizedEvent.timestamp`, parsed as RFC3339. A
+correlation alert keeps its own rule name, ID, and severity. Its group key,
+aggregate, and window length appear in `match_details.correlation`. Correlation
+state is in memory, so a Sigma hot reload starts new windows.
 
 ### Rule loading and classification
 
 - Rules load recursively from `scanner.sigma_rules_path`.
-- Multi-document YAML is supported; `action: global` documents expand shared
-  metadata into the rules that follow.
+- Multi-document YAML is supported; the `global`, `reset`, and `repeat`
+  collection actions expand into the rules that follow.
 - Rules are classified at load time by normalized `product`, `service`, and
   `category`. `product` mismatches and unknown logsource shapes are skipped.
 - Known but inactive collectors still load for compatibility, but those rules
@@ -83,8 +75,8 @@ tracked by [#143](https://github.com/Karib0u/rustinel/issues/143).
 
 ### Match selection
 
-Rustinel emits at most one Sigma alert per event. When several rules match,
-both backends apply the same policy:
+Rustinel emits at most one detection alert per event. When several detection
+rules match, the winner is chosen by this policy:
 
 1. Highest normalized severity wins (`critical` > `high` > `medium` > `low`;
    missing or unknown levels normalize to `low`).
@@ -92,8 +84,8 @@ both backends apply the same policy:
 3. Then the smallest rule `id`, then the smallest `title`.
 
 A broad low-severity rule therefore cannot shadow a specific critical one, and
-the result never depends on rule load order. Reporting *every* matching rule is
-tracked by [#195](https://github.com/Karib0u/rustinel/issues/195).
+the detection result never depends on rule load order. Correlation alerts are
+added separately when their windows fire.
 
 ### Supported logsource families
 
@@ -331,17 +323,22 @@ the process cache where available.
 | `base64`, `base64offset` | Base64-encoded match, with and without offset variations |
 | `wide`, `utf16`, `utf16le`, `utf16be` | UTF-16 transformations |
 | `lt`, `gt`, `le`, `lte`, `ge`, `gte` | Numeric comparison |
+| `neq` | Value must differ |
+| `expand` | `%placeholder%` expansion |
+| `minute`, `hour`, `day`, `week`, `month`, `year` | Timestamp part comparison |
 
 Wildcards `*` and `?` are supported in string patterns. A rule using a modifier
-outside this set is dropped at load rather than partially matched.
+outside this set fails to parse; it is reported in the load summary and by
+`rustinel doctor` rather than partially matched.
 
 ### Match debug
 
 `alerts.match_debug` controls how much match metadata is attached:
 
-- `off`: no `match_details`
-- `summary`: the rule condition, selection results, and matched field or
-  keyword descriptors, without the matched values
+- `off`: no detection `match_details`; correlation alerts still include their
+  aggregation details
+- `summary`: the matched selections and the matched field or keyword
+  descriptors, without the matched values
 - `full`: the matched values as well
 
 For YARA alerts, `summary` adds the matched rule name, tags, and namespace, and

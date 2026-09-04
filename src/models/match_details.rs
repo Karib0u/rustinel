@@ -18,9 +18,20 @@ pub struct MatchDetails {
     /// Sigma-specific match details
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sigma: Option<SigmaMatchDetails>,
+    /// Aggregation details for a Sigma correlation alert
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation: Option<CorrelationMatchDetails>,
     /// YARA-specific match details
     #[serde(skip_serializing_if = "Option::is_none")]
     pub yara: Option<YaraMatchDetails>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorrelationMatchDetails {
+    pub correlation_type: String,
+    pub group_key: Vec<(String, String)>,
+    pub aggregated_value: f64,
+    pub timespan_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

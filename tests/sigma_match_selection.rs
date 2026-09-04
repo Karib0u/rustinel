@@ -1,10 +1,9 @@
-//! Single-alert selection policy for the Sigma backends.
+//! Single-alert selection policy.
 //!
 //! Rustinel emits at most one Sigma alert per event. When several rules match,
 //! the winner is the highest normalized severity, with equal severities broken
 //! deterministically by rule id and then rule title. These tests pin that
-//! policy for every backend compiled into this build, and assert it does not
-//! depend on the order rules were loaded in.
+//! policy and assert it does not depend on the order rules were loaded in.
 
 #[cfg(test)]
 mod common;
@@ -12,33 +11,20 @@ mod common;
 use std::time::Instant;
 
 use common::{process_start_event, SigmaFixture, TestNormalizer};
-use rustinel::engine::{Engine, SigmaEngineKind};
+use rustinel::engine::Engine;
 use rustinel::models::{AlertSeverity, MatchDebugLevel, NormalizedEvent};
 use rustinel::sensor::Platform;
 
-/// Every Sigma backend compiled into this build.
-fn backends() -> Vec<SigmaEngineKind> {
-    vec![
-        SigmaEngineKind::Builtin,
-        #[cfg(feature = "rsigma-engine")]
-        SigmaEngineKind::Rsigma,
-    ]
-}
-
-fn engine_with(fixture: &SigmaFixture, kind: SigmaEngineKind) -> Engine {
-    let mut engine = Engine::new_for_platform_with_logging_level_and_match_debug(
-        Platform::Linux,
-        "info",
-        MatchDebugLevel::Off,
-        kind,
-    );
+fn engine_with(fixture: &SigmaFixture) -> Engine {
+    let mut engine =
+        Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off);
     engine
         .load_rules(fixture.rules_dir())
         .expect("sigma rules should load");
     assert_eq!(
         engine.stats().failed_rules,
         Vec::<(String, String)>::new(),
-        "no rule should fail to load ({kind:?})"
+        "no rule should fail to load"
     );
     engine
 }
@@ -94,22 +80,19 @@ fn higher_severity_rule_wins_regardless_of_load_order() {
         let fixture = SigmaFixture::new();
         fixture.write_rule("overlapping.yml", &yaml);
 
-        for kind in backends() {
-            let engine = engine_with(&fixture, kind);
-            let alert = engine
-                .check_event(&normalized)
-                .unwrap_or_else(|| panic!("an overlapping rule should match ({kind:?}, {order})"));
+        let engine = engine_with(&fixture);
+        let alert = engine
+            .check_event(&normalized)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("an overlapping rule should match ({order})"));
 
-            assert_eq!(
-                alert.severity,
-                AlertSeverity::Critical,
-                "low severity must not shadow critical ({kind:?}, {order})"
-            );
-            assert_eq!(
-                alert.rule_name, "Specific Critical Rule",
-                "backend {kind:?}, {order}"
-            );
-        }
+        assert_eq!(
+            alert.severity,
+            AlertSeverity::Critical,
+            "low severity must not shadow critical ({order})"
+        );
+        assert_eq!(alert.rule_name, "Specific Critical Rule", "{order}");
     }
 }
 
@@ -134,19 +117,19 @@ fn equal_severity_ties_break_on_rule_id() {
         let fixture = SigmaFixture::new();
         fixture.write_rule("tie.yml", &yaml);
 
-        for kind in backends() {
-            let engine = engine_with(&fixture, kind);
-            let alert = engine
-                .check_event(&normalized)
-                .unwrap_or_else(|| panic!("a tied rule should match ({kind:?}, {order})"));
+        let engine = engine_with(&fixture);
+        let alert = engine
+            .check_event(&normalized)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("a tied rule should match ({order})"));
 
-            // The smallest rule id wins, not the smallest title and not the
-            // first rule loaded.
-            assert_eq!(
-                alert.rule_name, "Zulu Titled Rule",
-                "equal severity must resolve on rule id ({kind:?}, {order})"
-            );
-        }
+        // The smallest rule id wins, not the smallest title and not the
+        // first rule loaded.
+        assert_eq!(
+            alert.rule_name, "Zulu Titled Rule",
+            "equal severity must resolve on rule id ({order})"
+        );
     }
 }
 
@@ -176,17 +159,17 @@ level: high
         let fixture = SigmaFixture::new();
         fixture.write_rule("identity.yml", &yaml);
 
-        for kind in backends() {
-            let engine = engine_with(&fixture, kind);
-            let alert = engine
-                .check_event(&normalized)
-                .unwrap_or_else(|| panic!("a tied rule should match ({kind:?}, {order})"));
+        let engine = engine_with(&fixture);
+        let alert = engine
+            .check_event(&normalized)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("a tied rule should match ({order})"));
 
-            assert_eq!(
-                alert.rule_name, "Identified Rule",
-                "an identified rule must win an otherwise equal tie ({kind:?}, {order})"
-            );
-        }
+        assert_eq!(
+            alert.rule_name, "Identified Rule",
+            "an identified rule must win an otherwise equal tie ({order})"
+        );
     }
 }
 
@@ -225,29 +208,29 @@ level: low
     fixture.write_rule("budget.yml", &documents.join("---\n"));
     let normalized = linux_process_event();
 
-    for kind in backends() {
-        let engine = engine_with(&fixture, kind);
-        assert_eq!(
-            engine.stats().total_rules,
-            SHADOW_RULES + 1,
-            "every budget rule should load ({kind:?})"
-        );
+    let engine = engine_with(&fixture);
+    assert_eq!(
+        engine.stats().total_rules,
+        SHADOW_RULES + 1,
+        "every budget rule should load"
+    );
 
-        let start = Instant::now();
-        for _ in 0..EVENTS {
-            let alert = engine
-                .check_event(&normalized)
-                .unwrap_or_else(|| panic!("the critical rule should match ({kind:?})"));
-            assert_eq!(alert.severity, AlertSeverity::Critical, "backend {kind:?}");
-        }
-        let elapsed = start.elapsed();
-
-        assert!(
-            elapsed < BUDGET_PER_EVENT * EVENTS as u32,
-            "evaluating {} candidate rules took {:?} for {EVENTS} events ({kind:?}), over the {:?} per-event budget",
-            SHADOW_RULES + 1,
-            elapsed,
-            BUDGET_PER_EVENT
-        );
+    let start = Instant::now();
+    for _ in 0..EVENTS {
+        let alert = engine
+            .check_event(&normalized)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("the critical rule should match"));
+        assert_eq!(alert.severity, AlertSeverity::Critical);
     }
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < BUDGET_PER_EVENT * EVENTS as u32,
+        "evaluating {} candidate rules took {:?} for {EVENTS} events ), over the {:?} per-event budget",
+        SHADOW_RULES + 1,
+        elapsed,
+        BUDGET_PER_EVENT
+    );
 }

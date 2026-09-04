@@ -1645,6 +1645,8 @@ level: high
 
         let alert = engine
             .check_event(&event)
+            .into_iter()
+            .next()
             .expect("dns Sigma rule should match raw eBPF QueryName");
         assert_eq!(alert.rule_name, "Raw Linux DNS QueryName");
     }
@@ -1690,6 +1692,8 @@ level: high
 
         let alert = engine
             .check_event(&event)
+            .into_iter()
+            .next()
             .expect("file Sigma rule should match the resolved path");
         assert_eq!(alert.rule_name, "Raw Linux Sensitive File Write");
     }

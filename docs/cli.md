@@ -26,7 +26,7 @@ Accepted by every subcommand.
 Run Rustinel in the foreground.
 
 ```text
-rustinel run [--config <PATH>] [--no-console] [--console] [--log-level <LEVEL>] [--sigma-engine <ENGINE>]
+rustinel run [--config <PATH>] [--no-console] [--console] [--log-level <LEVEL>]
 ```
 
 Examples:
@@ -54,7 +54,6 @@ Notes:
 - `--config <PATH>` selects the config file and overrides `RUSTINEL_CONFIG`, managed platform paths, executable-directory config, and current-directory config.
 - `--no-console` suppresses console output, for example when redirecting logs.
 - `--console` is kept as a compatibility alias and has the same effect as the default.
-- `--sigma-engine <builtin|rsigma>` selects the Sigma matching backend, overriding `scanner.sigma_engine`. `rsigma` requires a build with the `rsigma-engine` feature (included in the official release binaries). See [Detection](detection.md#choosing-an-engine).
 - Linux foreground execution is the normal runtime model unless you wrap the binary in a service manager.
 
 ### `capture`

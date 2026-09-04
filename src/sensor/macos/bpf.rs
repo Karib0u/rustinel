@@ -897,6 +897,8 @@ level: high
 
         let alert = engine
             .check_event(&normalized)
+            .into_iter()
+            .next()
             .expect("macOS dns Sigma rule should match parsed QueryName");
         assert_eq!(alert.rule_name, "macOS DNS QueryName");
     }

@@ -224,7 +224,7 @@ recording and the effective detector configuration:
 ```text
 Replay of /tmp/lab/run-42.ndjson
   recorded   1841 events on windows at 2026-08-16T09:12:40Z by Rustinel v1.3.0
-  sigma      412 rules for windows from /opt/rustinel/rules/current/sigma (builtin engine)
+  sigma      412 rules for windows from /opt/rustinel/rules/current/sigma
   ioc        37 inline indicators (IP, domain, and path)
   skipped    YARA and hash IOC checks; a recording holds events, not file artifacts
   response   disabled; replay never acts on the host it runs on
