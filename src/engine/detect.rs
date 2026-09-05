@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
+use crate::engine::DetectorStore;
 use crate::ioc::IocEngine;
 use crate::models::{Alert, NormalizedEvent};
-use crate::reload::DetectorStore;
 
 /// The event-based detectors, evaluated together in a fixed order.
 ///

@@ -171,11 +171,20 @@ measurable from outside the process. See
 
 ## Detector Store and Hot Reload
 
-Live detector instances sit behind `DetectorStore`:
+Live detector instances sit behind `engine::DetectorStore`, defined in
+`src/engine/detectors.rs`. Detection and runtime workers read this shared state
+without depending on the reload subsystem:
 
 - Sigma rules are compiled into the active `Engine`
 - YARA rules are compiled into the active `Scanner`
 - IOC indicator files are loaded into the active `IocEngine`
+
+`src/reload/worker.rs` owns debouncing, rebuild validation, and atomic replacement.
+`src/reload/watcher.rs` owns filesystem notifications, fallback polling, and poller
+shutdown; `src/reload/fingerprint.rs` computes the metadata fingerprints it compares.
+The public reload entry points stay in `reload`, including a compatibility
+re-export of `DetectorStore`. Each detector is swapped independently, and existing
+read guards retain the previous instance until their work finishes.
 
 If hot reload is enabled:
 

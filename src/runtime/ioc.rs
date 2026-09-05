@@ -1,6 +1,6 @@
 use crate::alerts::AlertSink;
+use crate::engine::DetectorStore;
 use crate::ioc::{HashCache, HashRequirements};
-use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::sensor::Platform;
 use crate::utils::LogRateLimiter;

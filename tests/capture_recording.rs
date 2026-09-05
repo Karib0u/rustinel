@@ -17,9 +17,8 @@ use rustinel::{
     alerts::AlertSink,
     capture::{CaptureRecorder, CaptureStatus},
     config::ResponseConfig,
-    engine::{DetectionPipeline, Engine, NormalizedEventHandler},
+    engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler},
     ioc::IocEngine,
-    reload::DetectorStore,
     scanner::Scanner,
     sensor::{Platform, SensorEventRouter},
 };
