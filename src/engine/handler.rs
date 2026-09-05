@@ -14,9 +14,8 @@ use tracing::debug;
 
 use crate::alerts::AlertSink;
 use crate::capture::CaptureSink;
-use crate::engine::EventDetectors;
+use crate::engine::{DetectorStore, EventDetectors};
 use crate::normalizer::Normalizer;
-use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::sensor::{SensorAction, SensorEvent, SensorEventHandler};
 

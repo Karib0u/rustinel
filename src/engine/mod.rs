@@ -17,6 +17,7 @@
 
 mod alert;
 mod detect;
+mod detectors;
 mod event;
 mod handler;
 mod loader;
@@ -25,6 +26,7 @@ mod stats;
 mod store;
 
 pub use detect::EventDetectors;
+pub use detectors::DetectorStore;
 pub use handler::{DetectionPipeline, NormalizedEventHandler};
 pub(crate) use logsource::{current_platform, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};

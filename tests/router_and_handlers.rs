@@ -8,9 +8,8 @@ use rustinel::utils::hash_command_line;
 use rustinel::{
     alerts::AlertSink,
     config::ResponseConfig,
-    engine::{DetectionPipeline, Engine, NormalizedEventHandler},
+    engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler},
     ioc::IocEngine,
-    reload::DetectorStore,
     scanner::{normalize_allowlist_paths, Scanner, YaraEventHandler},
     sensor::{Platform, SensorAction, SensorEventHandler, SensorEventRouter},
 };

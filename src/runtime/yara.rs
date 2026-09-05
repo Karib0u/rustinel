@@ -1,10 +1,10 @@
 use crate::alerts::AlertSink;
+use crate::engine::DetectorStore;
 use crate::memory::{self, MemoryChunk, MemoryScanConfig};
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, MatchDebugLevel,
     MatchDetails, NormalizedEvent, ProcessCreationFields, YaraMatchDetails, YaraRuleMatch,
 };
-use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::scanner::{self, ScanError, ScanResult, YaraMemoryJob};
 use crate::sensor::Platform;

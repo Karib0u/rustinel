@@ -6,10 +6,10 @@ use std::sync::Arc;
 use common::{dns_query_event, process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
     config::{ReloadConfig, ResponseConfig, ScannerConfig},
-    engine::Engine,
+    engine::{DetectorStore, Engine},
     ioc::IocEngine,
     models::MatchDebugLevel,
-    reload::{spawn_reload_worker, DetectorStore, ReloadTarget},
+    reload::{spawn_reload_worker, ReloadTarget},
     scanner::Scanner,
     sensor::Platform,
 };
@@ -75,6 +75,8 @@ async fn sigma_reload_swaps_valid_rules_and_allows_empty_rules() {
         Arc::new(IocEngine::load(&ioc.config())),
     );
 
+    let previous_sigma = store.sigma();
+
     std::fs::remove_file(sigma.rules_dir().join("process.yml")).expect("remove rule A");
     sigma.write_rule(
         "network.yml",
@@ -126,6 +128,8 @@ level: high
         .unwrap();
     assert!(!store.sigma().check_event(&network).is_empty());
     assert!(store.sigma().check_event(&process).is_empty());
+    assert!(!previous_sigma.check_event(&process).is_empty());
+    assert!(previous_sigma.check_event(&network).is_empty());
 
     std::fs::remove_file(sigma.rules_dir().join("network.yml")).expect("remove rule B");
     tx.send(ReloadTarget::Sigma).expect("send empty reload");
@@ -150,6 +154,8 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
         Arc::new(Scanner::new(yara.rules_dir()).expect("load yara A")),
         Arc::new(IocEngine::load(&ioc.config())),
     );
+
+    let previous_yara = store.yara();
 
     std::fs::remove_file(yara.rules_dir().join("a.yar")).expect("remove rule A");
     yara.write_rule("b.yar", "RuleB", "BBB_RELOAD_MARKER");
@@ -178,6 +184,18 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
             .len()
             == 1
     );
+
+    assert_eq!(
+        previous_yara
+            .scan_bytes(b"AAA_RELOAD_MARKER", MatchDebugLevel::Off)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(previous_yara
+        .scan_bytes(b"BBB_RELOAD_MARKER", MatchDebugLevel::Off)
+        .unwrap()
+        .is_empty());
 
     std::fs::remove_file(yara.rules_dir().join("b.yar")).expect("remove rule B");
     tx.send(ReloadTarget::Yara).expect("send empty reload");
@@ -209,6 +227,8 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
         Arc::new(IocEngine::load(&ioc.config())),
     );
 
+    let previous_ioc = store.ioc();
+
     ioc.write_domains("example.test");
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_reload_worker(
@@ -232,6 +252,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
         .normalize(&dns_query_event(platform))
         .unwrap();
     assert_eq!(store.ioc().check_event(&event).len(), 1);
+    assert!(previous_ioc.check_event(&event).is_empty());
 
     ioc.write_domains("");
     tx.send(ReloadTarget::Ioc).expect("send empty reload");

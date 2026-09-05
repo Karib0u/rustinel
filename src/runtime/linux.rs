@@ -1,9 +1,8 @@
 use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
-use crate::engine::{DetectionPipeline, Engine, NormalizedEventHandler};
+use crate::engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
 use crate::normalizer::Normalizer;
-use crate::reload::DetectorStore;
 use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
