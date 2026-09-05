@@ -2,6 +2,10 @@ use crate::cli::{Cli, Commands};
 use crate::replay::ReplayOptions;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use crate::runtime::capture::CaptureOptions;
+#[cfg(target_os = "linux")]
+use crate::runtime::linux as platform_runtime;
+#[cfg(target_os = "macos")]
+use crate::runtime::macos as platform_runtime;
 
 /// Commands that need neither sensors nor a platform runtime, handled before
 /// any platform dispatch so they behave identically everywhere.
@@ -75,7 +79,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse_args();
 
@@ -105,55 +109,14 @@ pub fn run() -> anyhow::Result<()> {
             catalog_url,
         }),
         Some(Commands::Run { no_console, .. }) => {
-            crate::runtime::linux::run(!no_console, cli.log_level, cli.config)
+            platform_runtime::run(!no_console, cli.log_level, cli.config)
         }
-        Some(Commands::Capture { output }) => crate::runtime::linux::run_capture(CaptureOptions {
+        Some(Commands::Capture { output }) => platform_runtime::run_capture(CaptureOptions {
             output,
             log_level: cli.log_level,
             config_path: cli.config,
         }),
-        None => crate::runtime::linux::run(true, cli.log_level, cli.config),
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn run() -> anyhow::Result<()> {
-    let cli = Cli::parse_args();
-
-    if let Some(result) = run_portable_command(&cli) {
-        return result;
-    }
-
-    match cli.command {
-        Some(Commands::Replay { .. }) => unreachable!("replay is handled before platform dispatch"),
-        Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
-        Some(Commands::Doctor { json }) => {
-            let code = crate::doctor::run_cli(cli.config, json)?;
-            std::process::exit(code);
-        }
-        Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
-        Some(Commands::Setup {
-            pack,
-            yes,
-            no_start,
-            force,
-            catalog_url,
-        }) => crate::setup::run_cli(crate::setup::SetupOptions {
-            pack,
-            yes,
-            no_start,
-            force,
-            catalog_url,
-        }),
-        Some(Commands::Run { no_console, .. }) => {
-            crate::runtime::macos::run(!no_console, cli.log_level, cli.config)
-        }
-        Some(Commands::Capture { output }) => crate::runtime::macos::run_capture(CaptureOptions {
-            output,
-            log_level: cli.log_level,
-            config_path: cli.config,
-        }),
-        None => crate::runtime::macos::run(true, cli.log_level, cli.config),
+        None => platform_runtime::run(true, cli.log_level, cli.config),
     }
 }
 
