@@ -31,45 +31,14 @@ fn normalize_yara_path(path: &str) -> String {
     path.to_string()
 }
 
-/// Normalize a path for allowlist prefix matching.
-/// Windows: backslash separator, lowercase (case-insensitive FS).
-/// Linux:   forward slash separator, case preserved (case-sensitive FS).
-fn normalize_path_for_allowlist(path: &str) -> String {
-    #[cfg(windows)]
-    {
-        path.trim().replace('/', "\\").to_ascii_lowercase()
-    }
-    #[cfg(not(windows))]
-    {
-        path.trim().to_string()
-    }
-}
-
-const PATH_SEPARATOR: char = if cfg!(windows) { '\\' } else { '/' };
-
+/// Normalize directory prefixes using the scanner's native path policy.
 pub fn normalize_allowlist_paths(values: &[String]) -> Vec<String> {
-    values
-        .iter()
-        .filter(|v| !v.trim().is_empty())
-        .map(|value| {
-            let mut normalized = normalize_path_for_allowlist(value);
-            if !normalized.ends_with(PATH_SEPARATOR) {
-                normalized.push(PATH_SEPARATOR);
-            }
-            normalized
-        })
-        .collect()
+    crate::utils::path_allowlist::PathAllowlistPolicy::ScannerDirectory.normalize_prefixes(values)
 }
 
 pub fn is_path_allowlisted(path: &str, allowlist_paths: &[String]) -> bool {
-    if allowlist_paths.is_empty() {
-        return false;
-    }
-
-    let normalized = normalize_path_for_allowlist(path);
-    allowlist_paths
-        .iter()
-        .any(|prefix| normalized.starts_with(prefix.as_str()))
+    crate::utils::path_allowlist::PathAllowlistPolicy::ScannerDirectory
+        .is_match(path, allowlist_paths)
 }
 
 /// Default per-scan timeout applied to file and memory scans.

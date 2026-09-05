@@ -6,6 +6,7 @@ pub(crate) mod file_identity;
 pub mod fs;
 pub mod log_rate_limiter;
 pub mod path;
+pub(crate) mod path_allowlist;
 #[cfg(windows)]
 pub mod pe;
 pub mod process;
