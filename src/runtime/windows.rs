@@ -1,10 +1,8 @@
-use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
-use crate::config;
 use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
-use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
+use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::pipeline::{LivePipeline, SharedState};
-use crate::runtime::telemetry::TelemetryReporter;
+use crate::runtime::startup::{load_config, RuntimeLogging};
 use crate::sensor::windows::EtwSensor;
 use crate::sensor::{Platform, Sensor, SensorEvent};
 
@@ -270,47 +268,14 @@ async fn run_edr(
     log_level_override: Option<String>,
     config_path: Option<std::path::PathBuf>,
 ) -> anyhow::Result<()> {
-    // 1. Load Configuration
-    let resolved_config_path = config::AppConfig::resolve_config_path(config_path.clone());
-    let mut cfg = match config::AppConfig::from_config_path(config_path) {
-        Ok(cfg) => cfg,
-        Err(err) => {
-            eprintln!("Failed to load configuration: {}", err);
-            eprintln!("Hint: run rustinel doctor --config <path> to inspect configuration and runtime prerequisites.");
-            return Err(anyhow::anyhow!("Failed to load configuration: {}", err));
-        }
-    };
-    if let Some(console_output) = console_output_override {
-        cfg.logging.console_output = console_output;
-    }
-    if let Some(level) = log_level_override {
-        if !level.trim().is_empty() {
-            cfg.logging.level = level;
-        }
-    }
-
-    // 2. Initialize Logging (CRITICAL: Store guards to keep file writing alive)
-    let (app_guard, alert_guard, mut alert_sink) = init_logging(&cfg);
-    let _guards = (app_guard, alert_guard);
-
-    // 2a. Alert deduplication
-    let dedup_worker_handle = if cfg.dedup.enabled {
-        let dedup = Arc::new(Deduplicator::new(
-            cfg.dedup.window_secs,
-            cfg.dedup.max_entries,
-        ));
-        let tick = std::time::Duration::from_secs(cfg.dedup.window_secs.max(1));
-        let handle = spawn_flush_worker(Arc::clone(&dedup), alert_sink.clone(), tick);
-        alert_sink = alert_sink.with_deduplicator(dedup);
-        Some(handle)
-    } else {
-        None
-    };
-
-    log_startup_banner("Windows ETW");
-
-    // Pipeline drop counters, published for `rustinel doctor`
-    let telemetry_reporter = TelemetryReporter::start(&cfg);
+    let (cfg, resolved_config_path) =
+        load_config(console_output_override, log_level_override, config_path)?;
+    let RuntimeLogging {
+        alert_sink,
+        dedup_worker_handle,
+        telemetry_reporter,
+        _guards,
+    } = RuntimeLogging::start(&cfg, "Windows ETW");
 
     // 2.1 Initialize Active Response Engine (optional)
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));

@@ -166,6 +166,10 @@ command handling when service dispatch does not start.
 
 ## Shared Pipeline
 
+`src/runtime/startup.rs` loads configuration and CLI overrides, initializes
+logging and alert deduplication, and starts telemetry reporting. Logging guards
+remain in each platform runtime until its final shutdown messages are written.
+
 `src/runtime/pipeline.rs` builds shared caches, detectors, reload workers, YARA
 and IOC workers, normalization, and the event router for all three platforms.
 Platform runtimes retain privilege checks, Windows process snapshotting, sensor

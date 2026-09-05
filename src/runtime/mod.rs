@@ -10,6 +10,8 @@ mod orchestration;
 mod pipeline;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod shutdown;
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod startup;
 pub mod telemetry;
 #[cfg(windows)]
 mod windows;
