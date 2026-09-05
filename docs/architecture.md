@@ -74,6 +74,11 @@ The key split in the codebase is between the hot event path and the control plan
 
 ### Windows
 
+`src/sensor/windows/etw.rs` exposes the ETW sensor lifecycle. Its sibling
+`etw/` directory separates provider definitions, session setup and processing,
+routing, pending registry/path state, record decoding, and parser helpers.
+Responsibility-specific tests live beside the code they exercise.
+
 The Windows sensor uses ETW for realtime providers and filtered Windows Event
 Log subscriptions for the System and Security channels. It currently covers:
 
