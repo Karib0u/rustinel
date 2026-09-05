@@ -8,6 +8,8 @@ mod macos;
 mod orchestration;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod pipeline;
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+mod shutdown;
 pub mod telemetry;
 #[cfg(windows)]
 mod windows;

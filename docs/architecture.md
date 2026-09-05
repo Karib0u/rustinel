@@ -165,7 +165,10 @@ command handling when service dispatch does not start.
 and IOC workers, normalization, and the event router for all three platforms.
 Platform runtimes retain privilege checks, Windows process snapshotting, sensor
 startup, event-channel capacity, and Windows PE enrichment. Detector startup logs
-use the same messages across platforms.
+use the same messages across platforms. After sensors stop, `runtime/shutdown.rs`
+drains sensor events, YARA file/memory scans, and IOC hashes, then stops reload
+polling, closes reload requests, and drains the reload and response workers.
+Deduplication flushes and the final telemetry snapshot follow worker completion.
 
 Once a platform sensor emits a raw `SensorEvent`, the rest of the runtime is shared:
 

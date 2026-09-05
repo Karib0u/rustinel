@@ -362,15 +362,7 @@ async fn run_edr(
         cfg.windows.etw_process_flush_interval_ms,
     ));
 
-    let LivePipeline {
-        router,
-        yara_worker_handle,
-        yara_memory_worker_handle,
-        mut ioc_hash_worker_handle,
-        mut reload_poller,
-        mut reload_worker_handle,
-        mut reload_tx,
-    } = LivePipeline::new(
+    let pipeline = LivePipeline::new(
         &cfg,
         resolved_config_path,
         Platform::Windows,
@@ -394,7 +386,7 @@ async fn run_edr(
 
     // Start shared sensor event pipeline
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(SENSOR_EVENT_CHANNEL_CAPACITY);
-    let router_clone = Arc::clone(&router);
+    let router_clone = Arc::clone(&pipeline.router);
     let sensor_worker_handle = tokio::task::spawn_blocking(move || {
         info!(target: "sensor", "Sensor event worker thread started");
         while let Some(mut event) = sensor_rx.blocking_recv() {
@@ -461,70 +453,16 @@ async fn run_edr(
         }
     }
 
-    // Common teardown (not reached if exit(1) above)
-    match sensor_worker_handle.await {
-        Ok(_) => info!("Sensor event worker thread finished"),
-        Err(e) => error!("Failed to join sensor event worker thread: {}", e),
-    }
-
-    drop(router);
     drop(response_engine);
-    if let Some(handle) = yara_worker_handle {
-        info!("Signaling YARA worker to shut down...");
-        match handle.await {
-            Ok(_) => info!("YARA worker thread finished"),
-            Err(e) => error!("Failed to join YARA worker thread: {}", e),
-        }
-    }
-
-    if let Some(handle) = yara_memory_worker_handle {
-        match handle.await {
-            Ok(_) => info!("YARA memory worker thread finished"),
-            Err(e) => error!("Failed to join YARA memory worker thread: {}", e),
-        }
-    }
-
-    if let Some(handle) = ioc_hash_worker_handle.take() {
-        info!("Signaling IOC hash worker to shut down...");
-        match handle.await {
-            Ok(_) => info!("IOC hash worker thread finished"),
-            Err(e) => error!("Failed to join IOC hash worker thread: {}", e),
-        }
-    }
-
-    if let Some(poller) = reload_poller.take() {
-        info!("Signaling hot-reload poller to shut down...");
-        poller.shutdown().await;
-        info!("Hot-reload poller thread finished");
-    }
-    drop(reload_tx.take());
-    if let Some(handle) = reload_worker_handle.take() {
-        info!("Signaling hot-reload worker to shut down...");
-        match handle.await {
-            Ok(_) => info!("Hot-reload worker thread finished"),
-            Err(e) => error!("Failed to join hot-reload worker thread: {}", e),
-        }
-    }
-
-    info!("Signaling response worker to shut down...");
-    match response_worker_handle.await {
-        Ok(_) => info!("Response worker thread finished"),
-        Err(e) => error!("Failed to join response worker thread: {}", e),
-    }
-
-    // Flush any pending dedup rollups before the alert file is closed.
-    if let Some(handle) = dedup_worker_handle {
-        handle.abort();
-        let _ = handle.await;
-    }
-    if let Some(dedup) = alert_sink.dedup() {
-        dedup.flush_all(&alert_sink);
-        dedup.log_metrics();
-    }
-
-    if let Some(reporter) = telemetry_reporter {
-        reporter.finish().await;
-    }
+    pipeline
+        .shutdown(
+            sensor_worker_handle,
+            response_worker_handle,
+            dedup_worker_handle,
+            &alert_sink,
+            telemetry_reporter,
+        )
+        .await;
 
     info!("");
     info!(target: TARGET_CONSOLE, "Shutdown complete");

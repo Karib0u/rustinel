@@ -329,28 +329,19 @@ mod tests {
             assert_eq!(pipeline.reload_poller.is_some(), enabled);
             assert_eq!(pipeline.reload_worker_handle.is_some(), enabled);
             assert_eq!(pipeline.reload_tx.is_some(), enabled);
-            drop(pipeline.router);
             drop(response);
-            tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                for handle in [
-                    pipeline.yara_worker_handle,
-                    pipeline.yara_memory_worker_handle,
-                    pipeline.ioc_hash_worker_handle,
-                ]
-                .into_iter()
-                .flatten()
-                {
-                    handle.await.unwrap();
-                }
-                if let Some(poller) = pipeline.reload_poller {
-                    poller.shutdown().await;
-                }
-                drop(pipeline.reload_tx);
-                if let Some(handle) = pipeline.reload_worker_handle {
-                    handle.await.unwrap();
-                }
-                response_worker.await.unwrap();
-            })
+            let sensor_worker = tokio::spawn(async {});
+            let (writer, _shutdown_guard) = tracing_appender::non_blocking(std::io::sink());
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                pipeline.shutdown(
+                    sensor_worker,
+                    response_worker,
+                    None,
+                    &AlertSink::new(writer),
+                    None,
+                ),
+            )
             .await
             .expect("pipeline must release all worker senders");
         }
