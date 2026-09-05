@@ -161,6 +161,12 @@ command handling when service dispatch does not start.
 
 ## Shared Pipeline
 
+`src/runtime/pipeline.rs` builds shared caches, detectors, reload workers, YARA
+and IOC workers, normalization, and the event router for all three platforms.
+Platform runtimes retain privilege checks, Windows process snapshotting, sensor
+startup, event-channel capacity, and Windows PE enrichment. Detector startup logs
+use the same messages across platforms.
+
 Once a platform sensor emits a raw `SensorEvent`, the rest of the runtime is shared:
 
 1. `SensorEventRouter` fans each event out to `SigmaDetectionHandler` and `YaraEventHandler`.
