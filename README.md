@@ -5,201 +5,249 @@
 <h1 align="center">Rustinel</h1>
 
 <p align="center">
-  <b>Open-source endpoint detection for Windows, Linux, and macOS.</b><br>
-  Native telemetry to Sigma, YARA, IOC detection, and SIEM-ready alerts. Written in Rust.
+  <b>Open-source endpoint detection. Three platforms. Your rules.</b><br>
+  Run Sigma, YARA, and IOC detections on native Windows, Linux, and macOS telemetry.<br>
+  Written in Rust, with local alerts and no cloud account required.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Karib0u/rustinel/actions/workflows/ci.yml"><img src="https://github.com/Karib0u/rustinel/actions/workflows/ci.yml/badge.svg?style=flat-square" alt="CI"></a>
+  <a href="https://github.com/Karib0u/rustinel/actions/workflows/ci.yml"><img src="https://github.com/Karib0u/rustinel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Karib0u/rustinel/releases/latest"><img src="https://img.shields.io/github/v/release/Karib0u/rustinel?style=flat-square&color=ff8a3d" alt="Latest release"></a>
   <a href="https://github.com/Karib0u/rustinel/releases"><img src="https://img.shields.io/github/downloads/Karib0u/rustinel/total?style=flat-square&color=ff8a3d" alt="Downloads"></a>
-  <a href="https://github.com/Karib0u/rustinel/stargazers"><img src="https://img.shields.io/github/stars/Karib0u/rustinel?style=flat-square&color=ff8a3d" alt="Stars"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-ff8a3d?style=flat-square" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-ff8a3d?style=flat-square" alt="Apache 2.0 license"></a>
 </p>
 
 <p align="center">
-  <a href="https://rustinel.io/">Website</a> |
-  <a href="https://docs.rustinel.io/">Docs</a> |
+  Bring your detection content, monitor your endpoints, and send alerts to the tools you already use.
+</p>
+
+<p align="center">
   <a href="https://github.com/Karib0u/rustinel/releases/latest">Download</a> |
-  <a href="docs/siem-demos.md">SIEM demos</a>
+  <a href="https://docs.rustinel.io/">Documentation</a> |
+  <a href="https://github.com/Karib0u/rustinel-rules">Detection packs</a> |
+  <a href="https://rustinel.io/">Website</a>
 </p>
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="Rustinel demo" width="860">
 </p>
 
----
+## Why Rustinel?
 
-## Quick Start
+Endpoint detection should work with the platforms you run and the rules you
+already understand.
 
-Rustinel ships release archives with a binary, default config, demo rules, and a
-`logs/` directory.
+Rustinel brings native telemetry, established detection formats, and a common
+alert format into one open-source engine.
 
-**Windows** - test from PowerShell:
+- **Use Sigma and YARA rules.** Detect behavior with Sigma, scan files and process memory with YARA, and match hash, IP, domain, and path indicators.
+- **Run across Windows, Linux, and macOS.** Use one engine with a shared configuration model and normalized events. Sensors and detection coverage vary by platform.
+- **Keep control of your data.** The live agent makes no outbound network connections. Alerts are local files you can inspect or forward yourself.
+- **Connect your existing tools.** ECS 9.4.0 NDJSON output works with Elastic, Splunk, and other log pipelines.
+- **Test detections against recorded behavior.** Capture telemetry once and replay it as your rules change, without repeating the activity.
+- **Inspect and extend the engine.** Written in Rust and licensed under Apache 2.0.
 
-```powershell
-irm https://rustinel.io/install.ps1 | iex
-```
+## Get your first alert
 
-Then deploy from an elevated PowerShell and diagnose the managed installation:
+Release archives include a binary, default configuration, and demo rules so you
+can verify detection before deploying a service.
 
-```powershell
-rustinel setup --yes
-rustinel doctor
-```
+### Linux
 
-The Windows release binary requires the x64 Microsoft Visual C++ Redistributable.
-See [Getting Started](https://docs.rustinel.io/getting-started/#windows) if the
-process exits before printing output.
-
-**Linux** - test, deploy, and diagnose:
-
-```bash
-curl -fsSL https://rustinel.io/install.sh | sh -s -- --run
-sudo rustinel setup --yes
-rustinel doctor
-```
-
-**macOS** (experimental)
+Requires Linux 5.8+ with BTF support.
 
 ```bash
 curl -fsSL https://rustinel.io/install.sh | sh
 cd rustinel
-```
-
-macOS requires a one-time Full Disk Access approval before Endpoint Security can
-start. Follow the [Getting Started](https://docs.rustinel.io/getting-started/)
-macOS notes before using it beyond a first test.
-
-```bash
 sudo ./rustinel run
 ```
 
-After Full Disk Access is granted, deploy and diagnose the managed installation:
+### Windows
+
+Run in an elevated PowerShell:
+
+```powershell
+irm https://rustinel.io/install.ps1 | iex
+Set-Location rustinel
+.\rustinel.exe run
+```
+
+Requires the x64 Microsoft Visual C++ Redistributable. See
+[Windows prerequisites](https://docs.rustinel.io/getting-started/#windows).
+
+### macOS
+
+macOS support is experimental. Complete the
+[signing and Full Disk Access setup](https://docs.rustinel.io/getting-started/)
+before starting the sensor.
+
+```bash
+curl -fsSL https://rustinel.io/install.sh | sh
+cd rustinel
+sudo ./rustinel run
+```
+
+### Trigger the demo rule
+
+While Rustinel is running, open another terminal and run:
+
+```bash
+whoami
+```
+
+The bundled demo rule detects the process. Find the alert in
+`logs/alerts.json.<date>` inside the extracted release directory.
+
+The demo rules verify that the pipeline works. For broader coverage, install a
+detection pack or add your own rules.
+
+Prefer a manual installation? Browse the
+[release archives](https://github.com/Karib0u/rustinel/releases/latest) or inspect
+the [install scripts](scripts/install).
+
+## Deploy for ongoing monitoring
+
+Stop the foreground agent with Ctrl-C, then run setup from the extracted release
+directory.
+
+**Linux and macOS:**
 
 ```bash
 sudo ./rustinel setup --yes
 ./rustinel doctor
 ```
 
-With the agent running, trigger the bundled demo rule:
+**Windows, in an elevated PowerShell:**
 
-```bash
-whoami
+```powershell
+.\rustinel.exe setup --yes
+.\rustinel.exe doctor
 ```
 
-Alerts are written to `logs/alerts.json.<date>` as ECS NDJSON.
+Setup writes the managed configuration, installs the Essential rules pack,
+registers the native service, starts it, and checks its health.
 
-Prefer to inspect first? Download the [install script](scripts/install/install.sh)
-or a package from the [latest release](https://github.com/Karib0u/rustinel/releases/latest).
-Installers only download published release binaries.
+Use `--pack advanced` for the larger pack or `--no-start` to register the service
+without starting it.
 
----
+| Platform | Service manager | Managed alert directory |
+| --- | --- | --- |
+| Windows | SCM | `C:\ProgramData\Rustinel\logs\` |
+| Linux | systemd | `/var/log/rustinel/` |
+| macOS | launchd | `/Library/Logs/Rustinel/` |
 
-## Why Rustinel
+Rules and IOCs support hot reload. Optional process termination is available and
+disabled by default.
 
-A transparent endpoint detection engine you can read, run, test, and extend.
+[Configuration](https://docs.rustinel.io/configuration/) |
+[Operations](https://docs.rustinel.io/operations/) |
+[SIEM examples](docs/siem-demos.md)
 
-- **Native telemetry:** ETW and Windows Event Log on Windows, eBPF on Linux, Endpoint Security and `/dev/bpf` on macOS.
-- **Detection formats:** Sigma for behavior, YARA for files and memory, IOC matching for hashes, IPs, domains, and path regexes.
-- **Rule reuse:** bring existing Sigma and YARA rules instead of rewriting them into a proprietary format.
-- **SIEM output:** ECS 9.4.0 NDJSON alerts for Elastic, Splunk, and other log pipelines.
-- **Operations:** hot reload for rules and IOCs, optional active response (off by default) on all three platforms, and native service management via SCM, systemd, and launchd.
+## Your rules, with documented coverage
 
----
+Use your own detection content or start with
+**[rustinel-rules](https://github.com/Karib0u/rustinel-rules)**, the official
+versioned Sigma, YARA, and IOC packs.
+
+Packs are downloaded, SHA-256 verified, validated, and activated atomically. A
+failed download leaves the current rules in place.
+
+Rule compatibility depends on the telemetry and fields available on each
+platform. A Windows rule does not automatically become a Linux detection.
+
+We publish [Sigma coverage measurements](https://docs.rustinel.io/coverage/)
+against a pinned SigmaHQ corpus, including missing collectors and unavailable
+fields. These measure whether rules have the data needed to fire, not whether
+they will detect every attack.
+
+[Rule authoring](https://docs.rustinel.io/detection/) |
+[Pack catalog](https://github.com/Karib0u/rustinel-rules) |
+[Coverage and gaps](https://docs.rustinel.io/coverage/)
+
+## Capture once. Replay as your rules improve.
+
+Record endpoint activity, then evaluate the same events against new rules without
+repeating the activity or running sensors on your development machine.
+
+From the release directory on Linux or macOS:
+
+```bash
+# Start recording, perform the activity, then press Ctrl-C.
+sudo ./rustinel capture --output session.ndjson
+
+# Evaluate the recording without elevated privileges.
+./rustinel replay session.ndjson
+
+# Compare another configuration.
+./rustinel replay session.ndjson --config candidate.toml
+
+# Export results for automated comparison.
+./rustinel replay session.ndjson --output results.ndjson
+```
+
+On Windows, use `.\rustinel.exe` and an elevated PowerShell for capture.
+
+A Windows recording can replay on Linux or macOS. Replay uses the recorded
+platform for Sigma routing and produces reproducible results for the same
+recording and configuration.
+
+Keep the recording and its `.manifest.json` sidecar together. Recordings contain
+sensitive endpoint data, including command lines, paths, network destinations,
+and user names.
+
+Replay evaluates Sigma and IP, domain, and path IOC checks. YARA and hash checks
+are skipped because recordings contain events rather than file contents. Active
+response never runs during replay.
+
+[Capture and replay reference](https://docs.rustinel.io/cli/)
 
 ## Platform support
 
-| Platform | Sensor | Telemetry | Status |
+| Platform | Sensors | Telemetry | Status |
 | --- | --- | --- | --- |
-| Windows 10/11, Server 2016+ | ETW + Windows Event Log | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task | Stable |
-| Linux 5.8+ (BTF) | eBPF | Process, network, file, DNS | Stable |
+| Windows 10/11, Server 2016+ | ETW + Windows Event Log | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task, selected Security events | Stable |
+| Linux 5.8+ with BTF | eBPF | Process, network, file, DNS | Stable |
 | macOS 11+ | Endpoint Security + `/dev/bpf` | Process, file, network, DNS | Experimental |
 
-Windows coverage is the broadest today. Linux and macOS focus on process,
-network, file, and DNS telemetry. macOS remains experimental. Current gaps are
-listed in [Limitations](https://docs.rustinel.io/limitations/).
+Windows has the broadest coverage today. See
+[requirements](https://docs.rustinel.io/getting-started/) and
+[limitations](https://docs.rustinel.io/limitations/) for platform-specific details.
 
----
+## Local operation, explicit downloads
 
-## How detection works
+The live agent collects and evaluates telemetry locally. It does not send
+telemetry home or require a vendor account.
 
-```text
-  ETW (Windows) | eBPF (Linux) | ESF + /dev/bpf (macOS)
-                        │
-              Normalized event model
-                        │
-        ┌───────────────┼───────────────┐
-      Sigma            YARA             IOC
-    behavior        files +         hashes, IPs,
-      rules          memory         domains, paths
-        └───────────────┼───────────────┘
-                        │
-                ECS NDJSON alerts
-                        │
-              Optional active response
-```
+Installers download published releases. `setup`, `rules list`, and `rules install`
+fetch the rules catalog; setup and rule installation also download packs.
 
-See the [detection docs](https://docs.rustinel.io/detection/) for rule authoring, YARA memory scanning, and IOC formats.
+Alerts remain on the endpoint unless you forward them through your own pipeline.
 
----
+## Know the boundaries
 
-## Detection packs
+Rustinel supports endpoint monitoring, detection engineering, security labs, and
+SIEM pipeline validation.
 
-The bundled rules only prove that the pipeline works. For real coverage, load
-curated content from **[rustinel-rules](https://github.com/Karib0u/rustinel-rules)**,
-the official versioned detection repository.
+It is not a drop-in replacement for a mature commercial EDR. It does not provide
+kernel-level self-protection, pre-execution blocking, anti-tamper guarantees, or
+managed response. A sufficiently privileged attacker may interfere with
+user-mode telemetry.
 
-```text
-rustinel        ->  the engine that collects telemetry and evaluates rules
-rustinel-rules  ->  the Sigma, YARA, and IOC packs it loads
-```
+Read the [current limitations](https://docs.rustinel.io/limitations/) when
+evaluating it for your environment.
 
-Each pack materializes into folders you point `config.toml` straight at. Browse the [pack catalog](https://github.com/Karib0u/rustinel-rules) to get started.
+## Contribute
 
----
+Help improve platform coverage, test detections, report bugs, or make setup
+easier.
 
-## Good for / not for
+If you use Rustinel, tell us what you monitor, which rules matter to you, and
+where you get stuck. Real deployment feedback helps guide the project.
 
-**Use it for** detection engineering, rule development and testing, blue-team labs, cross-platform detection research, and SIEM pipeline validation.
-
-**It is not** a drop-in replacement for a mature commercial EDR. Rustinel does
-not provide kernel-level self-protection, pre-execution blocking, anti-tamper
-guarantees, or managed response. A sufficiently privileged attacker may interfere
-with user-mode telemetry.
-
----
-
-## Build from source
-
-```bash
-cargo build --release
-sudo ./target/release/rustinel run
-```
-
-macOS requires the app-like signed bundle described in [Getting Started](https://docs.rustinel.io/getting-started/).
-
----
-
-## Documentation
-
-[Website](https://rustinel.io/) |
-[Docs home](https://docs.rustinel.io/) |
-[Getting Started](https://docs.rustinel.io/getting-started/) |
-[Configuration](https://docs.rustinel.io/configuration/) |
-[Detection](https://docs.rustinel.io/detection/) |
-[Architecture](https://docs.rustinel.io/architecture/) |
-[Operations](https://docs.rustinel.io/operations/) |
-[Troubleshooting](https://docs.rustinel.io/troubleshooting/) |
-[FAQ](https://docs.rustinel.io/faq/) |
-[Detection rules](https://github.com/Karib0u/rustinel-rules) |
+[Contributing](CONTRIBUTING.md) |
+[Issues](https://github.com/Karib0u/rustinel/issues) |
+[Development guide](https://docs.rustinel.io/development/) |
 [Roadmap](https://github.com/Karib0u/rustinel/milestones)
-
----
-
-## Contributing
-
-Testing, feedback, and detection ideas are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
