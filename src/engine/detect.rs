@@ -46,9 +46,7 @@ impl EventDetectors {
     /// matches in a deterministic order. The same event evaluated against the
     /// same detectors produces the same alerts in the same sequence.
     pub fn evaluate(&self, event: &NormalizedEvent) -> Vec<Alert> {
-        let mut alerts = Vec::new();
-
-        alerts.extend(self.sigma.evaluate_event(event));
+        let mut alerts = self.sigma.evaluate_event(event);
 
         for ioc_match in self.ioc.check_event(event) {
             alerts.push(self.ioc.build_alert_for_match(&ioc_match, event));

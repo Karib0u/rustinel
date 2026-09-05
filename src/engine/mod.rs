@@ -179,9 +179,9 @@ impl Engine {
 
             for alias in Self::concrete_logsource_aliases_for_event(event) {
                 let logsource = rsigma_parser::LogSource {
-                    product: alias.product.clone(),
-                    service: alias.service.clone(),
-                    category: alias.category.clone(),
+                    product: alias.product,
+                    service: alias.service,
+                    category: alias.category,
                     ..Default::default()
                 };
 

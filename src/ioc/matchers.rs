@@ -6,22 +6,11 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 
 fn normalize_domain(value: &str) -> Option<String> {
-    let mut host = value.trim().to_ascii_lowercase();
+    let host = value.trim().trim_end_matches('.');
     if host.is_empty() {
         return None;
     }
-    host = host.trim_end_matches('.').to_string();
-    if host.is_empty() {
-        return None;
-    }
-    Some(host)
-}
-
-fn extract_ips(value: &str) -> Vec<&str> {
-    value
-        .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
-        .filter(|token| !token.is_empty())
-        .collect()
+    Some(host.to_ascii_lowercase())
 }
 
 impl IocEngine {
@@ -31,48 +20,32 @@ impl IocEngine {
         matches: &mut Vec<IocMatch>,
         seen: &mut HashSet<String>,
     ) {
-        let mut candidates = Vec::new();
+        let candidate = match &event.fields {
+            EventFields::DnsQuery(f) => f.query_name.as_deref(),
+            EventFields::NetworkConnection(f) => f.destination_hostname.as_deref(),
+            EventFields::WmiEvent(f) => f.destination_hostname.as_deref(),
+            _ => None,
+        };
+        let Some(host) = candidate.and_then(normalize_domain) else {
+            return;
+        };
 
-        match &event.fields {
-            EventFields::DnsQuery(f) => {
-                if let Some(v) = &f.query_name {
-                    candidates.push(v.as_str());
-                }
-            }
-            EventFields::NetworkConnection(f) => {
-                if let Some(v) = &f.destination_hostname {
-                    candidates.push(v.as_str());
-                }
-            }
-            EventFields::WmiEvent(f) => {
-                if let Some(v) = &f.destination_hostname {
-                    candidates.push(v.as_str());
-                }
-            }
-            _ => {}
+        if let Some(meta) = self.domain_iocs.exact.get(&host) {
+            push_match_unique(
+                matches,
+                seen,
+                build_match(IocKind::Domain, &host, &host, meta),
+            );
         }
 
-        for candidate in candidates {
-            let normalized = normalize_domain(candidate);
-            let Some(host) = normalized else { continue };
-
-            if let Some(meta) = self.domain_iocs.exact.get(&host) {
+        for (suffix, meta) in &self.domain_iocs.suffix {
+            if host == *suffix || host.ends_with(&format!(".{}", suffix)) {
+                let indicator = format!(".{}", suffix);
                 push_match_unique(
                     matches,
                     seen,
-                    build_match(IocKind::Domain, &host, &host, meta),
+                    build_match(IocKind::Domain, &indicator, &host, meta),
                 );
-            }
-
-            for (suffix, meta) in &self.domain_iocs.suffix {
-                if host == *suffix || host.ends_with(&format!(".{}", suffix)) {
-                    let indicator = format!(".{}", suffix);
-                    push_match_unique(
-                        matches,
-                        seen,
-                        build_match(IocKind::Domain, &indicator, &host, meta),
-                    );
-                }
             }
         }
     }
@@ -96,9 +69,10 @@ impl IocEngine {
             }
             EventFields::DnsQuery(f) => {
                 if let Some(v) = &f.query_results {
-                    for ip in extract_ips(v) {
-                        candidates.push(ip);
-                    }
+                    candidates.extend(
+                        v.split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+                            .filter(|token| !token.is_empty()),
+                    );
                 }
             }
             _ => {}
@@ -140,41 +114,16 @@ impl IocEngine {
             return;
         };
 
-        let mut candidates = Vec::new();
+        let candidates = match &event.fields {
+            EventFields::ProcessCreation(f) => [f.image.as_deref(), f.target_image.as_deref()],
+            EventFields::FileEvent(f) => [f.target_filename.as_deref(), None],
+            EventFields::ImageLoad(f) => [f.image_loaded.as_deref(), None],
+            EventFields::PowerShellScript(f) => [f.path.as_deref(), None],
+            EventFields::ServiceCreation(f) => [f.service_file_name.as_deref(), None],
+            _ => [None, None],
+        };
 
-        match &event.fields {
-            EventFields::ProcessCreation(f) => {
-                if let Some(v) = &f.image {
-                    candidates.push(v.as_str());
-                }
-                if let Some(v) = &f.target_image {
-                    candidates.push(v.as_str());
-                }
-            }
-            EventFields::FileEvent(f) => {
-                if let Some(v) = &f.target_filename {
-                    candidates.push(v.as_str());
-                }
-            }
-            EventFields::ImageLoad(f) => {
-                if let Some(v) = &f.image_loaded {
-                    candidates.push(v.as_str());
-                }
-            }
-            EventFields::PowerShellScript(f) => {
-                if let Some(v) = &f.path {
-                    candidates.push(v.as_str());
-                }
-            }
-            EventFields::ServiceCreation(f) => {
-                if let Some(v) = &f.service_file_name {
-                    candidates.push(v.as_str());
-                }
-            }
-            _ => {}
-        }
-
-        for candidate in candidates {
+        for candidate in candidates.into_iter().flatten() {
             tracing::trace!(
                 target: "ioc",
                 candidate = %candidate,
