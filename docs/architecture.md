@@ -151,6 +151,14 @@ if it cannot start. Requirements for the macOS sensor are root, the
 `com.apple.developer.endpoint-security.client` entitlement (or SIP/AMFI relaxed
 for local testing), and access to the bpf device nodes.
 
+## Command Dispatch
+
+`src/runtime/orchestration.rs` handles portable replay commands before platform
+dispatch. Linux and macOS share one command dispatcher, with foreground runs and
+capture delegated to their platform runtime modules. Windows keeps its separate
+dispatcher: replay and doctor run before service dispatch, followed by console
+command handling when service dispatch does not start.
+
 ## Shared Pipeline
 
 `src/runtime/pipeline.rs` builds shared caches, detectors, reload workers, YARA
