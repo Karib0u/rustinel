@@ -33,6 +33,30 @@ fn domain_ioc_matches_exact_and_suffix_dns_events() {
         .as_str()
         .expect("rule name")
         .starts_with("ioc:domain:"));
+
+    for (query, expected) in [
+        (Some("  EXAMPLE.TEST...\t"), 2),
+        (Some("example.test"), 2),
+        (Some("other.example.test"), 1),
+        (Some("notexample.test"), 0),
+        (Some("example.test.invalid"), 0),
+        (Some("..."), 0),
+        (Some(" \t"), 0),
+        (None, 0),
+    ] {
+        let mut variant = event.clone();
+        let rustinel::models::EventFields::DnsQuery(fields) = &mut variant.fields else {
+            panic!("expected DNS fields");
+        };
+        fields.query_name = query.map(str::to_owned);
+        let matches = engine.check_event(&variant);
+        assert_eq!(matches.len(), expected, "query: {query:?}");
+        if expected == 2 {
+            assert_eq!(matches[0].indicator, TEST_DOMAIN);
+            assert_eq!(matches[1].indicator, ".example.test");
+            assert!(matches.iter().all(|m| m.observed == TEST_DOMAIN));
+        }
+    }
 }
 
 #[test]
@@ -67,6 +91,31 @@ fn ip_ioc_matches_network_and_dns_response_ips() {
     let json = ecs_json(&alert);
     assert_ecs_field_eq(&json, "dns.question.name", TEST_DOMAIN);
     assert_ecs_field_present(&json, "related.ip");
+
+    let mut separated = dns.clone();
+    let rustinel::models::EventFields::DnsQuery(fields) = &mut separated.fields else {
+        panic!("expected DNS fields");
+    };
+    fields.query_results = Some(format!(
+        " ,;\t{TEST_DESTINATION_IP};invalid,\n{TEST_DESTINATION_IP}\u{2003}203.0.113.1;; "
+    ));
+    let separated_matches = engine.check_event(&separated);
+    let match_identity = |m: &rustinel::ioc::IocMatch| {
+        (
+            m.kind,
+            m.indicator.clone(),
+            m.observed.clone(),
+            m.source.clone(),
+            m.line,
+        )
+    };
+    assert_eq!(
+        separated_matches
+            .iter()
+            .map(match_identity)
+            .collect::<Vec<_>>(),
+        matches.iter().map(match_identity).collect::<Vec<_>>()
+    );
 }
 
 #[test]
