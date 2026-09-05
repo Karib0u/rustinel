@@ -1,6 +1,6 @@
 [package]
 name = "rustinel"
-version = "1.5.0-rc.1"
+version = "1.5.0"
 edition = "2021"
 authors = []
 description = "Open-source EDR for Windows, Linux, and macOS with Sigma, YARA, and IOC detection"
