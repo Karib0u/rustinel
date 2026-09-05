@@ -193,6 +193,22 @@ If hot reload is enabled:
 - Successful rebuilds are swapped in atomically
 - Failed rebuilds keep the previous live detector instances
 
+## Path Allowlists
+
+`src/utils/path_allowlist.rs` owns path-prefix normalization and matching. Its
+explicit policies preserve the configuration behavior used by each caller:
+
+| Policy | Windows | Linux/macOS | Prefix boundary | Empty entries |
+| --- | --- | --- | --- | --- |
+| YARA scanner | ASCII case folded, slash converted to backslash | Case preserved, native separators | Directory separator appended | Ignored |
+| IOC hashing | ASCII case folded, slash converted to backslash | Case preserved, native separators | Raw prefix | Match every path |
+| Active response | ASCII case folded, slash converted to backslash | ASCII case folded, native separators | Directory separator appended | Ignored |
+
+All policies trim surrounding whitespace without resolving paths or symlinks.
+`tests/path_allowlist.rs` checks these contracts through all three public callers.
+Changing these policies requires a separate behavior change, particularly for
+IOC raw prefixes and case-insensitive response exclusions on Unix.
+
 ## Normalization and Enrichment
 
 The normalizer keeps one event model across all three platforms and adds context where available:

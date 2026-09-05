@@ -540,22 +540,7 @@ fn parse_pid(value: Option<&str>) -> Option<u32> {
 }
 
 fn normalize_allowlist_paths(values: &[String]) -> Vec<String> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    const SEP: char = '/';
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    const SEP: char = '\\';
-
-    values
-        .iter()
-        .filter(|v| !v.trim().is_empty())
-        .map(|value| {
-            let mut normalized = normalize_path_for_comparison(value);
-            if !normalized.ends_with(SEP) {
-                normalized.push(SEP);
-            }
-            normalized
-        })
-        .collect()
+    crate::utils::path_allowlist::PathAllowlistPolicy::ResponseDirectory.normalize_prefixes(values)
 }
 
 fn normalize_allowlist_images(values: &[String]) -> Vec<String> {
@@ -578,10 +563,7 @@ fn image_basename(path: &str) -> &str {
 fn is_allowlisted(image: &str, allowlist_images: &[String], allowlist_paths: &[String]) -> bool {
     let normalized = normalize_path_for_comparison(image);
 
-    if allowlist_paths
-        .iter()
-        .any(|prefix| normalized.starts_with(prefix))
-    {
+    if crate::utils::path_allowlist::matches_normalized(&normalized, allowlist_paths) {
         return true;
     }
 

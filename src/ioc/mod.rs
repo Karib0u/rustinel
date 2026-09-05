@@ -20,8 +20,8 @@ use crate::sensor::Platform;
 use std::collections::HashSet;
 use tracing::info;
 
+use crate::utils::path_allowlist::PathAllowlistPolicy;
 use alert::{build_match, ioc_rule_description, ioc_rule_name};
-use hash::normalize_allowlist_path;
 use load::{load_domains, load_hashes, load_ips, load_path_regexes, parse_severity};
 use types::{DomainIocs, HashIocs, IpIocs, PathIocs};
 
@@ -62,11 +62,8 @@ impl IocEngine {
         let path_iocs = load_path_regexes(&cfg.paths_regex_path);
 
         let max_file_size_bytes = cfg.max_file_size_mb * 1024 * 1024;
-        let hash_allowlist_paths: Vec<String> = cfg
-            .hash_allowlist_paths
-            .iter()
-            .map(|p| normalize_allowlist_path(p))
-            .collect();
+        let hash_allowlist_paths =
+            PathAllowlistPolicy::IocPrefix.normalize_prefixes(&cfg.hash_allowlist_paths);
 
         if !hash_allowlist_paths.is_empty() {
             info!(
@@ -136,10 +133,7 @@ impl IocEngine {
     }
 
     pub fn is_hash_allowlisted(&self, path: &str) -> bool {
-        let normalized = normalize_allowlist_path(path);
-        self.hash_allowlist_paths
-            .iter()
-            .any(|prefix| normalized.starts_with(prefix.as_str()))
+        PathAllowlistPolicy::IocPrefix.is_match(path, &self.hash_allowlist_paths)
     }
 
     pub fn check_event(&self, event: &NormalizedEvent) -> Vec<IocMatch> {

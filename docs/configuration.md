@@ -192,7 +192,9 @@ What reloads and what does not:
 
 `response.allowlist_paths`, `ioc.hash_allowlist_paths`, and
 `scanner.yara_allowlist_paths` each inherit this list while they are empty, and
-override it entirely once set.
+override it entirely once set. Matching follows the existing
+[module-specific path policies](architecture.md#path-allowlists), including IOC
+raw prefixes and case-insensitive response exclusions on Unix.
 
 #### Default trusted paths
 

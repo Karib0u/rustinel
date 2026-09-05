@@ -13,20 +13,6 @@ use crate::utils::file_identity::{self, FileIdentity};
 const HASH_CACHE_MAX_ENTRIES: usize = 10_000;
 const HASH_CACHE_TTL_SECS: u64 = 6 * 60 * 60;
 
-/// Normalize a file path for allowlist prefix matching.
-/// Windows: convert to backslashes and lowercase (case-insensitive FS).
-/// Linux:   keep as-is (case-sensitive FS, native forward-slash paths).
-pub(crate) fn normalize_allowlist_path(path: &str) -> String {
-    #[cfg(windows)]
-    {
-        path.trim().replace('/', "\\").to_ascii_lowercase()
-    }
-    #[cfg(not(windows))]
-    {
-        path.trim().to_string()
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HashRequirements {
     pub md5: bool,
