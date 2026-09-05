@@ -10,6 +10,7 @@ use crate::runtime::telemetry::TelemetryReporter;
 impl LivePipeline {
     /// The caller must stop sensors and drop its response-engine sender first.
     /// The sensor worker retains the router until its queued events are drained.
+    /// No other router clones may outlive that worker, since they own job senders.
     pub async fn shutdown(
         self,
         sensor_worker: JoinHandle<()>,
