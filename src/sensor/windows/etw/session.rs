@@ -471,7 +471,6 @@ mod tests {
     use super::*;
     use ferrisetw::trace::TraceProperties;
     use std::time::Duration;
-    use tracing::trace;
 
     #[test]
     fn session_properties_are_set_explicitly() {
