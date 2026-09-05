@@ -101,15 +101,7 @@ async fn run_linux_edr(
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
 
-    let LivePipeline {
-        router,
-        yara_worker_handle,
-        yara_memory_worker_handle,
-        mut ioc_hash_worker_handle,
-        mut reload_poller,
-        mut reload_worker_handle,
-        mut reload_tx,
-    } = LivePipeline::new(
+    let pipeline = LivePipeline::new(
         &cfg,
         resolved_config_path,
         Platform::Linux,
@@ -128,7 +120,7 @@ async fn run_linux_edr(
     );
 
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(8192);
-    let router_for_worker = Arc::clone(&router);
+    let router_for_worker = Arc::clone(&pipeline.router);
     let sensor_worker_handle = tokio::task::spawn_blocking(move || {
         while let Some(event) = sensor_rx.blocking_recv() {
             router_for_worker.route_event(&event);
@@ -148,40 +140,16 @@ async fn run_linux_edr(
     }
     sensor.shutdown();
 
-    // Drain workers
-    drop(router);
     drop(response_engine);
-    let _ = sensor_worker_handle.await;
-    if let Some(h) = yara_worker_handle {
-        let _ = h.await;
-    }
-    if let Some(h) = yara_memory_worker_handle {
-        let _ = h.await;
-    }
-    if let Some(h) = ioc_hash_worker_handle.take() {
-        let _ = h.await;
-    }
-    if let Some(poller) = reload_poller.take() {
-        poller.shutdown().await;
-    }
-    drop(reload_tx.take());
-    if let Some(h) = reload_worker_handle.take() {
-        let _ = h.await;
-    }
-    let _ = response_worker_handle.await;
-
-    if let Some(handle) = dedup_worker_handle {
-        handle.abort();
-        let _ = handle.await;
-    }
-    if let Some(dedup) = alert_sink.dedup() {
-        dedup.flush_all(&alert_sink);
-        dedup.log_metrics();
-    }
-
-    if let Some(reporter) = telemetry_reporter {
-        reporter.finish().await;
-    }
+    pipeline
+        .shutdown(
+            sensor_worker_handle,
+            response_worker_handle,
+            dedup_worker_handle,
+            &alert_sink,
+            telemetry_reporter,
+        )
+        .await;
 
     info!(target: TARGET_CONSOLE, "Shutdown complete");
     Ok(())
