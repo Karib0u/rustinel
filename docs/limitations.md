@@ -183,8 +183,11 @@ The Linux sensor covers process, network, file, and DNS.
   `Initiated: 'false'` has nothing to match on Linux — inbound connections are
   absent rather than misreported. Because capture is at syscall entry, failed
   connections are reported as connections, and `SourceIp`/`SourcePort` are not
-  yet assigned ([#299](https://github.com/Karib0u/rustinel/issues/299),
-  [#301](https://github.com/Karib0u/rustinel/issues/301)). `Protocol` is reported
+  yet assigned — they are **reported as absent**, never as `0.0.0.0`/`0`. A
+  `/proc/net` lookup fills them in when it provably describes the same
+  connection, which under happy-eyeballs it usually does not, so most Linux
+  network events carry no source address or port until the two-phase connect
+  capture lands ([#301](https://github.com/Karib0u/rustinel/issues/301)). `Protocol` is reported
   as `tcp` on every event even though the hook also captures UDP connects, so
   a rule selecting `Protocol: 'udp'` never matches and one selecting `'tcp'`
   matches UDP traffic ([#300](https://github.com/Karib0u/rustinel/issues/300)). Only

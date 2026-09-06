@@ -11,7 +11,7 @@
 //!
 //! Requirements: Linux 5.8+ with BTF, `CAP_BPF` (or `CAP_SYS_ADMIN`).
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -31,7 +31,9 @@ use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
 };
-use crate::utils::{lookup_username_by_uid, query_process_details, query_socket_metadata};
+use crate::utils::{
+    lookup_username_by_uid, query_process_details, query_socket_metadata, SocketMetadata,
+};
 
 use super::events::{
     bytes_to_string, parse_event, DnsEvent, FileEvent, FileEventHeader, FileIndexEvent,
@@ -561,19 +563,34 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         _ => return None,
     };
 
-    let socket_metadata = query_socket_metadata(ev.pid, ev.fd);
+    // `/proc` is read after the fact, so it may describe a different socket
+    // than the one this event captured; see `socket_matches_connection`.
+    let socket_metadata = query_socket_metadata(ev.pid, ev.fd)
+        .filter(|value| socket_matches_connection(value, &destination_ip, ev.dport));
     let user = resolved_linux_user(ev.uid);
     let source_ip = source_ip.or_else(|| {
         socket_metadata
             .as_ref()
             .and_then(|value| filter_unspecified_ip(value.source_ip.clone()))
+            // A v4-mapped local address belongs to an IPv4 connection; keeping
+            // the `::ffff:` form would make `network.type` disagree with the
+            // destination it is paired with.
+            .map(|value| match value.parse::<IpAddr>() {
+                Ok(address) => unmap_ipv4(address).to_string(),
+                Err(_) => value,
+            })
     });
     let source_port = if ev.sport > 0 {
         Some(ev.sport.to_string())
     } else {
+        // An unbound socket can still be listed with a local port of 0. That
+        // is a placeholder, not a measurement, so it is dropped like the
+        // unspecified source address above.
         socket_metadata
             .as_ref()
-            .and_then(|value| value.source_port.map(|port| port.to_string()))
+            .and_then(|value| value.source_port)
+            .filter(|port| *port > 0)
+            .map(|port| port.to_string())
     };
 
     Some(SensorEvent {
@@ -743,6 +760,52 @@ fn unix_epoch_nanos(timestamp: SystemTime) -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// Does this `/proc/net` entry describe the connection the probe reported?
+///
+/// The metadata is resolved from `/proc/<pid>/fd/<fd>` well after the
+/// `connect()` entry that produced the event. A process that closes and reuses
+/// the descriptor in between — what happy-eyeballs does on every dual-stack
+/// name — hands back a different socket, whose local address and protocol
+/// would then be attributed to this connection. That is the same failure as
+/// reporting an unassigned address: a value nothing downstream can tell apart
+/// from a measured one. Accept the entry only when its remote end is the one
+/// the probe saw.
+fn socket_matches_connection(
+    metadata: &SocketMetadata,
+    destination_ip: &str,
+    destination_port: u16,
+) -> bool {
+    let ip_matches = metadata
+        .destination_ip
+        .as_deref()
+        .is_none_or(|value| same_ip(value, destination_ip));
+    let port_matches = metadata
+        .destination_port
+        .is_none_or(|value| value == destination_port);
+    ip_matches && port_matches
+}
+
+/// Compare two addresses, treating an IPv4-mapped form as its IPv4 address.
+///
+/// A dual-stack socket reaching an IPv4 peer is listed in `/proc/net/tcp6` as
+/// `::ffff:a.b.c.d`, while the probe read `a.b.c.d` out of the `sockaddr`.
+/// They are the same peer.
+fn same_ip(left: &str, right: &str) -> bool {
+    match (left.parse::<IpAddr>(), right.parse::<IpAddr>()) {
+        (Ok(left), Ok(right)) => unmap_ipv4(left) == unmap_ipv4(right),
+        _ => left == right,
+    }
+}
+
+fn unmap_ipv4(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(address) => address
+            .to_ipv4_mapped()
+            .map_or(IpAddr::V6(address), IpAddr::V4),
+        address => address,
+    }
 }
 
 fn filter_unspecified_ip(value: Option<String>) -> Option<String> {
@@ -1134,6 +1197,7 @@ mod tests {
             SensorPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
                 assert!(fields.source_ip.is_none());
+                assert!(fields.source_port.is_none());
                 assert!(fields.protocol.is_none());
             }
             other => panic!("unexpected payload: {:?}", other),
@@ -1165,6 +1229,39 @@ mod tests {
             }
             other => panic!("unexpected payload: {:?}", other),
         }
+    }
+
+    #[test]
+    fn socket_metadata_from_a_reused_descriptor_is_rejected() {
+        // Happy-eyeballs closes the losing socket and the descriptor comes
+        // back for the next attempt, so a late `/proc` read can describe a
+        // connection to a different peer entirely.
+        let reused = SocketMetadata {
+            source_ip: Some("2001:db8::20".to_string()),
+            source_port: Some(41406),
+            destination_ip: Some("2606:4700:10::6814:179a".to_string()),
+            destination_port: Some(443),
+            protocol: Some("tcp".to_string()),
+        };
+        assert!(!socket_matches_connection(&reused, "198.51.100.10", 443));
+
+        let same_peer = SocketMetadata {
+            destination_ip: Some("198.51.100.10".to_string()),
+            ..reused.clone()
+        };
+        assert!(socket_matches_connection(&same_peer, "198.51.100.10", 443));
+
+        // The same host on another port is another connection.
+        assert!(!socket_matches_connection(&same_peer, "198.51.100.10", 80));
+
+        // A dual-stack socket lists an IPv4 peer in v4-mapped form. It is the
+        // same connection, and rejecting it would throw away good data.
+        let dual_stack = SocketMetadata {
+            source_ip: Some("::ffff:192.168.1.27".to_string()),
+            destination_ip: Some("::ffff:198.51.100.10".to_string()),
+            ..reused
+        };
+        assert!(socket_matches_connection(&dual_stack, "198.51.100.10", 443));
     }
 
     #[test]

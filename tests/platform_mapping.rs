@@ -82,11 +82,35 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     match mapped.payload {
         SensorPayload::Network(fields) => {
             assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
+            assert_eq!(fields.source_ip.as_deref(), Some("10.0.0.5"));
             assert_eq!(fields.source_port.as_deref(), Some("51324"));
             // The probe hooks `connect()` only, so a captured connection is
             // outbound by construction.
             assert_eq!(fields.initiated, Some(true));
         }
+        _ => panic!("expected network payload"),
+    }
+
+    // What the probe actually delivers today: `connect()` entry runs before
+    // the socket is bound, so the source address and port arrive zeroed. They
+    // must be reported as absent, not as `0.0.0.0` and `0`.
+    network.sport = 0;
+    network.saddr = [0; 16];
+    let mapped = mapping::network_event_to_sensor(&network);
+    match mapped.payload {
+        SensorPayload::Network(fields) => {
+            assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
+            assert!(fields.source_ip.is_none());
+            assert!(fields.source_port.is_none());
+        }
+        _ => panic!("expected network payload"),
+    }
+
+    // Same for IPv6, where the unassigned address is `::`.
+    network.af = 10;
+    let mapped = mapping::network_event_to_sensor(&network);
+    match mapped.payload {
+        SensorPayload::Network(fields) => assert!(fields.source_ip.is_none()),
         _ => panic!("expected network payload"),
     }
 

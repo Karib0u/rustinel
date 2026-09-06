@@ -74,12 +74,15 @@ pub struct NetworkEvent {
     pub _pad0: u32,
     /// Destination port in host byte order.
     pub dport: u16,
-    /// Source port (may be 0).
+    /// Source port. Zero until the kernel binds the socket, which has not
+    /// happened yet at `connect()` entry.
     pub sport: u16,
     /// Address family: 2 = IPv4, 10 = IPv6.
     pub af: u16,
     pub _pad1: u16,
     pub daddr: [u8; 16],
+    /// Source address. Unspecified (all zero) until the socket is bound; see
+    /// [`sport`](Self::sport).
     pub saddr: [u8; 16],
 }
 
@@ -216,7 +219,7 @@ pub fn bytes_to_string(buf: &[u8]) -> String {
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod mapping {
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::time::SystemTime;
 
     use crate::models::{
@@ -288,9 +291,13 @@ pub mod mapping {
             process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some(ip_to_string(event.af, &event.daddr)),
-                source_ip: Some(ip_to_string(event.af, &event.saddr)),
+                // The probe fires at `connect()` entry, before the kernel
+                // binds the socket, so both source fields arrive zeroed.
+                // Stringifying them would publish `0.0.0.0`/`0` as if they
+                // had been measured; absent is the honest answer.
+                source_ip: source_ip_to_string(event.af, &event.saddr),
                 destination_port: Some(event.dport.to_string()),
-                source_port: Some(event.sport.to_string()),
+                source_port: (event.sport > 0).then(|| event.sport.to_string()),
                 process_id: Some(event.pid.to_string()),
                 image: None,
                 user: Some(event.uid.to_string()),
@@ -383,6 +390,20 @@ pub mod mapping {
             10 => Ipv6Addr::from(*bytes).to_string(),
             _ => Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]).to_string(),
         }
+    }
+
+    /// Source address, or `None` when the kernel has not assigned one.
+    ///
+    /// An unspecified address (`0.0.0.0` / `::`) is the placeholder the socket
+    /// carries before it is bound, never a real local address for an outbound
+    /// connection. Emitting it would be indistinguishable downstream from a
+    /// measured value.
+    fn source_ip_to_string(af: u16, bytes: &[u8; 16]) -> Option<String> {
+        let ip = match af {
+            10 => IpAddr::V6(Ipv6Addr::from(*bytes)),
+            _ => IpAddr::V4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3])),
+        };
+        (!ip.is_unspecified()).then(|| ip.to_string())
     }
 }
 
