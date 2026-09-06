@@ -72,6 +72,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         dport: 443,
         sport: 51324,
         af: 2,
+        sock_type: 2,
         _pad1: 0,
         daddr: [0; 16],
         saddr: [0; 16],
@@ -84,6 +85,9 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
             assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
             assert_eq!(fields.source_ip.as_deref(), Some("10.0.0.5"));
             assert_eq!(fields.source_port.as_deref(), Some("51324"));
+            // The hook covers UDP connects too, so the transport comes from
+            // the socket type rather than a fixed `tcp`.
+            assert_eq!(fields.protocol.as_deref(), Some("udp"));
             // The probe hooks `connect()` only, so a captured connection is
             // outbound by construction.
             assert_eq!(fields.initiated, Some(true));

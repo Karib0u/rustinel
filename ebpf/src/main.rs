@@ -11,6 +11,8 @@
 //! | `handle_execve`       | `syscalls/sys_enter_execve` | capture argv    |
 //! | `handle_execveat`     | `syscalls/sys_enter_execveat`| capture argv   |
 //! | `handle_connect`      | `syscalls/sys_enter_connect`| Event 3         |
+//! | `handle_socket`       | `syscalls/sys_enter_socket` | capture type    |
+//! | `handle_socket_exit`  | `syscalls/sys_exit_socket`  | index fd type   |
 //! | `handle_openat`       | `syscalls/sys_enter_openat` | queue Event 11  |
 //! | `handle_vfs_create`   | `kprobe/vfs_create`         | confirm create  |
 //! | `handle_openat_exit`  | `syscalls/sys_exit_openat`  | emit Event 11   |
