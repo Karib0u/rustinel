@@ -259,6 +259,7 @@ fn process_event(timestamp: &str) -> NormalizedEvent {
         fields: EventFields::ProcessCreation(ProcessCreationFields {
             image: Some("/usr/bin/curl".to_string()),
             image_source: None,
+            image_truncated: None,
             command_line: None,
             process_id: Some("1234".to_string()),
             process_start_time: None,

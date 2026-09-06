@@ -23,6 +23,7 @@ fn write_cstr<const N: usize>(dst: &mut [u8; N], value: &str) {
 fn linux_ebpf_raw_events_map_to_sensor_events() {
     use rustinel::sensor::linux::events::{
         mapping, DnsEvent, FileEvent, NetworkEvent, ProcessEvent, ARGV_CAPACITY, FILE_PATH_LEN,
+        PROCESS_IMAGE_CAPACITY,
     };
     use rustinel::sensor::linux::paths::{DirFdIndex, AT_FDCWD};
     use rustinel::sensor::{SensorAction, SensorPayload};
@@ -34,11 +35,12 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         uid: 1000,
         _pad: 0,
         comm: [0; 16],
-        image: [0; 128],
+        image: [0; PROCESS_IMAGE_CAPACITY],
         args_len: 0,
         args_count: 0,
         args_truncated: 0,
-        _pad1: [0; 3],
+        image_truncated: 0,
+        _pad1: [0; 2],
         args: [0; ARGV_CAPACITY],
     };
     write_cstr(&mut process.image, "/usr/bin/curl");
@@ -56,6 +58,21 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
             fields.command_line.as_deref(),
             Some("/usr/bin/curl -sS https://example.test")
         ),
+        _ => panic!("expected process payload"),
+    }
+
+    let long_image = format!("/{}", "deep/".repeat(64));
+    write_cstr(&mut process.image, &long_image);
+    process.image_truncated = 1;
+    let mapped = mapping::process_event_to_sensor(&process);
+    match mapped.payload {
+        SensorPayload::Process(fields) => {
+            assert_eq!(
+                fields.image.as_deref().map(str::len),
+                Some(PROCESS_IMAGE_CAPACITY - 1)
+            );
+            assert_eq!(fields.image_truncated, Some(true));
+        }
         _ => panic!("expected process payload"),
     }
 

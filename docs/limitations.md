@@ -134,13 +134,12 @@ three platforms, but several Sysmon-style fields are unavailable.
 
 The Linux sensor covers process, network, file, and DNS.
 
-- **Image paths are truncated at 127 bytes, with no marker (silent risk).** A
-  binary at a long path is reported cut, and nothing distinguishes a truncated
-  path from a complete one, so every `Image|endswith` rule fails against it
-  silently ([#307](https://github.com/Karib0u/rustinel/issues/307)). `Image`
-  normally comes from `/proc/<pid>/exe` and is absolute and symlink-resolved,
-  but under burst the raw `execve()` argument is used instead, which is both
-  truncated and possibly relative
+- **The raw image-path fallback is capped at 255 bytes.** `Image` normally
+  comes from `/proc/<pid>/exe` and is absolute and symlink-resolved. Under a
+  burst the sensor may instead use the raw `execve()` argument; when its suffix
+  does not fit, `ImageTruncated` and `edr.process.image_truncated` mark the path
+  as incomplete ([#307](https://github.com/Karib0u/rustinel/issues/307)). The
+  raw argument may also be relative
   ([#308](https://github.com/Karib0u/rustinel/issues/308)).
 - **Kernel-captured argv is bounded.** Argv is snapshotted at `execve` entry, so
   a process that exits before the ring is drained still reports its command

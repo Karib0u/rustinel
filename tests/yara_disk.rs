@@ -84,6 +84,7 @@ fn build_yara_alert(
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(path.to_string()),
                 image_source: None,
+                image_truncated: None,
                 original_file_name: None,
                 product: None,
                 description: None,

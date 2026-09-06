@@ -203,6 +203,7 @@ mod tests {
         let fields = ProcessCreationFields {
             image: Some("/usr/bin/curl".to_string()),
             image_source: None,
+            image_truncated: Some(true),
             original_file_name: None,
             product: None,
             description: None,
@@ -229,13 +230,19 @@ mod tests {
                 .and_then(|value| value.as_str().map(Cow::into_owned)),
             Some("curl http://example.test".to_string())
         );
+        assert_eq!(
+            adapter.get_field("ImageTruncated"),
+            Some(EventValue::Str(Cow::Borrowed("true")))
+        );
         let keys = adapter.field_keys();
         assert!(keys.iter().any(|key| key.as_ref() == "Image"));
+        assert!(keys.iter().any(|key| key.as_ref() == "ImageTruncated"));
         assert!(keys.iter().any(|key| key.as_ref() == "CommandLine"));
         // ProcessStartTime is numeric, so it is not a string value.
         let values = adapter.all_string_values();
         assert!(values.iter().any(|value| value.as_ref() == "/usr/bin/curl"));
         assert!(values.iter().any(|value| value.contains("example.test")));
+        assert!(values.iter().all(|value| value.as_ref() != "true"));
     }
 
     #[test]

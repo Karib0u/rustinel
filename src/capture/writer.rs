@@ -417,6 +417,7 @@ mod tests {
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                 image_source: None,
+                image_truncated: None,
                 original_file_name: None,
                 product: None,
                 description: None,

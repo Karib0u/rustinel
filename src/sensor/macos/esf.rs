@@ -315,6 +315,7 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
         payload: SensorPayload::Process(ProcessCreationFields {
             image: Some(raw.image),
             image_source: None,
+            image_truncated: None,
             original_file_name: None,
             product: None,
             description: None,
@@ -365,6 +366,7 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
         payload: SensorPayload::Process(ProcessCreationFields {
             image: None,
             image_source: None,
+            image_truncated: None,
             original_file_name: None,
             product: None,
             description: None,

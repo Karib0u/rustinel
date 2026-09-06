@@ -102,6 +102,12 @@ pub struct EcsAlert {
         skip_serializing_if = "Option::is_none"
     )]
     pub edr_process_image_source: Option<String>,
+    /// True when `process.executable` is missing its captured suffix.
+    #[serde(
+        rename = "edr.process.image_truncated",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_image_truncated: Option<bool>,
 
     #[serde(rename = "process.name", skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,

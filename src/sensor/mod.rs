@@ -323,6 +323,7 @@ mod tests {
         let payload = SensorPayload::Process(ProcessCreationFields {
             image: Some("/usr/bin/bash".to_string()),
             image_source: None,
+            image_truncated: None,
             original_file_name: None,
             product: None,
             description: None,
