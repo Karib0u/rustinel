@@ -179,13 +179,17 @@ The Linux sensor covers process, network, file, and DNS.
 - **Network is outbound `connect()` only.** No inbound or `accept()` visibility,
   so every event carries `Initiated: true` and a rule selecting
   `Initiated: 'false'` has nothing to match on Linux — inbound connections are
-  absent rather than misreported. Because capture is at syscall entry, failed
-  connections are reported as connections, and `SourceIp`/`SourcePort` are not
-  yet assigned — they are **reported as absent**, never as `0.0.0.0`/`0`. A
-  `/proc/net` lookup fills them in when it provably describes the same
-  connection, which under happy-eyeballs it usually does not, so most Linux
-  network events carry no source address or port until the two-phase connect
-  capture lands ([#301](https://github.com/Karib0u/rustinel/issues/301)). Only
+  absent rather than misreported. Capture is split across syscall entry and
+  exit, so a `connect()` that is refused, unreachable, or times out is dropped
+  instead of being reported as a connection. A non-blocking connect is the
+  exception: it returns `EINPROGRESS` immediately and its outcome is delivered
+  on the socket long after the syscall returns, so it is reported when the
+  attempt starts and a later asynchronous failure is not retracted.
+  `SourceIp`/`SourcePort` are **reported as absent**, never as `0.0.0.0`/`0`:
+  the syscall never carries them and the probe does not read the bound address
+  back out of the socket. A `/proc/net` lookup fills them in when it provably
+  describes the same connection, which under happy-eyeballs it usually does
+  not, so most Linux network events carry no source address or port. Only
   AF_INET and AF_INET6.
 - **`Protocol` is absent for sockets created before the sensor started.** The
   transport comes from the type the socket was created with, so `socket(2)` is

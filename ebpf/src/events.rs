@@ -50,6 +50,36 @@ pub struct ProcessEvent {
     pub args: [u8; ARGV_CAPACITY],
 }
 
+/// `connect(2)` succeeded — the connection is established.
+pub const CONNECT_RESULT_OK: i32 = 0;
+
+/// `-EINPROGRESS`: a non-blocking `connect(2)` has been started and the
+/// handshake is under way. Every asynchronous client returns this, so it must
+/// count as a connection.
+pub const CONNECT_RESULT_EINPROGRESS: i32 = -115;
+
+/// `-EINTR`: a signal interrupted the wait. The kernel completes the connect
+/// in the background, so this is an attempt that was made, not one that
+/// failed.
+pub const CONNECT_RESULT_EINTR: i32 = -4;
+
+/// Whether a `connect(2)` return value describes a connection that was
+/// established or is under way.
+///
+/// Everything else — `ECONNREFUSED`, `EHOSTUNREACH`, `ETIMEDOUT`,
+/// `ENETUNREACH`, and the rest — is a failed attempt and is not a connection.
+/// `EALREADY` and `EISCONN` are excluded for a different reason: they report a
+/// connect that an earlier call already emitted.
+///
+/// **Mirrored in `src/sensor/linux/events.rs`** — keep both copies in step.
+#[inline(always)]
+pub fn connect_result_is_connection(result: i32) -> bool {
+    matches!(
+        result,
+        CONNECT_RESULT_OK | CONNECT_RESULT_EINPROGRESS | CONNECT_RESULT_EINTR
+    )
+}
+
 /// The sensor did not watch this socket being created, so its type is not
 /// known. Userspace reports no `Protocol` rather than guessing one.
 pub const SOCK_TYPE_UNKNOWN: u8 = 0;
@@ -60,8 +90,9 @@ pub const SOCK_STREAM: u8 = 1;
 /// `SOCK_DGRAM` — UDP for AF_INET and AF_INET6.
 pub const SOCK_DGRAM: u8 = 2;
 
-/// Outbound connection event. Emitted by `handle_connect` on
-/// `syscalls/sys_enter_connect`.
+/// Outbound connection event. Queued by `handle_connect` on
+/// `syscalls/sys_enter_connect` and emitted by `handle_connect_exit` on
+/// `syscalls/sys_exit_connect`, which drops attempts that never connected.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NetworkEvent {
@@ -71,7 +102,10 @@ pub struct NetworkEvent {
     pub uid: u32,
     /// Socket file descriptor supplied to `connect(2)`.
     pub fd: i32,
-    pub _pad0: u32,
+    /// `connect(2)` return value: 0, or the negative errno of a connect that
+    /// is still under way. Failed attempts are never emitted, so this is
+    /// always one of the values [`connect_result_is_connection`] accepts.
+    pub ret: i32,
     /// Destination port in **host** byte order.
     pub dport: u16,
     /// Source port (best-effort; may be 0 before bind completes).
