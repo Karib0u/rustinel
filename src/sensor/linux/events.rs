@@ -62,6 +62,32 @@ impl ProcessEvent {
     }
 }
 
+/// `connect(2)` succeeded — the connection is established.
+pub const CONNECT_RESULT_OK: i32 = 0;
+
+/// `-EINPROGRESS`: a non-blocking `connect(2)` is under way.
+pub const CONNECT_RESULT_EINPROGRESS: i32 = -115;
+
+/// `-EINTR`: a signal interrupted the wait; the kernel completes the connect
+/// in the background.
+pub const CONNECT_RESULT_EINTR: i32 = -4;
+
+/// Whether a `connect(2)` return value describes a connection that was
+/// established or is under way.
+///
+/// **Mirrors `connect_result_is_connection` in `ebpf/src/events.rs`.** The
+/// kernel already drops everything this rejects, so the check here is the
+/// decode-side half of the same contract: an event that reaches userspace
+/// carrying a failure code did not come from the emit path this file
+/// describes, and reporting it as a connection is exactly the defect
+/// [#301](https://github.com/Karib0u/rustinel/issues/301) fixed.
+pub fn connect_result_is_connection(result: i32) -> bool {
+    matches!(
+        result,
+        CONNECT_RESULT_OK | CONNECT_RESULT_EINPROGRESS | CONNECT_RESULT_EINTR
+    )
+}
+
 /// The kernel did not watch this socket being created, so its type is not
 /// known. Mirrors `SOCK_TYPE_UNKNOWN` in `ebpf/src/events.rs`.
 pub const SOCK_TYPE_UNKNOWN: u8 = 0;
@@ -72,8 +98,9 @@ pub const SOCK_STREAM: u8 = 1;
 /// `SOCK_DGRAM` — UDP for AF_INET and AF_INET6.
 pub const SOCK_DGRAM: u8 = 2;
 
-/// Outbound connection event. Produced by `handle_connect`
-/// (`syscalls/sys_enter_connect`).
+/// Outbound connection event. Produced by `handle_connect_exit`
+/// (`syscalls/sys_exit_connect`), which emits only the attempts that
+/// connected.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NetworkEvent {
@@ -81,7 +108,9 @@ pub struct NetworkEvent {
     pub uid: u32,
     /// Connected socket file descriptor.
     pub fd: i32,
-    pub _pad0: u32,
+    /// `connect(2)` return value — always one of the values
+    /// [`connect_result_is_connection`] accepts.
+    pub ret: i32,
     /// Destination port in host byte order.
     pub dport: u16,
     /// Source port. Zero until the kernel binds the socket, which has not
@@ -210,8 +239,13 @@ const _: () = assert!(
         && core::mem::offset_of!(ProcessEvent, args) == 168,
     "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
 );
+// `ret` and `sock_type` took over slots that used to be explicit padding, so a
+// stale copy of either side would decode zeros there and pass every event off
+// as a successful connect of unknown transport. Pin both offsets so that fails
+// the build instead.
 const _: () = assert!(
     core::mem::size_of::<NetworkEvent>() == 56
+        && core::mem::offset_of!(NetworkEvent, ret) == 12
         && core::mem::offset_of!(NetworkEvent, sock_type) == 22,
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
@@ -490,7 +524,7 @@ mod tests {
             pid: 42,
             uid: 1000,
             fd: 3,
-            _pad0: 0,
+            ret: 0,
             dport: 53,
             sport: 0,
             af: 2,
