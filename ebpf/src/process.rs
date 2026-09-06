@@ -48,14 +48,12 @@ use aya_ebpf::{
     EbpfContext,
 };
 
-use crate::events::{ProcessEvent, ARGV_CAPACITY};
+use crate::events::{ProcessEvent, ARGV_CAPACITY, PROCESS_IMAGE_CAPACITY};
 
 /// Ring buffer shared with the userspace loader for process events.
 ///
-/// 2 MiB: carrying argv grew `ProcessEvent` from 160 to 680 bytes, so the
-/// previous 512 KiB held roughly a quarter as many events. Sizing up keeps
-/// the same burst headroom in *events*, which is what a `reserve` failure —
-/// a silently dropped process event — actually depends on.
+/// The 808-byte event leaves room for more than 2,500 queued events, including
+/// the measured 1,600-event burst that motivated the image-path fallback.
 #[map]
 pub static PROCESS_RING: RingBuf = RingBuf::with_byte_size(2 * 1024 * 1024, 0);
 
@@ -141,13 +139,14 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     // High 16 bits = string length (including null terminator).
     let data_loc: u32 = ctx.read_at::<u32>(8)?;
     let str_offset = (data_loc & 0xFFFF) as usize;
+    let str_len = (data_loc >> 16) as usize;
     let fname_ptr = (ctx.as_ptr() as usize + str_offset) as *const u8;
 
     // Read comm and image into local buffers, then copy into ring-buffer entry.
     // Keep buffers small enough to stay within the 512-byte BPF stack limit —
     // `args` is copied straight from map memory for the same reason.
     let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
-    let mut image = [0u8; 128];
+    let mut image = [0u8; PROCESS_IMAGE_CAPACITY];
 
     // Read null-terminated executable path from kernel tracepoint data.
     // Ignore errors — an empty image is still a useful process event.
@@ -164,7 +163,8 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     (*event)._pad = 0;
     (*event).comm = comm;
     (*event).image = image;
-    (*event)._pad1 = [0u8; 3];
+    (*event).image_truncated = (str_len > image.len()) as u8;
+    (*event)._pad1 = [0u8; 2];
 
     attach_pending_argv(event, old_pid);
 
@@ -312,11 +312,12 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).uid = uid;
     (*event)._pad = 0;
     (*event).comm = comm;
-    (*event).image = [0u8; 128];
+    (*event).image = [0u8; PROCESS_IMAGE_CAPACITY];
     (*event).args_len = 0;
     (*event).args_count = 0;
     (*event).args_truncated = 0;
-    (*event)._pad1 = [0u8; 3];
+    (*event).image_truncated = 0;
+    (*event)._pad1 = [0u8; 2];
 
     entry.submit(0);
 

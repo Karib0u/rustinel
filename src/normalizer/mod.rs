@@ -486,6 +486,8 @@ mod tests {
             }),
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: Some("/usr/bin/curl".to_string()),
+                image_source: None,
+                image_truncated: None,
                 original_file_name: None,
                 product: None,
                 description: None,
@@ -527,6 +529,8 @@ mod tests {
             }),
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
+                image_source: None,
+                image_truncated: None,
                 original_file_name: None,
                 product: None,
                 description: None,
@@ -652,6 +656,8 @@ mod tests {
             }),
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
+                image_source: None,
+                image_truncated: None,
                 original_file_name: None,
                 product: None,
                 description: None,

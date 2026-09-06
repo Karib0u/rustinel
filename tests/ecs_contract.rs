@@ -13,7 +13,7 @@ use rustinel::models::{
     PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
     SecurityAuditFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
-use rustinel::sensor::Platform;
+use rustinel::sensor::{Platform, SensorPayload};
 use serde_json::json;
 
 fn security_audit_fields(pairs: &[(&str, &str)]) -> SecurityAuditFields {
@@ -43,6 +43,30 @@ fn alert(category: EventCategory, event_id: u16, opcode: u8, fields: EventFields
             process_context: None,
         },
         match_details: None,
+    }
+}
+
+#[test]
+fn linux_process_image_source_survives_normalization_and_maps_to_ecs() {
+    for source in ["proc", "execve"] {
+        let fixture = TestNormalizer::new(false);
+        let mut event = process_start_event(Platform::Linux);
+        let SensorPayload::Process(fields) = &mut event.payload else {
+            panic!("expected process payload");
+        };
+        fields.image_source = Some(source.to_string());
+
+        let normalized = fixture
+            .normalizer
+            .normalize(&event)
+            .expect("normalize Linux process start");
+        assert_eq!(normalized.get_field("ImageSource"), Some(source));
+
+        let mut alert = alert(EventCategory::Process, 1, 1, normalized.fields);
+        alert.event.platform = Platform::Linux;
+        alert.event.provider = "ebpf".to_string();
+        let json = ecs_json(&alert);
+        assert_ecs_field_eq(&json, "edr.process.image_source", source);
     }
 }
 
@@ -105,6 +129,8 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 1,
                 EventFields::ProcessCreation(ProcessCreationFields {
                     image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+                    image_source: None,
+                    image_truncated: None,
                     command_line: Some("cmd.exe /c whoami".to_string()),
                     process_id: Some("111".to_string()),
                     process_start_time: None,
@@ -465,6 +491,8 @@ fn ecs_version_field_is_9_4_0() {
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
             image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+            image_source: None,
+            image_truncated: None,
             command_line: None,
             process_id: None,
             process_start_time: None,
@@ -486,6 +514,38 @@ fn ecs_version_field_is_9_4_0() {
 }
 
 #[test]
+fn ecs_process_image_truncation_marker_is_preserved() {
+    let long_prefix = format!("/{}", "deep/".repeat(52));
+    let json = ecs_json(&alert(
+        EventCategory::Process,
+        1,
+        1,
+        EventFields::ProcessCreation(ProcessCreationFields {
+            image: Some(long_prefix),
+            image_source: None,
+            image_truncated: Some(true),
+            command_line: None,
+            process_id: Some("111".to_string()),
+            process_start_time: None,
+            parent_image: None,
+            parent_process_id: None,
+            parent_command_line: None,
+            current_directory: None,
+            integrity_level: None,
+            user: None,
+            original_file_name: None,
+            product: None,
+            description: None,
+            company: None,
+            file_version: None,
+            target_image: None,
+        }),
+    ));
+
+    assert_ecs_field_eq(&json, "edr.process.image_truncated", true);
+}
+
+#[test]
 fn test_rule_id_mapping_and_omit_behavior() {
     // 1. Sigma with ID
     let alert_sigma_with_id = Alert {
@@ -504,6 +564,8 @@ fn test_rule_id_mapping_and_omit_behavior() {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+                image_source: None,
+                image_truncated: None,
                 command_line: None,
                 process_id: None,
                 process_start_time: None,

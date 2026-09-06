@@ -62,6 +62,8 @@ mod tests {
     fn process_fields(image: &str) -> ProcessCreationFields {
         ProcessCreationFields {
             image: Some(image.to_string()),
+            image_source: None,
+            image_truncated: None,
             original_file_name: None,
             product: None,
             description: None,

@@ -697,6 +697,8 @@ fn build_critical_process_alert(pid: u32, image: &str) -> rustinel::models::Aler
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(image.to_string()),
+                image_source: None,
+                image_truncated: None,
                 process_id: Some(pid.to_string()),
                 process_start_time: None,
                 command_line: None,

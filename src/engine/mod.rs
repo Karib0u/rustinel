@@ -117,6 +117,10 @@ pub struct Engine {
     /// Unknown logsource counts by normalized tuple.
     unknown_logsource_counts: HashMap<LogSourceKey, usize>,
 
+    /// Loaded-but-inert rule counts by normalized tuple: the logsource is one
+    /// Rustinel understands, but no collector on this platform feeds it.
+    inactive_collector_counts: HashMap<LogSourceKey, usize>,
+
     /// Controls whether match debug details are attached to alerts.
     match_debug: MatchDebugLevel,
 }
@@ -161,6 +165,7 @@ impl Engine {
             inactive_collector_rules: 0,
             deferred_logsource_counts: HashMap::new(),
             unknown_logsource_counts: HashMap::new(),
+            inactive_collector_counts: HashMap::new(),
             match_debug,
         }
     }
@@ -278,14 +283,22 @@ mod tests {
 
     /// Load one rule from a temporary file, exercising the real loader.
     fn engine_with_rule(platform: Platform, rule_yaml: &str) -> Engine {
+        engine_with_rules(platform, &[rule_yaml])
+    }
+
+    /// Load several rules from one temporary directory through the real loader.
+    fn engine_with_rules(platform: Platform, rules_yaml: &[&str]) -> Engine {
         let dir = tempfile::tempdir().expect("temporary rule directory");
-        std::fs::write(dir.path().join("rule.yml"), rule_yaml).expect("write rule");
+        for (index, rule_yaml) in rules_yaml.iter().enumerate() {
+            std::fs::write(dir.path().join(format!("rule{index}.yml")), rule_yaml)
+                .expect("write rule");
+        }
         let mut engine = Engine::new_for_platform(platform);
         engine.load_rules(dir.path()).expect("rules should load");
         assert_eq!(
             engine.stats().failed_rules,
             Vec::<(String, String)>::new(),
-            "the fixture rule should load cleanly"
+            "the fixture rules should load cleanly"
         );
         engine
     }
@@ -433,6 +446,92 @@ level: medium
         let stats = engine.stats();
         assert_eq!(stats.total_rules, 1, "the rule still loads");
         assert_eq!(stats.inactive_collector_rules, 1);
+    }
+
+    #[test]
+    fn inert_rules_are_grouped_by_missing_telemetry_category() {
+        let engine = engine_with_rules(
+            Platform::Linux,
+            &[
+                r#"title: Linux Timestomp
+logsource:
+  product: linux
+  service: sysmon
+  category: file_change
+detection:
+  selection:
+    TargetFilename|endswith: ".sh"
+  condition: selection
+"#,
+                r#"title: Linux Timestomp Two
+logsource:
+  product: linux
+  service: sysmon
+  category: file_change
+detection:
+  selection:
+    TargetFilename|endswith: ".py"
+  condition: selection
+"#,
+                r#"title: Linux DNS Network
+logsource:
+  product: linux
+  service: dns
+detection:
+  selection:
+    query|contains: evil.example
+  condition: selection
+"#,
+                r#"title: Linux Process
+logsource:
+  product: linux
+  service: sysmon
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: bash
+  condition: selection
+"#,
+            ],
+        );
+
+        let stats = engine.stats();
+        assert_eq!(stats.total_rules, 4, "every rule still loads");
+        assert_eq!(stats.inactive_collector_rules, 3);
+        assert_eq!(
+            stats.inactive_collector_categories,
+            std::collections::BTreeMap::from([
+                ("file_change".to_string(), 2),
+                ("service:dns".to_string(), 1),
+            ])
+        );
+        assert_eq!(
+            stats.inactive_collector_summary().as_deref(),
+            Some("file_change (2), service:dns (1)"),
+            "the summary orders the largest telemetry gap first"
+        );
+    }
+
+    #[test]
+    fn a_fully_backed_ruleset_reports_no_inert_rules() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Linux Process
+logsource:
+  product: linux
+  service: sysmon
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: bash
+  condition: selection
+"#,
+        );
+
+        let stats = engine.stats();
+        assert_eq!(stats.inactive_collector_rules, 0);
+        assert!(stats.inactive_collector_categories.is_empty());
+        assert_eq!(stats.inactive_collector_summary(), None);
     }
 
     #[test]
@@ -616,6 +715,8 @@ detection:
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(image.to_string()),
+                image_source: None,
+                image_truncated: None,
                 command_line: Some(command_line.to_string()),
                 process_id: Some("1234".to_string()),
                 process_start_time: None,

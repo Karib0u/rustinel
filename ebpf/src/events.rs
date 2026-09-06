@@ -16,6 +16,9 @@
 /// userspace loader then falls back to `/proc/<pid>/cmdline`.
 pub const ARGV_CAPACITY: usize = 512;
 
+/// Bytes captured for the executable image, including the NUL terminator.
+pub const PROCESS_IMAGE_CAPACITY: usize = 256;
+
 /// Process lifecycle event.
 ///
 /// - kind 1 = exec (`sched_process_exec`)
@@ -32,17 +35,19 @@ pub struct ProcessEvent {
     pub _pad: u32,
     /// Null-terminated process name (`comm`, up to 15 chars).
     pub comm: [u8; 16],
-    /// Null-terminated executable path (up to 127 chars).
+    /// Null-terminated executable path (up to 255 bytes).
     ///
     /// Empty for exit events.
-    pub image: [u8; 128],
+    pub image: [u8; PROCESS_IMAGE_CAPACITY],
     /// Number of valid bytes in `args`. Zero when no argv was captured.
     pub args_len: u16,
     /// Number of argv entries captured in `args`.
     pub args_count: u16,
     /// 1 when argv did not fit the capture limits, 0 when complete.
     pub args_truncated: u8,
-    pub _pad1: [u8; 3],
+    /// 1 when `image` did not fit its capture buffer, 0 when complete.
+    pub image_truncated: u8,
+    pub _pad1: [u8; 2],
     /// Argv captured at `execve` entry, NUL-separated (no trailing NUL
     /// guaranteed). Only the first `args_len` bytes are meaningful.
     ///

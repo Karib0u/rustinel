@@ -231,8 +231,8 @@ is not collected.
 Sigma evaluates the shared `NormalizedEvent` model using Sysmon-style field
 names.
 
-- **Process:** `Image`, `CommandLine`, `User`, `ProcessId`, `ParentImage`,
-  `ParentCommandLine`
+- **Process:** `Image`, `ImageSource`, `ImageTruncated`, `CommandLine`, `User`,
+  `ProcessId`, `ParentImage`, `ParentCommandLine`
 - **Network:** `DestinationIp`, `DestinationPort`, `SourceIp`, `SourcePort`,
   `DestinationHostname`, `Protocol`, `Initiated`
 - **File:** `TargetFilename`, `Image`, `ProcessId`, `User`, plus
@@ -268,8 +268,12 @@ Per-platform process notes:
   bytes, 32 arguments, and 127 bytes per argument. `Image` resolves from
   `/proc/<pid>/exe`, which is absolute and symlink-resolved, but short-lived
   processes fall back to the raw `execve()` argument, which may be relative and
-  is capped at 127 bytes. `ParentImage`, `ParentProcessId`, `ParentCommandLine`, and
-  `CurrentDirectory` are enriched from `/proc` and may be absent.
+  is capped at 255 bytes. When that fallback is cut, `ImageTruncated` is `true`
+  and ECS carries `edr.process.image_truncated`; the marker is absent when
+  `/proc` supplies the complete path. `ImageSource` distinguishes the two cases
+  with `proc` or `execve`. `ParentImage`, `ParentProcessId`,
+  `ParentCommandLine`, and `CurrentDirectory` are enriched from `/proc` and may
+  be absent.
 - **macOS:** ESF exec events carry `CommandLine`, `ParentImage`,
   `ParentProcessId`, and `CurrentDirectory` natively. `ParentCommandLine` is not
   provided, and `IntegrityLevel` is a Windows field with no macOS equivalent.

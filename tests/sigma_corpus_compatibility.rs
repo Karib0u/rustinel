@@ -49,6 +49,8 @@ struct PlatformSummary {
     rules_by_logsource: BTreeMap<String, usize>,
     deferred_logsources: BTreeMap<String, usize>,
     unknown_logsources: BTreeMap<String, usize>,
+    /// Loaded rules with no backing collector, by missing telemetry category.
+    inactive_collector_categories: BTreeMap<String, usize>,
     failures: Vec<RuleFailure>,
 }
 
@@ -116,8 +118,14 @@ fn scan_platform(corpus_dir: &Path, platform: Platform) -> anyhow::Result<Platfo
         skipped_deferred_rules,
         skipped_unknown_logsource_rules,
         inactive_collector_rules,
+        inactive_collector_categories,
+        inactive_collector_logsources: _,
     } = engine.stats();
 
+    anyhow::ensure!(
+        inactive_collector_categories.values().sum::<usize>() == inactive_collector_rules,
+        "inactive collector categories do not account for all {inactive_collector_rules} inert rules"
+    );
     anyhow::ensure!(
         inactive_collector_rules <= total_rules,
         "inactive collector count {inactive_collector_rules} exceeds loaded count {total_rules}"
@@ -187,6 +195,7 @@ fn scan_platform(corpus_dir: &Path, platform: Platform) -> anyhow::Result<Platfo
         rules_by_logsource: rules_by_logsource.into_iter().collect(),
         deferred_logsources: deferred_logsource_rules.into_iter().collect(),
         unknown_logsources: unknown_logsource_rules.into_iter().collect(),
+        inactive_collector_categories,
         failures,
     })
 }
@@ -249,6 +258,8 @@ fn process_event(timestamp: &str) -> NormalizedEvent {
         opcode: 1,
         fields: EventFields::ProcessCreation(ProcessCreationFields {
             image: Some("/usr/bin/curl".to_string()),
+            image_source: None,
+            image_truncated: None,
             command_line: None,
             process_id: Some("1234".to_string()),
             process_start_time: None,
