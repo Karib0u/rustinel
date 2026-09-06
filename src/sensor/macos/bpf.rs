@@ -425,10 +425,17 @@ fn run_capture(device: BpfDevice, tx: Sender<SensorEvent>, shutdown: Arc<AtomicB
 /// process, perform the libproc socket lookup off the capture thread, and
 /// forward the (now best-effort attributed) event to the pipeline. Exits when
 /// the capture thread drops its sender.
+///
+/// Each wake-up drains everything already queued and resolves the whole batch
+/// against one [`socket::SocketOwnerCache`], so a burst of connections costs
+/// one system-wide scan rather than one per connection.
 fn run_attribution_worker(rx: Receiver<AttributionJob>, tx: Sender<SensorEvent>) {
-    while let Ok(mut job) = rx.recv() {
-        apply_socket_owner(&mut job.event, job.local_port, job.remote_port);
-        try_send(&tx, job.event);
+    let mut cache = socket::SocketOwnerCache::new(socket::INVENTORY_TTL);
+    while let Ok(job) = rx.recv() {
+        for mut job in std::iter::once(job).chain(rx.try_iter()) {
+            apply_socket_owner(&mut cache, &mut job.event, job.local_port, job.remote_port);
+            try_send(&tx, job.event);
+        }
     }
 }
 
@@ -506,11 +513,16 @@ fn enqueue_attribution(
 }
 
 /// Best-effort: attribute a connection event to its owning process by matching
-/// the connection's ports against open sockets. Failures leave the event
-/// unattributed (the normalizer still enriches by destination). Runs on the
-/// attribution worker, never on the capture thread.
-fn apply_socket_owner(event: &mut SensorEvent, local_port: u16, remote_port: u16) {
-    let Some(owner) = socket::find_tcp_socket_owner(local_port, remote_port) else {
+/// the connection's ports against the cached socket inventory. Failures leave
+/// the event unattributed (the normalizer still enriches by destination). Runs
+/// on the attribution worker, never on the capture thread.
+fn apply_socket_owner(
+    cache: &mut socket::SocketOwnerCache,
+    event: &mut SensorEvent,
+    local_port: u16,
+    remote_port: u16,
+) {
+    let Some(owner) = cache.find_tcp_socket_owner(local_port, remote_port) else {
         return;
     };
     event.pid = Some(owner.pid);
