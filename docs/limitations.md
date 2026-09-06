@@ -14,7 +14,7 @@ full rather than hide them.
 | --- | --- |
 | Process events carry no hashes (`Hashes` / `Imphash`) | Windows |
 | Several modelled process fields are never populated | Windows |
-| Rules are silently inert when no collector backs their logsource | Engine |
+| Rules are inert when no collector backs their logsource (counted, not prevented) | Engine |
 | Telemetry is dropped under burst load (counted, not prevented) | Pipeline |
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
@@ -179,13 +179,17 @@ The Linux sensor covers process, network, file, and DNS.
 - **Network is outbound `connect()` only.** No inbound or `accept()` visibility,
   so every event carries `Initiated: true` and a rule selecting
   `Initiated: 'false'` has nothing to match on Linux — inbound connections are
-  absent rather than misreported. Because capture is at syscall entry, failed
-  connections are reported as connections, and `SourceIp`/`SourcePort` are not
-  yet assigned — they are **reported as absent**, never as `0.0.0.0`/`0`. A
-  `/proc/net` lookup fills them in when it provably describes the same
-  connection, which under happy-eyeballs it usually does not, so most Linux
-  network events carry no source address or port until the two-phase connect
-  capture lands ([#301](https://github.com/Karib0u/rustinel/issues/301)). Only
+  absent rather than misreported. Capture is split across syscall entry and
+  exit, so a `connect()` that is refused, unreachable, or times out is dropped
+  instead of being reported as a connection. A non-blocking connect is the
+  exception: it returns `EINPROGRESS` immediately and its outcome is delivered
+  on the socket long after the syscall returns, so it is reported when the
+  attempt starts and a later asynchronous failure is not retracted.
+  `SourceIp`/`SourcePort` are **reported as absent**, never as `0.0.0.0`/`0`:
+  the syscall never carries them and the probe does not read the bound address
+  back out of the socket. A `/proc/net` lookup fills them in when it provably
+  describes the same connection, which under happy-eyeballs it usually does
+  not, so most Linux network events carry no source address or port. Only
   AF_INET and AF_INET6.
 - **`Protocol` is absent for sockets created before the sensor started.** The
   transport comes from the type the socket was created with, so `socket(2)` is
@@ -233,7 +237,11 @@ would succeed.
 - **Rules are inert without a backing collector (silent risk).** Rules for a
   product or category the running platform does not collect load successfully
   and never fire. On Linux and macOS a large share of a Windows-oriented ruleset
-  is dead weight. **Do not read rule count as coverage.** See
+  is dead weight. **Do not read rule count as coverage.** The count is now
+  reported rather than silent: rule loading logs how many rules have no backing
+  collector, grouped by the missing telemetry category, and `rustinel doctor`
+  repeats it as the `sigma_rules_inert` check. Rules whose logsource names
+  another product are skipped at load instead, and counted separately. See
   [Sigma Coverage](coverage.md) for the measured share of SigmaHQ that can fire
   per platform; per-rule diagnostics are tracked by
   [#184](https://github.com/Karib0u/rustinel/issues/184).

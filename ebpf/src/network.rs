@@ -1,10 +1,18 @@
 //! Network connection eBPF programs.
 //!
-//! `handle_connect` attaches to `syscalls/sys_enter_connect`. It fires when a
-//! process calls `connect(2)`, covering both TCP and UDP outbound connections.
-//! Reading the sockaddr at the syscall entry point gives us the destination
-//! before the kernel acts on it, while still running in full task context so
-//! `bpf_get_current_pid_tgid()` is valid.
+//! A `connect(2)` is captured across `syscalls/sys_enter_connect` and
+//! `syscalls/sys_exit_connect`, because neither point alone can describe the
+//! event. The destination sockaddr lives in user memory that is only
+//! guaranteed readable while the syscall is on its way in, so entry is where
+//! it has to be read; entry also runs in full task context, so
+//! `bpf_get_current_pid_tgid()` is valid. Whether a connection was made is
+//! only known at exit — hooking entry alone reports `ECONNREFUSED`,
+//! `EHOSTUNREACH`, and `ETIMEDOUT` as connections.
+//!
+//! `handle_connect` therefore stashes the candidate in a per-thread map and
+//! `handle_connect_exit` emits it only when the return value says a connection
+//! was established or is under way. Everything else is dropped in the kernel,
+//! so a failed attempt never reaches the ring buffer, let alone a rule.
 //!
 //! `connect(2)` itself never says which transport it speaks — that was decided
 //! when the socket was created. So `socket(2)` is watched as well and the type
@@ -34,6 +42,9 @@
 //!   offset 24: uservaddr           (u64 — pointer to user-space sockaddr)
 //!   offset 32: addrlen             (i32)
 //!
+//! sys_exit_connect tracepoint format (same header):
+//!   offset 16: ret                 (i64)
+//!
 //! sys_enter_socket tracepoint format (same header):
 //!   offset 16: family              (i64)
 //!   offset 24: type                (i64 — socket type OR'd with SOCK_* flags)
@@ -49,7 +60,7 @@ use aya_ebpf::{
     programs::TracePointContext,
 };
 
-use crate::events::{NetworkEvent, SOCK_TYPE_UNKNOWN};
+use crate::events::{connect_result_is_connection, NetworkEvent, SOCK_TYPE_UNKNOWN};
 
 /// AF_INET (IPv4).
 const AF_INET: u16 = 2;
@@ -101,10 +112,26 @@ static SOCKET_PENDING: HashMap<u32, u8> = HashMap::with_max_entries(16_384, 0);
 #[map]
 static SOCKET_TYPES: LruHashMap<u64, u8> = LruHashMap::with_max_entries(16_384, 0);
 
-/// Tracepoint handler for `syscalls/sys_enter_connect`.
+/// Connect candidate a thread is currently inside, keyed by TID.
+///
+/// A thread is inside exactly one `connect(2)` at a time, so one slot per
+/// thread is enough to carry the event from entry to exit. At 56 bytes per
+/// entry this map costs well under a megabyte of kernel memory.
+#[map]
+static NETWORK_PENDING: HashMap<u32, NetworkEvent> = HashMap::with_max_entries(16_384, 0);
+
+/// Tracepoint handler for `syscalls/sys_enter_connect`, where the destination
+/// is still readable.
 #[tracepoint]
 pub fn handle_connect(ctx: TracePointContext) -> u32 {
     unsafe { try_handle_connect(&ctx) }.unwrap_or(1)
+}
+
+/// Tracepoint handler for `syscalls/sys_exit_connect`, where the outcome of
+/// the attempt is finally known.
+#[tracepoint]
+pub fn handle_connect_exit(ctx: TracePointContext) -> u32 {
+    unsafe { try_handle_connect_exit(&ctx) }.unwrap_or(1)
 }
 
 /// Tracepoint handler for `syscalls/sys_enter_socket`, where the socket type
@@ -183,7 +210,15 @@ unsafe fn try_handle_socket_exit(ctx: &TracePointContext) -> Result<u32, i64> {
 #[inline(always)]
 unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
     // pid_tgid: high 32 bits = TGID (POSIX PID), low 32 bits = kernel thread ID.
-    let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let pid = (pid_tgid >> 32) as u32;
+    let tid = pid_tgid as u32;
+
+    // A thread cannot be inside two syscalls at once, so anything still
+    // pending belongs to a connect whose exit never ran — a task killed
+    // mid-syscall. Drop it before this syscall's exit can emit it.
+    let _ = NETWORK_PENDING.remove(&tid);
+
     let uid = bpf_get_current_uid_gid() as u32;
     let fd = ctx.read_at::<i64>(16)? as i32;
 
@@ -198,7 +233,6 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
 
     let mut daddr = [0u8; 16];
     let dport: u16;
-    let sport: u16 = 0; // source port not yet assigned at connect() entry
 
     match family {
         AF_INET => {
@@ -225,20 +259,46 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
         None => SOCK_TYPE_UNKNOWN,
     };
 
+    let event = NetworkEvent {
+        pid,
+        uid,
+        fd,
+        // Filled in by the exit handler, which is the only place the outcome
+        // is known.
+        ret: 0,
+        dport,
+        // Source address and port are still unassigned here and are not read
+        // back at exit either; userspace fills them from the socket.
+        sport: 0,
+        af: family,
+        sock_type,
+        _pad1: 0,
+        daddr,
+        saddr: [0u8; 16],
+    };
+    let _ = NETWORK_PENDING.insert(&tid, &event, 0);
+
+    Ok(0)
+}
+
+#[inline(always)]
+unsafe fn try_handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
+    let ret = ctx.read_at::<i64>(16)? as i32;
+    let tid = bpf_get_current_pid_tgid() as u32;
+
+    let Some(pending) = NETWORK_PENDING.get(&tid) else {
+        return Ok(0);
+    };
+    let mut event = *pending;
+    let _ = NETWORK_PENDING.remove(&tid);
+
+    if !connect_result_is_connection(ret) {
+        return Ok(0);
+    }
+    event.ret = ret;
+
     if let Some(mut entry) = NETWORK_RING.reserve::<NetworkEvent>(0) {
-        entry.write(NetworkEvent {
-            pid,
-            uid,
-            fd,
-            _pad0: 0,
-            dport,
-            sport,
-            af: family,
-            sock_type,
-            _pad1: 0,
-            daddr,
-            saddr: [0u8; 16],
-        });
+        entry.write(event);
         entry.submit(0);
     }
 

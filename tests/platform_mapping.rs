@@ -68,7 +68,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         pid: 42,
         uid: 1000,
         fd: 3,
-        _pad0: 0,
+        ret: 0,
         dport: 443,
         sport: 51324,
         af: 2,

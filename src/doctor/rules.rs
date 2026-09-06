@@ -1,5 +1,6 @@
 use crate::config::{AppConfig, InstallPlatform};
 use crate::doctor::inspect::{DiagnosticResult, ResolvedPaths, RulePackDiagnostic};
+use crate::engine::EngineStats;
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -202,7 +203,7 @@ pub(crate) fn rule_validation_results(
     let mut results = Vec::new();
 
     if cfg.scanner.sigma_enabled {
-        results.push(validate_sigma_rules(cfg, platform));
+        results.extend(validate_sigma_rules(cfg, platform));
     } else {
         results.push(DiagnosticResult::pass(
             "sigma_rules_parse",
@@ -239,19 +240,21 @@ fn sensor_platform(platform: InstallPlatform) -> crate::sensor::Platform {
     }
 }
 
-fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> DiagnosticResult {
+/// Parse the configured Sigma pack once, and report both whether it loaded and
+/// how much of it is inert on this platform.
+fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Vec<DiagnosticResult> {
     let mut engine = crate::engine::Engine::new_for_platform_with_match_debug(
         sensor_platform(platform),
         cfg.alerts.match_debug,
     );
 
     if let Err(err) = engine.load_rules(&cfg.scanner.sigma_rules_path) {
-        return DiagnosticResult::fail(
+        return vec![DiagnosticResult::fail(
             "sigma_rules_parse",
             "Sigma rule loading failed",
             format!("{err}"),
         )
-        .with_fix("Fix unreadable or invalid Sigma rule files");
+        .with_fix("Fix unreadable or invalid Sigma rule files")];
     }
 
     let stats = engine.stats();
@@ -263,7 +266,7 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Diagnosti
             .map(|(path, err)| format!("{path}: {err}"))
             .collect::<Vec<_>>()
             .join("; ");
-        return DiagnosticResult::fail(
+        return vec![DiagnosticResult::fail(
             "sigma_rules_parse",
             format!(
                 "{} Sigma rule files failed to parse",
@@ -271,10 +274,31 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Diagnosti
             ),
             detail,
         )
-        .with_fix("Fix the listed Sigma rules or remove them from the active pack");
+        .with_fix("Fix the listed Sigma rules or remove them from the active pack")];
     }
 
-    if !stats.unsupported_rules.is_empty() {
+    if stats.total_rules == 0 {
+        return vec![DiagnosticResult::warn(
+            "sigma_rules_parse",
+            "No Sigma rules loaded",
+            cfg.scanner.sigma_rules_path.display().to_string(),
+        )
+        .with_fix(
+            "Install a rules pack or point scanner.sigma_rules_path at rules/current/sigma",
+        )];
+    }
+
+    let mut results = Vec::new();
+
+    if stats.unsupported_rules.is_empty() {
+        results.push(DiagnosticResult::pass(
+            "sigma_rules_parse",
+            format!(
+                "Loaded {} Sigma rules with {} inactive collector rules",
+                stats.total_rules, stats.inactive_collector_rules
+            ),
+        ));
+    } else {
         let detail = stats
             .unsupported_rules
             .iter()
@@ -287,33 +311,47 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Diagnosti
             })
             .collect::<Vec<_>>()
             .join("; ");
-        return DiagnosticResult::warn(
-            "sigma_rules_unsupported",
+        results.push(
+            DiagnosticResult::warn(
+                "sigma_rules_unsupported",
+                format!(
+                    "{} Sigma documents were dropped because their references are unavailable",
+                    stats.unsupported_rules.len()
+                ),
+                detail,
+            )
+            .with_fix("Restore the referenced rules or remove the dependent documents"),
+        );
+    }
+
+    results.push(inert_rules_diagnostic(&stats));
+    results
+}
+
+/// Report the rules that loaded but wait on telemetry this platform never
+/// produces. They inflate the rule count without adding coverage, so name the
+/// missing categories rather than leaving the operator to infer them.
+pub(crate) fn inert_rules_diagnostic(stats: &EngineStats) -> DiagnosticResult {
+    match stats.inactive_collector_summary() {
+        None => DiagnosticResult::pass(
+            "sigma_rules_inert",
             format!(
-                "{} Sigma documents were dropped because their references are unavailable",
-                stats.unsupported_rules.len()
+                "All {} loaded Sigma rules have a backing collector",
+                stats.total_rules
             ),
-            detail,
-        )
-        .with_fix("Restore the referenced rules or remove the dependent documents");
-    }
-
-    if stats.total_rules == 0 {
-        return DiagnosticResult::warn(
-            "sigma_rules_parse",
-            "No Sigma rules loaded",
-            cfg.scanner.sigma_rules_path.display().to_string(),
-        )
-        .with_fix("Install a rules pack or point scanner.sigma_rules_path at rules/current/sigma");
-    }
-
-    DiagnosticResult::pass(
-        "sigma_rules_parse",
-        format!(
-            "Loaded {} Sigma rules with {} inactive collector rules",
-            stats.total_rules, stats.inactive_collector_rules
         ),
-    )
+        Some(categories) => DiagnosticResult::warn(
+            "sigma_rules_inert",
+            format!(
+                "{} of {} loaded Sigma rules have no backing collector and cannot fire",
+                stats.inactive_collector_rules, stats.total_rules
+            ),
+            format!("missing telemetry: {categories}"),
+        )
+        .with_fix(
+            "Drop the rules for these categories, or see docs/limitations.md for why the telemetry is unavailable",
+        ),
+    }
 }
 
 fn validate_yara_rules(cfg: &AppConfig) -> DiagnosticResult {
@@ -453,4 +491,63 @@ where
     }
 
     DiagnosticResult::pass(id, format!("{checked} {label} entries parsed"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::doctor::inspect::DiagnosticStatus;
+    use std::collections::BTreeMap;
+
+    fn stats_with_inert(total_rules: usize, inert: &[(&str, usize)]) -> EngineStats {
+        let categories = inert
+            .iter()
+            .map(|(category, count)| ((*category).to_string(), *count))
+            .collect::<BTreeMap<String, usize>>();
+
+        EngineStats {
+            total_rules,
+            rule_files_found: total_rules,
+            rules_by_category: Default::default(),
+            rules_by_logsource: Default::default(),
+            deferred_logsource_rules: Default::default(),
+            unknown_logsource_rules: Default::default(),
+            failed_rules: Vec::new(),
+            unsupported_rules: Vec::new(),
+            skipped_product_rules: 0,
+            skipped_deferred_rules: 0,
+            skipped_unknown_logsource_rules: 0,
+            inactive_collector_rules: categories.values().sum(),
+            inactive_collector_categories: categories,
+            inactive_collector_logsources: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn doctor_names_the_missing_telemetry_categories() {
+        let result =
+            inert_rules_diagnostic(&stats_with_inert(10, &[("file_change", 3), ("dns", 1)]));
+
+        assert_eq!(result.id, "sigma_rules_inert");
+        assert_eq!(result.status, DiagnosticStatus::Warn);
+        assert!(
+            result.message.contains("4 of 10"),
+            "message should size the gap: {}",
+            result.message
+        );
+        assert_eq!(
+            result.detail.as_deref(),
+            Some("missing telemetry: file_change (3), dns (1)")
+        );
+        assert!(result.fix.is_some());
+    }
+
+    #[test]
+    fn doctor_passes_when_every_rule_is_backed() {
+        let result = inert_rules_diagnostic(&stats_with_inert(10, &[]));
+
+        assert_eq!(result.id, "sigma_rules_inert");
+        assert_eq!(result.status, DiagnosticStatus::Pass);
+        assert_eq!(result.detail, None);
+    }
 }

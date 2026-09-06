@@ -36,8 +36,8 @@ use crate::utils::{
 };
 
 use super::events::{
-    bytes_to_string, parse_event, DnsEvent, FileEvent, FileEventHeader, FileIndexEvent,
-    NetworkEvent, ProcessEvent,
+    bytes_to_string, connect_result_is_connection, parse_event, DnsEvent, FileEvent,
+    FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 
@@ -120,7 +120,15 @@ impl Sensor for EbpfSensor {
             "syscalls",
             "sys_enter_execveat",
         )?;
+        // Entry captures the destination while the sockaddr is still readable;
+        // exit is what decides whether the attempt became a connection.
         attach_tracepoint(&mut bpf, "handle_connect", "syscalls", "sys_enter_connect")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_connect_exit",
+            "syscalls",
+            "sys_exit_connect",
+        )?;
         // `connect()` does not name its transport; the socket type is only
         // visible while `socket()` runs, and its descriptor only on return.
         attach_tracepoint(&mut bpf, "handle_socket", "syscalls", "sys_enter_socket")?;
@@ -542,6 +550,13 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
 }
 
 fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
+    // The kernel emits only attempts that connected, so this rejects nothing
+    // in practice. It is the decode-side half of that contract: a refused or
+    // unreachable destination is an attempt, not a connection, and a rule
+    // matching "connection to suspicious IP" must not fire on one.
+    if !connect_result_is_connection(ev.ret) {
+        return None;
+    }
     if ev.dport == 0 {
         return None;
     }
@@ -1206,7 +1221,7 @@ mod tests {
             pid: 77,
             uid: 1000,
             fd: -1,
-            _pad0: 0,
+            ret: 0,
             dport: 443,
             sport: 0,
             af: 2,
@@ -1239,7 +1254,7 @@ mod tests {
             // A closed descriptor, so `/proc/net` cannot supply a protocol and
             // only the kernel-side socket type can answer.
             fd: -1,
-            _pad0: 0,
+            ret: 0,
             dport: 53,
             sport: 0,
             af: 2,
@@ -1269,7 +1284,7 @@ mod tests {
             pid: 88,
             uid: 1000,
             fd: -1,
-            _pad0: 0,
+            ret: 0,
             dport: 8443,
             sport: 5353,
             af: 10,
@@ -1325,12 +1340,75 @@ mod tests {
     }
 
     #[test]
+    fn build_network_event_drops_failed_connect_attempts() {
+        let mut daddr = [0u8; 16];
+        daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
+
+        // -ECONNREFUSED, -EHOSTUNREACH, -ETIMEDOUT: an attempt was made, no
+        // connection was established.
+        for result in [-111, -113, -110] {
+            let raw = NetworkEvent {
+                pid: 77,
+                uid: 1000,
+                fd: -1,
+                ret: result,
+                dport: 443,
+                sport: 0,
+                af: 2,
+                sock_type: 0,
+                _pad1: 0,
+                daddr,
+                saddr: [0u8; 16],
+            };
+
+            assert!(
+                build_network_event(&raw).is_none(),
+                "connect() returning {result} is not a connection"
+            );
+        }
+    }
+
+    #[test]
+    fn build_network_event_keeps_connects_still_in_progress() {
+        let mut daddr = [0u8; 16];
+        daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
+
+        // -EINPROGRESS is how every non-blocking client starts a connection,
+        // and -EINTR leaves the kernel completing one in the background.
+        for result in [0, -115, -4] {
+            let raw = NetworkEvent {
+                pid: 77,
+                uid: 1000,
+                fd: -1,
+                ret: result,
+                dport: 443,
+                sport: 0,
+                af: 2,
+                sock_type: 0,
+                _pad1: 0,
+                daddr,
+                saddr: [0u8; 16],
+            };
+
+            let event = build_network_event(&raw)
+                .unwrap_or_else(|| panic!("connect() returning {result} is a connection"));
+            match event.payload {
+                SensorPayload::Network(fields) => {
+                    assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
+                    assert_eq!(fields.initiated, Some(true));
+                }
+                other => panic!("unexpected payload: {:?}", other),
+            }
+        }
+    }
+
+    #[test]
     fn build_network_event_rejects_unspecified_destination() {
         let raw = NetworkEvent {
             pid: 77,
             uid: 1000,
             fd: -1,
-            _pad0: 0,
+            ret: 0,
             dport: 443,
             sport: 0,
             af: 2,
