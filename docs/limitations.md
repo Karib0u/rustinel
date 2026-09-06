@@ -19,7 +19,6 @@ full rather than hide them.
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
 | Image paths are truncated, and truncation is unmarked on process events | Linux |
-| `Protocol` is reported as `tcp` on every connection, including UDP | Linux |
 
 ## Windows (ETW and Event Log)
 
@@ -183,11 +182,17 @@ The Linux sensor covers process, network, file, and DNS.
   absent rather than misreported. Because capture is at syscall entry, failed
   connections are reported as connections, and `SourceIp`/`SourcePort` are not
   yet assigned ([#299](https://github.com/Karib0u/rustinel/issues/299),
-  [#301](https://github.com/Karib0u/rustinel/issues/301)). `Protocol` is reported
-  as `tcp` on every event even though the hook also captures UDP connects, so
-  a rule selecting `Protocol: 'udp'` never matches and one selecting `'tcp'`
-  matches UDP traffic ([#300](https://github.com/Karib0u/rustinel/issues/300)). Only
-  AF_INET and AF_INET6.
+  [#301](https://github.com/Karib0u/rustinel/issues/301)). Only AF_INET and
+  AF_INET6.
+- **`Protocol` is absent for sockets created before the sensor started.** The
+  transport comes from the type the socket was created with, so `socket(2)` is
+  watched and the type indexed by descriptor. A descriptor the sensor never
+  watched being created — opened before startup, inherited across `fork`, or
+  received over `SCM_RIGHTS` — reports no `Protocol` at all, and a rule
+  selecting either value does not match it. That is deliberate: the field used
+  to be a fixed `tcp`, which matched UDP traffic and never matched
+  `Protocol: 'udp'`. Socket types other than `SOCK_STREAM` and `SOCK_DGRAM`
+  (a raw or SCTP socket) are also left absent rather than named.
 - **No library-load, module-load, or ptrace events.** Sigma rules in those
   categories never match.
 - **Kernel requirements.** Linux 5.8+ with BTF and `CAP_BPF` + `CAP_PERFMON` +

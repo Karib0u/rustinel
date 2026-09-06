@@ -79,6 +79,7 @@ use crate::events::{
     FileEvent, FileIndexEvent, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED,
     FILE_PATH_LEN,
 };
+use crate::network::forget_socket_type;
 
 /// O_CREAT flag — create file if it does not exist.
 const O_CREAT: u64 = 0x40;
@@ -285,11 +286,24 @@ unsafe fn current_dir_token(pid: u32, fd: i32) -> u64 {
     }
 }
 
+/// Invalidate every per-descriptor index entry `fd` owns before the number can
+/// be recycled.
+///
+/// The directory index and the socket-type index are keyed the same way and
+/// invalidated at the same moments, so they share this one program rather than
+/// each attaching to `sys_enter_close`, which is among the hottest tracepoints
+/// on the machine.
+#[inline(always)]
+unsafe fn invalidate_fd(pid: u32, fd: i32) {
+    invalidate_dir_token(pid, fd);
+    forget_socket_type(pid, fd);
+}
+
 #[inline(always)]
 unsafe fn try_invalidate_close(ctx: &TracePointContext) -> Result<u32, i64> {
     let fd = ctx.read_at::<i64>(16)? as i32;
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-    invalidate_dir_token(pid, fd);
+    invalidate_fd(pid, fd);
     Ok(0)
 }
 
@@ -316,7 +330,8 @@ unsafe fn try_invalidate_dup_target(ctx: &TracePointContext) -> Result<u32, i64>
         return Ok(0);
     }
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-    invalidate_dir_token(pid, new_fd);
+    // `dup2`/`dup3` close whatever `new_fd` held without a `close` syscall.
+    invalidate_fd(pid, new_fd);
     Ok(0)
 }
 

@@ -50,6 +50,16 @@ pub struct ProcessEvent {
     pub args: [u8; ARGV_CAPACITY],
 }
 
+/// The sensor did not watch this socket being created, so its type is not
+/// known. Userspace reports no `Protocol` rather than guessing one.
+pub const SOCK_TYPE_UNKNOWN: u8 = 0;
+
+/// `SOCK_STREAM` — TCP for AF_INET and AF_INET6.
+pub const SOCK_STREAM: u8 = 1;
+
+/// `SOCK_DGRAM` — UDP for AF_INET and AF_INET6.
+pub const SOCK_DGRAM: u8 = 2;
+
 /// Outbound connection event. Emitted by `handle_connect` on
 /// `syscalls/sys_enter_connect`.
 #[repr(C)]
@@ -68,7 +78,11 @@ pub struct NetworkEvent {
     pub sport: u16,
     /// Address family: 2 = AF_INET, 10 = AF_INET6.
     pub af: u16,
-    pub _pad1: u16,
+    /// Socket type the descriptor was created with, masked to
+    /// `SOCK_TYPE_MASK`: [`SOCK_STREAM`], [`SOCK_DGRAM`], another `SOCK_*`
+    /// value, or [`SOCK_TYPE_UNKNOWN`] when the creation was not observed.
+    pub sock_type: u8,
+    pub _pad1: u8,
     /// Destination address. For AF_INET: first 4 bytes hold the IPv4 address
     /// (network byte order); remaining bytes are zero. For AF_INET6: all 16
     /// bytes hold the address.
