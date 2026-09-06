@@ -20,7 +20,6 @@ full rather than hide them.
 | Security channel events depend on audit policy Rustinel does not set | Windows |
 | Image paths are truncated, and truncation is unmarked on process events | Linux |
 | `Protocol` is reported as `tcp` on every connection, including UDP | Linux |
-| `file_change` is advertised as collected but no sensor emits it | Linux, macOS |
 
 ## Windows (ETW and Event Log)
 
@@ -230,13 +229,13 @@ would succeed.
   [Sigma Coverage](coverage.md) for the measured share of SigmaHQ that can fire
   per platform; per-rule diagnostics are tracked by
   [#184](https://github.com/Karib0u/rustinel/issues/184).
-- **`file_change` is advertised as collected on Linux and macOS but is not
-  (silent risk).** The category is listed among the active logsources on both
-  platforms, so its rules are reported as backed by a live collector. Neither
-  sensor emits the metadata-change action that `file_change` denotes, so those
-  rules can never fire. This is worse than the general case above: the rule is
-  not merely inert, it is counted as covered
-  ([#293](https://github.com/Karib0u/rustinel/issues/293)).
+- **`file_change` has no collector on Linux or macOS.** Neither the eBPF nor
+  the ESF sensor emits the metadata-change action that `file_change` denotes
+  (Sysmon Event ID 2), so its rules cannot fire on those platforms. They still
+  load, and are reported as having no backing collector rather than counted as
+  covered ([#293](https://github.com/Karib0u/rustinel/issues/293)); the
+  telemetry itself is tracked by
+  [#146](https://github.com/Karib0u/rustinel/issues/146).
 - **Correlation state resets on Sigma reload.** A reload creates a fresh
   correlation engine, so events in an open window are forgotten. Correlation
   windows also rely on events arriving to trigger cleanup; there is no separate

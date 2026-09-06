@@ -248,7 +248,6 @@ impl Engine {
                 LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_event")),
                 LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_create")),
                 LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_delete")),
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_change")),
                 LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_rename")),
                 LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("dns_query")),
             ],
@@ -260,7 +259,6 @@ impl Engine {
                 LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_event")),
                 LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_create")),
                 LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_delete")),
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_change")),
                 LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_rename")),
                 LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("dns_query")),
             ],
@@ -343,16 +341,28 @@ impl Engine {
         let service = logsource.service.as_deref();
 
         match self.platform {
-            // macOS shares the Linux collector model: only the generic DNS
-            // network logsource is known-but-inactive.
+            // macOS shares the Linux collector model.
             Platform::Linux | Platform::MacOS => {
-                matches!(service, Some("dns"))
-                    && matches!(category, None | Some("network"))
-                    && logsource
-                        .product
-                        .as_deref()
-                        .map(|product| product == platform_product(self.platform))
-                        .unwrap_or(true)
+                let product_matches = logsource
+                    .product
+                    .as_deref()
+                    .map(|product| product == platform_product(self.platform))
+                    .unwrap_or(true);
+
+                // The generic DNS network logsource.
+                let dns_network =
+                    matches!(service, Some("dns")) && matches!(category, None | Some("network"));
+
+                // `file_change` is Sysmon Event ID 2 — the file's timestamps
+                // were changed — which neither the eBPF nor the ESF sensor
+                // emits: both stop at Create, Modify, Delete and Rename. The
+                // category is a real one and its rules load, but nothing can
+                // produce a matching event, so it is reported as unbacked
+                // rather than counted as covered (issue #293).
+                let file_change = matches!(category, Some("file_change"))
+                    && matches!(service, None | Some("sysmon"));
+
+                product_matches && (dns_network || file_change)
             }
             Platform::Windows => {
                 let service_known = service
