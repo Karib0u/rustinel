@@ -63,6 +63,7 @@ Format:
 | `rule.id`           | Optional detection rule identifier, unique amongs the rustinel rules. Formatted as: `sigma::<uuid>` for Sigma, `yara::<id>` for YARA (if metadata ID is defined), or `ioc::<type>::<value>` for IOCs. |
 | `edr.rule.severity` | Low, Medium, High, or Critical                                                                                                                                                                        |
 | `edr.rule.engine`   | `Sigma`, `Yara`, or `Ioc`                                                                                                                                                                             |
+| `edr.process.image_source` | Linux process image provenance: `proc` when resolved from `/proc/<pid>/exe`, or `execve` when the raw invocation string was used after that lookup lost the process lifetime race. |
 | `event.count`       | *(rollup only)* Number of suppressed repeats this rollup represents, i.e. occurrences within the dedup window excluding the first. Absent on the live first emission, which represents a single event. Summing `event.count` across lines (absent = 1) gives the true event volume. |
 
 ### Windows Process Alert Example
@@ -111,6 +112,7 @@ Format:
   "host.os.type": "linux",
   "host.os.family": "linux",
   "process.executable": "/usr/bin/whoami",
+  "edr.process.image_source": "proc",
   "process.name": "whoami",
   "user.name": "root"
 }

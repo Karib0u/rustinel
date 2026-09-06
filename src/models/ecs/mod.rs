@@ -61,6 +61,7 @@ impl From<&Alert> for EcsAlert {
             edr_rule_severity: format!("{:?}", alert.severity),
             edr_rule_engine: format!("{:?}", alert.engine),
             process_executable: None,
+            edr_process_image_source: None,
             process_name: None,
             process_command_line: None,
             process_pid: None,
@@ -149,6 +150,7 @@ impl From<&Alert> for EcsAlert {
         match &alert.event.fields {
             EventFields::ProcessCreation(f) => {
                 ecs.process_executable = f.image.clone();
+                ecs.edr_process_image_source = f.image_source.clone();
                 ecs.process_command_line = f.command_line.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
                 ecs.process_parent_executable = f.parent_image.clone();
@@ -434,6 +436,7 @@ mod tests {
                 opcode: 1,
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
                     image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+                    image_source: None,
                     command_line: Some("cmd.exe /c whoami".to_string()),
                     process_id: Some("1234".to_string()),
                     process_start_time: None,

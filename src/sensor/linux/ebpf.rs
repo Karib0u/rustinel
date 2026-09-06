@@ -412,11 +412,15 @@ fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
 /// symlink-resolved, and immune to the caller's `chdir`. The raw kernel string
 /// stays as a fallback for short-lived processes that exit before the userspace
 /// ring drain gets to `/proc`.
-fn resolve_exec_image(proc_exe: Option<&str>, raw_filename: &str) -> Option<String> {
-    proc_exe
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .or_else(|| Some(raw_filename.to_string()).filter(|value| !value.is_empty()))
+fn resolve_exec_image(
+    proc_exe: Option<&str>,
+    raw_filename: &str,
+) -> Option<(String, &'static str)> {
+    if let Some(image) = proc_exe.filter(|value| !value.is_empty()) {
+        return Some((image.to_string(), "proc"));
+    }
+
+    Some((raw_filename.to_string(), "execve")).filter(|(value, _)| !value.is_empty())
 }
 
 /// Pick the command line for an exec event.
@@ -443,7 +447,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
     match ev.kind {
         PROCESS_EVENT_EXEC => {
             let details = query_process_details(ev.pid);
-            let image = resolve_exec_image(
+            let (image, image_source) = resolve_exec_image(
                 details.as_ref().and_then(|value| value.image.as_deref()),
                 &bytes_to_string(&ev.image),
             )?;
@@ -468,6 +472,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 }),
                 payload: SensorPayload::Process(ProcessCreationFields {
                     image: Some(image),
+                    image_source: Some(image_source.to_string()),
                     original_file_name: None,
                     product: None,
                     description: None,
@@ -514,6 +519,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
             process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
+                image_source: None,
                 original_file_name: None,
                 product: None,
                 description: None,
@@ -1045,6 +1051,7 @@ mod tests {
         match event.payload {
             SensorPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), Some("/usr/bin/bash"));
+                assert_eq!(fields.image_source.as_deref(), Some("execve"));
                 assert_eq!(
                     fields.process_id.as_deref(),
                     Some(DEAD_PID.to_string().as_str())
@@ -1066,6 +1073,7 @@ mod tests {
         match event.payload {
             SensorPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), expected.to_str());
+                assert_eq!(fields.image_source.as_deref(), Some("proc"));
             }
             other => panic!("unexpected payload: {:?}", other),
         }
@@ -1153,20 +1161,20 @@ mod tests {
     #[test]
     fn resolve_exec_image_prefers_proc_exe_over_raw_filename() {
         assert_eq!(
-            resolve_exec_image(Some("/tmp/malware"), "./malware").as_deref(),
-            Some("/tmp/malware")
+            resolve_exec_image(Some("/tmp/malware"), "./malware"),
+            Some(("/tmp/malware".to_string(), "proc"))
         );
     }
 
     #[test]
     fn resolve_exec_image_falls_back_to_raw_filename() {
         assert_eq!(
-            resolve_exec_image(None, "./malware").as_deref(),
-            Some("./malware")
+            resolve_exec_image(None, "./malware"),
+            Some(("./malware".to_string(), "execve"))
         );
         assert_eq!(
-            resolve_exec_image(Some(""), "/usr/bin/bash").as_deref(),
-            Some("/usr/bin/bash")
+            resolve_exec_image(Some(""), "/usr/bin/bash"),
+            Some(("/usr/bin/bash".to_string(), "execve"))
         );
         assert_eq!(resolve_exec_image(None, ""), None);
     }
