@@ -260,6 +260,10 @@ mod tests {
         Engine::new_for_platform(Platform::Linux)
     }
 
+    fn macos_engine() -> Engine {
+        Engine::new_for_platform(Platform::MacOS)
+    }
+
     fn logsource(
         product: Option<&str>,
         service: Option<&str>,
@@ -354,6 +358,81 @@ mod tests {
 
         assert_eq!(classification.status, LogSourceStatus::Supported);
         assert_eq!(classification.collector_active, Some(true));
+    }
+
+    #[test]
+    fn file_change_has_no_backing_collector_off_windows() {
+        // Sysmon Event ID 2 is a metadata change; neither the eBPF nor the ESF
+        // sensor emits it, so its rules load but are reported as unbacked
+        // rather than counted as covered (issue #293).
+        let source = logsource(None, Some("sysmon"), Some("file_change"));
+
+        for engine in [linux_engine(), macos_engine()] {
+            let classification = engine.classify_logsource(&source);
+            assert_eq!(classification.status, LogSourceStatus::Supported);
+            assert_eq!(classification.collector_active, Some(false));
+        }
+
+        let windows = windows_engine().classify_logsource(&source);
+        assert_eq!(windows.status, LogSourceStatus::Supported);
+        assert_eq!(windows.collector_active, Some(true));
+    }
+
+    #[test]
+    fn platform_qualified_file_change_has_no_backing_collector_off_windows() {
+        for (engine, product) in [(linux_engine(), "linux"), (macos_engine(), "macos")] {
+            let classification = engine.classify_logsource(&logsource(
+                Some(product),
+                Some("sysmon"),
+                Some("file_change"),
+            ));
+
+            assert_eq!(classification.status, LogSourceStatus::Supported);
+            assert_eq!(classification.collector_active, Some(false));
+        }
+    }
+
+    #[test]
+    fn sibling_file_categories_stay_active_off_windows() {
+        // Only `file_change` loses its collector: the rest of the file family
+        // is still emitted by both sensors.
+        for (engine, product) in [(linux_engine(), "linux"), (macos_engine(), "macos")] {
+            for category in ["file_event", "file_create", "file_delete", "file_rename"] {
+                let classification = engine.classify_logsource(&logsource(
+                    Some(product),
+                    Some("sysmon"),
+                    Some(category),
+                ));
+
+                assert_eq!(
+                    classification.collector_active,
+                    Some(true),
+                    "{product}/{category} should stay backed by a collector"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn linux_file_change_rule_is_counted_as_inactive() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Linux Timestomp
+logsource:
+  product: linux
+  service: sysmon
+  category: file_change
+detection:
+  selection:
+    TargetFilename|endswith: ".sh"
+  condition: selection
+level: medium
+"#,
+        );
+
+        let stats = engine.stats();
+        assert_eq!(stats.total_rules, 1, "the rule still loads");
+        assert_eq!(stats.inactive_collector_rules, 1);
     }
 
     #[test]
