@@ -221,9 +221,15 @@ pub(crate) fn load_domains(path: &Path) -> DomainIocs {
         }
 
         if normalized.starts_with('.') {
-            let suffix = normalized.trim_start_matches('.').to_string();
-            if !suffix.is_empty() {
-                iocs.suffix.push((suffix, meta));
+            let suffix = normalized.trim_start_matches('.');
+            if !suffix.is_empty() && !iocs.suffix.insert(suffix, meta) {
+                warn!(
+                    target: "ioc",
+                    path = %source,
+                    line = line_no,
+                    value = %value,
+                    "Too many wildcard domain indicators, skipping"
+                );
             }
         } else {
             iocs.exact.insert(normalized, meta);

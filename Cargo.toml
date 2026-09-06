@@ -103,6 +103,11 @@ criterion = "0.8"
 name = "sigma_engine"
 harness = false
 
+# Wildcard-domain IOC matching, measured with `cargo bench --bench ioc_domains`.
+[[bench]]
+name = "ioc_domains"
+harness = false
+
 # Bounded-cache eviction cost, measured with `cargo bench --bench cache_eviction`.
 [[bench]]
 name = "cache_eviction"

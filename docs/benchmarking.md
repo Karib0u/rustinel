@@ -159,6 +159,36 @@ This isolates matching throughput only: it excludes normalization, alert
 serialization, IOC and YARA, and the sensor pipeline. Source:
 [benches/sigma_engine.rs](https://github.com/Karib0u/rustinel/blob/main/benches/sigma_engine.rs).
 
+## Wildcard Domain IOC Micro-Benchmark
+
+The `ioc_domains` Criterion benchmark measures `IocEngine::check_event` against
+a wildcard domain feed (`*.example.com` indicators), which is the IOC path whose
+cost used to scale with feed size.
+
+```sh
+cargo bench --bench ioc_domains
+```
+
+Each iteration matches one DNS event against a feed of 100 or 100,000 wildcard
+indicators, once for a hostname no indicator covers (`miss`, the common case)
+and once for a hostname one indicator covers (`hit`).
+
+Indicative figures from a single macOS development machine. Re-run locally
+before quoting them:
+
+| Scenario | 100 indicators | 100,000 indicators |
+| --- | --- | --- |
+| `miss` | 112 ns | 102 ns |
+| `hit` | 669 ns | 682 ns |
+
+Cost tracks the hostname's DNS label count, not the size of the feed: wildcard
+suffixes are indexed, so a hostname only looks up its own suffixes. Before that
+index, the same two scenarios cost 6.3 µs and 8.1 ms respectively, because every
+eligible event scanned the whole feed.
+
+Source:
+[benches/ioc_domains.rs](https://github.com/Karib0u/rustinel/blob/main/benches/ioc_domains.rs).
+
 ## Cache Eviction Micro-Benchmark
 
 The `cache_eviction` Criterion benchmark measures insertion cost into a bounded

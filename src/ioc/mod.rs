@@ -254,14 +254,14 @@ mod tests {
     #[test]
     fn test_domain_suffix_match() {
         let mut domains = DomainIocs::default();
-        domains.suffix.push((
-            "example.com".to_string(),
+        domains.suffix.insert(
+            "example.com",
             IocMeta {
                 comment: None,
                 source: "test".to_string(),
                 line: 1,
             },
-        ));
+        );
 
         let engine = IocEngine {
             enabled: true,
@@ -296,6 +296,96 @@ mod tests {
         let matches = engine.check_event(&event);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].kind, IocKind::Domain);
+    }
+
+    fn suffix_engine(suffixes: &[(&str, usize)]) -> IocEngine {
+        let mut domains = DomainIocs::default();
+        for (suffix, line) in suffixes {
+            domains.suffix.insert(
+                suffix,
+                IocMeta {
+                    comment: None,
+                    source: "test".to_string(),
+                    line: *line,
+                },
+            );
+        }
+
+        IocEngine {
+            enabled: true,
+            severity: AlertSeverity::High,
+            hash_iocs: HashIocs::default(),
+            ip_iocs: IpIocs::default(),
+            domain_iocs: domains,
+            path_iocs: PathIocs::default(),
+            max_file_size_bytes: 0,
+            hash_allowlist_paths: Vec::new(),
+        }
+    }
+
+    fn dns_event(query_name: &str) -> NormalizedEvent {
+        NormalizedEvent {
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+            platform: Platform::Windows,
+            provider: "etw".to_string(),
+            category: EventCategory::Dns,
+            event_id: 22,
+            event_id_string: "22".to_string(),
+            opcode: 0,
+            fields: EventFields::DnsQuery(crate::models::DnsQueryFields {
+                query_name: Some(query_name.to_string()),
+                query_results: None,
+                record_type: None,
+                query_status: None,
+                process_id: None,
+                image: None,
+            }),
+            process_context: None,
+        }
+    }
+
+    #[test]
+    fn test_domain_suffix_matches_the_suffix_itself() {
+        let engine = suffix_engine(&[("example.com", 1)]);
+        let matches = engine.check_event(&dns_event("example.com"));
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].indicator, ".example.com");
+        assert_eq!(matches[0].observed, "example.com");
+    }
+
+    #[test]
+    fn test_domain_suffix_requires_a_label_boundary() {
+        let engine = suffix_engine(&[("example.com", 1)]);
+        assert!(engine.check_event(&dns_event("notexample.com")).is_empty());
+        assert!(engine
+            .check_event(&dns_event("example.com.evil"))
+            .is_empty());
+    }
+
+    #[test]
+    fn test_overlapping_domain_suffixes_report_in_feed_order() {
+        // `com` is loaded after `example.com`, so it is reported second, as the
+        // linear scan over the feed used to do.
+        let engine = suffix_engine(&[("example.com", 7), ("com", 9)]);
+        let matches = engine.check_event(&dns_event("a.b.example.com"));
+        let indicators: Vec<&str> = matches.iter().map(|m| m.indicator.as_str()).collect();
+        assert_eq!(indicators, vec![".example.com", ".com"]);
+    }
+
+    #[test]
+    fn test_duplicate_domain_suffix_lines_each_report() {
+        // The same suffix on two feed lines stays two matches: they differ by
+        // the reported source line, as before the suffix index.
+        let engine = suffix_engine(&[("example.com", 3), ("example.com", 12)]);
+        let matches = engine.check_event(&dns_event("host.example.com"));
+        let lines: Vec<usize> = matches.iter().map(|m| m.line).collect();
+        assert_eq!(lines, vec![3, 12]);
+    }
+
+    #[test]
+    fn test_domain_suffix_stats_count_every_line() {
+        let engine = suffix_engine(&[("example.com", 1), ("example.com", 2), ("evil.test", 3)]);
+        assert_eq!(engine.stats().domain_suffix, 3);
     }
 
     #[test]

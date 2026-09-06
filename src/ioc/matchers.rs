@@ -1,5 +1,5 @@
 use super::alert::{build_match, push_match_unique};
-use super::types::{IocKind, IocMatch};
+use super::types::{IocKind, IocMatch, IocMeta};
 use super::IocEngine;
 use crate::models::{EventFields, NormalizedEvent};
 use std::collections::HashSet;
@@ -38,15 +38,38 @@ impl IocEngine {
             );
         }
 
-        for (suffix, meta) in &self.domain_iocs.suffix {
-            if host == *suffix || host.ends_with(&format!(".{}", suffix)) {
-                let indicator = format!(".{}", suffix);
-                push_match_unique(
-                    matches,
-                    seen,
-                    build_match(IocKind::Domain, &indicator, &host, meta),
-                );
+        // Wildcard indicators are indexed by suffix, so only the hostname's own
+        // label boundaries are probed: `a.b.example.com` looks up
+        // `a.b.example.com`, `b.example.com`, `example.com`, `com`. Work scales
+        // with hostname depth instead of feed size, and no temporary string is
+        // built for a lookup.
+        let mut hits: Vec<(u32, &str, &IocMeta)> = Vec::new();
+        let mut offset = 0;
+        loop {
+            let suffix = &host[offset..];
+            hits.extend(
+                self.domain_iocs
+                    .suffix
+                    .lookup(suffix)
+                    .map(|(order, meta)| (order, suffix, meta)),
+            );
+            match suffix.find('.') {
+                Some(idx) => offset += idx + 1,
+                None => break,
             }
+        }
+
+        // Restore feed order, which is what the linear scan produced when a
+        // hostname hit several overlapping indicators.
+        hits.sort_unstable_by_key(|(order, _, _)| *order);
+
+        for (_, suffix, meta) in hits {
+            let indicator = format!(".{}", suffix);
+            push_match_unique(
+                matches,
+                seen,
+                build_match(IocKind::Domain, &indicator, &host, meta),
+            );
         }
     }
 
