@@ -107,3 +107,8 @@ harness = false
 [[bench]]
 name = "ioc_domains"
 harness = false
+
+# Bounded-cache eviction cost, measured with `cargo bench --bench cache_eviction`.
+[[bench]]
+name = "cache_eviction"
+harness = false

@@ -14,6 +14,7 @@ use yara_x::{Compiler, Rules, Scanner as XScanner};
 
 use crate::models::{MatchDebugLevel, ProcessCreationFields, YaraRuleMatch, YaraStringMatch};
 use crate::sensor::{SensorAction, SensorEvent, SensorEventHandler, SensorPayload};
+use crate::utils::cache::trim_to_headroom;
 use crate::utils::file_identity::{self, FileIdentity};
 use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
 
@@ -160,22 +161,7 @@ impl YaraScanCache {
     }
 
     fn trim(&mut self) {
-        if self.entries.len() <= self.max_entries {
-            return;
-        }
-
-        let mut timestamps: Vec<u64> = self.entries.values().map(|entry| entry.timestamp).collect();
-        timestamps.sort_unstable();
-        let cutoff = timestamps[self.entries.len() / 2];
-        self.entries.retain(|_, entry| entry.timestamp >= cutoff);
-
-        if self.entries.len() > self.max_entries {
-            let extra = self.entries.len() - self.max_entries;
-            let keys: Vec<YaraFileIdentity> = self.entries.keys().take(extra).cloned().collect();
-            for key in keys {
-                self.entries.remove(&key);
-            }
-        }
+        trim_to_headroom(&mut self.entries, self.max_entries, |entry| entry.timestamp);
     }
 }
 

@@ -188,3 +188,31 @@ eligible event scanned the whole feed.
 
 Source:
 [benches/ioc_domains.rs](https://github.com/Karib0u/rustinel/blob/main/benches/ioc_domains.rs).
+
+## Cache Eviction Micro-Benchmark
+
+The `cache_eviction` Criterion benchmark measures insertion cost into a bounded
+timestamp-ordered cache at its capacity, using `DnsCache` as the representative
+implementation. The same eviction policy backs the file-hash, YARA verdict, and
+connection-state caches.
+
+```sh
+cargo bench --bench cache_eviction
+```
+
+Each iteration performs 1,000 inserts that all land in the same second, once
+into a cache already at its 10,000-entry cap and once into a cache with spare
+capacity. Cache timestamps have second precision, so a burst of events normally
+shares a single timestamp; the at-capacity case is what a burst actually costs.
+
+Indicative figures from a single macOS development machine, for 1,000 inserts.
+Re-run locally before quoting them:
+
+| Scenario | Per iteration |
+| --- | --- |
+| At capacity, same second | 233 µs |
+| Spare capacity | 74 µs |
+
+Eviction frees a quarter of the cap in one pass, so a trim is amortized over
+many subsequent inserts instead of running on each one. Source:
+[benches/cache_eviction.rs](https://github.com/Karib0u/rustinel/blob/main/benches/cache_eviction.rs).

@@ -3,6 +3,8 @@ use std::net::IpAddr;
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::utils::cache::trim_to_headroom;
+
 #[derive(Debug, Clone)]
 pub struct DnsEntry {
     pub hostname: String,
@@ -44,7 +46,7 @@ impl DnsCache {
         );
 
         if cache.len() > self.max_entries {
-            trim_dns_cache(&mut cache, self.max_entries);
+            trim_to_headroom(&mut cache, self.max_entries, |entry| entry.timestamp);
         }
     }
 
@@ -71,26 +73,6 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-fn trim_dns_cache(cache: &mut HashMap<IpAddr, DnsEntry>, max_entries: usize) {
-    let len = cache.len();
-    if len <= max_entries {
-        return;
-    }
-
-    let mut timestamps: Vec<u64> = cache.values().map(|entry| entry.timestamp).collect();
-    timestamps.sort_unstable();
-    let cutoff = timestamps[len / 2];
-    cache.retain(|_, entry| entry.timestamp >= cutoff);
-
-    if cache.len() > max_entries {
-        let extra = cache.len() - max_entries;
-        let keys: Vec<IpAddr> = cache.keys().take(extra).cloned().collect();
-        for key in keys {
-            cache.remove(&key);
-        }
-    }
 }
 
 impl Default for DnsCache {

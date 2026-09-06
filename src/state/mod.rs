@@ -66,6 +66,39 @@ mod tests {
     }
 
     #[test]
+    fn dns_cache_trim_frees_headroom_for_same_second_inserts() {
+        // Every insert lands in the same second, so a median cutoff would evict
+        // nothing. The trim must still drop a quarter of the cap.
+        let cache = DnsCache::with_limits(100, 60);
+
+        for i in 0..101u32 {
+            let ip: IpAddr = format!("10.{}.{}.{}", i / 256, i % 256, 1).parse().unwrap();
+            cache.update(ip, format!("host{}.example", i));
+        }
+
+        assert_eq!(cache.count(), 75);
+
+        // The freed slots absorb the next inserts without trimming again.
+        for i in 101..126u32 {
+            let ip: IpAddr = format!("10.{}.{}.{}", i / 256, i % 256, 1).parse().unwrap();
+            cache.update(ip, format!("host{}.example", i));
+        }
+
+        assert_eq!(cache.count(), 100);
+    }
+
+    #[test]
+    fn dns_cache_stays_bounded_under_a_same_second_burst() {
+        let cache = DnsCache::with_limits(100, 60);
+
+        for i in 0..1_000u32 {
+            let ip: IpAddr = format!("10.{}.{}.{}", i / 256, i % 256, 1).parse().unwrap();
+            cache.update(ip, format!("host{}.example", i));
+            assert!(cache.count() <= 100);
+        }
+    }
+
+    #[test]
     fn dns_cache_trims_to_limit() {
         let cache = DnsCache::with_limits(2, 60);
         let ip1: IpAddr = "1.2.3.4".parse().unwrap();
@@ -171,6 +204,20 @@ mod tests {
             .unwrap();
         assert_eq!(meta.connection_count, 3);
         assert_eq!(meta.unique_pids.len(), 3);
+    }
+
+    #[test]
+    fn connection_aggregator_trim_frees_headroom_for_same_second_inserts() {
+        let aggregator = ConnectionAggregator::with_limits(100, 600);
+
+        for i in 0..101u32 {
+            let ip: IpAddr = format!("10.{}.{}.{}", i / 256, i % 256, 1).parse().unwrap();
+            aggregator.record("C:\\app.exe", ip, 443, Protocol::Tcp, 1234);
+        }
+
+        // Whichever path ran (timestamp-ordered or the once-per-second fallback),
+        // the cache is left below the cap with room to insert.
+        assert!(aggregator.count() <= 75);
     }
 
     #[test]
