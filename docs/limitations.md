@@ -14,7 +14,7 @@ full rather than hide them.
 | --- | --- |
 | Process events carry no hashes (`Hashes` / `Imphash`) | Windows |
 | Several modelled process fields are never populated | Windows |
-| Rules are silently inert when no collector backs their logsource | Engine |
+| Rules are inert when no collector backs their logsource (counted, not prevented) | Engine |
 | Telemetry is dropped under burst load (counted, not prevented) | Pipeline |
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
@@ -237,7 +237,11 @@ would succeed.
 - **Rules are inert without a backing collector (silent risk).** Rules for a
   product or category the running platform does not collect load successfully
   and never fire. On Linux and macOS a large share of a Windows-oriented ruleset
-  is dead weight. **Do not read rule count as coverage.** See
+  is dead weight. **Do not read rule count as coverage.** The count is now
+  reported rather than silent: rule loading logs how many rules have no backing
+  collector, grouped by the missing telemetry category, and `rustinel doctor`
+  repeats it as the `sigma_rules_inert` check. Rules whose logsource names
+  another product are skipped at load instead, and counted separately. See
   [Sigma Coverage](coverage.md) for the measured share of SigmaHQ that can fire
   per platform; per-rule diagnostics are tracked by
   [#184](https://github.com/Karib0u/rustinel/issues/184).
