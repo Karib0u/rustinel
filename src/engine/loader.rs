@@ -150,6 +150,16 @@ impl Engine {
             stats.unsupported_rules.len()
         );
 
+        // Inert rules are the quiet failure: they load, they inflate the rule
+        // count, and they can never match. Name the telemetry they wait on.
+        if let Some(categories) = stats.inactive_collector_summary() {
+            warn!(
+                inert_rules = stats.inactive_collector_rules,
+                categories = %categories,
+                "Loaded rules have no backing collector on this platform and cannot fire"
+            );
+        }
+
         for unsupported in &stats.unsupported_rules {
             warn!(
                 source = %unsupported.source_path,

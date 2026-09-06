@@ -89,6 +89,14 @@ impl LivePipeline {
                     unsupported_rules = stats.unsupported_rules.len(),
                     "Sigma engine initialized"
                 );
+                if let Some(categories) = stats.inactive_collector_summary() {
+                    warn!(
+                        target: TARGET_CONSOLE,
+                        inert_rules = stats.inactive_collector_rules,
+                        categories = %categories,
+                        "Sigma rules loaded without a backing collector and cannot fire"
+                    );
+                }
                 for (logsource, count) in stats.rules_by_logsource {
                     info!(logsource = %logsource, count, "Sigma rules loaded");
                 }

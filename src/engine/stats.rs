@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use super::Engine;
@@ -66,6 +66,20 @@ impl Engine {
             skipped_deferred_rules: self.skipped_deferred_rules,
             skipped_unknown_logsource_rules: self.skipped_unknown_logsource_rules,
             inactive_collector_rules: self.inactive_collector_rules,
+            inactive_collector_categories: self.inactive_collector_counts.iter().fold(
+                BTreeMap::new(),
+                |mut categories, (logsource, count)| {
+                    *categories
+                        .entry(logsource.telemetry_category())
+                        .or_default() += count;
+                    categories
+                },
+            ),
+            inactive_collector_logsources: self
+                .inactive_collector_counts
+                .iter()
+                .map(|(key, count)| (key.display(), *count))
+                .collect(),
         }
     }
 }
@@ -88,4 +102,37 @@ pub struct EngineStats {
     pub skipped_deferred_rules: usize,
     pub skipped_unknown_logsource_rules: usize,
     pub inactive_collector_rules: usize,
+    /// Inert rule counts grouped by the telemetry category no collector feeds.
+    pub inactive_collector_categories: BTreeMap<String, usize>,
+    /// Inert rule counts by full logsource, for detailed diagnostics.
+    #[allow(dead_code)] // Used by companion binaries outside the library crate.
+    pub inactive_collector_logsources: BTreeMap<String, usize>,
+}
+
+impl EngineStats {
+    /// A `category (n)` list of the telemetry categories whose rules loaded
+    /// without a backing collector, ordered by rule count. `None` when every
+    /// loaded rule is backed.
+    pub fn inactive_collector_summary(&self) -> Option<String> {
+        if self.inactive_collector_categories.is_empty() {
+            return None;
+        }
+
+        let mut categories = self
+            .inactive_collector_categories
+            .iter()
+            .collect::<Vec<_>>();
+        // Largest gap first; ties keep the map's alphabetical order.
+        categories.sort_by(|(left_name, left), (right_name, right)| {
+            right.cmp(left).then_with(|| left_name.cmp(right_name))
+        });
+
+        Some(
+            categories
+                .into_iter()
+                .map(|(category, count)| format!("{category} ({count})"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
+    }
 }

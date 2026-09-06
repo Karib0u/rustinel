@@ -77,6 +77,22 @@ impl LogSourceKey {
                 .unwrap_or(true)
     }
 
+    /// The telemetry category this logsource needs, used to group rules that
+    /// loaded without a backing collector. Sigma's `category` is the natural
+    /// name; rules that route on `service` alone (the generic DNS logsource,
+    /// for one) fall back to it, and a product-only logsource to the product.
+    pub fn telemetry_category(&self) -> String {
+        if let Some(category) = &self.category {
+            return category.clone();
+        }
+        if let Some(service) = &self.service {
+            return format!("service:{service}");
+        }
+        self.product
+            .clone()
+            .unwrap_or_else(|| "<empty logsource>".to_string())
+    }
+
     pub fn display(&self) -> String {
         let mut parts = Vec::new();
 
@@ -479,6 +495,10 @@ impl Engine {
                 collector_active: false,
             } => {
                 self.inactive_collector_rules += 1;
+                *self
+                    .inactive_collector_counts
+                    .entry(logsource.clone())
+                    .or_default() += 1;
             }
             RuleLoadDecision::Load {
                 collector_active: true,
