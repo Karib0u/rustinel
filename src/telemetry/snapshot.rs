@@ -123,7 +123,7 @@ pub struct FileAttributionSnapshot {
     /// Those dropped because neither identifier resolved to a path.
     pub unresolved: u64,
     /// Index entries evicted because a handle was held past the per-index cap.
-    /// Not itself a gap — the evicted handle may never be written to again —
+    /// Not itself a gap - the evicted handle may never be written to again -
     /// but it is the mechanism that produces one, so it is reported apart.
     pub index_capacity_evictions: u64,
 }

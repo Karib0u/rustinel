@@ -330,19 +330,18 @@ impl ProcessCommandLineCounters {
 /// The Kernel-File events that carry write semantics name their target only by
 /// kernel pointer, so the sensor joins them to an earlier naming event through
 /// a bounded index. A write whose pointer the index cannot answer is discarded
-/// inside the ETW callback, before any channel sees it — exactly the shape of
+/// inside the ETW callback, before any channel sees it - exactly the shape of
 /// the registry gap #341 measured, and previously visible only as a private
 /// `AtomicU64` and a rate-limited `debug!` line.
 ///
 /// Splitting the two resolved tiers matters: an event that carried its own
 /// name never depended on the index, so a fall in `resolved_from_index`
 /// against a steady `resolved_from_event` points at the index rather than at
-/// the provider. `index_capacity_evictions` is the index's own failure mode —
-/// handles held open past [`crate::sensor`]'s per-index cap — and stays apart
+/// the provider. `index_capacity_evictions` is the index's own failure mode -
+/// handles held open past [`crate::sensor`]'s per-index cap - and stays apart
 /// from `unresolved`, which is the resulting detection gap.
 #[derive(Debug, Default)]
 pub struct FileAttributionCounters {
-    attempted: AtomicU64,
     resolved_from_event: AtomicU64,
     resolved_from_index: AtomicU64,
     unresolved: AtomicU64,
@@ -355,7 +354,6 @@ pub static WINDOWS_FILE_ATTRIBUTION: FileAttributionCounters = FileAttributionCo
 impl FileAttributionCounters {
     const fn new() -> Self {
         Self {
-            attempted: AtomicU64::new(0),
             resolved_from_event: AtomicU64::new(0),
             resolved_from_index: AtomicU64::new(0),
             unresolved: AtomicU64::new(0),
@@ -367,7 +365,6 @@ impl FileAttributionCounters {
     /// the events that needed the pointer index from the ones that carried
     /// their own name.
     pub fn record_resolved(&self, from_index: bool) {
-        self.attempted.fetch_add(1, Ordering::Relaxed);
         if from_index {
             self.resolved_from_index.fetch_add(1, Ordering::Relaxed);
         } else {
@@ -378,7 +375,6 @@ impl FileAttributionCounters {
     /// A file event was dropped because neither identifier resolved to a path.
     /// Returns the running total, which the caller uses to space its log line.
     pub fn record_unresolved(&self) -> u64 {
-        self.attempted.fetch_add(1, Ordering::Relaxed);
         self.unresolved.fetch_add(1, Ordering::Relaxed) + 1
     }
 
@@ -394,15 +390,20 @@ impl FileAttributionCounters {
 
     /// Point-in-time view, or `None` when no file event has been attributed.
     pub fn snapshot(&self) -> Option<FileAttributionSnapshot> {
-        let attempted = self.attempted.load(Ordering::Relaxed);
+        let resolved_from_event = self.resolved_from_event.load(Ordering::Relaxed);
+        let resolved_from_index = self.resolved_from_index.load(Ordering::Relaxed);
+        let unresolved = self.unresolved.load(Ordering::Relaxed);
+        let attempted = resolved_from_event
+            .saturating_add(resolved_from_index)
+            .saturating_add(unresolved);
         if attempted == 0 {
             return None;
         }
         Some(FileAttributionSnapshot {
             attempted,
-            resolved_from_event: self.resolved_from_event.load(Ordering::Relaxed),
-            resolved_from_index: self.resolved_from_index.load(Ordering::Relaxed),
-            unresolved: self.unresolved.load(Ordering::Relaxed),
+            resolved_from_event,
+            resolved_from_index,
+            unresolved,
             index_capacity_evictions: self.index_capacity_evictions.load(Ordering::Relaxed),
         })
     }
@@ -411,7 +412,6 @@ impl FileAttributionCounters {
     /// [`ChannelCounters::reset`].
     #[cfg(test)]
     pub fn reset(&self) {
-        self.attempted.store(0, Ordering::Relaxed);
         self.resolved_from_event.store(0, Ordering::Relaxed);
         self.resolved_from_index.store(0, Ordering::Relaxed);
         self.unresolved.store(0, Ordering::Relaxed);
@@ -422,7 +422,7 @@ impl FileAttributionCounters {
 /// Why a routed ETW record produced no sensor event.
 ///
 /// Only failures are named here. A record the router declined, or one whose
-/// whole job was to feed a path index, is not a failure and is counted apart —
+/// whole job was to feed a path index, is not a failure and is counted apart -
 /// see [`EtwDecodeCounters`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EtwDecodeFailure {
@@ -467,7 +467,7 @@ pub struct EtwDecodeFailureKey {
 /// bound rather than the only one: it caps the memory a provider that starts
 /// emitting a wide spread of event IDs can take, and caps the size of the
 /// snapshot an operator has to read. Failures past the cap are still counted,
-/// just not attributed — `unkeyed_failures` says how many.
+/// just not attributed - `unkeyed_failures` says how many.
 const ETW_DECODE_FAILURE_KEYS: usize = 32;
 
 /// Failure keys and their counts, capped at [`ETW_DECODE_FAILURE_KEYS`].
@@ -518,7 +518,7 @@ impl BoundedFailureKeys {
 /// regression cannot hide behind healthy channel counters. The outcomes are
 /// deliberately not all losses:
 ///
-/// - `records_filtered` is intentional — the router declined the record, or a
+/// - `records_filtered` is intentional - the router declined the record, or a
 ///   disposition said an open was not a creation. Volume here is the design
 ///   working, not a gap.
 /// - `records_indexed` is a record whose job was to teach or evict a path, or
@@ -1140,7 +1140,7 @@ mod tests {
     }
 
     /// The events a decoded record produces have to reach the queue, and the
-    /// two counters are kept by different modules — so reconcile them.
+    /// two counters are kept by different modules - so reconcile them.
     #[tokio::test]
     async fn emitted_events_reconcile_with_the_sensor_queue() {
         let _guard = counter_guard();
@@ -1237,6 +1237,7 @@ mod tests {
         counters.set_index_capacity_evictions(30);
 
         let snapshot = counters.snapshot().expect("a file event was attributed");
+        assert_eq!(snapshot.attempted, 1);
         assert_eq!(snapshot.index_capacity_evictions, 30);
         // Evictions are the mechanism, not the gap: they must not be mistaken
         // for events that failed to resolve.

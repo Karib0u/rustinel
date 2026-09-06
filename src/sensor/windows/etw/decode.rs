@@ -26,7 +26,6 @@ use crate::utils::{convert_nt_to_dos, query_process_command_line};
 use ferrisetw::parser::Parser;
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::EventRecord;
-use std::sync::atomic::Ordering;
 use tracing::{debug, trace};
 
 /// Map the sensor's index tier onto the telemetry module's, which is platform
@@ -443,10 +442,9 @@ pub(super) fn decode_kernel_file_record(
                 // Counted rather than silently discarded: this is the sensor's
                 // blind spot, and its size is the only way to know whether an
                 // endpoint is quiet or unobserved. The persistent count lives
-                // in `telemetry.json`; the in-process one only spaces the log.
+                // in `telemetry.json` and also spaces the log.
                 ETW_DECODE.record_unattributed();
-                WINDOWS_FILE_ATTRIBUTION.record_unresolved();
-                let unresolved = state.unresolved_file_events.fetch_add(1, Ordering::Relaxed) + 1;
+                let unresolved = WINDOWS_FILE_ATTRIBUTION.record_unresolved();
                 if unresolved == 1 || unresolved.is_multiple_of(1000) {
                     debug!(
                         unresolved_file_events = unresolved,

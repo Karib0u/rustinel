@@ -242,20 +242,30 @@ fn etw_decode_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
     // independently on the callback's hot path, so a snapshot taken mid-record
     // is legitimately off by a few.
     if !decode.is_reconciled() {
-        results.push(
-            DiagnosticResult::warn(
-                "etw_decode_reconciliation",
+        let classified = decode.classified();
+        let (message, fix) = if classified < decode.records_received {
+            (
                 format!(
                     "{} of {} ETW records are unaccounted for",
-                    decode.records_received.saturating_sub(decode.classified()),
+                    decode.records_received - classified,
                     decode.records_received,
                 ),
-                decode.describe(),
-            )
-            .with_fix(
                 "A small, non-growing difference is the snapshot catching a record mid-decode. A \
                  growing one is a decoder path that reports no outcome - please report it",
-            ),
+            )
+        } else {
+            (
+                format!(
+                    "ETW outcome count exceeds records received by {}",
+                    classified - decode.records_received,
+                ),
+                "A small, non-growing excess is a snapshot sampled across concurrent ETW updates. \
+                 A growing one means a decoder path reports more than one outcome - please report it",
+            )
+        };
+        results.push(
+            DiagnosticResult::warn("etw_decode_reconciliation", message, decode.describe())
+                .with_fix(fix),
         );
     }
 
@@ -510,6 +520,20 @@ mod tests {
         assert_eq!(results[1].id, "etw_decode_reconciliation");
         assert_eq!(results[1].status, DiagnosticStatus::Warn);
         assert!(results[1].message.contains("1000 of 10000"));
+    }
+
+    #[test]
+    fn excess_outcomes_are_reported_without_masking_the_difference() {
+        let mut snap = snapshot(vec![channel("sensor_events", 10, 0)]);
+        let mut decode = etw_decode(10_000, 0);
+        decode.records_filtered = 10_001;
+        snap.etw_decode = Some(decode);
+
+        let results = etw_decode_results(&snap);
+
+        assert_eq!(results[1].id, "etw_decode_reconciliation");
+        assert_eq!(results[1].status, DiagnosticStatus::Warn);
+        assert!(results[1].message.contains("exceeds records received by 1"));
     }
 
     #[test]
