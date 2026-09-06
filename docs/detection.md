@@ -163,7 +163,9 @@ Two things rule authors need to know:
   Windows, `CreationUtcTime` and `PreviousCreationUtcTime` stay empty because
   the provider reports which information class was set but never the values, so a
   `file_change` rule keyed on those fields cannot fire, one keyed on
-  `TargetFilename` and `Image` can.
+  `TargetFilename` and `Image` can. On Linux and macOS no sensor emits the
+  action at all, so `file_change` rules load there but are reported as having
+  no backing collector.
 - **File events whose path cannot be resolved are dropped, not emitted bare.**
   On both Windows and Linux the kernel names the target by handle or descriptor
   rather than by path, and the path has to be reconstructed. When that fails the
