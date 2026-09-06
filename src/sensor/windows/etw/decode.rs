@@ -248,6 +248,7 @@ pub(super) fn decode_process(
     let fields = ProcessCreationFields {
         image: image.clone(),
         image_source: None,
+        image_truncated: None,
         original_file_name: None,
         product: None,
         description: None,

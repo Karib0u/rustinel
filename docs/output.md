@@ -64,6 +64,7 @@ Format:
 | `edr.rule.severity` | Low, Medium, High, or Critical                                                                                                                                                                        |
 | `edr.rule.engine`   | `Sigma`, `Yara`, or `Ioc`                                                                                                                                                                             |
 | `edr.process.image_source` | Linux process image provenance: `proc` when resolved from `/proc/<pid>/exe`, or `execve` when the raw invocation string was used after that lookup lost the process lifetime race. |
+| `edr.process.image_truncated` | *(Linux process alerts only)* `true` when `process.executable` is a kernel-captured prefix whose suffix did not fit the 256-byte buffer. Absent when the path is complete or `/proc` supplied it. |
 | `event.count`       | *(rollup only)* Number of suppressed repeats this rollup represents, i.e. occurrences within the dedup window excluding the first. Absent on the live first emission, which represents a single event. Summing `event.count` across lines (absent = 1) gives the true event volume. |
 
 ### Windows Process Alert Example

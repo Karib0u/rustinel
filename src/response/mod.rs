@@ -676,6 +676,7 @@ mod tests {
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
                     image: image.map(str::to_string),
                     image_source: None,
+                    image_truncated: None,
                     process_id: pid.map(str::to_string),
                     process_start_time: None,
                     command_line: None,

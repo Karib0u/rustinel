@@ -130,6 +130,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 EventFields::ProcessCreation(ProcessCreationFields {
                     image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                     image_source: None,
+                    image_truncated: None,
                     command_line: Some("cmd.exe /c whoami".to_string()),
                     process_id: Some("111".to_string()),
                     process_start_time: None,
@@ -491,6 +492,7 @@ fn ecs_version_field_is_9_4_0() {
         EventFields::ProcessCreation(ProcessCreationFields {
             image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
             image_source: None,
+            image_truncated: None,
             command_line: None,
             process_id: None,
             process_start_time: None,
@@ -509,6 +511,38 @@ fn ecs_version_field_is_9_4_0() {
         }),
     ));
     assert_ecs_field_eq(&json, "ecs.version", "9.4.0");
+}
+
+#[test]
+fn ecs_process_image_truncation_marker_is_preserved() {
+    let long_prefix = format!("/{}", "deep/".repeat(52));
+    let json = ecs_json(&alert(
+        EventCategory::Process,
+        1,
+        1,
+        EventFields::ProcessCreation(ProcessCreationFields {
+            image: Some(long_prefix),
+            image_source: None,
+            image_truncated: Some(true),
+            command_line: None,
+            process_id: Some("111".to_string()),
+            process_start_time: None,
+            parent_image: None,
+            parent_process_id: None,
+            parent_command_line: None,
+            current_directory: None,
+            integrity_level: None,
+            user: None,
+            original_file_name: None,
+            product: None,
+            description: None,
+            company: None,
+            file_version: None,
+            target_image: None,
+        }),
+    ));
+
+    assert_ecs_field_eq(&json, "edr.process.image_truncated", true);
 }
 
 #[test]
@@ -531,6 +565,7 @@ fn test_rule_id_mapping_and_omit_behavior() {
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                 image_source: None,
+                image_truncated: None,
                 command_line: None,
                 process_id: None,
                 process_start_time: None,

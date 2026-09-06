@@ -75,6 +75,9 @@ pub struct ProcessCreationFields {
     /// for `/proc/<pid>/exe`, or `execve` for the raw kernel filename fallback.
     #[serde(rename = "ImageSource", skip_serializing_if = "Option::is_none")]
     pub image_source: Option<String>,
+    /// True when the sensor had to cut the end off `Image`.
+    #[serde(rename = "ImageTruncated", skip_serializing_if = "Option::is_none")]
+    pub image_truncated: Option<bool>,
 
     #[serde(rename = "OriginalFileName", skip_serializing_if = "Option::is_none")]
     pub original_file_name: Option<String>,

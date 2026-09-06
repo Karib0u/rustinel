@@ -203,6 +203,7 @@ level: high
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(image.to_string()),
                 image_source: None,
+                image_truncated: None,
                 command_line: None,
                 process_id: None,
                 process_start_time: None,

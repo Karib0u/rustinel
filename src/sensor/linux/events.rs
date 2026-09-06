@@ -12,6 +12,10 @@
 /// `ARGV_CAPACITY` in `ebpf/src/events.rs`.
 pub const ARGV_CAPACITY: usize = 512;
 
+/// Bytes captured for the executable image, including the NUL terminator.
+/// Mirrors `PROCESS_IMAGE_CAPACITY` in `ebpf/src/events.rs`.
+pub const PROCESS_IMAGE_CAPACITY: usize = 256;
+
 /// Process lifecycle event.
 ///
 /// - kind 1 = exec (`sched_process_exec`)
@@ -24,14 +28,16 @@ pub struct ProcessEvent {
     pub uid: u32,
     pub _pad: u32,
     pub comm: [u8; 16],
-    pub image: [u8; 128],
+    pub image: [u8; PROCESS_IMAGE_CAPACITY],
     /// Valid bytes in `args`; 0 when the kernel captured no argv.
     pub args_len: u16,
     /// Number of argv entries in `args`.
     pub args_count: u16,
     /// 1 when argv exceeded the kernel capture limits.
     pub args_truncated: u8,
-    pub _pad1: [u8; 3],
+    /// 1 when `image` exceeded its kernel capture buffer.
+    pub image_truncated: u8,
+    pub _pad1: [u8; 2],
     /// NUL-separated argv captured at `execve` entry.
     pub args: [u8; ARGV_CAPACITY],
 }
@@ -227,16 +233,17 @@ pub struct DnsEvent {
 // These catch accidental struct layout divergence at compile time.
 
 const _: () = assert!(
-    core::mem::size_of::<ProcessEvent>() == 680,
+    core::mem::size_of::<ProcessEvent>() == 808,
     "ProcessEvent layout changed — update ebpf/src/events.rs to match"
 );
 // The argv fields were appended after `image`; pin their offsets so a
 // reordering on either side fails the build instead of decoding garbage.
 const _: () = assert!(
-    core::mem::offset_of!(ProcessEvent, args_len) == 160
-        && core::mem::offset_of!(ProcessEvent, args_count) == 162
-        && core::mem::offset_of!(ProcessEvent, args_truncated) == 164
-        && core::mem::offset_of!(ProcessEvent, args) == 168,
+    core::mem::offset_of!(ProcessEvent, args_len) == 288
+        && core::mem::offset_of!(ProcessEvent, args_count) == 290
+        && core::mem::offset_of!(ProcessEvent, args_truncated) == 292
+        && core::mem::offset_of!(ProcessEvent, image_truncated) == 293
+        && core::mem::offset_of!(ProcessEvent, args) == 296,
     "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
 );
 // `ret` and `sock_type` took over slots that used to be explicit padding, so a
@@ -321,6 +328,7 @@ pub mod mapping {
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: Some(bytes_to_string(&event.image)),
                 image_source: None,
+                image_truncated: (event.image_truncated != 0).then_some(true),
                 original_file_name: None,
                 product: None,
                 description: None,
@@ -492,11 +500,12 @@ mod tests {
             uid: 1000,
             _pad: 0,
             comm: [0u8; 16],
-            image: [0u8; 128],
+            image: [0u8; PROCESS_IMAGE_CAPACITY],
             args_len: 0,
             args_count: 0,
             args_truncated: 0,
-            _pad1: [0u8; 3],
+            image_truncated: 0,
+            _pad1: [0u8; 2],
             args: [0u8; ARGV_CAPACITY],
         };
         let argv = b"/bin/true\0--quiet\0";
