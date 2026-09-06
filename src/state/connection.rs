@@ -4,6 +4,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::utils::cache::{trim_target, trim_to_headroom};
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -260,17 +262,30 @@ impl ConnectionAggregator {
     }
 
     fn trim_cache(&self, cache: &mut HashMap<ConnectionKey, ConnectionState>) {
-        let len = cache.len();
-        if len <= self.max_entries {
+        if cache.len() <= self.max_entries {
             return;
         }
 
         let now = now_secs();
         let last = self.last_cleanup.load(std::sync::atomic::Ordering::Relaxed);
 
-        // Avoid expensive trimming more than once per second, but still enforce cap.
-        if now.saturating_sub(last) < 1 {
-            let extra = cache.len().saturating_sub(self.max_entries);
+        // Avoid the timestamp-ordered pass more than once per second, but still
+        // enforce the cap -- and still free headroom, so the cheap path is not
+        // re-entered on every insertion while at capacity.
+        let claimed = now.saturating_sub(last) >= 1
+            && self
+                .last_cleanup
+                .compare_exchange(
+                    last,
+                    now,
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                )
+                .is_ok();
+
+        if !claimed {
+            let target = trim_target(self.max_entries);
+            let extra = cache.len().saturating_sub(target);
             let keys: Vec<ConnectionKey> = cache.keys().take(extra).cloned().collect();
             for key in keys {
                 cache.remove(&key);
@@ -278,38 +293,8 @@ impl ConnectionAggregator {
             return;
         }
 
-        if self
-            .last_cleanup
-            .compare_exchange(
-                last,
-                now,
-                std::sync::atomic::Ordering::Relaxed,
-                std::sync::atomic::Ordering::Relaxed,
-            )
-            .is_err()
-        {
-            let extra = cache.len().saturating_sub(self.max_entries);
-            let keys: Vec<ConnectionKey> = cache.keys().take(extra).cloned().collect();
-            for key in keys {
-                cache.remove(&key);
-            }
-            return;
-        }
-
-        // Remove oldest entries (by last_seen) until under limit
-        let mut timestamps: Vec<u64> = cache.values().map(|s| s.last_seen).collect();
-        timestamps.sort_unstable();
-        let cutoff = timestamps[len / 2];
-        cache.retain(|_, state| state.last_seen >= cutoff);
-
-        // If still over, remove by insertion order
-        if cache.len() > self.max_entries {
-            let extra = cache.len() - self.max_entries;
-            let keys: Vec<ConnectionKey> = cache.keys().take(extra).cloned().collect();
-            for key in keys {
-                cache.remove(&key);
-            }
-        }
+        // Drop the least recently seen entries, leaving room for further inserts.
+        trim_to_headroom(cache, self.max_entries, |state| state.last_seen);
     }
 }
 
