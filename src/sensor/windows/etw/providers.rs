@@ -220,7 +220,10 @@ impl EtwProviders {
         ]
     }
 
-    #[cfg(test)]
+    /// Every provider this build subscribes to, across both sessions.
+    ///
+    /// The names are what [`super::routing::EtwRouting::provider_name`] labels
+    /// decode failures with, which is what keeps that label space bounded.
     pub(super) fn all() -> Vec<EtwProvider> {
         vec![
             Self::kernel_process(),

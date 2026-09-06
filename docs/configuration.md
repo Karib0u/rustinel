@@ -328,6 +328,58 @@ appears in no channel count.
 a 99.9% resolution rate. Writes by protected processes are the expected residue;
 see [Limitations](limitations.md).
 
+The `file_attribution` section is the file-side equivalent, for the same reason:
+`Write` and `SetInformation` name their target only by kernel pointer, so an
+event whose pointer the handle index cannot answer is discarded inside the
+sensor and appears in no channel count.
+
+| Field | Meaning |
+| --- | --- |
+| `attempted` | File events that needed a target path |
+| `resolved_from_event` | Those the event named itself |
+| `resolved_from_index` | Those the `FileObject`/`FileKey` index resolved |
+| `unresolved` | Those discarded for want of a path, which is the detection gap |
+| `index_capacity_evictions` | Index entries dropped at the per-index cap of 8192 |
+
+Evictions are the mechanism rather than the gap: a handle whose entry was
+evicted may never be written to again. They are reported apart so "raise the
+cap" and "the provider stopped naming its handles" can be told apart. `rustinel
+doctor` reports this as `file_path_attribution`, which warns below a 99%
+resolution rate.
+
+The `etw_decode` section covers the stage before either of those: a schema
+lookup that fails, a payload template that no longer matches the record, or a
+payload with no field a rule can select on all leave the channel counters
+looking perfectly healthy while detections quietly stop firing.
+
+| Field | Meaning |
+| --- | --- |
+| `records_received` | Records delivered to the ETW callback |
+| `records_filtered` | Records the router intentionally declined - not loss |
+| `records_indexed` | Records that fed a path index or were held for a late naming event |
+| `records_decoded` | Records that produced at least one event |
+| `records_unattributed` | Records dropped for want of a resolvable path |
+| `schema_errors` | Records whose provider schema could not be located |
+| `unsupported_layouts` | Records missing a property their payload requires |
+| `fieldless_payloads` | Payloads with nothing a rule could select on |
+| `events_emitted` | Events offered to the queue; exceeds `records_decoded` when a naming event replays held writes |
+| `failures` | The failure counts by provider, event ID, event version, and kind |
+| `unkeyed_failures` | Failures past the 32-key attribution cap, counted but not attributed |
+
+The first seven outcome counters partition `records_received`, so `rustinel
+doctor` can report a record that reached no outcome at all as
+`etw_decode_reconciliation`. `failures` is keyed on provider *names* from the
+subscription table rather than rendered GUIDs, and capped at 32 distinct keys,
+so a provider that starts failing across a wide spread of event IDs cannot grow
+the snapshot without bound. `rustinel doctor` reports the totals as
+`etw_decode`.
+
+These three sections stay separate from each other and from the two losses
+either side of them: ETW's own `EventsLost`, which counts records the kernel
+discarded before the callback ran and is reported in the agent log, and the
+channel counters above, which count events shed after it. The causes and the
+fixes differ, so nothing folds them together.
+
 ### Windows ETW delivery
 
 ETW's real-time session timer hands partially filled buffers to consumers once

@@ -54,6 +54,14 @@ pub(super) struct BoundedIndex {
     order: VecDeque<(u64, u64)>,
     capacity: usize,
     next_seq: u64,
+    /// Live entries dropped to stay under `capacity`.
+    ///
+    /// The cap only binds when processes hold handles open without closing
+    /// them, and an evicted handle is one whose later writes can no longer be
+    /// attributed. Counting the evictions separates that cause from the
+    /// unresolved events it produces, which is the difference between "raise
+    /// the cap" and "the provider stopped naming its handles".
+    capacity_evictions: u64,
 }
 
 impl BoundedIndex {
@@ -63,6 +71,7 @@ impl BoundedIndex {
             order: VecDeque::new(),
             capacity,
             next_seq: 0,
+            capacity_evictions: 0,
         }
     }
 
@@ -96,6 +105,7 @@ impl BoundedIndex {
                     // the newer entry that reused the key.
                     if self.entries.get(&oldest).is_some_and(|e| e.seq == seq) {
                         self.entries.remove(&oldest);
+                        self.capacity_evictions = self.capacity_evictions.saturating_add(1);
                     }
                 }
                 None => break,
@@ -117,6 +127,10 @@ impl BoundedIndex {
 
     pub(super) fn forget(&mut self, key: u64) {
         self.entries.remove(&key);
+    }
+
+    pub(super) fn capacity_evictions(&self) -> u64 {
+        self.capacity_evictions
     }
 
     #[cfg(test)]
@@ -175,6 +189,18 @@ impl FilePathCache {
     /// Drop the entry for a name that has left the kernel's name cache.
     pub(super) fn forget_key(&mut self, file_key: u64) {
         self.by_key.forget(file_key);
+    }
+
+    /// Entries both indexes dropped to stay under their cap.
+    ///
+    /// Read by the decoder after each naming event and republished to
+    /// [`crate::telemetry::WINDOWS_FILE_ATTRIBUTION`]; keeping the count here
+    /// leaves the eviction path free of atomics and the index testable on its
+    /// own.
+    pub(super) fn capacity_evictions(&self) -> u64 {
+        self.by_object
+            .capacity_evictions()
+            .saturating_add(self.by_key.capacity_evictions())
     }
 
     /// Total live entries across both indexes.
@@ -258,6 +284,12 @@ mod tests {
         }
 
         assert_eq!(cache.len(), capacity * 2, "both indexes stay at capacity");
+        // Every insert past the cap evicts one live entry from each index, and
+        // that is the count `rustinel doctor` reads back.
+        assert_eq!(
+            cache.capacity_evictions(),
+            2 * (capacity as u64 * 100 - capacity as u64),
+        );
         // The most recent entry survives; the oldest has been evicted.
         let newest = capacity as u64 * 100 - 1;
         assert!(cache.resolve(Some(newest), None).is_some());
@@ -342,6 +374,11 @@ mod tests {
         }
 
         assert_eq!(index.len(), 0);
+        assert_eq!(
+            index.capacity_evictions(),
+            0,
+            "a forgotten handle is not a capacity eviction"
+        );
         assert!(
             index.order.len() <= capacity * 2 + 1,
             "ordering queue compacts instead of growing without bound, was {}",

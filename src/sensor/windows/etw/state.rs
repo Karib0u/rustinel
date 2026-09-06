@@ -178,10 +178,11 @@ pub(super) struct EtwState {
     /// through them cannot be attributed until the handle is reopened. Dropping
     /// them is the right policy - a pathless event matches no rule - but without
     /// a count there is no way to tell a quiet endpoint from a blind one.
-    /// Registry resolution is accounted for in `telemetry.json` instead, by
-    /// [`crate::telemetry::REGISTRY`]: it needs more than a drop count because the
-    /// resolution rate and the share the startup key rundown rescued are what
-    /// say whether the sensor still has a blind spot (#341).
+    /// This counter only spaces the log line. The persistent accounting - the
+    /// resolution rate, which tier answered, and the index's capacity
+    /// evictions - is in `telemetry.json` under
+    /// [`crate::telemetry::WINDOWS_FILE_ATTRIBUTION`] (#394), alongside the
+    /// registry equivalent in [`crate::telemetry::REGISTRY`] (#341).
     pub(super) unresolved_file_events: AtomicU64,
 }
 
