@@ -47,6 +47,7 @@ fn build_yara_alert(pid: u32, image: &str) -> Alert {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(image.to_string()),
+                image_source: None,
                 original_file_name: None,
                 product: None,
                 description: None,

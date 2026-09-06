@@ -320,6 +320,7 @@ pub mod mapping {
             }),
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: Some(bytes_to_string(&event.image)),
+                image_source: None,
                 original_file_name: None,
                 product: None,
                 description: None,

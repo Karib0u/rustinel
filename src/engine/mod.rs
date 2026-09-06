@@ -715,6 +715,7 @@ detection:
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(image.to_string()),
+                image_source: None,
                 command_line: Some(command_line.to_string()),
                 process_id: Some("1234".to_string()),
                 process_start_time: None,

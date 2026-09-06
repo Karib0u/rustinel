@@ -127,6 +127,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
         }),
         payload: SensorPayload::Process(ProcessCreationFields {
             image: Some(image.to_string()),
+            image_source: None,
             original_file_name: Some("curl.exe".to_string()),
             product: Some("curl".to_string()),
             description: Some("test process".to_string()),

@@ -197,6 +197,7 @@ mod tests {
                 opcode: 1,
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
                     image: Some(r"C:\Windows\System32\powershell.exe".to_string()),
+                    image_source: None,
                     original_file_name: None,
                     product: None,
                     description: None,

@@ -137,6 +137,7 @@ impl NormalizedEvent {
         match &self.fields {
             EventFields::ProcessCreation(f) => match key {
                 "Image" => f.image.as_deref(),
+                "ImageSource" => f.image_source.as_deref(),
                 "OriginalFileName" => f.original_file_name.as_deref(),
                 "Product" => f.product.as_deref(),
                 "Description" => f.description.as_deref(),
@@ -388,6 +389,7 @@ mod round_trip_tests {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some("/bin/zsh".to_string()),
+                image_source: None,
                 original_file_name: Some("zsh".to_string()),
                 product: Some("shell".to_string()),
                 description: Some("Z shell".to_string()),
@@ -634,6 +636,7 @@ mod round_trip_tests {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
+                image_source: None,
                 command_line: None,
                 process_id: None,
                 process_start_time: None,
@@ -674,6 +677,7 @@ mod round_trip_tests {
         event.opcode = 1;
         event.fields = EventFields::ProcessCreation(ProcessCreationFields {
             image: Some(image.to_string()),
+            image_source: None,
             command_line: None,
             process_id: None,
             process_start_time: None,

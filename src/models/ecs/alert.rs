@@ -95,6 +95,14 @@ pub struct EcsAlert {
     #[serde(rename = "process.executable", skip_serializing_if = "Option::is_none")]
     pub process_executable: Option<String>,
 
+    /// Linux source used to populate `process.executable`: `proc` for the
+    /// resolved `/proc/<pid>/exe` path, or `execve` for the raw filename.
+    #[serde(
+        rename = "edr.process.image_source",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_image_source: Option<String>,
+
     #[serde(rename = "process.name", skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
 
