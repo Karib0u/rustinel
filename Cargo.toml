@@ -102,3 +102,8 @@ criterion = "0.8"
 [[bench]]
 name = "sigma_engine"
 harness = false
+
+# Wildcard-domain IOC matching, measured with `cargo bench --bench ioc_domains`.
+[[bench]]
+name = "ioc_domains"
+harness = false
