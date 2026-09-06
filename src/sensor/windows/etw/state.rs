@@ -6,7 +6,6 @@ use super::routing::EtwRouting;
 use crate::models::RegistryEventFields;
 use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::AtomicU64;
 use std::sync::{Mutex, MutexGuard};
 use std::time::SystemTime;
 
@@ -172,17 +171,6 @@ pub(super) struct EtwState {
     pub(super) file_paths: Mutex<FilePathCache>,
     pub(super) registry_paths: Mutex<RegistryPathCache>,
     pub(super) pending_registry_events: Mutex<PendingRegistryEvents>,
-    /// File events dropped because neither identifier resolved to a path.
-    ///
-    /// Handles opened before the sensor started were never indexed, so writes
-    /// through them cannot be attributed until the handle is reopened. Dropping
-    /// them is the right policy - a pathless event matches no rule - but without
-    /// a count there is no way to tell a quiet endpoint from a blind one.
-    /// Registry resolution is accounted for in `telemetry.json` instead, by
-    /// [`crate::telemetry::REGISTRY`]: it needs more than a drop count because the
-    /// resolution rate and the share the startup key rundown rescued are what
-    /// say whether the sensor still has a blind spot (#341).
-    pub(super) unresolved_file_events: AtomicU64,
 }
 
 impl EtwState {
@@ -192,7 +180,6 @@ impl EtwState {
             file_paths: Mutex::new(FilePathCache::new()),
             registry_paths: Mutex::new(RegistryPathCache::new()),
             pending_registry_events: Mutex::new(PendingRegistryEvents::new()),
-            unresolved_file_events: AtomicU64::new(0),
         }
     }
 

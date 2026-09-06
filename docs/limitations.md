@@ -68,7 +68,13 @@ three platforms, but several Sysmon-style fields are unavailable.
   starts cannot be attributed, and those events are dropped rather than emitted
   without a path. Long-lived holders such as database files and service logs stay
   unobserved until the handle is closed and reopened, which for some services
-  means until reboot. Counted as `unresolved_file_events`.
+  means until reboot. The `file_attribution` section of `telemetry.json` and the
+  `file_path_attribution` check in `rustinel doctor` report the live resolution
+  rate and the handle index's capacity evictions; the agent log samples the
+  drops as `unresolved_file_events`. First measurement, on an idle Windows 11
+  lab desktop over 45 seconds: 399 of 33,029 file events resolved (1.2%), with
+  no index evictions - so on a freshly started agent the gap is wide, and it is
+  handles older than the session rather than index pressure that causes it.
 - **A small share of registry writes is still unattributed (silent risk).**
   Registry keys open before the trace session are named from the kernel handle
   table at startup, which covered 5,908 of 6,644 open keys (88.9%) in 32 ms on a
@@ -82,6 +88,13 @@ three platforms, but several Sysmon-style fields are unavailable.
   section of `telemetry.json` and the `registry_path_resolution` check in
   `rustinel doctor` report the live rate, and the agent log carries the writing
   PID for the first events that fail.
+- **A provider that changes its event templates degrades silently (bounded,
+  counted).** ETW schemas are per-Windows-build, so a record whose schema cannot
+  be located, or whose payload is missing a property this build requires, is
+  dropped inside the callback with the channel counters still reporting a
+  healthy pipeline. The `etw_decode` section of `telemetry.json` and the
+  `etw_decode` check in `rustinel doctor` count these by provider, event ID, and
+  event version, and separate them from records the router filtered on purpose.
 - **Extreme process bursts can still be lost in the kernel.** Both
   ETW sessions use an explicitly sized buffer pool: 256 KB × 64-128 (32 MB
   ceiling) for the main session and 32 KB × 64-512 (16 MB ceiling) for the

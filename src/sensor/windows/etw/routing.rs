@@ -306,6 +306,10 @@ pub(super) struct EtwRouting {
     pub(super) kernel_registry_guid: GUID,
     pub(super) powershell_guid: GUID,
     pub(super) guid_to_category: HashMap<GUID, EventCategory>,
+    /// Subscribed provider GUIDs to their manifest names. Decode failures are
+    /// labelled from this table rather than from a rendered GUID, so the label
+    /// space cannot grow past the providers this build enables.
+    guid_to_name: HashMap<GUID, &'static str>,
 }
 
 impl EtwRouting {
@@ -321,13 +325,32 @@ impl EtwRouting {
         guid_to_category.insert(EtwProviders::wmi_activity().guid, EventCategory::Wmi);
         guid_to_category.insert(EtwProviders::task_scheduler().guid, EventCategory::Task);
 
+        let guid_to_name = EtwProviders::all()
+            .into_iter()
+            .map(|provider| (provider.guid, provider.name))
+            .collect();
+
         Self {
             kernel_process_guid: EtwProviders::kernel_process().guid,
             kernel_file_guid: EtwProviders::kernel_file().guid,
             kernel_registry_guid: EtwProviders::kernel_registry().guid,
             powershell_guid: EtwProviders::powershell().guid,
             guid_to_category,
+            guid_to_name,
         }
+    }
+
+    /// The manifest name of a subscribed provider.
+    ///
+    /// A GUID that is not subscribed collapses to one shared label. Rendering
+    /// it instead would make the failure label space unbounded, which is the
+    /// thing this table exists to prevent; an unsubscribed provider reaching
+    /// the callback is a session-configuration bug, not a decode statistic.
+    pub(super) fn provider_name(&self, guid: GUID) -> &'static str {
+        self.guid_to_name
+            .get(&guid)
+            .copied()
+            .unwrap_or("unsubscribed")
     }
 
     pub(super) fn route(&self, record: &EventRecord) -> Option<(EventCategory, SensorAction)> {

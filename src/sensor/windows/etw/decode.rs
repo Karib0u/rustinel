@@ -19,12 +19,13 @@ use crate::models::{
 use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::classify_kernel_network_event;
 use crate::sensor::{Platform, ProcessStartKey, SensorAction, SensorEvent, SensorPayload};
-use crate::telemetry::RegistryPathSource;
+use crate::telemetry::{
+    EtwDecodeFailure, EtwDecodeFailureKey, RegistryPathSource, ETW_DECODE, WINDOWS_FILE_ATTRIBUTION,
+};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
 use ferrisetw::parser::Parser;
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::EventRecord;
-use std::sync::atomic::Ordering;
 use tracing::{debug, trace};
 
 /// Map the sensor's index tier onto the telemetry module's, which is platform
@@ -67,16 +68,45 @@ pub(super) struct DecodedEtwEvent {
     pub(super) payload: SensorPayload,
 }
 
+/// Attribute a decode failure to a bounded provider/event/version key.
+///
+/// The provider comes from the subscription table rather than the record's
+/// GUID, so the key space is bounded by what this build enables; see
+/// [`crate::telemetry::EtwDecodeFailureKey`].
+fn record_failure(record: &EventRecord, state: &EtwState, failure: EtwDecodeFailure) {
+    ETW_DECODE.record_failure(EtwDecodeFailureKey {
+        provider: state.routing.provider_name(record.provider_id()),
+        event_id: record.event_id(),
+        version: record.version(),
+        failure,
+    });
+}
+
+/// Decode one ETW record, accounting for what became of it.
+///
+/// Every record is classified into exactly one outcome. The paths that produce
+/// no event record their own reason - filtered, indexed, unattributed, or one
+/// of the three failures - and this function records the ones that do, so the
+/// totals reconcile against `records_received` and a decoder that quietly
+/// stops producing events cannot hide behind healthy channel counters (#394).
 pub(super) fn decode_record(
     record: &EventRecord,
     schema_locator: &SchemaLocator,
     state: &EtwState,
 ) -> DecodedEtwEvents {
-    if record.provider_id() == state.routing.kernel_registry_guid {
-        return decode_kernel_registry_record(record, schema_locator, state);
-    }
+    ETW_DECODE.record_received();
 
-    DecodedEtwEvents::single(decode_single_record(record, schema_locator, state))
+    let decoded = if record.provider_id() == state.routing.kernel_registry_guid {
+        decode_kernel_registry_record(record, schema_locator, state)
+    } else {
+        DecodedEtwEvents::single(decode_single_record(record, schema_locator, state))
+    };
+
+    let produced = decoded.replayed.len() + usize::from(decoded.primary.is_some());
+    if produced > 0 {
+        ETW_DECODE.record_decoded(produced);
+    }
+    decoded
 }
 
 pub(super) fn decode_single_record(
@@ -88,10 +118,16 @@ pub(super) fn decode_single_record(
         return decode_kernel_file_record(record, schema_locator, state);
     }
 
-    let (category, action) = state.routing.route(record)?;
+    let Some((category, action)) = state.routing.route(record) else {
+        // Intentional: the router declined this record. Volume here is the
+        // provider allowlist working, not a gap, so it is never a failure.
+        ETW_DECODE.record_filtered();
+        return None;
+    };
     let schema = match schema_locator.event_schema(record) {
         Ok(schema) => schema,
         Err(err) => {
+            record_failure(record, state, EtwDecodeFailure::Schema);
             trace!(
                 "Failed to get ETW schema for provider {:?} event {}: {:?}",
                 record.provider_id(),
@@ -117,12 +153,21 @@ pub(super) fn decode_single_record(
             unreachable!("event log categories use the event log sources")
         }
         EventCategory::Task => decode_task(&parser, record),
-    }?;
+    };
+
+    // A payload the template could not fill is a template this build does not
+    // know, not an empty event: the record arrived, and its version says which
+    // layout it used.
+    let Some(decoded) = decoded else {
+        record_failure(record, state, EtwDecodeFailure::UnsupportedLayout);
+        return None;
+    };
 
     // A payload without fields cannot satisfy a Sigma selection. Provider
     // allowlists should prevent these records, but keep this loss-free guard at
     // the decode boundary so manifest drift cannot reintroduce fieldless noise.
     if !has_matchable_fields(&decoded.payload) {
+        record_failure(record, state, EtwDecodeFailure::Fieldless);
         return None;
     }
 
@@ -301,11 +346,15 @@ pub(super) fn decode_kernel_file_record(
     // Checked before the schema lookup: the FILEIO keyword needed for Close
     // and SetInformation also delivers every read and query on the machine,
     // and decoding those would be pure overhead.
-    let route = kernel_file_route(record.event_id())?;
+    let Some(route) = kernel_file_route(record.event_id()) else {
+        ETW_DECODE.record_filtered();
+        return None;
+    };
 
     let schema = match schema_locator.event_schema(record) {
         Ok(schema) => schema,
         Err(err) => {
+            record_failure(record, state, EtwDecodeFailure::Schema);
             trace!(
                 "Failed to get Kernel-File schema for event {}: {:?}",
                 record.event_id(),
@@ -326,44 +375,78 @@ pub(super) fn decode_kernel_file_record(
     // produce telemetry - a Create both reports a creation and teaches us the
     // path for the writes that follow on that handle.
     if let Some(path) = named_path.as_deref() {
-        state.paths().learn(file_object, file_key, path);
+        let mut paths = state.paths();
+        paths.learn(file_object, file_key, path);
+        // Republished on the naming path only: evictions can only happen on an
+        // insert, and this keeps the pathless hot path free of the extra load.
+        WINDOWS_FILE_ATTRIBUTION.set_index_capacity_evictions(paths.capacity_evictions());
     }
 
     let action = match route {
-        KernelFileRoute::Index => return None,
+        KernelFileRoute::Index => {
+            ETW_DECODE.record_indexed();
+            return None;
+        }
         KernelFileRoute::EvictObject => {
             if let Some(object) = file_object {
                 state.paths().forget_object(object);
             }
+            ETW_DECODE.record_indexed();
             return None;
         }
         KernelFileRoute::EvictKey => {
             if let Some(key) = file_key {
                 state.paths().forget_key(key);
             }
+            ETW_DECODE.record_indexed();
             return None;
         }
         // Event ID 12 fires for every handle request, including plain opens;
         // the disposition says whether anything was actually created.
         KernelFileRoute::Emit(SensorAction::Create) => {
-            refine_file_create_action(&parser, SensorAction::Create)?
+            // A disposition that reports an open rather than a creation is the
+            // filter doing its job, not a decode failure.
+            match refine_file_create_action(&parser, SensorAction::Create) {
+                Some(action) => action,
+                None => {
+                    ETW_DECODE.record_filtered();
+                    return None;
+                }
+            }
         }
         KernelFileRoute::Emit(action) => action,
-        KernelFileRoute::SetInformation => set_information_action(&parser)?,
+        // An information class this build does not report on is filtered, not
+        // an unsupported layout: the property was read, it just said "read" or
+        // "rename target" rather than a state change worth an event.
+        KernelFileRoute::SetInformation => match set_information_action(&parser) {
+            Some(action) => action,
+            None => {
+                ETW_DECODE.record_filtered();
+                return None;
+            }
+        },
     };
 
     // A file event with no path cannot match a rule - essentially every file
     // rule keys on TargetFilename - so an unresolvable event is dropped rather
     // than sent on to occupy space in a bounded channel.
     let raw_path = match named_path {
-        Some(path) => path,
+        Some(path) => {
+            WINDOWS_FILE_ATTRIBUTION.record_resolved(false);
+            path
+        }
         None => match state.paths().resolve(file_object, file_key) {
-            Some(path) => path.to_string(),
+            Some(path) => {
+                WINDOWS_FILE_ATTRIBUTION.record_resolved(true);
+                path.to_string()
+            }
             None => {
                 // Counted rather than silently discarded: this is the sensor's
                 // blind spot, and its size is the only way to know whether an
-                // endpoint is quiet or unobserved.
-                let unresolved = state.unresolved_file_events.fetch_add(1, Ordering::Relaxed) + 1;
+                // endpoint is quiet or unobserved. The persistent count lives
+                // in `telemetry.json` and also spaces the log.
+                ETW_DECODE.record_unattributed();
+                let unresolved = WINDOWS_FILE_ATTRIBUTION.record_unresolved();
                 if unresolved == 1 || unresolved.is_multiple_of(1000) {
                     debug!(
                         unresolved_file_events = unresolved,
@@ -375,24 +458,9 @@ pub(super) fn decode_kernel_file_record(
         },
     };
 
-    let mappings = field_maps::file_event_mappings();
-    let fields = FileEventFields {
-        source_filename: None,
-        target_filename: Some(convert_nt_to_dos(&raw_path)),
-        process_id: try_get_uint(&parser, mappings.get_etw_field("ProcessId")?),
-        image: try_get_string(&parser, mappings.get_etw_field("Image")?)
-            .map(|path| convert_nt_to_dos(&path)),
-        // Kernel-File reports which information class was set, never the
-        // values, so unlike Sysmon Event ID 2 these stay empty on Windows.
-        creation_utc_time: try_get_string(&parser, mappings.get_etw_field("CreationUtcTime")?),
-        previous_creation_utc_time: try_get_string(
-            &parser,
-            mappings.get_etw_field("PreviousCreationUtcTime")?,
-        ),
-        user: try_get_string(&parser, mappings.get_etw_field("User")?),
-        // ETW delivers whole paths or none at all; there is no capture buffer
-        // to overflow on Windows.
-        path_truncated: None,
+    let Some(fields) = file_event_fields(&parser, &raw_path) else {
+        record_failure(record, state, EtwDecodeFailure::UnsupportedLayout);
+        return None;
     };
 
     let pid = parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id()));
@@ -407,6 +475,33 @@ pub(super) fn decode_kernel_file_record(
         timestamp: filetime_to_system_time(record.raw_timestamp()),
         process_start_key: None,
         payload: SensorPayload::File(fields),
+    })
+}
+
+/// Build the file payload for an event whose path is already resolved.
+///
+/// Extracted so a missing field mapping is one `None` the caller can attribute
+/// as an unsupported layout, rather than a `?` that returns from the middle of
+/// the decode with no record of why.
+fn file_event_fields(parser: &Parser, raw_path: &str) -> Option<FileEventFields> {
+    let mappings = field_maps::file_event_mappings();
+    Some(FileEventFields {
+        source_filename: None,
+        target_filename: Some(convert_nt_to_dos(raw_path)),
+        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        image: try_get_string(parser, mappings.get_etw_field("Image")?)
+            .map(|path| convert_nt_to_dos(&path)),
+        // Kernel-File reports which information class was set, never the
+        // values, so unlike Sysmon Event ID 2 these stay empty on Windows.
+        creation_utc_time: try_get_string(parser, mappings.get_etw_field("CreationUtcTime")?),
+        previous_creation_utc_time: try_get_string(
+            parser,
+            mappings.get_etw_field("PreviousCreationUtcTime")?,
+        ),
+        user: try_get_string(parser, mappings.get_etw_field("User")?),
+        // ETW delivers whole paths or none at all; there is no capture buffer
+        // to overflow on Windows.
+        path_truncated: None,
     })
 }
 
@@ -427,12 +522,14 @@ pub(super) fn decode_kernel_registry_record(
     // Checked before the schema lookup so unrouted events cost only an
     // integer match.
     let Some(route) = kernel_registry_route(record.event_id()) else {
+        ETW_DECODE.record_filtered();
         return DecodedEtwEvents::default();
     };
 
     let schema = match schema_locator.event_schema(record) {
         Ok(schema) => schema,
         Err(err) => {
+            record_failure(record, state, EtwDecodeFailure::Schema);
             trace!(
                 "Failed to get Kernel-Registry schema for event {}: {:?}",
                 record.event_id(),
@@ -496,12 +593,19 @@ pub(super) fn decode_kernel_registry_record(
                 None
             };
 
+            // A naming event that emitted nothing did its real job: it taught
+            // the index a path, and possibly replayed writes waiting on it.
+            if primary.is_none() && replayed.is_empty() {
+                ETW_DECODE.record_indexed();
+            }
+
             DecodedEtwEvents { primary, replayed }
         }
         KernelRegistryRoute::Evict => {
             if let Some(object) = key_object {
                 state.registry_paths().forget_at(object, event_at);
             }
+            ETW_DECODE.record_indexed();
             DecodedEtwEvents::default()
         }
         KernelRegistryRoute::Emit(action) => {
@@ -522,6 +626,7 @@ pub(super) fn decode_kernel_registry_record(
                 });
 
             let Some(event) = pending_registry_event(&parser, record, action, value_name) else {
+                record_failure(record, state, EtwDecodeFailure::UnsupportedLayout);
                 return DecodedEtwEvents::default();
             };
 
@@ -532,10 +637,16 @@ pub(super) fn decode_kernel_registry_record(
                 }
                 None => {
                     if let Some(object) = key_object.filter(|object| *object != 0) {
+                        // Held for the naming event that has not arrived yet:
+                        // deferred, not lost. Whatever the queue had to shed to
+                        // make room is what the registry counters record.
                         let dropped = state.pending_registry_events().insert(object, event);
                         record_unresolved_registry_events(dropped, record.process_id());
+                        ETW_DECODE.record_indexed();
                     } else {
+                        // No key object at all, so nothing can ever name it.
                         record_unresolved_registry_events(1, record.process_id());
+                        ETW_DECODE.record_unattributed();
                     }
                     DecodedEtwEvents::default()
                 }

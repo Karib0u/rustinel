@@ -108,6 +108,175 @@ pub struct RegistrySnapshot {
     pub snapshot_keys: usize,
 }
 
+/// Windows Kernel-File path attribution at a point in time.
+///
+/// Windows only, and absent from the snapshot on other platforms and before a
+/// file event has been decoded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileAttributionSnapshot {
+    /// File events that needed a target path.
+    pub attempted: u64,
+    /// Those the event named itself, without consulting the pointer index.
+    pub resolved_from_event: u64,
+    /// Those the `FileObject`/`FileKey` index resolved.
+    pub resolved_from_index: u64,
+    /// Those dropped because neither identifier resolved to a path.
+    pub unresolved: u64,
+    /// Index entries evicted because a handle was held past the per-index cap.
+    /// Not itself a gap - the evicted handle may never be written to again -
+    /// but it is the mechanism that produces one, so it is reported apart.
+    pub index_capacity_evictions: u64,
+}
+
+impl FileAttributionSnapshot {
+    /// File events that reached the detectors with a path.
+    pub fn resolved(&self) -> u64 {
+        self.resolved_from_event
+            .saturating_add(self.resolved_from_index)
+    }
+
+    /// Share of file events that reached the detectors with a path.
+    pub fn resolution_rate_pct(&self) -> f64 {
+        let seen = self.resolved().saturating_add(self.unresolved);
+        if seen == 0 {
+            return 100.0;
+        }
+        (self.resolved() as f64 / seen as f64) * 100.0
+    }
+
+    /// One-line operator summary.
+    pub fn describe(&self) -> String {
+        format!(
+            "file paths: {} of {} events resolved ({:.2}%), {} from the handle index, {} index entries evicted at capacity",
+            self.resolved(),
+            self.resolved().saturating_add(self.unresolved),
+            self.resolution_rate_pct(),
+            self.resolved_from_index,
+            self.index_capacity_evictions,
+        )
+    }
+}
+
+/// One decode failure key and how often it fired.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EtwDecodeFailureSnapshot {
+    /// Provider name from the subscription table, never a rendered GUID.
+    pub provider: String,
+    pub event_id: u16,
+    /// Event template version from the record header. A version this build has
+    /// no template for is the usual cause of `unsupported_layout`.
+    pub version: u8,
+    /// `schema`, `unsupported_layout`, or `fieldless`.
+    pub failure: String,
+    pub count: u64,
+}
+
+/// Windows ETW decoder accounting at a point in time.
+///
+/// Windows only, and absent from the snapshot on other platforms and before
+/// the ETW sensor has decoded a record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EtwDecodeSnapshot {
+    /// Records delivered to the ETW callback.
+    pub records_received: u64,
+    /// Records the router intentionally declined. Not loss.
+    pub records_filtered: u64,
+    /// Records that maintained a path index or were held for a naming event.
+    pub records_indexed: u64,
+    /// Records that produced at least one sensor event.
+    pub records_decoded: u64,
+    /// Records dropped for want of a resolvable path.
+    pub records_unattributed: u64,
+    /// Records whose provider schema could not be located.
+    pub schema_errors: u64,
+    /// Records missing a property their payload requires.
+    pub unsupported_layouts: u64,
+    /// Payloads built with no field a rule could select on.
+    pub fieldless_payloads: u64,
+    /// Sensor events offered to the queue. Exceeds `records_decoded` whenever
+    /// a naming event replays writes that were waiting on it.
+    pub events_emitted: u64,
+    /// Failures by bounded provider/event/version key, worst first.
+    #[serde(default)]
+    pub failures: Vec<EtwDecodeFailureSnapshot>,
+    /// Failures that arrived after the key table was full, so they are counted
+    /// in the totals but attributed to no key.
+    #[serde(default)]
+    pub unkeyed_failures: u64,
+}
+
+impl EtwDecodeSnapshot {
+    /// Records that failed to decode, across all three failure modes.
+    pub fn failed(&self) -> u64 {
+        self.schema_errors
+            .saturating_add(self.unsupported_layouts)
+            .saturating_add(self.fieldless_payloads)
+    }
+
+    /// Share of received records that failed to decode.
+    pub fn failure_rate_pct(&self) -> f64 {
+        if self.records_received == 0 {
+            return 0.0;
+        }
+        (self.failed() as f64 / self.records_received as f64) * 100.0
+    }
+
+    /// Whether every received record is accounted for by exactly one outcome.
+    ///
+    /// The counters are incremented independently on a hot path, so a snapshot
+    /// taken mid-record can be off by one; a persistent mismatch means an
+    /// outcome the decoder does not classify, which is the state this whole
+    /// section exists to make impossible.
+    pub fn is_reconciled(&self) -> bool {
+        self.classified() == self.records_received
+    }
+
+    /// Records attributed to an outcome.
+    pub fn classified(&self) -> u64 {
+        [
+            self.records_filtered,
+            self.records_indexed,
+            self.records_decoded,
+            self.records_unattributed,
+            self.schema_errors,
+            self.unsupported_layouts,
+            self.fieldless_payloads,
+        ]
+        .into_iter()
+        .fold(0u64, u64::saturating_add)
+    }
+
+    /// One-line operator summary.
+    pub fn describe(&self) -> String {
+        let worst = self
+            .failures
+            .first()
+            .map(|failure| {
+                format!(
+                    ", worst {} event {} v{} {} x{}",
+                    failure.provider,
+                    failure.event_id,
+                    failure.version,
+                    failure.failure,
+                    failure.count
+                )
+            })
+            .unwrap_or_default();
+        format!(
+            "etw decode: {} records received, {} decoded into {} events, {} filtered, {} indexed, {} unattributed, {} failed ({:.4}%){}",
+            self.records_received,
+            self.records_decoded,
+            self.events_emitted,
+            self.records_filtered,
+            self.records_indexed,
+            self.records_unattributed,
+            self.failed(),
+            self.failure_rate_pct(),
+            worst,
+        )
+    }
+}
+
 /// Sensor queue traffic for one normalized event category.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SensorEventCategorySnapshot {
@@ -182,6 +351,14 @@ pub struct TelemetrySnapshot {
     /// registry sensor, and on snapshots written before #341.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<RegistrySnapshot>,
+    /// Kernel-File path attribution. Absent on platforms without the ETW file
+    /// sensor, and on snapshots written before #394.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_attribution: Option<FileAttributionSnapshot>,
+    /// ETW decoder outcomes. Absent on platforms without the ETW sensor, and
+    /// on snapshots written before #394.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etw_decode: Option<EtwDecodeSnapshot>,
 }
 
 impl TelemetrySnapshot {
@@ -199,6 +376,8 @@ impl TelemetrySnapshot {
             sensor_events_by_category: super::sensor_event_category_snapshots(),
             windows_process_command_line: super::WINDOWS_PROCESS_COMMAND_LINE.snapshot(),
             registry: super::REGISTRY.snapshot(),
+            file_attribution: super::WINDOWS_FILE_ATTRIBUTION.snapshot(),
+            etw_decode: super::ETW_DECODE.snapshot(),
         }
     }
 
@@ -367,6 +546,8 @@ mod tests {
             sensor_events_by_category: Vec::new(),
             windows_process_command_line: None,
             registry: None,
+            file_attribution: None,
+            etw_decode: None,
         }
     }
 
@@ -426,11 +607,114 @@ mod tests {
         assert_eq!(fidelity.capture_rate_pct(), 75.0);
     }
 
+    fn file_attribution(resolved_from_index: u64, unresolved: u64) -> FileAttributionSnapshot {
+        FileAttributionSnapshot {
+            attempted: resolved_from_index + unresolved + 10,
+            resolved_from_event: 10,
+            resolved_from_index,
+            unresolved,
+            index_capacity_evictions: 4,
+        }
+    }
+
+    #[test]
+    fn file_resolution_rate_counts_both_resolved_tiers() {
+        let files = file_attribution(80, 10);
+
+        assert_eq!(files.resolved(), 90);
+        assert_eq!(files.resolution_rate_pct(), 90.0);
+        assert!(files
+            .describe()
+            .contains("90 of 100 events resolved (90.00%)"));
+        assert!(files.describe().contains("4 index entries evicted"));
+    }
+
+    /// An idle file sensor must read as "nothing to attribute", not as a gap.
+    #[test]
+    fn a_file_sensor_that_saw_nothing_reports_full_resolution() {
+        let idle = FileAttributionSnapshot {
+            attempted: 0,
+            resolved_from_event: 0,
+            resolved_from_index: 0,
+            unresolved: 0,
+            index_capacity_evictions: 0,
+        };
+
+        assert_eq!(idle.resolution_rate_pct(), 100.0);
+    }
+
+    /// Intentional filtering is the bulk of ETW traffic, so it must not count
+    /// against the decoder the way a schema failure does.
+    #[test]
+    fn filtered_records_do_not_inflate_the_decode_failure_rate() {
+        let decode = EtwDecodeSnapshot {
+            records_received: 1_000,
+            records_filtered: 800,
+            records_indexed: 100,
+            records_decoded: 90,
+            records_unattributed: 5,
+            schema_errors: 3,
+            unsupported_layouts: 1,
+            fieldless_payloads: 1,
+            events_emitted: 120,
+            failures: Vec::new(),
+            unkeyed_failures: 0,
+        };
+
+        assert_eq!(decode.failed(), 5);
+        assert!((decode.failure_rate_pct() - 0.5).abs() < f64::EPSILON);
+        assert!(decode.is_reconciled());
+        assert!(decode.describe().contains("800 filtered"));
+    }
+
+    /// A decoder path that reports no outcome is exactly the hidden
+    /// degradation this section exists to surface, so the mismatch is visible
+    /// in the snapshot rather than needing to be derived by hand.
+    #[test]
+    fn an_unclassified_record_fails_reconciliation() {
+        let decode = EtwDecodeSnapshot {
+            records_received: 10,
+            records_filtered: 4,
+            records_indexed: 0,
+            records_decoded: 5,
+            records_unattributed: 0,
+            schema_errors: 0,
+            unsupported_layouts: 0,
+            fieldless_payloads: 0,
+            events_emitted: 5,
+            failures: Vec::new(),
+            unkeyed_failures: 0,
+        };
+
+        assert_eq!(decode.classified(), 9);
+        assert!(!decode.is_reconciled());
+    }
+
     #[test]
     fn a_snapshot_round_trips_through_the_file() {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = snapshot_path(temp.path());
-        let written = snapshot(vec![channel("sensor_events", 5, 2)]);
+        let mut written = snapshot(vec![channel("sensor_events", 5, 2)]);
+        written.file_attribution = Some(file_attribution(80, 10));
+        written.etw_decode = Some(EtwDecodeSnapshot {
+            records_received: 10,
+            records_filtered: 4,
+            records_indexed: 1,
+            records_decoded: 3,
+            records_unattributed: 1,
+            schema_errors: 1,
+            unsupported_layouts: 0,
+            fieldless_payloads: 0,
+            events_emitted: 5,
+            failures: vec![EtwDecodeFailureSnapshot {
+                provider: "Microsoft-Windows-DNS-Client".to_string(),
+                event_id: 3020,
+                version: 0,
+                failure: "schema".to_string(),
+                count: 1,
+            }],
+            unkeyed_failures: 0,
+        });
 
         written.write_to(&path).expect("write snapshot");
         let read = TelemetrySnapshot::read_from(&path).expect("read snapshot");

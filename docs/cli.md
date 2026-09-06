@@ -183,10 +183,13 @@ coverage; see [Sigma Coverage](coverage.md) and
 The `pipeline_telemetry` check reports how much telemetry the agent shed under
 load, per channel, from the snapshot the running agent writes - so a detection
 gap can be sized without searching the operational log. `--json` carries the
-raw per-channel counters under `telemetry`. On Windows the
-`registry_path_resolution` check reports the share of registry writes that
-reached the detectors with a key path, which is the one gap the channel counters
-cannot show. See [Pipeline Telemetry](configuration.md#pipeline-telemetry).
+raw per-channel counters under `telemetry`. On Windows, three further checks
+cover the gaps the channel counters cannot show, because they happen before any
+channel sees the event: `registry_path_resolution` and `file_path_attribution`
+report the share of registry writes and file events that reached the detectors
+with a path, and `etw_decode` reports records that failed to decode at all,
+named by provider and event version. See
+[Pipeline Telemetry](configuration.md#pipeline-telemetry).
 
 Exit codes are intended for automation:
 

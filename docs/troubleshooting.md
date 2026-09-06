@@ -461,6 +461,60 @@ The measured rate on a mixed workload is 98.7%. A rate well below that, or PIDs
 that are neither protected system processes nor short-lived key users, means the
 rundown missed keys it should have covered and is worth reporting.
 
+### A file rule did not fire on Windows
+
+File events have the same blind spot as registry writes, for the same reason:
+`Write` and `SetInformation` carry no name, only a `FileObject`/`FileKey` pair
+the sensor has to join to an earlier naming event. A handle that was already
+open when the agent started was never named, so its writes cannot be attributed
+and are dropped rather than emitted without a target:
+
+```text
+  [WARN] file_path_attribution: 412 file events had no recoverable path (96.10% resolved)
+      detail: file paths: 10141 of 10553 events resolved (96.10%), 9004 from the handle index, 0 index entries evicted at capacity
+```
+
+Long-lived holders - database files, service logs, the browser - stay unobserved
+until the handle is closed and reopened, so a freshly started agent starts blind
+on most of the machine's write traffic. On an idle Windows 11 lab desktop, a
+45-second run resolved 399 of 33,029 file events (1.2%): the residue is
+dominated by handles that predate the trace session, and the counters above are
+the first measurement of it. Treat the number as a trend on one host rather than
+a target - what matters is whether it improves as the agent runs and whether it
+falls after a Windows update.
+
+`index entries evicted at capacity` above zero is a different problem: the
+handle index holds 8192 entries per identifier, and it only fills when processes
+hold handles open without closing them. Evictions are not themselves a gap - the
+evicted handle may never be written to again - but sustained evictions alongside
+a falling resolution rate are the pair worth reporting.
+
+### Detections stopped firing but nothing was dropped
+
+A record that fails to decode never reaches a channel, so every drop counter
+stays at zero while the detections that needed those events quietly stop.
+`rustinel doctor` reports that stage on its own:
+
+```text
+  [WARN] etw_decode: 118 ETW records failed to decode (0.0042% of 2812004 received)
+      detail: Microsoft-Windows-Kernel-Registry event 5 v2: schema x118
+```
+
+The detail names the provider, event ID, and event *version*. A version this
+build has no template for is the usual cause after a Windows feature update, and
+that pair is what to include in a report. `unsupported_layout` means the record
+was described but a property the payload requires was absent; `fieldless` means
+a payload was built with nothing a rule could select on.
+
+Records the router declined on purpose - reads, queries, opens that created
+nothing - are counted as `records_filtered` and are deliberately not part of
+this rate. They are the bulk of ETW traffic and their volume is the design
+working.
+
+An `etw_decode_reconciliation` warning means records reached no outcome at all.
+A small, non-growing difference is the snapshot catching a record mid-decode; a
+growing one is a bug worth reporting.
+
 ### I see “dropping event” or “queue full” in logs
 
 These messages mean the agent is under backpressure somewhere in the pipeline.
