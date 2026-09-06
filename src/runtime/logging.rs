@@ -513,4 +513,94 @@ mod filter_tests {
         assert!(output.contains("detection event"));
         assert!(output.contains("actionable warning"));
     }
+
+    fn render_detection_summaries(level: &str, filter: Option<&str>) -> (String, String) {
+        use crate::alerts::{AlertSink, Deduplicator};
+        use crate::models::{Alert, AlertSeverity, DetectionEngine, NormalizedEvent};
+
+        let logging = logging(level, filter);
+        let console_filter = build_console_log_filter(&logging, &build_log_filter(&logging));
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer_output = Arc::clone(&output);
+        let subscriber = tracing_subscriber::registry().with(
+            fmt::layer()
+                .compact()
+                .with_ansi(false)
+                .with_writer(move || SharedWriter(Arc::clone(&writer_output)))
+                .with_filter(console_filter),
+        );
+        let json_output = Arc::new(Mutex::new(Vec::new()));
+        let (writer, guard) =
+            tracing_appender::non_blocking(SharedWriter(Arc::clone(&json_output)));
+        let dedup = Arc::new(Deduplicator::new(60, 100));
+        let sink = AlertSink::new(writer).with_deduplicator(Arc::clone(&dedup));
+        let event: NormalizedEvent = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-09-06T08:54:30Z",
+            "platform": "windows",
+            "provider": "etw",
+            "category": "Process",
+            "event_id": 1,
+            "opcode": 1,
+            "fields": { "Image": "C:\\Windows\\System32\\whoami.exe", "ProcessId": "13504" }
+        }))
+        .unwrap();
+
+        tracing::subscriber::with_default(subscriber, || {
+            for engine in [
+                DetectionEngine::Sigma,
+                DetectionEngine::Yara,
+                DetectionEngine::Ioc,
+            ] {
+                let alert = Alert {
+                    severity: AlertSeverity::Low,
+                    rule_name: format!("{engine:?} test rule"),
+                    rule_description: None,
+                    rule_id: None,
+                    engine,
+                    event: event.clone(),
+                    match_details: None,
+                };
+                sink.write_alert(&alert);
+                sink.write_alert(&alert);
+                sink.write_alert(&alert);
+            }
+            dedup.flush_all(&sink);
+        });
+        drop(guard);
+        let console = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        let json = String::from_utf8(json_output.lock().unwrap().clone()).unwrap();
+        (console, json)
+    }
+
+    #[test]
+    fn default_console_shows_real_alerts_from_all_engines_and_deduplicates() {
+        let (console, json) = render_detection_summaries("info", None);
+        assert_eq!(console.matches("Detection triggered").count(), 3);
+        assert_eq!(console.matches("Detection repeats aggregated").count(), 3);
+        for engine in ["Sigma", "Yara", "Ioc"] {
+            assert!(console.contains(&format!("engine={engine}")), "{console}");
+            assert!(
+                console.contains(&format!("{engine} test rule")),
+                "{console}"
+            );
+        }
+        assert!(console.contains("severity=Low"), "{console}");
+        assert!(console.contains("whoami.exe"), "{console}");
+        assert!(console.contains("pid=13504"), "{console}");
+        assert_eq!(console.matches("repeats=2").count(), 3);
+        assert_eq!(json.lines().count(), 6);
+    }
+
+    #[test]
+    fn quiet_filters_hide_summaries_without_disabling_json_alerts() {
+        for (level, filter) in [("warn", None), ("info", Some("warn,engine=off"))] {
+            let (console, json) = render_detection_summaries(level, filter);
+            assert!(console.is_empty(), "{console}");
+            assert_eq!(json.lines().count(), 6);
+            for line in json.lines() {
+                let alert: serde_json::Value = serde_json::from_str(line).unwrap();
+                assert_eq!(alert["event.kind"], "alert");
+            }
+        }
+    }
 }

@@ -437,6 +437,13 @@ TOML, so lists are JSON-style arrays.
     .\rustinel.exe run
     ```
 
+At the default info level, the console shows one summary for each emitted
+Sigma, YARA, or IOC alert, including severity, rule name, and available process,
+PID, and file context. Full event details remain in the ECS NDJSON alert file.
+When deduplication is enabled, the first occurrence appears immediately and
+suppressed repeats appear as an aggregate summary when the window is flushed.
+Detection summaries use the `engine` logging target at info level; `--log-level warn` or a custom filter can hide them without disabling JSON alert output.
+
 Interactive `run` also accepts `--log-level` and `--no-console` as one-off
 overrides. For repeatable deployments, prefer `config.toml` and `EDR__`
 variables. See the [CLI Reference](cli.md) for every flag.

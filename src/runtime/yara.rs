@@ -256,15 +256,6 @@ pub fn spawn_yara_file_worker(
             match scan_result {
                 Ok(matches) => {
                     if !matches.is_empty() {
-                        let rule_names: Vec<String> =
-                            matches.iter().map(|rule| rule.rule.clone()).collect();
-                        warn!(
-                            pid = pid,
-                            file = %path,
-                            rules = ?rule_names,
-                            "YARA detection triggered"
-                        );
-
                         for rule_match in &matches {
                             let match_details = build_yara_match_details(match_debug, rule_match);
                             let alert = build_yara_alert(
@@ -397,15 +388,6 @@ pub fn spawn_yara_memory_worker(
                 };
 
                 if !matches.is_empty() {
-                    let rule_names: Vec<String> =
-                        matches.iter().map(|rule| rule.rule.clone()).collect();
-                    warn!(
-                        pid = job.expected_identity.pid,
-                        image = %job.expected_identity.image,
-                        rules = ?rule_names,
-                        "YARA memory detection triggered"
-                    );
-
                     for rule_match in &matches {
                         let details =
                             build_yara_memory_match_details(match_debug, rule_match, chunk);

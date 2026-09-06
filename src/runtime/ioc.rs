@@ -105,13 +105,6 @@ pub fn spawn_ioc_hash_worker(
 
             let matches = ioc_engine.match_hashes(&hashes);
             if !matches.is_empty() {
-                info!(
-                    target: "engine",
-                    pid = pid,
-                    file = %path,
-                    matches = matches.len(),
-                    "IOC hash match detected"
-                );
                 for ioc_match in matches {
                     let alert = ioc_engine
                         .build_alert_for_hash_match(&ioc_match, &path, pid, platform, provider);

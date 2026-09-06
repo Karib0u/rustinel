@@ -30,7 +30,7 @@ Field rendering varies by logger, but the message text is representative:
 9:00 PM INFO  rustinel: Rustinel (Linux eBPF)
 9:00 PM INFO  rustinel: Loading Sigma rules
 9:00:01 PM INFO  rustinel: YARA scanner initialized
-9:00:05 PM INFO  engine: Detection triggered engine=Sigma rule="Encoded PowerShell Command"
+9:00:05 PM INFO  engine: Detection triggered engine=Sigma severity=High rule="Encoded PowerShell Command" process="/tmp/test-process" pid=4242
 9:00:05 PM INFO  response: Active response would terminate process pid=4242 image="/tmp/test-process" dry_run=true
 ```
 
