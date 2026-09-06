@@ -698,6 +698,31 @@ mod tests {
     }
 
     #[test]
+    fn an_absent_source_ip_leaves_related_ip_to_the_destination() {
+        // `related.ip` is a correlation field. A sensor that cannot see the
+        // local address reports none, and nothing may be invented in its
+        // place — a fabricated entry there is indistinguishable from a host
+        // that really used that address.
+        let mut alert = network_alert(Some(true));
+        if let EventFields::NetworkConnection(fields) = &mut alert.event.fields {
+            fields.source_ip = None;
+            fields.source_port = None;
+        }
+
+        let ecs = EcsAlert::from(&alert);
+        assert!(ecs.source_ip.is_none());
+        assert!(ecs.source_port.is_none());
+        assert_eq!(
+            ecs.related_ip,
+            Some(vec!["198.51.100.10".to_string()]),
+            "related.ip should carry the destination alone"
+        );
+        // The type still describes the connection, derived from the address
+        // the sensor actually observed.
+        assert_eq!(ecs.network_type, Some("ipv4".to_string()));
+    }
+
+    #[test]
     fn test_ecs_dns_mapping() {
         let alert = Alert {
             severity: AlertSeverity::Low,
