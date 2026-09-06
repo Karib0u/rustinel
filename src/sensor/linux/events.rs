@@ -62,6 +62,16 @@ impl ProcessEvent {
     }
 }
 
+/// The kernel did not watch this socket being created, so its type is not
+/// known. Mirrors `SOCK_TYPE_UNKNOWN` in `ebpf/src/events.rs`.
+pub const SOCK_TYPE_UNKNOWN: u8 = 0;
+
+/// `SOCK_STREAM` — TCP for AF_INET and AF_INET6.
+pub const SOCK_STREAM: u8 = 1;
+
+/// `SOCK_DGRAM` — UDP for AF_INET and AF_INET6.
+pub const SOCK_DGRAM: u8 = 2;
+
 /// Outbound connection event. Produced by `handle_connect`
 /// (`syscalls/sys_enter_connect`).
 #[repr(C)]
@@ -78,9 +88,29 @@ pub struct NetworkEvent {
     pub sport: u16,
     /// Address family: 2 = IPv4, 10 = IPv6.
     pub af: u16,
-    pub _pad1: u16,
+    /// Socket type the descriptor was created with: [`SOCK_STREAM`],
+    /// [`SOCK_DGRAM`], another `SOCK_*` value, or [`SOCK_TYPE_UNKNOWN`].
+    pub sock_type: u8,
+    pub _pad1: u8,
     pub daddr: [u8; 16],
     pub saddr: [u8; 16],
+}
+
+impl NetworkEvent {
+    /// Transport name for the Sigma `Protocol` field and ECS
+    /// `network.transport`.
+    ///
+    /// `None` when the socket type was not captured, or names a transport
+    /// this maps no name for. `connect(2)` carries no protocol of its own, so
+    /// the alternative to an absent value is a guess: before the socket type
+    /// was tracked every event was labelled `tcp`, including UDP connects.
+    pub fn transport(&self) -> Option<&'static str> {
+        match self.sock_type {
+            SOCK_STREAM => Some("tcp"),
+            SOCK_DGRAM => Some("udp"),
+            _ => None,
+        }
+    }
 }
 
 /// Bytes captured for one file path, including the NUL terminator.
@@ -178,7 +208,8 @@ const _: () = assert!(
     "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
-    core::mem::size_of::<NetworkEvent>() == 56,
+    core::mem::size_of::<NetworkEvent>() == 56
+        && core::mem::offset_of!(NetworkEvent, sock_type) == 22,
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
@@ -295,7 +326,7 @@ pub mod mapping {
                 image: None,
                 user: Some(event.uid.to_string()),
                 destination_hostname: None,
-                protocol: Some("tcp".to_string()),
+                protocol: event.transport().map(str::to_string),
                 // The probe hooks `connect()` only, so every captured
                 // connection is one this host opened.
                 initiated: Some(true),
@@ -430,6 +461,34 @@ mod tests {
             decoded.kernel_command_line().as_deref(),
             Some("/bin/true --quiet")
         );
+    }
+
+    #[test]
+    fn transport_names_only_the_socket_types_it_knows() {
+        let mut event = NetworkEvent {
+            pid: 42,
+            uid: 1000,
+            fd: 3,
+            _pad0: 0,
+            dport: 53,
+            sport: 0,
+            af: 2,
+            sock_type: SOCK_DGRAM,
+            _pad1: 0,
+            daddr: [0u8; 16],
+            saddr: [0u8; 16],
+        };
+        assert_eq!(event.transport(), Some("udp"));
+
+        event.sock_type = SOCK_STREAM;
+        assert_eq!(event.transport(), Some("tcp"));
+
+        // A socket the sensor never saw created, and a type with no name here,
+        // are both absent rather than guessed as `tcp`.
+        event.sock_type = SOCK_TYPE_UNKNOWN;
+        assert_eq!(event.transport(), None);
+        event.sock_type = 3; // SOCK_RAW
+        assert_eq!(event.transport(), None);
     }
 
     #[test]

@@ -119,6 +119,15 @@ impl Sensor for EbpfSensor {
             "sys_enter_execveat",
         )?;
         attach_tracepoint(&mut bpf, "handle_connect", "syscalls", "sys_enter_connect")?;
+        // `connect()` does not name its transport; the socket type is only
+        // visible while `socket()` runs, and its descriptor only on return.
+        attach_tracepoint(&mut bpf, "handle_socket", "syscalls", "sys_enter_socket")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_socket_exit",
+            "syscalls",
+            "sys_exit_socket",
+        )?;
         attach_tracepoint(&mut bpf, "handle_openat", "syscalls", "sys_enter_openat")?;
         attach_kprobe(&mut bpf, "handle_vfs_create", "vfs_create")?;
         attach_tracepoint(
@@ -597,7 +606,13 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
             image: None,
             user: Some(user),
             destination_hostname: None,
-            protocol: socket_metadata.and_then(|value| value.protocol),
+            // The kernel-side socket type is authoritative: it is recorded when
+            // the socket is created, while `/proc/net` is read after the event
+            // is drained and answers for whatever the descriptor points at then.
+            protocol: ev
+                .transport()
+                .map(str::to_string)
+                .or_else(|| socket_metadata.and_then(|value| value.protocol)),
             // The probe hooks `connect()` only, so every captured connection
             // is one this host opened. `accept()` is not hooked, so no inbound
             // connection can reach here and be mislabelled.
@@ -1124,6 +1139,7 @@ mod tests {
             dport: 443,
             sport: 0,
             af: 2,
+            sock_type: 0,
             _pad1: 0,
             daddr,
             saddr: [0u8; 16],
@@ -1141,6 +1157,41 @@ mod tests {
     }
 
     #[test]
+    fn build_network_event_reports_the_kernel_socket_type() {
+        let mut daddr = [0u8; 16];
+        daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
+
+        let mut raw = NetworkEvent {
+            pid: 77,
+            uid: 1000,
+            // A closed descriptor, so `/proc/net` cannot supply a protocol and
+            // only the kernel-side socket type can answer.
+            fd: -1,
+            _pad0: 0,
+            dport: 53,
+            sport: 0,
+            af: 2,
+            sock_type: 2, // SOCK_DGRAM
+            _pad1: 0,
+            daddr,
+            saddr: [0u8; 16],
+        };
+
+        let event = build_network_event(&raw).expect("udp connect should build");
+        match event.payload {
+            SensorPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("udp")),
+            other => panic!("unexpected payload: {:?}", other),
+        }
+
+        raw.sock_type = 1; // SOCK_STREAM
+        let event = build_network_event(&raw).expect("tcp connect should build");
+        match event.payload {
+            SensorPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("tcp")),
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
     fn build_network_event_supports_ipv6() {
         let raw = NetworkEvent {
             pid: 88,
@@ -1150,6 +1201,7 @@ mod tests {
             dport: 8443,
             sport: 5353,
             af: 10,
+            sock_type: 0,
             _pad1: 0,
             daddr: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0x10).octets(),
             saddr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x20).octets(),
@@ -1177,6 +1229,7 @@ mod tests {
             dport: 443,
             sport: 0,
             af: 2,
+            sock_type: 0,
             _pad1: 0,
             daddr: [0u8; 16],
             saddr: [0u8; 16],
