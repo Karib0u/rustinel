@@ -11,7 +11,7 @@ use crate::models::ecs::EcsAlert;
 use crate::models::Alert;
 use std::io::Write;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, info};
 use tracing_appender::non_blocking::NonBlocking;
 
 pub use dedup::Deduplicator;
@@ -48,7 +48,24 @@ impl AlertSink {
                 let mut writer = self.writer.clone();
                 if let Err(err) = writeln!(writer, "{}", line) {
                     error!(error = %err, "Failed to write ECS alert");
+                    return;
                 }
+                info!(
+                    target: "engine",
+                    engine = %ecs.edr_rule_engine,
+                    severity = %ecs.edr_rule_severity,
+                    rule = %ecs.rule_name,
+                    process = ecs.process_executable.as_deref(),
+                    pid = ecs.process_pid,
+                    file = ecs.file_path.as_deref(),
+                    repeats = ecs.event_count,
+                    "{}",
+                    if ecs.event_count.is_some() {
+                        "Detection repeats aggregated"
+                    } else {
+                        "Detection triggered"
+                    }
+                );
             }
             Err(err) => {
                 error!(error = %err, "Failed to serialize ECS alert");

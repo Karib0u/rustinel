@@ -145,15 +145,6 @@ impl SensorEventHandler for NormalizedEventHandler {
                     self.normalizer
                         .enrich_process_context(&mut alert.event, event.pid.unwrap_or(0));
 
-                    debug!(
-                        target: TARGET_ENGINE,
-                        engine = ?alert.engine,
-                        rule = %alert.rule_name,
-                        severity = ?alert.severity,
-                        category = ?alert.event.category,
-                        "Detection triggered"
-                    );
-
                     detection.alert_sink.write_alert(&alert);
                     detection.response_engine.handle_alert(&alert);
                 }
