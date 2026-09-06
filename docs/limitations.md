@@ -229,7 +229,9 @@ would succeed.
   script, WMI, service, or task equivalents.
 - **Network and DNS attribution is best-effort.** Telemetry comes from
   `/dev/bpf` capture rather than a per-process hook, so connections are matched
-  to processes by port (racy), DNS events are not attributed at all, and capture
+  to processes by port (racy) against a socket inventory rebuilt at most every
+  250 ms — so a connection whose socket opens and closes inside that window can
+  go unattributed — DNS events are not attributed at all, and capture
   binds to a single interface (default `en0`, override with
   `RUSTINEL_BPF_INTERFACE`). A wire capture also cannot say who opened the
   connection, so `Initiated` is left absent and rules selecting on it — either
