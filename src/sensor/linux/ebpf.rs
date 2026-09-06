@@ -32,7 +32,7 @@ use crate::sensor::{
     SensorPayload,
 };
 use crate::utils::{
-    lookup_username_by_uid, query_process_details, query_socket_metadata, SocketMetadata,
+    lookup_username_by_uid, query_process_details, SocketInventory, SocketMetadata, SocketTableSet,
 };
 
 use super::events::{
@@ -267,6 +267,10 @@ async fn run_ring_poll(
     let mut dns_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(dns_ring)?;
     let mut unresolved_file_events: u64 = 0;
     let mut dir_fds = DirFdIndex::new();
+    // Owned by the poll loop, like `dir_fds`: one snapshot serves every event
+    // in a drain batch, and its refresh policy only works if it outlives the
+    // batch that took it.
+    let mut sockets = SocketInventory::new();
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -285,7 +289,7 @@ async fn run_ring_poll(
 
             Ok(mut guard) = network_fd.readable_mut() => {
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_network_ring(rb, &tx);
+                drain_network_ring(rb, &tx, &mut sockets);
                 guard.clear_ready();
             }
 
@@ -325,16 +329,71 @@ fn drain_process_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     }
 }
 
-fn drain_network_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
+/// Drain the network ring.
+///
+/// Events are decoded into `batch` first and only attributed once the ring is
+/// empty. That ordering is the point: the socket snapshot has to be taken after
+/// the batch's `connect()` calls have happened, or it describes a moment before
+/// the sockets it is being asked about existed. Attributing as each event is
+/// decoded would either read the procfs tables per event — the cost this
+/// exists to remove — or answer every event from a snapshot that predates it.
+///
+/// `sockets` is the shared snapshot, owned by the poll loop so its refresh
+/// floor spans batches; see [`SocketInventory`].
+fn drain_network_ring(
+    rb: &mut RingBuf<MapData>,
+    tx: &Sender<SensorEvent>,
+    sockets: &mut SocketInventory,
+) {
+    // A ring buffer holds a bounded number of events, so a batch is bounded
+    // too. The cap is a second bound, on the memory a single drain can hold
+    // and on how long an event waits before being sent: past it the batch is
+    // attributed and flushed, and draining continues.
+    const MAX_BATCH: usize = 4096;
+
+    let mut batch: Vec<PendingNetworkEvent> = Vec::new();
     while let Some(item) = rb.next() {
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<NetworkEvent>(bytes) else {
             warn!("network ring: short read ({} bytes)", bytes.len());
             continue;
         };
-        if let Some(sensor_event) = build_network_event(&ev) {
-            try_send(tx, sensor_event);
+        if let Some(pending) = decode_network_event(&ev) {
+            batch.push(pending);
         }
+        if batch.len() >= MAX_BATCH {
+            flush_network_batch(&mut batch, tx, sockets);
+        }
+    }
+    flush_network_batch(&mut batch, tx, sockets);
+    crate::telemetry::LINUX_SOCKET_LOOKUP.set_table_scans(sockets.scans());
+}
+
+/// Attribute a decoded batch against one socket snapshot and send it on.
+///
+/// The batch is sent in the order it was decoded, so an event that needed a
+/// lookup does not overtake one that did not.
+fn flush_network_batch(
+    batch: &mut Vec<PendingNetworkEvent>,
+    tx: &Sender<SensorEvent>,
+    sockets: &mut SocketInventory,
+) {
+    if batch.is_empty() {
+        return;
+    }
+    // Only the tables this batch's sockets can live in. A batch of IPv4 TCP
+    // connects - what most batches are - narrows four reads to one.
+    let tables = batch
+        .iter()
+        .filter_map(|pending| pending.lookup.as_ref())
+        .fold(SocketTableSet::default(), |set, lookup| {
+            set.union(lookup.tables)
+        });
+    if !tables.is_empty() {
+        sockets.refresh_if_due(tables);
+    }
+    for pending in batch.drain(..) {
+        try_send(tx, resolve_network_event(pending, sockets));
     }
 }
 
@@ -553,7 +612,28 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
     }
 }
 
-fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
+/// A decoded network event and, when the kernel event did not carry every
+/// field, the socket lookup that would complete it.
+///
+/// Decoding and attribution are split so the procfs snapshot can be taken once
+/// for a whole batch; see [`drain_network_ring`].
+struct PendingNetworkEvent {
+    event: SensorEvent,
+    lookup: Option<PendingSocketLookup>,
+}
+
+/// What a pending event needs looked up, and what the answer has to match.
+struct PendingSocketLookup {
+    pid: u32,
+    fd: i32,
+    destination_ip: String,
+    destination_port: u16,
+    /// The procfs tables that can describe this socket, from the family and
+    /// transport the kernel event already carries.
+    tables: SocketTableSet,
+}
+
+fn decode_network_event(ev: &NetworkEvent) -> Option<PendingNetworkEvent> {
     // The kernel emits only attempts that connected, so this rejects nothing
     // in practice. It is the decode-side half of that contract: a refused or
     // unreachable destination is an attempt, not a connection, and a rule
@@ -597,70 +677,115 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         _ => return None,
     };
 
-    // `/proc` is read after the fact, so it may describe a different socket
-    // than the one this event captured; see `socket_matches_connection`.
-    let socket_metadata = query_socket_metadata(ev.pid, ev.fd)
-        .filter(|value| socket_matches_connection(value, &destination_ip, ev.dport));
-    let user = resolved_linux_user(ev.uid);
-    let source_ip = source_ip.or_else(|| {
-        socket_metadata
-            .as_ref()
-            .and_then(|value| filter_unspecified_ip(value.source_ip.clone()))
+    let source_port = (ev.sport > 0).then(|| ev.sport.to_string());
+    // The kernel-side socket type is authoritative: it is recorded when the
+    // socket is created, while `/proc/net` is read after the event is drained
+    // and answers for whatever the descriptor points at then.
+    let protocol = ev.transport().map(str::to_string);
+
+    // Everything the snapshot could contribute is a fallback for a field the
+    // kernel event may already carry. When it carries all three there is
+    // nothing left to look up, and the procfs work is skipped outright.
+    let lookup = (source_ip.is_none() || source_port.is_none() || protocol.is_none()).then(|| {
+        PendingSocketLookup {
+            pid: ev.pid,
+            fd: ev.fd,
+            destination_ip: destination_ip.clone(),
+            destination_port: ev.dport,
+            tables: SocketTableSet::for_socket(ev.af, ev.transport()),
+        }
+    });
+
+    Some(PendingNetworkEvent {
+        event: SensorEvent {
+            platform: Platform::Linux,
+            provider: "ebpf",
+            action: SensorAction::Connect,
+            normalization: SensorNormalization {
+                event_id: EVENT_ID_NETWORK_CONNECT,
+                action_code: 0,
+            },
+            pid: Some(ev.pid),
+            timestamp: SystemTime::now(),
+            process_start_key: None,
+            payload: SensorPayload::Network(NetworkConnectionFields {
+                destination_ip: Some(destination_ip),
+                source_ip,
+                destination_port: Some(ev.dport.to_string()),
+                source_port,
+                process_id: Some(ev.pid.to_string()),
+                // Enriched by the normalizer from ProcessCache if PID is known.
+                image: None,
+                user: Some(resolved_linux_user(ev.uid)),
+                destination_hostname: None,
+                protocol,
+                // The probe hooks `connect()` only, so every captured
+                // connection is one this host opened. `accept()` is not
+                // hooked, so no inbound connection can reach here and be
+                // mislabelled.
+                initiated: Some(true),
+            }),
+        },
+        lookup,
+    })
+}
+
+/// Fill in whatever the kernel event left absent from the socket snapshot.
+///
+/// A field the kernel measured is never overwritten, and a lookup that finds
+/// nothing leaves the event exactly as decoded — attribution is best-effort by
+/// design, and an absent source address is the documented Linux behaviour.
+fn resolve_network_event(
+    mut pending: PendingNetworkEvent,
+    sockets: &SocketInventory,
+) -> SensorEvent {
+    let Some(lookup) = pending.lookup.take() else {
+        return pending.event;
+    };
+    let Some(metadata) = resolve_socket_metadata(sockets, &lookup) else {
+        return pending.event;
+    };
+    let SensorPayload::Network(fields) = &mut pending.event.payload else {
+        return pending.event;
+    };
+
+    if fields.source_ip.is_none() {
+        fields.source_ip = filter_unspecified_ip(metadata.source_ip)
             // A v4-mapped local address belongs to an IPv4 connection; keeping
             // the `::ffff:` form would make `network.type` disagree with the
             // destination it is paired with.
             .map(|value| match value.parse::<IpAddr>() {
                 Ok(address) => unmap_ipv4(address).to_string(),
                 Err(_) => value,
-            })
-    });
-    let source_port = if ev.sport > 0 {
-        Some(ev.sport.to_string())
-    } else {
+            });
+    }
+    if fields.source_port.is_none() {
         // An unbound socket can still be listed with a local port of 0. That
         // is a placeholder, not a measurement, so it is dropped like the
         // unspecified source address above.
-        socket_metadata
-            .as_ref()
-            .and_then(|value| value.source_port)
+        fields.source_port = metadata
+            .source_port
             .filter(|port| *port > 0)
-            .map(|port| port.to_string())
-    };
+            .map(|port| port.to_string());
+    }
+    if fields.protocol.is_none() {
+        fields.protocol = metadata.protocol;
+    }
 
-    Some(SensorEvent {
-        platform: Platform::Linux,
-        provider: "ebpf",
-        action: SensorAction::Connect,
-        normalization: SensorNormalization {
-            event_id: EVENT_ID_NETWORK_CONNECT,
-            action_code: 0,
-        },
-        pid: Some(ev.pid),
-        timestamp: SystemTime::now(),
-        process_start_key: None,
-        payload: SensorPayload::Network(NetworkConnectionFields {
-            destination_ip: Some(destination_ip),
-            source_ip,
-            destination_port: Some(ev.dport.to_string()),
-            source_port,
-            process_id: Some(ev.pid.to_string()),
-            // Enriched by the normalizer from ProcessCache if PID is known.
-            image: None,
-            user: Some(user),
-            destination_hostname: None,
-            // The kernel-side socket type is authoritative: it is recorded when
-            // the socket is created, while `/proc/net` is read after the event
-            // is drained and answers for whatever the descriptor points at then.
-            protocol: ev
-                .transport()
-                .map(str::to_string)
-                .or_else(|| socket_metadata.and_then(|value| value.protocol)),
-            // The probe hooks `connect()` only, so every captured connection
-            // is one this host opened. `accept()` is not hooked, so no inbound
-            // connection can reach here and be mislabelled.
-            initiated: Some(true),
-        }),
-    })
+    pending.event
+}
+
+/// Decode and attribute one event against `sockets`.
+///
+/// The production path splits these two steps across a batch; this is the
+/// single-event form the unit tests assert on.
+#[cfg(test)]
+fn build_network_event(ev: &NetworkEvent, sockets: &mut SocketInventory) -> Option<SensorEvent> {
+    let pending = decode_network_event(ev)?;
+    if let Some(lookup) = pending.lookup.as_ref() {
+        sockets.refresh_if_due(lookup.tables);
+    }
+    Some(resolve_network_event(pending, sockets))
 }
 
 fn build_file_event(
@@ -800,6 +925,29 @@ fn unix_epoch_nanos(timestamp: SystemTime) -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// Look the connect's socket up in `sockets` and record the outcome.
+///
+/// The three outcomes are kept apart because they fail for different reasons:
+/// a miss means the snapshot did not list the socket, while a mismatch means it
+/// did and described a different peer, i.e. the descriptor was recycled between
+/// the syscall and the drain.
+fn resolve_socket_metadata(
+    sockets: &SocketInventory,
+    lookup: &PendingSocketLookup,
+) -> Option<SocketMetadata> {
+    let counters = &crate::telemetry::LINUX_SOCKET_LOOKUP;
+    let Some(metadata) = sockets.lookup(lookup.pid, lookup.fd) else {
+        counters.record_unresolved();
+        return None;
+    };
+    if !socket_matches_connection(&metadata, &lookup.destination_ip, lookup.destination_port) {
+        counters.record_mismatched();
+        return None;
+    }
+    counters.record_resolved();
+    Some(metadata)
 }
 
 /// Does this `/proc/net` entry describe the connection the probe reported?
@@ -1264,7 +1412,8 @@ mod tests {
             saddr: [0u8; 16],
         };
 
-        let event = build_network_event(&raw).expect("network event should build");
+        let event = build_network_event(&raw, &mut SocketInventory::new())
+            .expect("network event should build");
         match event.payload {
             SensorPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
@@ -1297,14 +1446,16 @@ mod tests {
             saddr: [0u8; 16],
         };
 
-        let event = build_network_event(&raw).expect("udp connect should build");
+        let event = build_network_event(&raw, &mut SocketInventory::new())
+            .expect("udp connect should build");
         match event.payload {
             SensorPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("udp")),
             other => panic!("unexpected payload: {:?}", other),
         }
 
         raw.sock_type = 1; // SOCK_STREAM
-        let event = build_network_event(&raw).expect("tcp connect should build");
+        let event = build_network_event(&raw, &mut SocketInventory::new())
+            .expect("tcp connect should build");
         match event.payload {
             SensorPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("tcp")),
             other => panic!("unexpected payload: {:?}", other),
@@ -1327,7 +1478,8 @@ mod tests {
             saddr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x20).octets(),
         };
 
-        let event = build_network_event(&raw).expect("ipv6 network event should build");
+        let event = build_network_event(&raw, &mut SocketInventory::new())
+            .expect("ipv6 network event should build");
         match event.payload {
             SensorPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("2001:db8::10"));
@@ -1395,7 +1547,7 @@ mod tests {
             };
 
             assert!(
-                build_network_event(&raw).is_none(),
+                build_network_event(&raw, &mut SocketInventory::new()).is_none(),
                 "connect() returning {result} is not a connection"
             );
         }
@@ -1423,7 +1575,7 @@ mod tests {
                 saddr: [0u8; 16],
             };
 
-            let event = build_network_event(&raw)
+            let event = build_network_event(&raw, &mut SocketInventory::new())
                 .unwrap_or_else(|| panic!("connect() returning {result} is a connection"));
             match event.payload {
                 SensorPayload::Network(fields) => {
@@ -1451,7 +1603,7 @@ mod tests {
             saddr: [0u8; 16],
         };
 
-        assert!(build_network_event(&raw).is_none());
+        assert!(build_network_event(&raw, &mut SocketInventory::new()).is_none());
     }
 
     #[test]

@@ -30,7 +30,7 @@ pub use process::{
     validate_process_identity, ProcessIdentity,
 };
 #[cfg(target_os = "linux")]
-pub use socket::{query_socket_metadata, SocketMetadata};
+pub use socket::{SocketInventory, SocketMetadata, SocketTableSet};
 pub use time::now_timestamp_string;
 #[cfg(windows)]
 pub use user::lookup_account_sid;

@@ -28,7 +28,7 @@ use crate::utils::LogRateLimiter;
 pub use snapshot::{
     snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, EtwDecodeFailureSnapshot,
     EtwDecodeSnapshot, FileAttributionSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot,
-    SensorEventCategorySnapshot, TelemetrySnapshot, SNAPSHOT_FILE_NAME,
+    SensorEventCategorySnapshot, SocketLookupSnapshot, TelemetrySnapshot, SNAPSHOT_FILE_NAME,
 };
 
 use crate::models::EventCategory;
@@ -416,6 +416,98 @@ impl FileAttributionCounters {
         self.resolved_from_index.store(0, Ordering::Relaxed);
         self.unresolved.store(0, Ordering::Relaxed);
         self.index_capacity_evictions.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Linux network-event local-address attribution.
+///
+/// A `connect(2)` tracepoint carries the destination but not the local address
+/// the stack assigned, so the sensor resolves that from a snapshot of the
+/// procfs socket tables. The snapshot can fail to answer in two different ways
+/// and they are counted apart: `unresolved` is a socket no snapshot listed,
+/// `mismatched` is a snapshot entry describing a different peer, which is a
+/// recycled descriptor rather than a missing one. Neither drops the event -
+/// the destination, pid, and user come from the kernel - so this is fidelity
+/// accounting, not loss accounting.
+///
+/// `table_scans` is the cost side: the number of passes over the procfs tables
+/// the attribution has paid for. It is the number that used to follow the
+/// event rate; see [`crate::utils::SocketInventory`].
+#[derive(Debug, Default)]
+pub struct SocketLookupCounters {
+    resolved: AtomicU64,
+    mismatched: AtomicU64,
+    unresolved: AtomicU64,
+    table_scans: AtomicU64,
+}
+
+/// Process-wide network attribution accounting. Idle outside Linux.
+pub static LINUX_SOCKET_LOOKUP: SocketLookupCounters = SocketLookupCounters::new();
+
+impl SocketLookupCounters {
+    const fn new() -> Self {
+        Self {
+            resolved: AtomicU64::new(0),
+            mismatched: AtomicU64::new(0),
+            unresolved: AtomicU64::new(0),
+            table_scans: AtomicU64::new(0),
+        }
+    }
+
+    /// The snapshot named the socket and its peer was the one the probe saw.
+    pub fn record_resolved(&self) {
+        self.resolved.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The snapshot named the socket but described a different peer, so the
+    /// answer was discarded rather than attributed to this connection.
+    pub fn record_mismatched(&self) {
+        self.mismatched.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// No snapshot listed the socket.
+    pub fn record_unresolved(&self) {
+        self.unresolved.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Publish the inventory's cumulative table scans.
+    ///
+    /// A store rather than an increment, for the same reason as
+    /// [`FileAttributionCounters::set_index_capacity_evictions`]: the inventory
+    /// owns the count, which keeps its refresh path free of atomics and lets it
+    /// be unit-tested without process-wide state.
+    pub fn set_table_scans(&self, scans: u64) {
+        self.table_scans.store(scans, Ordering::Relaxed);
+    }
+
+    /// Point-in-time view, or `None` when no network event has been attributed.
+    pub fn snapshot(&self) -> Option<SocketLookupSnapshot> {
+        let resolved = self.resolved.load(Ordering::Relaxed);
+        let mismatched = self.mismatched.load(Ordering::Relaxed);
+        let unresolved = self.unresolved.load(Ordering::Relaxed);
+        let attempted = resolved
+            .saturating_add(mismatched)
+            .saturating_add(unresolved);
+        if attempted == 0 {
+            return None;
+        }
+        Some(SocketLookupSnapshot {
+            attempted,
+            resolved,
+            mismatched,
+            unresolved,
+            table_scans: self.table_scans.load(Ordering::Relaxed),
+        })
+    }
+
+    /// Reset every counter. Test-only, for the same reason as
+    /// [`ChannelCounters::reset`].
+    #[cfg(test)]
+    pub fn reset(&self) {
+        self.resolved.store(0, Ordering::Relaxed);
+        self.mismatched.store(0, Ordering::Relaxed);
+        self.unresolved.store(0, Ordering::Relaxed);
+        self.table_scans.store(0, Ordering::Relaxed);
     }
 }
 
@@ -1223,6 +1315,31 @@ mod tests {
     fn idle_windows_counters_report_nothing() {
         assert!(EtwDecodeCounters::new().snapshot().is_none());
         assert!(FileAttributionCounters::new().snapshot().is_none());
+        assert!(SocketLookupCounters::new().snapshot().is_none());
+    }
+
+    /// A scan the inventory paid for is a cost, not a failed attribution: it
+    /// must not be read as an event that lost its source address.
+    #[test]
+    fn socket_table_scans_are_republished_apart_from_the_gap() {
+        let counters = SocketLookupCounters::new();
+        counters.record_resolved();
+        counters.record_resolved();
+        counters.record_mismatched();
+        counters.record_unresolved();
+
+        counters.set_table_scans(3);
+        counters.set_table_scans(3);
+        counters.set_table_scans(7);
+
+        let snapshot = counters.snapshot().expect("a network event was attributed");
+        assert_eq!(snapshot.attempted, 4);
+        assert_eq!(snapshot.resolved, 2);
+        assert_eq!(snapshot.mismatched, 1);
+        assert_eq!(snapshot.unresolved, 1);
+        assert_eq!(snapshot.table_scans, 7);
+        assert_eq!(snapshot.resolution_rate_pct(), 50.0);
+        assert_eq!(snapshot.scans_per_thousand(), 1750.0);
     }
 
     /// The index owns the eviction count; telemetry republishes it. A store

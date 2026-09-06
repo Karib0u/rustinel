@@ -380,6 +380,38 @@ discarded before the callback ran and is reported in the agent log, and the
 channel counters above, which count events shed after it. The causes and the
 fixes differ, so nothing folds them together.
 
+On Linux the snapshot carries a `socket_lookup` section. The `connect(2)`
+tracepoints carry the destination but not the local address the kernel
+assigned, so `source.ip`, `source.port`, and `network.transport` are resolved
+from a snapshot of `/proc/net/{tcp,tcp6,udp,udp6}` keyed by socket inode. An
+event that cannot be resolved still reaches the rules with its destination,
+pid, and user, so this is a fidelity gap rather than loss - and it appears in
+no channel count.
+
+| Field | Meaning |
+| --- | --- |
+| `attempted` | Network events that needed a local address, transport, or both |
+| `resolved` | Those the socket snapshot answered for the peer the probe saw |
+| `mismatched` | Those whose entry named a different peer, i.e. the descriptor was closed and reused between the syscall and the drain |
+| `unresolved` | Those no snapshot listed at all |
+| `table_scans` | Passes over the four procfs tables paid for all of the above |
+
+`table_scans` is the cost side. The tables are system-wide and unindexed, so a
+scan is proportional to every socket on the host, and connection churn inflates
+that with `TIME_WAIT` entries. One scan serves a whole drain batch, and the next
+is held off until four times the last scan's measured cost has passed - a
+budget, so the attribution can never take more than a quarter of the thread that
+drains the ring, whatever the event rate or the size of the tables.
+
+That budget is why `resolved` falls under sustained churn: a socket opened
+between two scans is not in either of them, and the event is emitted with its
+source address and transport absent rather than delaying the ring. Ordinary
+outbound traffic - tens of connections a second - resolves essentially all of
+it. `rustinel doctor` reports this as `network_socket_attribution`, which warns
+below a 95% resolution rate; on a host that opens hundreds of connections a
+second, expect that warning and read it as the cost of keeping the events
+themselves.
+
 ### Windows ETW delivery
 
 ETW's real-time session timer hands partially filled buffers to consumers once

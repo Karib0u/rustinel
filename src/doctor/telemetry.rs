@@ -46,6 +46,7 @@ pub(crate) fn telemetry_results(
     let mut results = registry_results(&snapshot);
     results.extend(file_attribution_results(&snapshot));
     results.extend(etw_decode_results(&snapshot));
+    results.extend(socket_lookup_results(&snapshot));
 
     let dropping = snapshot.dropping_channels();
     if dropping.is_empty() {
@@ -182,6 +183,55 @@ fn file_attribution_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResul
     .with_fix(fix)]
 }
 
+/// Linux network local-address attribution.
+///
+/// The `connect(2)` tracepoints carry no local address, so `source.ip`,
+/// `source.port`, and `network.transport` come from a snapshot of the procfs
+/// socket tables. An event the snapshot cannot answer for still reaches the
+/// rules with its destination, pid, and user, so this is a narrower gap than
+/// the two above - but a rule selecting on a source port stops matching, and
+/// nothing in the channel counters says so. Empty on platforms without the
+/// eBPF sensor.
+fn socket_lookup_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let Some(sockets) = snapshot.socket_lookup.as_ref() else {
+        return Vec::new();
+    };
+
+    // Lower than the path-attribution targets because the missing fields cost
+    // less: a short-lived socket closed before the drain is unresolvable by
+    // construction, and connection churn is the normal reason for it.
+    const TARGET_RATE_PCT: f64 = 95.0;
+
+    let rate = sockets.resolution_rate_pct();
+    if rate >= TARGET_RATE_PCT {
+        return vec![DiagnosticResult::pass(
+            "network_socket_attribution",
+            sockets.describe(),
+        )];
+    }
+
+    let fix = if sockets.mismatched > sockets.unresolved {
+        "Those events carry no source address or transport. Most answers named a different peer, \
+         which is a descriptor closed and reused between the syscall and the drain - happy \
+         eyeballs does this on every dual-stack name - see docs/troubleshooting.md"
+    } else {
+        "Those events carry no source address or transport. Sockets closed before the sensor \
+         drained the ring cannot be resolved at all; sustained connection churn is the usual \
+         cause - see docs/troubleshooting.md"
+    };
+
+    vec![DiagnosticResult::warn(
+        "network_socket_attribution",
+        format!(
+            "{} network events had no measurable source address ({:.2}% resolved)",
+            sockets.attempted.saturating_sub(sockets.resolved),
+            rate,
+        ),
+        sockets.describe(),
+    )
+    .with_fix(fix)]
+}
+
 /// ETW decoder degradation.
 ///
 /// A schema lookup that fails, a payload template that no longer matches, or a
@@ -278,7 +328,7 @@ mod tests {
     use crate::doctor::inspect::DiagnosticStatus;
     use crate::telemetry::{
         ChannelSnapshot, EtwDecodeFailureSnapshot, EtwDecodeSnapshot, FileAttributionSnapshot,
-        RegistrySnapshot,
+        RegistrySnapshot, SocketLookupSnapshot,
     };
 
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
@@ -293,6 +343,7 @@ mod tests {
             registry: None,
             file_attribution: None,
             etw_decode: None,
+            socket_lookup: None,
         }
     }
 
@@ -415,6 +466,51 @@ mod tests {
             }],
             unkeyed_failures: 0,
         }
+    }
+
+    fn socket_lookup(resolved: u64, mismatched: u64, unresolved: u64) -> SocketLookupSnapshot {
+        SocketLookupSnapshot {
+            attempted: resolved + mismatched + unresolved,
+            resolved,
+            mismatched,
+            unresolved,
+            table_scans: 12,
+        }
+    }
+
+    /// The eBPF network gap: the event still reaches the rules, but without
+    /// the source address, so nothing in the channel counters shows it (#375).
+    #[test]
+    fn unattributed_network_sources_are_reported_as_their_own_gap() {
+        let mut snap = snapshot(vec![channel("sensor_events", 10_000, 0)]);
+        snap.socket_lookup = Some(socket_lookup(800, 100, 100));
+
+        let results = socket_lookup_results(&snap);
+
+        assert_eq!(results[0].id, "network_socket_attribution");
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.contains("200 network events"));
+    }
+
+    /// Scan cost is reported on a healthy run too: it is the number the
+    /// per-event lookup existed to bound, and it is only readable here.
+    #[test]
+    fn a_healthy_socket_lookup_still_reports_its_scan_cost() {
+        let mut snap = snapshot(vec![channel("sensor_events", 10_000, 0)]);
+        snap.socket_lookup = Some(socket_lookup(10_000, 0, 1));
+
+        let results = socket_lookup_results(&snap);
+
+        assert_eq!(results[0].id, "network_socket_attribution");
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+        assert!(results[0].message.contains("12 table scans"));
+    }
+
+    /// Absent on Windows and macOS, where there is no eBPF network sensor.
+    #[test]
+    fn a_snapshot_without_socket_lookups_reports_nothing() {
+        let snap = snapshot(vec![channel("sensor_events", 10_000, 0)]);
+        assert!(socket_lookup_results(&snap).is_empty());
     }
 
     /// The file-side twin of the registry gap: these events are discarded

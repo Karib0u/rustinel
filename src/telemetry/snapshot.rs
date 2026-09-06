@@ -157,6 +157,58 @@ impl FileAttributionSnapshot {
     }
 }
 
+/// Linux network-event local-address attribution at a point in time.
+///
+/// Linux only, and absent from the snapshot on other platforms and before a
+/// network event has been attributed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SocketLookupSnapshot {
+    /// Network events that needed a local address, transport, or both.
+    pub attempted: u64,
+    /// Those the socket snapshot answered for the peer the probe saw.
+    pub resolved: u64,
+    /// Those whose snapshot entry described a different peer, i.e. the
+    /// descriptor was recycled between the syscall and the drain.
+    pub mismatched: u64,
+    /// Those no snapshot listed at all.
+    pub unresolved: u64,
+    /// Passes over `/proc/net/{tcp,tcp6,udp,udp6}` paid for the above. Bounded
+    /// by the inventory's refresh floor rather than by the event rate.
+    pub table_scans: u64,
+}
+
+impl SocketLookupSnapshot {
+    /// Share of network events whose local address was measured.
+    pub fn resolution_rate_pct(&self) -> f64 {
+        if self.attempted == 0 {
+            return 100.0;
+        }
+        (self.resolved as f64 / self.attempted as f64) * 100.0
+    }
+
+    /// Table scans per thousand attributed events. The ratio the per-event
+    /// scan pinned at 1000 and the inventory exists to drive down.
+    pub fn scans_per_thousand(&self) -> f64 {
+        if self.attempted == 0 {
+            return 0.0;
+        }
+        (self.table_scans as f64 / self.attempted as f64) * 1000.0
+    }
+
+    /// One-line operator summary.
+    pub fn describe(&self) -> String {
+        format!(
+            "socket lookups: {} of {} events resolved ({:.2}%), {} peer mismatches, {} table scans ({:.2} per 1000 events)",
+            self.resolved,
+            self.attempted,
+            self.resolution_rate_pct(),
+            self.mismatched,
+            self.table_scans,
+            self.scans_per_thousand(),
+        )
+    }
+}
+
 /// One decode failure key and how often it fired.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EtwDecodeFailureSnapshot {
@@ -359,6 +411,11 @@ pub struct TelemetrySnapshot {
     /// on snapshots written before #394.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub etw_decode: Option<EtwDecodeSnapshot>,
+    /// Linux network local-address attribution and its procfs scan cost.
+    /// Absent on platforms without the eBPF sensor, and on snapshots written
+    /// before #375.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socket_lookup: Option<SocketLookupSnapshot>,
 }
 
 impl TelemetrySnapshot {
@@ -378,6 +435,7 @@ impl TelemetrySnapshot {
             registry: super::REGISTRY.snapshot(),
             file_attribution: super::WINDOWS_FILE_ATTRIBUTION.snapshot(),
             etw_decode: super::ETW_DECODE.snapshot(),
+            socket_lookup: super::LINUX_SOCKET_LOOKUP.snapshot(),
         }
     }
 
@@ -548,6 +606,7 @@ mod tests {
             registry: None,
             file_attribution: None,
             etw_decode: None,
+            socket_lookup: None,
         }
     }
 

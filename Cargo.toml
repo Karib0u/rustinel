@@ -102,3 +102,9 @@ criterion = "0.8"
 [[bench]]
 name = "sigma_engine"
 harness = false
+
+# Linux network-event socket attribution, measured with
+# `cargo bench --bench linux_socket_lookup`. A no-op on other platforms.
+[[bench]]
+name = "linux_socket_lookup"
+harness = false

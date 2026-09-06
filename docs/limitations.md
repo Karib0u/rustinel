@@ -201,8 +201,17 @@ The Linux sensor covers process, network, file, and DNS.
   the syscall never carries them and the probe does not read the bound address
   back out of the socket. A `/proc/net` lookup fills them in when it provably
   describes the same connection, which under happy-eyeballs it usually does
-  not, so most Linux network events carry no source address or port. Only
-  AF_INET and AF_INET6.
+  not, so most Linux network events carry no source address or port. That
+  lookup answers from a snapshot of the socket tables taken once per drain
+  batch, on a scan budget capped at a quarter of the draining thread, rather
+  than re-reading them per event. A socket opened between two scans is in
+  neither, so under sustained connection churn most events go unresolved:
+  measured on a 400-connections-per-second workload, about half carried a source
+  address, against essentially all of an ordinary tens-per-second one. That is
+  the deliberate trade for not losing the events themselves — the same workload
+  lost three quarters of its network events outright before #375 — and the
+  `socket_lookup` section of `telemetry.json` reports where it lands.
+  Only AF_INET and AF_INET6.
 - **`Protocol` is absent for sockets created before the sensor started.** The
   transport comes from the type the socket was created with, so `socket(2)` is
   watched and the type indexed by descriptor. A descriptor the sensor never
