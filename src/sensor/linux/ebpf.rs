@@ -9,7 +9,7 @@
 //! 4. Spawns a tokio task that polls all ring buffers and converts raw events
 //!    into [`SensorEvent`] values for the shared pipeline.
 //!
-//! Requirements: Linux 5.8+ with BTF, `CAP_BPF` (or `CAP_SYS_ADMIN`).
+//! Requirements: Linux 5.12+ with BTF, `CAP_BPF` (or `CAP_SYS_ADMIN`).
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
-use aya::maps::{MapData, RingBuf};
+use aya::maps::{MapData, PerCpuArray, RingBuf};
 use aya::programs::{KProbe, TracePoint};
 use aya::Ebpf;
 use tokio::io::unix::AsyncFd;
@@ -31,6 +31,7 @@ use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
 };
+use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 use crate::utils::{lookup_username_by_uid, query_process_details};
 
 use super::events::{
@@ -58,6 +59,18 @@ const FILE_EVENT_CHANGE: u32 = 4;
 /// drain loop to name the `dfd` of later `*at` calls, never forwarded.
 const FILE_EVENT_DIR_OPEN: u32 = 5;
 const FILE_EVENT_INDEX_RESET: u32 = 6;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct KernelCounterRow {
+    kernel_seen: u64,
+    kernel_submitted: u64,
+    kernel_ring_full: u64,
+    kernel_oversized: u64,
+    kernel_map_full: u64,
+}
+
+unsafe impl aya::Pod for KernelCounterRow {}
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
@@ -254,6 +267,11 @@ impl Sensor for EbpfSensor {
             bpf.take_map("DNS_RING")
                 .context("DNS_RING map not found in eBPF object")?,
         )?;
+        let kernel_counters: PerCpuArray<MapData, KernelCounterRow> = PerCpuArray::try_from(
+            bpf.take_map("LINUX_EBPF_COUNTERS")
+                .context("LINUX_EBPF_COUNTERS map not found in eBPF object")?,
+        )?;
+        LINUX_EBPF.activate();
 
         // ── Spawn polling task ───────────────────────────────────────────────
 
@@ -268,6 +286,7 @@ impl Sensor for EbpfSensor {
                 network_ring,
                 file_ring,
                 dns_ring,
+                kernel_counters,
                 tx,
                 shutdown,
             )
@@ -292,6 +311,7 @@ async fn run_ring_poll(
     network_ring: RingBuf<MapData>,
     file_ring: RingBuf<MapData>,
     dns_ring: RingBuf<MapData>,
+    kernel_counters: PerCpuArray<MapData, KernelCounterRow>,
     tx: Sender<SensorEvent>,
     shutdown: Arc<AtomicBool>,
 ) -> Result<()> {
@@ -301,9 +321,13 @@ async fn run_ring_poll(
     let mut dns_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(dns_ring)?;
     let mut unresolved_file_events: u64 = 0;
     let mut dir_fds = DirFdIndex::new();
+    let mut counter_tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    counter_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut counter_read_failed = false;
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
+            let _ = refresh_kernel_counters(&kernel_counters);
             info!("eBPF sensor shutting down");
             break;
         }
@@ -335,6 +359,17 @@ async fn run_ring_poll(
                 guard.clear_ready();
             }
 
+            _ = counter_tick.tick() => {
+                match refresh_kernel_counters(&kernel_counters) {
+                    Ok(()) => counter_read_failed = false,
+                    Err(err) if !counter_read_failed => {
+                        warn!(error = %err, "failed to read Linux eBPF kernel counters");
+                        counter_read_failed = true;
+                    }
+                    Err(_) => {}
+                }
+            }
+
             // Wake up periodically to check the shutdown flag even when
             // the ring buffers are idle.
             _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
@@ -344,30 +379,68 @@ async fn run_ring_poll(
     Ok(())
 }
 
+fn refresh_kernel_counters(counters: &PerCpuArray<MapData, KernelCounterRow>) -> Result<()> {
+    for family in LinuxEbpfFamily::ALL {
+        let values = counters
+            .get(&(family.index() as u32), 0)
+            .with_context(|| format!("failed to read {} counter row", family.as_str()))?;
+        let sample = values
+            .iter()
+            .fold(LinuxEbpfKernelSample::default(), |mut total, value| {
+                total.kernel_seen = total.kernel_seen.saturating_add(value.kernel_seen);
+                total.kernel_submitted = total
+                    .kernel_submitted
+                    .saturating_add(value.kernel_submitted);
+                total.kernel_ring_full = total
+                    .kernel_ring_full
+                    .saturating_add(value.kernel_ring_full);
+                total.kernel_oversized = total
+                    .kernel_oversized
+                    .saturating_add(value.kernel_oversized);
+                total.kernel_map_full = total.kernel_map_full.saturating_add(value.kernel_map_full);
+                total
+            });
+        LINUX_EBPF.set_kernel_sample(family, sample);
+    }
+    Ok(())
+}
+
 // ── Ring-buffer drain helpers ────────────────────────────────────────────────
 
 fn drain_process_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::Process);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<ProcessEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Process);
             warn!("process ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Process);
         if let Some(sensor_event) = build_process_event(&ev) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Process);
             try_send(tx, sensor_event);
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Process);
         }
     }
 }
 
 fn drain_network_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::Network);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<NetworkEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Network);
             warn!("network ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Network);
         if let Some(sensor_event) = build_network_event(&ev) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Network);
             try_send(tx, sensor_event);
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Network);
         }
     }
 }
@@ -385,29 +458,43 @@ fn drain_file_ring(
     unresolved: &mut u64,
 ) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::File);
         let bytes: &[u8] = &item;
         let Some(header) = parse_event::<FileEventHeader>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
             warn!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
         if header.kind == FILE_EVENT_INDEX_RESET {
             let Some(ev) = parse_event::<FileIndexEvent>(bytes) else {
+                LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
                 warn!("file index ring: short read ({} bytes)", bytes.len());
                 continue;
             };
+            LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
             dir_fds.forget_process(ev.pid);
+            LINUX_EBPF.record_internal(LinuxEbpfFamily::File);
             continue;
         }
         let Some(ev) = parse_event::<FileEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
             warn!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
         if ev.kind == FILE_EVENT_DIR_OPEN {
             index_dir_open(&ev, dir_fds);
+            LINUX_EBPF.record_internal(LinuxEbpfFamily::File);
             continue;
         }
+        let unresolved_before = *unresolved;
         if let Some(sensor_event) = build_file_event(&ev, dir_fds, unresolved) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::File);
             try_send(tx, sensor_event);
+        } else if *unresolved > unresolved_before {
+            LINUX_EBPF.record_unresolved_file();
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::File);
         }
     }
 }
@@ -432,13 +519,19 @@ fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) {
 
 fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::Dns);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<DnsEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Dns);
             warn!("dns ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Dns);
         if let Some(sensor_event) = build_dns_event(&ev) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Dns);
             try_send(tx, sensor_event);
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Dns);
         }
     }
 }

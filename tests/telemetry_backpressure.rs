@@ -148,6 +148,7 @@ fn snapshot_with(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         uptime_secs: 7200,
         channels,
         sensor_events_by_category: Vec::new(),
+        linux_ebpf: None,
         windows_process_command_line: None,
         registry: None,
         file_attribution: None,

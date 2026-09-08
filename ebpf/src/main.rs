@@ -42,6 +42,7 @@ pub mod events;
 pub mod file;
 pub mod network;
 pub mod process;
+pub mod telemetry;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

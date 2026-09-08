@@ -191,6 +191,11 @@ with a path, and `etw_decode` reports records that failed to decode at all,
 named by provider and event version. See
 [Pipeline Telemetry](configuration.md#pipeline-telemetry).
 
+On Linux, `linux_ebpf` reconciles each kernel ring with the records userspace
+received and decoded. It warns on ring or pending-map overflow, short reads,
+unusable decoded events, unresolved file paths, and counter mismatches. Queue
+occupancy is reported separately and is not treated as a drop.
+
 Exit codes are intended for automation:
 
 | Code | Meaning |

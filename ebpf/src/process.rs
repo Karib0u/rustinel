@@ -49,6 +49,7 @@ use aya_ebpf::{
 };
 
 use crate::events::{event_metadata, ProcessEvent, ARGV_CAPACITY, PROCESS_IMAGE_CAPACITY};
+use crate::telemetry::{record_map_full, record_ring_full, record_submitted, PROCESS_FAMILY};
 
 /// Ring buffer shared with the userspace loader for process events.
 ///
@@ -153,6 +154,7 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     let _ = bpf_probe_read_kernel_str_bytes(fname_ptr, &mut image);
 
     let Some(mut entry) = PROCESS_RING.reserve::<ProcessEvent>(0) else {
+        record_ring_full(PROCESS_FAMILY);
         return Ok(0);
     };
     let event = entry.as_mut_ptr();
@@ -172,6 +174,7 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     attach_pending_argv(event, old_pid);
 
     entry.submit(0);
+    record_submitted(PROCESS_FAMILY);
 
     Ok(0)
 }
@@ -231,7 +234,9 @@ unsafe fn try_capture_argv(ctx: &TracePointContext, argv_offset: usize) -> Resul
     // still overwrites any snapshot left behind by an earlier failed `execve`
     // on this thread, so a later exec can never pick up stale argv.
     let tid = bpf_get_current_pid_tgid() as u32;
-    let _ = ARGV_PENDING.insert(&tid, &*scratch, 0);
+    if ARGV_PENDING.insert(&tid, &*scratch, 0).is_err() {
+        record_map_full(PROCESS_FAMILY);
+    }
 
     Ok(0)
 }
@@ -306,6 +311,7 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
     let Some(mut entry) = PROCESS_RING.reserve::<ProcessEvent>(0) else {
+        record_ring_full(PROCESS_FAMILY);
         return Ok(0);
     };
     let event = entry.as_mut_ptr();
@@ -326,6 +332,7 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     (*event)._pad1 = [0u8; 2];
 
     entry.submit(0);
+    record_submitted(PROCESS_FAMILY);
 
     Ok(0)
 }
