@@ -10,9 +10,9 @@
 //! - All integer fields use explicit sizes (`u32`, `u16`, etc.).
 
 use aya_ebpf::bindings::bpf_spin_lock;
+use aya_ebpf::btf_maps::Array;
 use aya_ebpf::helpers::{bpf_ktime_get_boot_ns, bpf_spin_lock, bpf_spin_unlock};
-use aya_ebpf::macros::map;
-use aya_ebpf::maps::Array;
+use aya_ebpf::macros::btf_map;
 
 #[repr(C)]
 struct SourceSequence {
@@ -20,8 +20,8 @@ struct SourceSequence {
     value: u64,
 }
 
-#[map]
-static SOURCE_SEQUENCE: Array<SourceSequence> = Array::with_max_entries(1, 0);
+#[btf_map]
+static SOURCE_SEQUENCE: Array<SourceSequence, 1> = Array::new();
 
 /// Timestamp and global submission order assigned immediately before an event
 /// enters a ring buffer.

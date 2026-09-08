@@ -477,14 +477,23 @@ mod tests {
     #[test]
     fn canonical_events_keep_nanoseconds_and_distinct_ordering() {
         let normalizer = build_normalizer(false);
+        #[cfg(not(windows))]
+        const EVENT_NANOS: u32 = 123_456_789;
+        #[cfg(not(windows))]
+        const EXPECTED_TIMESTAMP: &str = "1970-01-01T00:00:10.123456789Z";
+        // Windows SystemTime uses FILETIME's native 100 ns resolution.
+        #[cfg(windows)]
+        const EVENT_NANOS: u32 = 123_456_700;
+        #[cfg(windows)]
+        const EXPECTED_TIMESTAMP: &str = "1970-01-01T00:00:10.123456700Z";
 
         for expected_ingest_seq in 1..=1_000 {
             let mut event = process_start_event(Platform::Linux, "ebpf", expected_ingest_seq);
-            event.timestamp = SystemTime::UNIX_EPOCH + Duration::new(10, 123_456_789);
+            event.timestamp = SystemTime::UNIX_EPOCH + Duration::new(10, EVENT_NANOS);
             event.source_seq = Some(10_000 + u64::from(expected_ingest_seq));
 
             let normalized = normalizer.normalize(&event).expect("event normalizes");
-            assert_eq!(normalized.timestamp, "1970-01-01T00:00:10.123456789Z");
+            assert_eq!(normalized.timestamp, EXPECTED_TIMESTAMP);
             assert_eq!(
                 normalized.source_seq,
                 Some(10_000 + u64::from(expected_ingest_seq))
