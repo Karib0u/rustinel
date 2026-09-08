@@ -31,6 +31,8 @@
 
 #![no_std]
 #![no_main]
+#![allow(internal_features)]
+#![feature(core_intrinsics)]
 
 pub mod dns;
 pub mod events;

@@ -9,19 +9,14 @@
 //! - Fixed-size arrays for strings (null-terminated, rest zeroed).
 //! - All integer fields use explicit sizes (`u32`, `u16`, etc.).
 
-use aya_ebpf::bindings::bpf_spin_lock;
-use aya_ebpf::btf_maps::Array;
-use aya_ebpf::helpers::{bpf_ktime_get_boot_ns, bpf_spin_lock, bpf_spin_unlock};
-use aya_ebpf::macros::btf_map;
+use core::intrinsics::{atomic_xadd, AtomicOrdering};
 
-#[repr(C)]
-struct SourceSequence {
-    lock: bpf_spin_lock,
-    value: u64,
-}
+use aya_ebpf::helpers::bpf_ktime_get_boot_ns;
+use aya_ebpf::macros::map;
+use aya_ebpf::maps::Array;
 
-#[btf_map]
-static SOURCE_SEQUENCE: Array<SourceSequence, 1> = Array::new();
+#[map]
+static SOURCE_SEQUENCE: Array<u64> = Array::with_max_entries(1, 0);
 
 /// Timestamp and global submission order assigned immediately before an event
 /// enters a ring buffer.
@@ -29,14 +24,10 @@ static SOURCE_SEQUENCE: Array<SourceSequence, 1> = Array::new();
 pub fn event_metadata() -> (u64, u64) {
     let event_time_ns = unsafe { bpf_ktime_get_boot_ns() };
     let source_seq = unsafe {
-        let Some(state) = SOURCE_SEQUENCE.get_ptr_mut(0) else {
+        let Some(value) = SOURCE_SEQUENCE.get_ptr_mut(0) else {
             return (event_time_ns, 0);
         };
-        bpf_spin_lock(&mut (*state).lock);
-        (*state).value += 1;
-        let value = (*state).value;
-        bpf_spin_unlock(&mut (*state).lock);
-        value
+        atomic_xadd::<u64, u64, { AtomicOrdering::Relaxed }>(value, 1) + 1
     };
     (event_time_ns, source_seq)
 }
