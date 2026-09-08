@@ -792,7 +792,6 @@ fn build_file_event(
         .and_then(|value| resolve_at_path(dir_fds, ev.pid, ev.aux_dfd, ev.aux_dfd_token, &value));
 
     let user = resolved_linux_user(ev.uid);
-    let comm = bytes_to_string(&ev.comm);
     let path_truncated = truncation_marker(ev.flags, source_filename.is_some()).map(str::to_string);
 
     Some(SensorEvent {
@@ -808,7 +807,9 @@ fn build_file_event(
             source_filename,
             target_filename: Some(target_filename),
             process_id: Some(ev.pid.to_string()),
-            image: if comm.is_empty() { None } else { Some(comm) },
+            // `comm` is a short process name, not an executable path. Leave
+            // Image absent so identity-based normalization can fill it.
+            image: None,
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: Some(user),
@@ -1494,7 +1495,7 @@ mod tests {
     }
 
     #[test]
-    fn build_file_event_preserves_fallback_comm_until_normalization() {
+    fn build_file_event_does_not_report_comm_as_an_image_path() {
         let raw = file_event(1, 55, "/tmp/test.txt", "touch");
 
         let event =
@@ -1510,7 +1511,7 @@ mod tests {
             SensorPayload::File(fields) => {
                 assert!(fields.source_filename.is_none());
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/test.txt"));
-                assert_eq!(fields.image.as_deref(), Some("touch"));
+                assert!(fields.image.is_none());
             }
             other => panic!("unexpected payload: {:?}", other),
         }
@@ -1531,7 +1532,7 @@ mod tests {
         match event.payload {
             SensorPayload::File(fields) => {
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/deleted.txt"));
-                assert_eq!(fields.image.as_deref(), Some("rm"));
+                assert!(fields.image.is_none());
             }
             other => panic!("unexpected payload: {:?}", other),
         }

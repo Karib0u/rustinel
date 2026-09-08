@@ -473,7 +473,8 @@ pub mod mapping {
                 source_filename,
                 target_filename: Some(target_filename),
                 process_id: Some(event.pid.to_string()),
-                image: Some(bytes_to_string(&event.comm)),
+                // `comm` is a short process name, not an executable path.
+                image: None,
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: Some(event.uid.to_string()),
