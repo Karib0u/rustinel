@@ -259,7 +259,7 @@ fn equivalent_windows_and_linux_events_normalize_to_shared_sigma_fields() {
         file_create_event,
         dns_query_event,
     ] {
-        let harness = TestNormalizer::new(false);
+        let harness = TestNormalizer::new();
         let windows = harness
             .normalizer
             .normalize(&build(Platform::Windows))
@@ -388,7 +388,7 @@ fn same_file_action_yields_same_sigma_categories_on_every_platform() {
             for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
                 let fixture = common::SigmaFixture::new();
                 let engine = engine_for_category(&fixture, category);
-                let normalized = TestNormalizer::new(false)
+                let normalized = TestNormalizer::new()
                     .normalizer
                     .normalize(&file_event(
                         platform,
@@ -430,7 +430,7 @@ level: medium
         engine
             .load_rules(fixture.rules_dir())
             .expect("load generic rule");
-        let event = TestNormalizer::new(false)
+        let event = TestNormalizer::new()
             .normalizer
             .normalize(&process_start_event(platform))
             .expect("normalize process");

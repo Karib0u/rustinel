@@ -109,12 +109,6 @@ allowlist_images = []
 [process]
 max_entries = 65536
 
-[network]
-aggregation_enabled = true
-aggregation_max_entries = 20000
-aggregation_window_secs = 60
-aggregation_interval_buffer_size = 50
-
 [ioc]
 enabled = true
 hashes_path = "rules/current/ioc/hashes.txt"
@@ -442,16 +436,22 @@ See [Active Response](active-response.md) for platform behavior and safe testing
 
 ### Network
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `aggregation_enabled` | `true` | Track repeated-connection metrics without suppressing events |
-| `aggregation_max_entries` | `20000` | Maximum unique connections tracked |
-| `aggregation_window_secs` | `60` | Start a new aggregate period after this many seconds; `0` starts one per event |
-| `aggregation_interval_buffer_size` | `50` | Timing intervals retained per aggregated connection |
+Removed in v1.6.0. The `[network]` section configured a connection aggregator
+that tracked per-destination counts and inter-connection intervals. Nothing in
+the agent ever read them: no detector, alert field, or telemetry counter
+consumed the aggregate, so the state cost memory and a write lock per connection
+without changing any output. At the former `aggregation_max_entries = 20000`
+default the map held 12.0 MB once full and 20.7 MB with every 50-slot interval
+buffer populated (628 B and 1,086 B per tracked connection, measured on
+macOS/aarch64 in a release build). That is now zero. The aggregator and the
+section are gone.
 
-Aggregation is **observational only**. Every normalized network event is still
-forwarded to Sigma and IOC evaluation, so this creates no detection blind spot;
-it only bounds how long counts, timestamps, and intervals are combined.
+Nothing has to change to upgrade. A `config.toml` that still carries
+`[network]` keeps loading — the keys are simply ignored, as are the matching
+`EDR__NETWORK__*` environment variables — so the section can be deleted whenever
+it is convenient. Network event and alert behaviour is identical either way:
+every normalized network event was always forwarded to Sigma and IOC evaluation,
+and still is.
 
 ### IOC
 

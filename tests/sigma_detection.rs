@@ -48,7 +48,7 @@ detection:
 level: high
 "#,
     );
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let normalized = harness
         .normalizer
         .normalize(&network_connect_event(Platform::Linux))
@@ -81,7 +81,7 @@ detection:
 level: high
 "#,
     );
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let normalized = harness
         .normalizer
         .normalize(&network_connect_event(Platform::Linux))
@@ -115,7 +115,7 @@ detection:
 level: high
 "#,
     );
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let normalized = harness
         .normalizer
         .normalize(&process_start_event(Platform::Linux))
@@ -138,7 +138,7 @@ level: high
 fn service_provider_and_image_path_rule_matches() {
     let fixture = SigmaFixture::new();
     fixture.write_service_rule();
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let normalized = harness
         .normalizer
         .normalize(&service_installation_event())
@@ -173,7 +173,7 @@ level: high
 "#,
     );
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let outbound = harness
         .normalizer
         .normalize(&network_connect_event(Platform::Windows))
@@ -229,7 +229,7 @@ level: high
     if let SensorPayload::Network(fields) = &mut unknown.payload {
         fields.initiated = None;
     }
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let normalized = harness
         .normalizer
         .normalize(&unknown)
@@ -246,7 +246,7 @@ level: high
 fn powershell_module_rule_matches_a_module_event() {
     let fixture = SigmaFixture::new();
     fixture.write_ps_module_rule();
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let normalized = harness
         .normalizer
         .normalize(&powershell_module_event())
@@ -280,7 +280,7 @@ fn padded_and_uppercased_logsource_values_still_route() {
         "the rule is accepted at load"
     );
 
-    let event = TestNormalizer::new(false)
+    let event = TestNormalizer::new()
         .normalizer
         .normalize(&process_start_event(Platform::Linux))
         .expect("process event should normalize");

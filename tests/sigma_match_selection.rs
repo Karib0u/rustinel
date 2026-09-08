@@ -30,7 +30,7 @@ fn engine_with(fixture: &SigmaFixture) -> Engine {
 }
 
 fn linux_process_event() -> NormalizedEvent {
-    TestNormalizer::new(false)
+    TestNormalizer::new()
         .normalizer
         .normalize(&process_start_event(Platform::Linux))
         .expect("process event should normalize")

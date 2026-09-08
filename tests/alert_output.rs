@@ -20,7 +20,7 @@ fn alert_sink_writes_single_valid_ecs_ndjson_line() {
     let (writer, guard) = tracing_appender::non_blocking(file);
 
     {
-        let harness = TestNormalizer::new(false);
+        let harness = TestNormalizer::new();
         let event = harness
             .normalizer
             .normalize(&process_start_event(Platform::Linux))

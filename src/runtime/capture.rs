@@ -23,7 +23,7 @@ use crate::engine::NormalizedEventHandler;
 use crate::normalizer::Normalizer;
 use crate::runtime::logging::{init_operational_logging, log_startup_banner};
 use crate::sensor::{Platform, SensorEvent, SensorEventRouter};
-use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+use crate::state::{DnsCache, ProcessCache, SidCache};
 
 /// Capacity of the sensor-to-router channel, matching the live runtimes.
 const SENSOR_CHANNEL_CAPACITY: usize = 8192;
@@ -98,12 +98,6 @@ impl CaptureContext {
             Arc::clone(&process_cache),
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
-            Arc::new(ConnectionAggregator::with_limits_and_window(
-                self.config.network.aggregation_max_entries,
-                self.config.network.aggregation_interval_buffer_size,
-                self.config.network.aggregation_window_secs,
-            )),
-            self.config.network.aggregation_enabled,
         ));
 
         // The only handler: no detectors, no alert sink, no response engine.

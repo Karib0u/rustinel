@@ -243,7 +243,6 @@ The normalizer keeps one event model across all three platforms and adds context
 - `ProcessCache` for process metadata and parent correlation
 - `SidCache` for Windows SID-to-user resolution
 - `DnsCache` for DNS answer to later network-event correlation
-- `ConnectionAggregator` for repeated-connection metrics and interval tracking. This is observational only: every network event is still forwarded to the detectors
 - Lazy process-context enrichment on alerts so non-process detections can still carry process details
 
 On Windows, the agent also snapshots running processes during startup so `ProcessCache` is warm before the first new process event arrives.

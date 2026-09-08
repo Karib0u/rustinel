@@ -39,7 +39,7 @@ fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
         let fixture = SigmaFixture::new();
         fixture.write_process_rule(platform);
         let engine = load_engine(platform, &fixture);
-        let harness = TestNormalizer::new(false);
+        let harness = TestNormalizer::new();
 
         let normalized = harness
             .normalizer
@@ -90,7 +90,7 @@ level: high
 "#,
     );
     let engine = load_engine(Platform::Windows, &fixture);
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
 
     let mut event = process_start_event(Platform::Windows);
     match &mut event.payload {
@@ -127,7 +127,7 @@ fn sigma_ps_module_detection_pipeline_maps_to_ecs() {
     let fixture = SigmaFixture::new();
     fixture.write_ps_module_rule();
     let engine = load_engine(Platform::Windows, &fixture);
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
 
     let normalized = harness
         .normalizer
@@ -175,7 +175,7 @@ level: medium
 "#,
     );
     let engine = load_engine(Platform::Windows, &fixture);
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
 
     let normalized = harness
         .normalizer
@@ -199,12 +199,12 @@ level: medium
 }
 
 #[test]
-fn sigma_network_detection_pipeline_enriches_aggregates_and_maps_to_ecs() {
+fn sigma_network_detection_pipeline_enriches_repeats_and_maps_to_ecs() {
     for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
         let fixture = SigmaFixture::new();
         fixture.write_network_rule(platform);
         let engine = load_engine(platform, &fixture);
-        let harness = TestNormalizer::new(true);
+        let harness = TestNormalizer::new();
 
         harness
             .normalizer
@@ -256,7 +256,7 @@ fn sigma_network_detection_pipeline_enriches_aggregates_and_maps_to_ecs() {
 #[test]
 fn sigma_network_rule_loaded_after_first_connection_matches_repeat() {
     let fixture = SigmaFixture::new();
-    let harness = TestNormalizer::new(true);
+    let harness = TestNormalizer::new();
 
     harness
         .normalizer
@@ -326,7 +326,7 @@ level: low
         );
 
         let engine = load_engine(platform, &fixture);
-        let harness = TestNormalizer::new(false);
+        let harness = TestNormalizer::new();
         harness
             .normalizer
             .normalize(&process_start_event(platform))
@@ -401,7 +401,7 @@ fn sigma_service_detection_pipeline_matches_provider_name_and_image_path() {
     let fixture = SigmaFixture::new();
     fixture.write_service_rule();
     let engine = load_engine(Platform::Windows, &fixture);
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
 
     let normalized = harness
         .normalizer
