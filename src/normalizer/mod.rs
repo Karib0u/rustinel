@@ -13,7 +13,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::models::*;
 use crate::sensor::{Platform, SensorAction, SensorEvent, SensorPayload};
-use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, Protocol, SidCache};
+use crate::state::{DnsCache, ProcessCache, SidCache};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
 
 /// Event normalizer that converts shared sensor events to normalized events.
@@ -21,8 +21,6 @@ pub struct Normalizer {
     process_cache: Arc<ProcessCache>,
     sid_cache: Arc<SidCache>,
     dns_cache: Arc<DnsCache>,
-    connection_aggregator: Arc<ConnectionAggregator>,
-    aggregation_enabled: bool,
     ingest_seq: AtomicU64,
 }
 
@@ -32,15 +30,11 @@ impl Normalizer {
         process_cache: Arc<ProcessCache>,
         sid_cache: Arc<SidCache>,
         dns_cache: Arc<DnsCache>,
-        connection_aggregator: Arc<ConnectionAggregator>,
-        aggregation_enabled: bool,
     ) -> Self {
         Self {
             process_cache,
             sid_cache,
             dns_cache,
-            connection_aggregator,
-            aggregation_enabled,
             ingest_seq: AtomicU64::new(0),
         }
     }
@@ -224,31 +218,6 @@ impl Normalizer {
                     if let Some(hostname) = self.dns_cache.lookup(&ip) {
                         fields.destination_hostname = Some(hostname);
                     }
-                }
-            }
-        }
-
-        if self.aggregation_enabled {
-            if let (Some(image), Some(dest_ip), Some(dest_port)) = (
-                fields.image.as_deref(),
-                fields.destination_ip.as_deref(),
-                fields.destination_port.as_deref(),
-            ) {
-                if let (Ok(dest_ip), Ok(dest_port)) =
-                    (dest_ip.parse::<IpAddr>(), dest_port.parse::<u16>())
-                {
-                    let protocol = match fields.protocol.as_deref() {
-                        Some("tcp") => Protocol::Tcp,
-                        Some("udp") => Protocol::Udp,
-                        _ => Protocol::Unknown,
-                    };
-                    let pid = event_pid(event, fields.process_id.as_deref());
-
-                    // Aggregation is observational state for connection counts
-                    // and interval statistics. Every raw event remains visible
-                    // to Sigma and IOC detection.
-                    self.connection_aggregator
-                        .record(image, dest_ip, dest_port, protocol, pid);
                 }
             }
         }
@@ -464,19 +433,17 @@ mod tests {
     use super::*;
     use crate::sensor::{Platform, ProcessStartKey, SensorNormalization};
 
-    fn build_normalizer(aggregation_enabled: bool) -> Normalizer {
+    fn build_normalizer() -> Normalizer {
         Normalizer::new(
             Arc::new(ProcessCache::new()),
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
-            Arc::new(ConnectionAggregator::new()),
-            aggregation_enabled,
         )
     }
 
     #[test]
     fn canonical_events_keep_nanoseconds_and_distinct_ordering() {
-        let normalizer = build_normalizer(false);
+        let normalizer = build_normalizer();
         #[cfg(not(windows))]
         const EVENT_NANOS: u32 = 123_456_789;
         #[cfg(not(windows))]
@@ -504,7 +471,7 @@ mod tests {
 
     #[test]
     fn windows_etw_ingest_order_does_not_flatten_session_time_skew() {
-        let normalizer = build_normalizer(false);
+        let normalizer = build_normalizer();
         let mut process_session = process_start_event(Platform::Windows, "etw", 41);
         process_session.timestamp = SystemTime::UNIX_EPOCH + Duration::from_millis(10_005);
         let mut main_session = process_start_event(Platform::Windows, "etw", 42);
@@ -673,12 +640,12 @@ mod tests {
 
     #[test]
     fn test_normalizer_creation() {
-        let _normalizer = build_normalizer(true);
+        let _normalizer = build_normalizer();
     }
 
     #[test]
     fn process_stop_events_only_maintain_cache() {
-        let normalizer = build_normalizer(true);
+        let normalizer = build_normalizer();
 
         normalizer.process_cache.add(
             42,
@@ -741,7 +708,7 @@ mod tests {
 
     #[test]
     fn linux_process_stop_without_process_start_key_uses_pid_fallback() {
-        let normalizer = build_normalizer(false);
+        let normalizer = build_normalizer();
 
         let start = process_start_event(Platform::Linux, "ebpf", 42);
         let stop = process_stop_event(Platform::Linux, "ebpf", 42, false);
@@ -756,8 +723,8 @@ mod tests {
     }
 
     #[test]
-    fn network_aggregation_keeps_repeated_connections_for_detection() {
-        let normalizer = build_normalizer(true);
+    fn repeated_network_connections_stay_visible_to_detection() {
+        let normalizer = build_normalizer();
         normalizer.process_cache.add(
             7,
             1,
@@ -822,23 +789,11 @@ mod tests {
             normalized.get_field("DestinationHostname"),
             Some("new.example.test")
         );
-
-        let meta = normalizer
-            .connection_aggregator
-            .get_meta(
-                "C:\\curl.exe",
-                "198.51.100.10".parse().unwrap(),
-                443,
-                Protocol::Tcp,
-            )
-            .expect("connection aggregate should be tracked");
-        assert_eq!(meta.connection_count, 3);
-        assert_eq!(meta.unique_pids.len(), 2);
     }
 
     #[test]
     fn normalizer_preserves_sensor_supplied_compat_metadata() {
-        let normalizer = build_normalizer(false);
+        let normalizer = build_normalizer();
         let event = SensorEvent {
             platform: Platform::Linux,
             provider: "ebpf",
@@ -873,7 +828,7 @@ mod tests {
 
     #[test]
     fn file_events_backfill_full_process_image_from_cache() {
-        let normalizer = build_normalizer(false);
+        let normalizer = build_normalizer();
         normalizer.process_cache.add(
             9,
             1,
@@ -930,7 +885,7 @@ mod tests {
 
     #[test]
     fn linux_process_start_primes_cache_for_follow_on_network_enrichment() {
-        let normalizer = build_normalizer(false);
+        let normalizer = build_normalizer();
 
         let start = process_start_event(Platform::Linux, "ebpf", 4242);
         let network = network_event(Platform::Linux, "ebpf", 4242);
@@ -955,10 +910,10 @@ mod tests {
 
     #[test]
     fn equivalent_windows_and_linux_process_events_normalize_same_shared_fields() {
-        let windows = build_normalizer(false)
+        let windows = build_normalizer()
             .normalize(&process_start_event(Platform::Windows, "etw", 9001))
             .expect("windows process start should normalize");
-        let linux = build_normalizer(false)
+        let linux = build_normalizer()
             .normalize(&process_start_event(Platform::Linux, "ebpf", 9001))
             .expect("linux process start should normalize");
 
@@ -978,8 +933,8 @@ mod tests {
 
     #[test]
     fn equivalent_windows_and_linux_network_events_normalize_same_shared_fields() {
-        let windows_normalizer = build_normalizer(false);
-        let linux_normalizer = build_normalizer(false);
+        let windows_normalizer = build_normalizer();
+        let linux_normalizer = build_normalizer();
 
         windows_normalizer
             .normalize(&process_start_event(Platform::Windows, "etw", 9002))
@@ -1015,8 +970,8 @@ mod tests {
 
     #[test]
     fn equivalent_windows_and_linux_file_events_normalize_same_shared_fields() {
-        let windows_normalizer = build_normalizer(false);
-        let linux_normalizer = build_normalizer(false);
+        let windows_normalizer = build_normalizer();
+        let linux_normalizer = build_normalizer();
 
         windows_normalizer
             .normalize(&process_start_event(Platform::Windows, "etw", 9003))

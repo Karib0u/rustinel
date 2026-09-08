@@ -86,21 +86,14 @@ channel_capacity = 128
 [process]
 max_entries = 65536 # maximum process records retained when exit events are missed
 
-# 6. Network Connection Metrics
-[network]
-aggregation_enabled = true
-aggregation_max_entries = 20000
-aggregation_window_secs = 60
-aggregation_interval_buffer_size = 50
-
-# 6a. Behavioral Recording (rustinel capture)
+# 6. Behavioral Recording (rustinel capture)
 #   Recordings hold normalized events - command lines, file paths, destinations,
 #   and user names - so treat them like alert output: they are written
 #   owner-only and kept apart from alert and operational logs.
 [capture]
 directory = "captures"      # default parent for rustinel-capture-<UTC timestamp>.ndjson
 
-# 6b. Pipeline Telemetry Counters
+# 6a. Pipeline Telemetry Counters
 #   Every channel between a sensor and the detectors is bounded and sheds load
 #   rather than blocking, so a burst produces a detection gap instead of a
 #   slowdown. The counters below make that gap measurable: `rustinel doctor`
@@ -113,7 +106,7 @@ directory = "captures"      # default parent for rustinel-capture-<UTC timestamp
 enabled = true
 snapshot_interval_secs = 30 # a snapshot is also written at shutdown
 
-# 6c. Windows ETW Delivery
+# 6b. Windows ETW Delivery
 #   ETW's native flush timer has a one-second minimum. Rustinel requests an
 #   earlier handoff for partially filled buffers so isolated events reach the
 #   detector promptly. Set to 0 to use only ETW's native timer.

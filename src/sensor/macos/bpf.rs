@@ -898,13 +898,11 @@ mod tests {
     }
 
     fn test_normalizer() -> crate::normalizer::Normalizer {
-        use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+        use crate::state::{DnsCache, ProcessCache, SidCache};
         crate::normalizer::Normalizer::new(
             Arc::new(ProcessCache::new()),
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
-            Arc::new(ConnectionAggregator::new()),
-            false,
         )
     }
 

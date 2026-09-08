@@ -259,7 +259,7 @@ src/
 │   ├── windows/        # ETW sensor implementation
 │   ├── linux/          # eBPF userspace loader and event decoding
 │   └── macos/          # Endpoint Security sensor
-├── state/              # Process, DNS, SID, and network aggregation state
+├── state/              # Process, DNS, and SID state
 └── utils/              # Platform-specific helpers
 
 ebpf/

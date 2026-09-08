@@ -47,7 +47,7 @@ fn security_event(event_id: u16, action: SensorAction, pairs: &[(&str, &str)]) -
 }
 
 fn normalize(event: &SensorEvent) -> NormalizedEvent {
-    TestNormalizer::new(false)
+    TestNormalizer::new()
         .normalizer
         .normalize(event)
         .expect("a security audit event should normalize")

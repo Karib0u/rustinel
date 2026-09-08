@@ -37,7 +37,7 @@ fn configured_paths_and_feature_flags_control_component_loading() {
             .load_rules(&cfg.scanner.sigma_rules_path)
             .expect("load sigma");
     }
-    let event = TestNormalizer::new(false)
+    let event = TestNormalizer::new()
         .normalizer
         .normalize(&process_start_event(Platform::Linux))
         .unwrap();
@@ -110,7 +110,7 @@ allowlist_paths = ["{response_only}"]
 fn match_debug_configuration_controls_sigma_and_yara_details() {
     let sigma = SigmaFixture::new();
     sigma.write_process_rule(Platform::Linux);
-    let event = TestNormalizer::new(false)
+    let event = TestNormalizer::new()
         .normalizer
         .normalize(&process_start_event(Platform::Linux))
         .unwrap();

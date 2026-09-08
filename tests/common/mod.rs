@@ -16,7 +16,7 @@ use rustinel::normalizer::Normalizer;
 use rustinel::sensor::{
     Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
 };
-use rustinel::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+use rustinel::state::{DnsCache, ProcessCache, SidCache};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -42,21 +42,17 @@ pub struct TestNormalizer {
     pub process_cache: Arc<ProcessCache>,
     pub sid_cache: Arc<SidCache>,
     pub dns_cache: Arc<DnsCache>,
-    pub connection_aggregator: Arc<ConnectionAggregator>,
 }
 
 impl TestNormalizer {
-    pub fn new(aggregation_enabled: bool) -> Self {
+    pub fn new() -> Self {
         let process_cache = Arc::new(ProcessCache::new());
         let sid_cache = Arc::new(SidCache::new());
         let dns_cache = Arc::new(DnsCache::new());
-        let connection_aggregator = Arc::new(ConnectionAggregator::new());
         let normalizer = Normalizer::new(
             Arc::clone(&process_cache),
             Arc::clone(&sid_cache),
             Arc::clone(&dns_cache),
-            Arc::clone(&connection_aggregator),
-            aggregation_enabled,
         );
 
         Self {
@@ -64,8 +60,13 @@ impl TestNormalizer {
             process_cache,
             sid_cache,
             dns_cache,
-            connection_aggregator,
         }
+    }
+}
+
+impl Default for TestNormalizer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

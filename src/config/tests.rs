@@ -26,7 +26,6 @@ fn test_config_loads_defaults() {
     assert!(cfg.reload.enabled);
     assert_eq!(cfg.reload.debounce_ms, 2000);
     assert_eq!(cfg.alerts.match_debug, MatchDebugLevel::Off);
-    assert_eq!(cfg.network.aggregation_window_secs, 60);
     assert!(cfg.telemetry.enabled);
     assert_eq!(cfg.telemetry.snapshot_interval_secs, 30);
 }
@@ -77,6 +76,45 @@ paths_regex_path = "rules/ioc/paths_regex.txt"
         cfg.ioc.paths_regex_path,
         config_dir.join("rules/ioc/paths_regex.txt")
     );
+}
+
+#[test]
+fn retired_network_aggregation_section_still_loads() {
+    // v1.5 and earlier shipped a `[network]` section for the connection
+    // aggregator. The aggregator is gone; a fleet that still carries those keys
+    // must keep starting rather than fail to load its configuration.
+    let temp = tempfile::tempdir().expect("tempdir");
+    let explicit = temp.path().join("legacy.toml");
+    std::fs::write(
+        &explicit,
+        r#"
+[process]
+max_entries = 4096
+
+[network]
+aggregation_enabled = true
+aggregation_max_entries = 20000
+aggregation_window_secs = 60
+aggregation_interval_buffer_size = 50
+"#,
+    )
+    .expect("write legacy config");
+
+    let cfg = AppConfig::from_options_with_environment(
+        ConfigLoadOptions {
+            explicit_config: Some(explicit),
+            env_config: None,
+            managed_config: temp.path().join("missing-managed.toml"),
+            exe_config: Some(temp.path().join("missing-exe.toml")),
+            cwd_config: temp.path().join("missing-cwd.toml"),
+        },
+        Some(config::Map::new()),
+    )
+    .expect("a config carrying the retired [network] section should still load");
+
+    // The surrounding sections are still applied, so the retired keys are
+    // ignored rather than aborting the load partway through.
+    assert_eq!(cfg.process.max_entries, 4096);
 }
 
 #[test]

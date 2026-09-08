@@ -117,7 +117,7 @@ level: high
     tx.send(ReloadTarget::Sigma).expect("send reload");
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let process = harness
         .normalizer
         .normalize(&process_start_event(platform))
@@ -247,7 +247,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
     );
     tx.send(ReloadTarget::Ioc).expect("send ioc reload");
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    let event = TestNormalizer::new(false)
+    let event = TestNormalizer::new()
         .normalizer
         .normalize(&dns_query_event(platform))
         .unwrap();
@@ -502,7 +502,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
 
     // The reload should have been rejected (keeping the previous rules active in memory).
     // Let's verify that the original process rules (no longer on disk) are still working.
-    let proc_event = TestNormalizer::new(false)
+    let proc_event = TestNormalizer::new()
         .normalizer
         .normalize(&process_start_event(platform))
         .unwrap();
@@ -571,7 +571,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 
     // The reload should have succeeded (loading the valid rule)
-    let proc_event = TestNormalizer::new(false)
+    let proc_event = TestNormalizer::new()
         .normalizer
         .normalize(&process_start_event(platform))
         .unwrap();

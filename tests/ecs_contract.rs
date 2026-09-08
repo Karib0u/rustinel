@@ -51,7 +51,7 @@ fn alert(category: EventCategory, event_id: u16, opcode: u8, fields: EventFields
 #[test]
 fn linux_process_image_source_survives_normalization_and_maps_to_ecs() {
     for source in ["proc", "execve"] {
-        let fixture = TestNormalizer::new(false);
+        let fixture = TestNormalizer::new();
         let mut event = process_start_event(Platform::Linux);
         let SensorPayload::Process(fields) = &mut event.payload else {
             panic!("expected process payload");
@@ -74,7 +74,7 @@ fn linux_process_image_source_survives_normalization_and_maps_to_ecs() {
 
 #[test]
 fn process_context_enriches_non_process_alerts_without_overwriting_event_fields() {
-    let fixture = TestNormalizer::new(false);
+    let fixture = TestNormalizer::new();
     let start = process_start_event(Platform::Windows);
     let normalized_start = fixture
         .normalizer
@@ -419,7 +419,7 @@ fn related_ip_and_user_are_deduplicated() {
         fields.user = Some(r"ACME\alice".to_string());
     }
 
-    let normalizer = TestNormalizer::new(false);
+    let normalizer = TestNormalizer::new();
     let normalized = normalizer
         .normalizer
         .normalize(&network)
@@ -438,7 +438,7 @@ fn related_ip_and_user_are_deduplicated() {
 
 #[test]
 fn macos_file_create_alert_maps_ecs_fields() {
-    let normalizer = TestNormalizer::new(false);
+    let normalizer = TestNormalizer::new();
     let normalized = normalizer
         .normalizer
         .normalize(&file_create_event(Platform::MacOS))
@@ -467,7 +467,7 @@ fn macos_file_create_alert_maps_ecs_fields() {
 
 #[test]
 fn dns_alert_populates_category_specific_fields() {
-    let normalizer = TestNormalizer::new(false);
+    let normalizer = TestNormalizer::new();
     let normalized = normalizer
         .normalizer
         .normalize(&dns_query_event(Platform::Windows))

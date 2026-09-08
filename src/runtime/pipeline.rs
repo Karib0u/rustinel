@@ -19,14 +19,13 @@ use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
 use crate::sensor::{Platform, SensorEventRouter};
-use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+use crate::state::{DnsCache, ProcessCache, SidCache};
 use crate::{reload, scanner};
 
 pub(super) struct SharedState {
     pub process_cache: Arc<ProcessCache>,
     sid_cache: Arc<SidCache>,
     dns_cache: Arc<DnsCache>,
-    connection_aggregator: Arc<ConnectionAggregator>,
 }
 
 impl SharedState {
@@ -35,11 +34,6 @@ impl SharedState {
             process_cache: Arc::new(ProcessCache::with_max_entries(cfg.process.max_entries)),
             sid_cache: Arc::new(SidCache::new()),
             dns_cache: Arc::new(DnsCache::new()),
-            connection_aggregator: Arc::new(ConnectionAggregator::with_limits_and_window(
-                cfg.network.aggregation_max_entries,
-                cfg.network.aggregation_interval_buffer_size,
-                cfg.network.aggregation_window_secs,
-            )),
         }
     }
 }
@@ -252,8 +246,6 @@ impl LivePipeline {
             Arc::clone(&state.process_cache),
             Arc::clone(&state.sid_cache),
             Arc::clone(&state.dns_cache),
-            Arc::clone(&state.connection_aggregator),
-            cfg.network.aggregation_enabled,
         ));
 
         // 12. Detection handlers + router

@@ -26,7 +26,7 @@ Before changing config or rules, check these first:
 | Symptom | Common causes |
 | --- | --- |
 | Startup fails immediately | bad config, wrong working directory, missing privileges, unsupported Linux eBPF environment |
-| Agent runs but no alerts appear | detector disabled, rules not loaded, testing unsupported telemetry, allowlists, aggregation |
+| Agent runs but no alerts appear | detector disabled, rules not loaded, testing unsupported telemetry, allowlists |
 | Rule edits are ignored | hot reload disabled, wrong rule path, YARA file placed in a subdirectory, reload rejected |
 | Active response does not kill | dry-run mode, severity below threshold, allowlist hit, missing PID or image |
 | Alerts are missing details | `alerts.match_debug = "off"` |
@@ -195,7 +195,6 @@ Examples:
 
 - registry, image load, PowerShell, WMI, service, and task detections are Windows-only today
 - Linux DNS events populate `QueryName` for outbound plaintext DNS queries, but not `QueryResults`
-- network aggregation records connection metrics but does not suppress repeated events
 
 ### Linux DNS or IOC domain rules do not match
 

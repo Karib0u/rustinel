@@ -46,7 +46,7 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
         })),
     ));
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let handler = NormalizedEventHandler::detecting(
         Arc::new(harness.normalizer),
         DetectionPipeline {

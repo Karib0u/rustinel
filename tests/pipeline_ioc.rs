@@ -16,7 +16,7 @@ fn domain_ioc_matches_exact_and_suffix_dns_events() {
     let fixture = IocFixture::new();
     fixture.write_domains(&format!("{TEST_DOMAIN}; exact\n.example.test; suffix\n"));
     let engine = IocEngine::load(&fixture.config());
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
 
     let event = harness
         .normalizer
@@ -66,7 +66,7 @@ fn ip_ioc_matches_network_and_dns_response_ips() {
         "{TEST_DESTINATION_IP}; exact\n198.51.100.0/24; cidr\n"
     ));
     let engine = IocEngine::load(&fixture.config());
-    let harness = TestNormalizer::new(true);
+    let harness = TestNormalizer::new();
 
     let network = harness
         .normalizer
@@ -123,7 +123,7 @@ fn path_regex_ioc_matches_process_and_file_paths() {
     let fixture = IocFixture::new();
     fixture.write_paths_regex(r"(?i)(curl|rustinel-fixture)\.(exe|txt); suspicious path");
     let engine = IocEngine::load(&fixture.config());
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
 
     let process = harness
         .normalizer

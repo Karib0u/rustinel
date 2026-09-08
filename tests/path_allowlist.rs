@@ -28,7 +28,7 @@ async fn check(prefix: &str, path: &str, expected: [bool; 3]) {
     response_cfg.allowlist_paths = vec![prefix.into()];
     let (response, worker) =
         ResponseEngine::new(Arc::new(arc_swap::ArcSwap::from_pointee(response_cfg)));
-    let mut event = common::TestNormalizer::new(false)
+    let mut event = common::TestNormalizer::new()
         .normalizer
         .normalize(&common::process_start_event(Platform::Linux))
         .unwrap();

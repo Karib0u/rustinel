@@ -39,7 +39,7 @@ async fn capture_records_every_normalized_event_in_order() {
     let recorder =
         CaptureRecorder::start(payload.clone(), Platform::Linux).expect("capture starts");
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let handler = NormalizedEventHandler::recording(Arc::new(harness.normalizer), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
@@ -78,7 +78,7 @@ async fn capture_records_canonical_events_without_alert_enrichment() {
     let recorder =
         CaptureRecorder::start(payload.clone(), Platform::Linux).expect("capture starts");
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let handler = NormalizedEventHandler::recording(Arc::new(harness.normalizer), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
@@ -116,7 +116,7 @@ async fn capture_does_not_evaluate_detectors_or_write_alerts() {
     let recorder =
         CaptureRecorder::start(payload.clone(), Platform::Linux).expect("capture starts");
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let handler = NormalizedEventHandler::recording(Arc::new(harness.normalizer), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
@@ -164,7 +164,7 @@ async fn live_protection_does_not_write_a_recording() {
         })),
     ));
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let handler = NormalizedEventHandler::detecting(
         Arc::new(harness.normalizer),
         DetectionPipeline {
@@ -206,7 +206,7 @@ async fn shutdown_finalizes_queued_events_and_the_manifest() {
         CaptureRecorder::start(payload.clone(), Platform::Linux).expect("capture starts");
     let manifest_path = recorder.manifest_path().to_path_buf();
 
-    let harness = TestNormalizer::new(false);
+    let harness = TestNormalizer::new();
     let handler = NormalizedEventHandler::recording(Arc::new(harness.normalizer), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
