@@ -30,6 +30,8 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     use std::os::fd::AsRawFd;
 
     let mut process = ProcessEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         kind: 1,
         pid: 42,
         uid: 1000,
@@ -82,6 +84,8 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     assert_eq!(mapped.normalization.event_id, 5);
 
     let mut network = NetworkEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         pid: 42,
         uid: 1000,
         fd: 3,
@@ -134,6 +138,8 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     }
 
     let mut file = FileEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         kind: 3,
         pid: 42,
         uid: 1000,
@@ -166,6 +172,8 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     let etc = std::fs::File::open("/etc").expect("/etc should be openable");
     let tmp = std::fs::File::open("/tmp").expect("/tmp should be openable");
     let mut relative = FileEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         kind: 3,
         pid: std::process::id(),
         uid: 1000,
@@ -193,6 +201,8 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     // PID 0 is never a real process, so nothing can be resolved against it and
     // the relative name is dropped rather than reported as a path.
     let mut orphan = FileEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         kind: 1,
         pid: 0,
         uid: 1000,
@@ -209,6 +219,8 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     assert!(mapping::file_event_to_sensor(&DirFdIndex::new(), &orphan).is_none());
 
     let mut dns = DnsEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         kind: 1,
         pid: 42,
         uid: 1000,

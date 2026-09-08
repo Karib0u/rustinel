@@ -116,6 +116,8 @@ mod tests {
         }
         NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Linux,
             provider: "test".to_string(),
             category: EventCategory::Process,

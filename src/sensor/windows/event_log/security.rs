@@ -215,7 +215,11 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .find(|node| node.has_tag_name("TimeCreated"))
         .and_then(|node| node.attribute("SystemTime"))
         .and_then(parse_system_time)
-        .unwrap_or_else(SystemTime::now);
+        .context("security event XML has no valid TimeCreated timestamp")?;
+    let source_seq = child_text(system, "EventRecordID")
+        .context("security event XML has no EventRecordID")?
+        .parse::<u64>()
+        .context("security event XML has an invalid EventRecordID")?;
 
     // The `ProcessId` in the payload stays as Windows renders it, in hex, for
     // rules to match. The pipeline needs a number to reach the process cache,
@@ -232,6 +236,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         },
         pid,
         timestamp,
+        source_seq: Some(source_seq),
         process_start_key: None,
         payload: SensorPayload::Security(fields),
     })
@@ -266,6 +271,7 @@ mod tests {
     <Provider Name="Microsoft-Windows-Security-Auditing" Guid="{{54849625-5478-4994-a5ba-3e3b0328c30d}}"/>
     <EventID>{event_id}</EventID>
     <TimeCreated SystemTime="2026-08-25T12:34:56.1234567Z"/>
+    <EventRecordID>81234</EventRecordID>
     <Channel>Security</Channel>
     <Computer>lab-windows</Computer>
   </System>
@@ -307,6 +313,7 @@ mod tests {
         assert_eq!(event.action, SensorAction::Register);
         assert_eq!(event.normalization.event_id, 4697);
         assert_eq!(event.provider, "windows_event_log");
+        assert_eq!(event.source_seq, Some(81234));
 
         let SensorPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");

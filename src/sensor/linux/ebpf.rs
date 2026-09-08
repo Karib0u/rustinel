@@ -34,8 +34,8 @@ use crate::sensor::{
 use crate::utils::{lookup_username_by_uid, query_process_details};
 
 use super::events::{
-    bytes_to_string, connect_result_is_connection, parse_event, DnsEvent, FileEvent,
-    FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
+    bytes_to_string, connect_result_is_connection, parse_event, system_time_from_boot_ns, DnsEvent,
+    FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 
@@ -137,6 +137,17 @@ impl Sensor for EbpfSensor {
             "sys_exit_socket",
         )?;
         attach_tracepoint(&mut bpf, "handle_openat", "syscalls", "sys_enter_openat")?;
+        attach_optional_tracepoint(&mut bpf, "handle_open", "syscalls", "sys_enter_open")?;
+        attach_optional_tracepoint(&mut bpf, "handle_open_exit", "syscalls", "sys_exit_open")?;
+        attach_optional_tracepoint(&mut bpf, "handle_creat", "syscalls", "sys_enter_creat")?;
+        attach_optional_tracepoint(&mut bpf, "handle_creat_exit", "syscalls", "sys_exit_creat")?;
+        attach_tracepoint(&mut bpf, "handle_openat2", "syscalls", "sys_enter_openat2")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_openat2_exit",
+            "syscalls",
+            "sys_exit_openat2",
+        )?;
         attach_kprobe(&mut bpf, "handle_vfs_create", "vfs_create")?;
         attach_tracepoint(
             &mut bpf,
@@ -155,6 +166,13 @@ impl Sensor for EbpfSensor {
             "handle_unlinkat_exit",
             "syscalls",
             "sys_exit_unlinkat",
+        )?;
+        attach_optional_tracepoint(&mut bpf, "handle_unlink", "syscalls", "sys_enter_unlink")?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_unlink_exit",
+            "syscalls",
+            "sys_exit_unlink",
         )?;
         attach_tracepoint(
             &mut bpf,
@@ -180,6 +198,24 @@ impl Sensor for EbpfSensor {
             "syscalls",
             "sys_exit_renameat2",
         )?;
+        attach_optional_tracepoint(&mut bpf, "handle_rename", "syscalls", "sys_enter_rename")?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_rename_exit",
+            "syscalls",
+            "sys_exit_rename",
+        )?;
+        attach_optional_tracepoint(&mut bpf, "handle_mkdir", "syscalls", "sys_enter_mkdir")?;
+        attach_optional_tracepoint(&mut bpf, "handle_mkdir_exit", "syscalls", "sys_exit_mkdir")?;
+        attach_tracepoint(&mut bpf, "handle_mkdirat", "syscalls", "sys_enter_mkdirat")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_mkdirat_exit",
+            "syscalls",
+            "sys_exit_mkdirat",
+        )?;
+        attach_optional_tracepoint(&mut bpf, "handle_rmdir", "syscalls", "sys_enter_rmdir")?;
+        attach_optional_tracepoint(&mut bpf, "handle_rmdir_exit", "syscalls", "sys_exit_rmdir")?;
         attach_tracepoint(&mut bpf, "handle_file_close", "syscalls", "sys_enter_close")?;
         attach_optional_tracepoint(&mut bpf, "handle_file_dup2", "syscalls", "sys_enter_dup2")?;
         attach_tracepoint(&mut bpf, "handle_file_dup3", "syscalls", "sys_enter_dup3")?;
@@ -460,7 +496,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 ev.image_truncated != 0,
             )?;
 
-            let now = SystemTime::now();
+            let event_time = system_time_from_boot_ns(ev.event_time_ns);
             Some(SensorEvent {
                 platform: Platform::Linux,
                 provider: "ebpf",
@@ -470,13 +506,14 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     action_code: 1,
                 },
                 pid: Some(ev.pid),
-                timestamp: now,
+                timestamp: event_time,
+                source_seq: Some(ev.source_seq),
                 process_start_key: Some(ProcessStartKey {
                     pid: ev.pid,
                     start_time: details
                         .as_ref()
                         .and_then(|value| value.start_time)
-                        .unwrap_or_else(|| unix_epoch_nanos(now)),
+                        .unwrap_or_else(|| unix_epoch_nanos(event_time)),
                 }),
                 payload: SensorPayload::Process(ProcessCreationFields {
                     image: Some(image),
@@ -524,7 +561,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 action_code: 2,
             },
             pid: Some(ev.pid),
-            timestamp: SystemTime::now(),
+            timestamp: system_time_from_boot_ns(ev.event_time_ns),
+            source_seq: Some(ev.source_seq),
             process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
@@ -594,7 +632,8 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: Some(ev.pid),
-        timestamp: SystemTime::now(),
+        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        source_seq: Some(ev.source_seq),
         process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(destination_ip),
@@ -676,7 +715,8 @@ fn build_file_event(
         action,
         normalization,
         pid: Some(ev.pid),
-        timestamp: SystemTime::now(),
+        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        source_seq: Some(ev.source_seq),
         process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename,
@@ -716,7 +756,8 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: Some(ev.pid),
-        timestamp: SystemTime::now(),
+        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        source_seq: Some(ev.source_seq),
         process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name,
@@ -839,6 +880,8 @@ mod tests {
     /// Tests that exercise argv override `args*` explicitly.
     fn raw_process_event(kind: u32, pid: u32, image: &str) -> ProcessEvent {
         ProcessEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind,
             pid,
             uid: 1000,
@@ -878,6 +921,8 @@ mod tests {
     /// `/proc` lookup to resolve.
     fn file_event(kind: u32, pid: u32, path: &str, comm: &str) -> FileEvent {
         FileEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind,
             pid,
             uid: 1000,
@@ -925,6 +970,8 @@ mod tests {
         };
         let (payload, payload_len) = dns_query_payload(name, qtype);
         DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -1153,6 +1200,8 @@ mod tests {
         daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
 
         let raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 77,
             uid: 1000,
             fd: -1,
@@ -1188,6 +1237,8 @@ mod tests {
         daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
 
         let mut raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 77,
             uid: 1000,
             fd: -1,
@@ -1218,6 +1269,8 @@ mod tests {
     #[test]
     fn build_network_event_supports_ipv6_and_omits_unmeasured_source() {
         let raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 88,
             uid: 1000,
             fd: -1,
@@ -1252,6 +1305,8 @@ mod tests {
         // connection was established.
         for result in [-111, -113, -110] {
             let raw = NetworkEvent {
+                event_time_ns: 0,
+                source_seq: 0,
                 pid: 77,
                 uid: 1000,
                 fd: -1,
@@ -1281,6 +1336,8 @@ mod tests {
         // and -EINTR leaves the kernel completing one in the background.
         for result in [0, -115, -4] {
             let raw = NetworkEvent {
+                event_time_ns: 0,
+                source_seq: 0,
                 pid: 77,
                 uid: 1000,
                 fd: -1,
@@ -1309,6 +1366,8 @@ mod tests {
     #[test]
     fn build_network_event_rejects_unspecified_destination() {
         let raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 77,
             uid: 1000,
             fd: -1,
@@ -1682,6 +1741,8 @@ mod tests {
     fn build_dns_event_maps_linux_dns_payload() {
         let (payload, payload_len) = dns_query_payload("example.test", 1);
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -1711,6 +1772,8 @@ mod tests {
     #[test]
     fn build_dns_event_falls_back_to_query_name_field() {
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -1738,6 +1801,8 @@ mod tests {
     fn parse_dns_query_name_rejects_truncated_payload() {
         let (payload, payload_len) = dns_query_payload("example.test", 1);
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -1919,6 +1984,8 @@ level: high
     #[test]
     fn build_dns_event_drops_empty_record_type() {
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 1,
             uid: 0,

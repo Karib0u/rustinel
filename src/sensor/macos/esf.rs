@@ -248,6 +248,7 @@ struct RawExec {
     /// Process start time, as nanoseconds since the Unix epoch.
     start_time: u64,
     event_time: SystemTime,
+    source_seq: Option<u64>,
 }
 
 /// Extract the fields we care about from an ESF exec event.
@@ -291,6 +292,7 @@ fn build_exec_event(msg: &Message, exec: &EventExec) -> Option<SensorEvent> {
         user: token.ruid().to_string(),
         start_time,
         event_time,
+        source_seq: msg.global_seq_num(),
     }))
 }
 
@@ -308,6 +310,7 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
         },
         pid: Some(raw.pid),
         timestamp: raw.event_time,
+        source_seq: raw.source_seq,
         process_start_key: Some(ProcessStartKey {
             pid: raw.pid,
             start_time: raw.start_time,
@@ -347,11 +350,17 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
         token.pid() as u32,
         token.ruid().to_string(),
         msg.time(),
+        msg.global_seq_num(),
     ))
 }
 
 /// Assemble a process-stop [`SensorEvent`] from FFI-free fields.
-fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorEvent {
+fn process_stop_event(
+    pid: u32,
+    user: String,
+    event_time: SystemTime,
+    source_seq: Option<u64>,
+) -> SensorEvent {
     SensorEvent {
         platform: Platform::MacOS,
         provider: "esf",
@@ -362,6 +371,7 @@ fn process_stop_event(pid: u32, user: String, event_time: SystemTime) -> SensorE
         },
         pid: Some(pid),
         timestamp: event_time,
+        source_seq,
         process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
             image: None,
@@ -421,6 +431,7 @@ struct RawFile {
     target: String,
     source: Option<String>,
     event_time: SystemTime,
+    source_seq: Option<u64>,
 }
 
 /// Acting process context shared by all file events: pid, executable, and the
@@ -449,6 +460,7 @@ fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent
         target,
         source: None,
         event_time: msg.time(),
+        source_seq: msg.global_seq_num(),
     })
 }
 
@@ -463,6 +475,7 @@ fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent
         target,
         source: None,
         event_time: msg.time(),
+        source_seq: msg.global_seq_num(),
     })
 }
 
@@ -478,6 +491,7 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent
         target,
         source: (!source.is_empty()).then_some(source),
         event_time: msg.time(),
+        source_seq: msg.global_seq_num(),
     })
 }
 
@@ -499,6 +513,7 @@ fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
         target,
         source: None,
         event_time: msg.time(),
+        source_seq: msg.global_seq_num(),
     })
 }
 
@@ -547,6 +562,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
         },
         pid: Some(raw.pid),
         timestamp: raw.event_time,
+        source_seq: raw.source_seq,
         process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename: raw.source,
@@ -621,6 +637,7 @@ mod tests {
             user: "alice".to_string(),
             start_time: 1_700_000_000_000_000_000,
             event_time: SystemTime::UNIX_EPOCH,
+            source_seq: Some(77),
         });
 
         assert_eq!(event.platform, Platform::MacOS);
@@ -628,6 +645,7 @@ mod tests {
         assert_eq!(event.action, SensorAction::Start);
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_CREATE);
         assert_eq!(event.pid, Some(4242));
+        assert_eq!(event.source_seq, Some(77));
         assert_eq!(
             event.process_start_key,
             Some(ProcessStartKey {
@@ -662,6 +680,7 @@ mod tests {
             target: target.to_string(),
             source: source.map(str::to_string),
             event_time: SystemTime::UNIX_EPOCH,
+            source_seq: None,
         }
     }
 
@@ -739,7 +758,7 @@ mod tests {
 
     #[test]
     fn process_stop_event_maps_exit() {
-        let event = process_stop_event(4242, "alice".to_string(), SystemTime::UNIX_EPOCH);
+        let event = process_stop_event(4242, "alice".to_string(), SystemTime::UNIX_EPOCH, None);
 
         assert_eq!(event.action, SensorAction::Stop);
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_TERMINATE);
@@ -768,6 +787,7 @@ mod tests {
             user: "root".to_string(),
             start_time: 0,
             event_time: SystemTime::UNIX_EPOCH,
+            source_seq: None,
         });
 
         match event.payload {

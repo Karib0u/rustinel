@@ -54,6 +54,7 @@ mod tests {
             },
             pid: Some(42),
             timestamp: UNIX_EPOCH,
+            source_seq: None,
             process_start_key: None,
             payload,
         }
