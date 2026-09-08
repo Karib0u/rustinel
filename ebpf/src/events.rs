@@ -9,6 +9,38 @@
 //! - Fixed-size arrays for strings (null-terminated, rest zeroed).
 //! - All integer fields use explicit sizes (`u32`, `u16`, etc.).
 
+use aya_ebpf::bindings::bpf_spin_lock;
+use aya_ebpf::helpers::{bpf_ktime_get_boot_ns, bpf_spin_lock, bpf_spin_unlock};
+use aya_ebpf::macros::map;
+use aya_ebpf::maps::Array;
+
+#[repr(C)]
+struct SourceSequence {
+    lock: bpf_spin_lock,
+    value: u64,
+}
+
+#[map]
+static SOURCE_SEQUENCE: Array<SourceSequence> = Array::with_max_entries(1, 0);
+
+/// Timestamp and global submission order assigned immediately before an event
+/// enters a ring buffer.
+#[inline(always)]
+pub fn event_metadata() -> (u64, u64) {
+    let event_time_ns = unsafe { bpf_ktime_get_boot_ns() };
+    let source_seq = unsafe {
+        let Some(state) = SOURCE_SEQUENCE.get_ptr_mut(0) else {
+            return (event_time_ns, 0);
+        };
+        bpf_spin_lock(&mut (*state).lock);
+        (*state).value += 1;
+        let value = (*state).value;
+        bpf_spin_unlock(&mut (*state).lock);
+        value
+    };
+    (event_time_ns, source_seq)
+}
+
 /// Maximum bytes of argv captured in the kernel for one `execve`.
 ///
 /// A power of two so the verifier can bound the write offset with a mask.
@@ -26,6 +58,8 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ProcessEvent {
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     /// Event kind: 1 = exec, 2 = exit.
     pub kind: u32,
     /// Thread group ID — the POSIX "process ID".
@@ -101,6 +135,8 @@ pub const SOCK_DGRAM: u8 = 2;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NetworkEvent {
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     /// Thread group ID of the connecting process.
     pub pid: u32,
     /// Effective UID.
@@ -168,6 +204,8 @@ pub struct FileEvent {
     pub kind: u32,
     /// Thread group ID.
     pub pid: u32,
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     /// Effective UID.
     pub uid: u32,
     /// Bitmask of `FILE_FLAG_*` — currently path truncation.
@@ -211,6 +249,8 @@ pub struct FileIndexEvent {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct DnsEvent {
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     /// Event kind: 1 = query, 2 = response.
     pub kind: u32,
     /// Thread group ID.

@@ -29,6 +29,8 @@ mod tests {
     fn test_alert_serialization() {
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::Process,

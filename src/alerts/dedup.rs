@@ -381,6 +381,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-06-09T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Linux,
                 provider: "ebpf".to_string(),
                 category: EventCategory::Process,

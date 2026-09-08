@@ -211,6 +211,8 @@ impl IocEngine {
             engine: DetectionEngine::Ioc,
             event: NormalizedEvent {
                 timestamp: crate::utils::now_timestamp_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform,
                 provider: provider.to_string(),
                 category: EventCategory::Process,
@@ -276,6 +278,8 @@ mod tests {
 
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::Dns,
@@ -326,6 +330,8 @@ mod tests {
     fn dns_event(query_name: &str) -> NormalizedEvent {
         NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::Dns,

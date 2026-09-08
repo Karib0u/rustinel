@@ -70,7 +70,11 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .find(|node| node.has_tag_name("TimeCreated"))
         .and_then(|node| node.attribute("SystemTime"))
         .and_then(parse_system_time)
-        .unwrap_or_else(SystemTime::now);
+        .context("service event XML has no valid TimeCreated timestamp")?;
+    let source_seq = child_text(system, "EventRecordID")
+        .context("service event XML has no EventRecordID")?
+        .parse::<u64>()
+        .context("service event XML has an invalid EventRecordID")?;
 
     Ok(SensorEvent {
         platform: Platform::Windows,
@@ -82,6 +86,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         },
         pid: None,
         timestamp,
+        source_seq: Some(source_seq),
         process_start_key: None,
         payload: SensorPayload::Service(ServiceCreationFields {
             // Carried from the record rather than assumed: the guard above has
@@ -127,6 +132,7 @@ mod tests {
     <Provider Name="Service Control Manager" Guid="{555908d1-a6d7-4695-8e1e-26931d2012f4}"/>
     <EventID Qualifiers="16384">7045</EventID>
     <TimeCreated SystemTime="2026-08-25T12:34:56.1234567Z"/>
+    <EventRecordID>91234</EventRecordID>
     <Channel>System</Channel>
     <Security UserID="S-1-5-18"/>
   </System>
@@ -145,6 +151,7 @@ mod tests {
         assert_eq!(event.action, SensorAction::Register);
         assert_eq!(event.normalization.event_id, 7045);
         assert_eq!(event.provider, "windows_event_log");
+        assert_eq!(event.source_seq, Some(91234));
 
         let SensorPayload::Service(fields) = event.payload else {
             panic!("expected service payload");

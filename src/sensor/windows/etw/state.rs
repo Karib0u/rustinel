@@ -42,6 +42,7 @@ impl PendingRegistryEvent {
             normalization: self.normalization,
             pid: self.pid,
             timestamp: self.timestamp,
+            source_seq: None,
             process_start_key: None,
             payload: SensorPayload::Registry(self.fields),
         }

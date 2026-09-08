@@ -60,7 +60,9 @@ use aya_ebpf::{
     programs::TracePointContext,
 };
 
-use crate::events::{connect_result_is_connection, NetworkEvent, SOCK_TYPE_UNKNOWN};
+use crate::events::{
+    connect_result_is_connection, event_metadata, NetworkEvent, SOCK_TYPE_UNKNOWN,
+};
 
 /// AF_INET (IPv4).
 const AF_INET: u16 = 2;
@@ -115,7 +117,7 @@ static SOCKET_TYPES: LruHashMap<u64, u8> = LruHashMap::with_max_entries(16_384, 
 /// Connect candidate a thread is currently inside, keyed by TID.
 ///
 /// A thread is inside exactly one `connect(2)` at a time, so one slot per
-/// thread is enough to carry the event from entry to exit. At 56 bytes per
+/// thread is enough to carry the event from entry to exit. At 72 bytes per
 /// entry this map costs well under a megabyte of kernel memory.
 #[map]
 static NETWORK_PENDING: HashMap<u32, NetworkEvent> = HashMap::with_max_entries(16_384, 0);
@@ -260,6 +262,8 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
     };
 
     let event = NetworkEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         pid,
         uid,
         fd,
@@ -298,6 +302,7 @@ unsafe fn try_handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
     event.ret = ret;
 
     if let Some(mut entry) = NETWORK_RING.reserve::<NetworkEvent>(0) {
+        (event.event_time_ns, event.source_seq) = event_metadata();
         entry.write(event);
         entry.submit(0);
     }

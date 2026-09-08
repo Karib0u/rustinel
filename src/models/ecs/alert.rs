@@ -17,6 +17,14 @@ pub struct EcsAlert {
     #[serde(rename = "@timestamp")]
     pub timestamp: String,
 
+    /// Native ordering token from the event source, when available.
+    #[serde(rename = "event.sequence", skip_serializing_if = "Option::is_none")]
+    pub event_source_seq: Option<u64>,
+
+    /// Order in which the sensor pipeline canonicalized this event.
+    #[serde(rename = "edr.event.ingest_seq")]
+    pub event_ingest_seq: u64,
+
     /// ECS schema version
     #[serde(rename = "ecs.version")]
     pub ecs_version: String,

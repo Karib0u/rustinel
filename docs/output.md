@@ -59,6 +59,8 @@ Format:
 | `event.module`      | Always `edr`                                                                                                                                                                                          |
 | `event.dataset`     | `edr.<category>`                                                                                                                                                                                      |
 | `event.provider`    | Sensor that collected the event: `etw` or `windows_event_log` (Windows), `ebpf` (Linux), `esf` / `bpf` (macOS), or `yara-memory` for memory-scan hits. Not the Windows provider that wrote the record — see `edr.event_log.provider_name`. |
+| `event.sequence`    | Native source sequence when the sensor exposes one. Present for Windows Event Log, Linux eBPF, and macOS Endpoint Security events; absent for ETW and macOS BPF events. |
+| `edr.event.ingest_seq` | Strictly increasing order assigned when Rustinel normalizes the event. |
 | `rule.name`         | Detection rule title                                                                                                                                                                                  |
 | `rule.id`           | Optional detection rule identifier, unique amongs the rustinel rules. Formatted as: `sigma::<uuid>` for Sigma, `yara::<id>` for YARA (if metadata ID is defined), or `ioc::<type>::<value>` for IOCs. |
 | `edr.rule.severity` | Low, Medium, High, or Critical                                                                                                                                                                        |
@@ -168,7 +170,7 @@ A recording is two files:
 
 | File | Content |
 | --- | --- |
-| `<name>.ndjson` | The payload: one normalized event per line, in observed order |
+| `<name>.ndjson` | The payload: one normalized event per line, in `ingest_seq` order |
 | `<name>.manifest.json` | The sidecar describing the payload and whether it is complete |
 
 The payload holds canonical normalized events, recorded immediately after
@@ -177,14 +179,19 @@ and they carry no alert-only process-context enrichment. Repeated events are
 kept as-is, because capture does not deduplicate.
 
 ```json
-{"timestamp":"2026-08-16T09:12:44Z","platform":"windows","provider":"etw","category":"Process","event_id":1,"opcode":1,"fields":{"Image":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","CommandLine":"powershell.exe -EncodedCommand ...","ProcessId":"6132","ParentImage":"C:\\Windows\\explorer.exe"}}
+{"event_time":"2026-08-16T09:12:44.123456789Z","ingest_seq":42,"platform":"windows","provider":"etw","category":"Process","event_id":1,"opcode":1,"fields":{"Image":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","CommandLine":"powershell.exe -EncodedCommand ...","ProcessId":"6132","ParentImage":"C:\\Windows\\explorer.exe"}}
 ```
+
+`event_time` is the native event timestamp, rendered as UTC RFC 3339 with
+nanosecond precision. `source_seq` is included only when the source provides a
+native ordering token. `ingest_seq` is always present and records Rustinel's
+strict processing order. Replay validates and preserves that order.
 
 The manifest records what the payload contains and whether it can be trusted:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "payload": "rustinel-capture-20260816T091240Z.ndjson",
   "rustinel_version": "1.3.0",
   "platform": "windows",

@@ -143,6 +143,8 @@ fn event(category: EventCategory, event_id: u16, fields: &[(&str, &str)]) -> Nor
     }
     NormalizedEvent {
         timestamp: "2026-01-01T00:00:00Z".to_string(),
+        source_seq: None,
+        ingest_seq: 0,
         platform: Platform::Linux,
         provider: "bench".to_string(),
         category,

@@ -76,8 +76,8 @@ use aya_ebpf::{
 };
 
 use crate::events::{
-    FileEvent, FileIndexEvent, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED,
-    FILE_PATH_LEN,
+    event_metadata, FileEvent, FileIndexEvent, FILE_FLAG_AUX_PATH_TRUNCATED,
+    FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
 };
 use crate::network::forget_socket_type;
 
@@ -596,12 +596,18 @@ unsafe fn emit_pending_file_event(
     should_emit: bool,
 ) -> Result<u32, i64> {
     let tid = bpf_get_current_pid_tgid() as u32;
-    let Some(pending) = FILE_PENDING.get_ptr(&tid) else {
+    let Some(pending) = FILE_PENDING.get_ptr_mut(&tid) else {
         return Ok(0);
     };
 
     let kind = (*pending).kind;
     if should_emit && (kind == kind_a || kind == kind_b || kind == kind_c) {
+        if matches!(
+            kind,
+            FILE_KIND_CREATE | FILE_KIND_DELETE | FILE_KIND_RENAME | FILE_KIND_CHANGE
+        ) {
+            ((*pending).event_time_ns, (*pending).source_seq) = event_metadata();
+        }
         // `output` hands the kernel the map value pointer and a constant length,
         // so the whole emit is one helper call the verifier checks by argument
         // type. `reserve` + `write` would instead round-trip a ~1 KiB value

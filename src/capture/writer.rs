@@ -408,6 +408,8 @@ mod tests {
     fn process_event(pid: &str) -> NormalizedEvent {
         NormalizedEvent {
             timestamp: "2026-08-16T10:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::Process,
