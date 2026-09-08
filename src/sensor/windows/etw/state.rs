@@ -293,10 +293,6 @@ pub(super) struct EtwState {
 }
 
 impl EtwState {
-    pub(super) fn new() -> Self {
-        Self::with_process_identities([])
-    }
-
     pub(super) fn with_process_identities(keys: impl IntoIterator<Item = ProcessStartKey>) -> Self {
         Self {
             routing: EtwRouting::new(),
