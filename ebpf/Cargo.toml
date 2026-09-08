@@ -16,6 +16,7 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 opt-level = 2
+debug = 1
 
 [workspace]
 
