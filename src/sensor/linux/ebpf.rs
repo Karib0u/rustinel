@@ -966,7 +966,7 @@ mod tests {
         ARGV_CAPACITY, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
     };
     use crate::sensor::linux::paths::AT_FDCWD;
-    use crate::state::{ConnectionAggregator, DnsCache, ProcessCache, SidCache};
+    use crate::state::{DnsCache, ProcessCache, SidCache};
     use std::sync::Arc;
 
     /// Build a `ProcessEvent` the way the kernel would, with no argv capture.
@@ -1077,8 +1077,6 @@ mod tests {
             Arc::new(ProcessCache::new()),
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
-            Arc::new(ConnectionAggregator::new()),
-            false,
         )
     }
 
