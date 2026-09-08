@@ -53,13 +53,22 @@ use crate::telemetry::{record_map_full, record_ring_full, record_submitted, PROC
 
 /// Ring buffer shared with the userspace loader for process events.
 ///
-/// The 824-byte event leaves room for more than 2,500 queued events, including
+/// The 832-byte event leaves room for more than 2,500 queued events, including
 /// the measured 1,600-event burst that motivated the image-path fallback.
 #[map]
 pub static PROCESS_RING: RingBuf = RingBuf::with_byte_size(2 * 1024 * 1024, 0);
 
+/// Current execution identity by thread-group ID.
+#[map]
+static PROCESS_START_TIMES: LruHashMap<u32, u64> = LruHashMap::with_max_entries(65_536, 0);
+
 const PROCESS_EVENT_EXEC: u32 = 1;
 const PROCESS_EVENT_EXIT: u32 = 2;
+
+#[inline(always)]
+pub unsafe fn current_process_start_time(pid: u32) -> u64 {
+    PROCESS_START_TIMES.get(&pid).copied().unwrap_or(0)
+}
 
 /// Maximum bytes copied for a single argument, including its NUL terminator.
 const ARGV_ARG_MAX: usize = 128;
@@ -153,12 +162,22 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     // Ignore errors — an empty image is still a useful process event.
     let _ = bpf_probe_read_kernel_str_bytes(fname_ptr, &mut image);
 
+    let (event_time_ns, source_seq) = event_metadata();
+    let process_start_time = if PROCESS_START_TIMES
+        .insert(&pid, &event_time_ns, 0)
+        .is_ok()
+    {
+        event_time_ns
+    } else {
+        let _ = PROCESS_START_TIMES.remove(&pid);
+        record_map_full(PROCESS_FAMILY);
+        0
+    };
     let Some(mut entry) = PROCESS_RING.reserve::<ProcessEvent>(0) else {
         record_ring_full(PROCESS_FAMILY);
         return Ok(0);
     };
     let event = entry.as_mut_ptr();
-    let (event_time_ns, source_seq) = event_metadata();
 
     (*event).event_time_ns = event_time_ns;
     (*event).source_seq = source_seq;
@@ -170,6 +189,7 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).image = image;
     (*event).image_truncated = (str_len > image.len()) as u8;
     (*event)._pad1 = [0u8; 2];
+    (*event).process_start_time = process_start_time;
 
     attach_pending_argv(event, old_pid);
 
@@ -309,8 +329,10 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
 
     let uid = bpf_get_current_uid_gid() as u32;
     let comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
+    let process_start_time = current_process_start_time(pid);
 
     let Some(mut entry) = PROCESS_RING.reserve::<ProcessEvent>(0) else {
+        let _ = PROCESS_START_TIMES.remove(&pid);
         record_ring_full(PROCESS_FAMILY);
         return Ok(0);
     };
@@ -330,8 +352,10 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).args_truncated = 0;
     (*event).image_truncated = 0;
     (*event)._pad1 = [0u8; 2];
+    (*event).process_start_time = process_start_time;
 
     entry.submit(0);
+    let _ = PROCESS_START_TIMES.remove(&pid);
     record_submitted(PROCESS_FAMILY);
 
     Ok(0)

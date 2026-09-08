@@ -63,6 +63,7 @@ use aya_ebpf::{
 use crate::events::{
     connect_result_is_connection, event_metadata, NetworkEvent, SOCK_TYPE_UNKNOWN,
 };
+use crate::process::current_process_start_time;
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, NETWORK_FAMILY};
 
 /// AF_INET (IPv4).
@@ -118,7 +119,7 @@ static SOCKET_TYPES: LruHashMap<u64, u8> = LruHashMap::with_max_entries(16_384, 
 /// Connect candidate a thread is currently inside, keyed by TID.
 ///
 /// A thread is inside exactly one `connect(2)` at a time, so one slot per
-/// thread is enough to carry the event from entry to exit. At 72 bytes per
+/// thread is enough to carry the event from entry to exit. At 80 bytes per
 /// entry this map costs well under a megabyte of kernel memory.
 #[map]
 static NETWORK_PENDING: HashMap<u32, NetworkEvent> = HashMap::with_max_entries(16_384, 0);
@@ -282,6 +283,7 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
         _pad1: 0,
         daddr,
         saddr: [0u8; 16],
+        process_start_time: current_process_start_time(pid),
     };
     if NETWORK_PENDING.insert(&tid, &event, 0).is_err() {
         record_map_full(NETWORK_FAMILY);

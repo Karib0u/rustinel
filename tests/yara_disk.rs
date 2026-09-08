@@ -103,6 +103,7 @@ fn build_yara_alert(
                 integrity_level: None,
                 user: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         },
         match_details: build_yara_match_details(match_debug, rule_match),

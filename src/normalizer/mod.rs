@@ -12,8 +12,8 @@ use std::time::SystemTime;
 use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::models::*;
-use crate::sensor::{Platform, SensorAction, SensorEvent, SensorPayload};
-use crate::state::{DnsCache, ProcessCache, SidCache};
+use crate::sensor::{Platform, ProcessStartKey, SensorAction, SensorEvent, SensorPayload};
+use crate::state::{DnsCache, ProcessCache, ProcessMetadata, SidCache};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
 
 /// Event normalizer that converts shared sensor events to normalized events.
@@ -41,20 +41,35 @@ impl Normalizer {
 
     /// Normalize a shared sensor event to Sigma-compatible format.
     pub fn normalize(&self, event: &SensorEvent) -> Option<NormalizedEvent> {
+        let mut provenance = Provenance::default();
         let fields = match &event.payload {
-            SensorPayload::Process(fields) => self.normalize_process(event, fields),
-            SensorPayload::Network(fields) => self.normalize_network(event, fields.clone()),
-            SensorPayload::File(fields) => self.normalize_file(event, fields.clone()),
-            SensorPayload::Dns(fields) => self.normalize_dns(event, fields.clone()),
-            SensorPayload::Registry(fields) => self.normalize_registry(event, fields.clone()),
+            SensorPayload::Process(fields) => {
+                self.normalize_process(event, fields, &mut provenance)
+            }
+            SensorPayload::Network(fields) => {
+                self.normalize_network(event, fields.clone(), &mut provenance)
+            }
+            SensorPayload::File(fields) => {
+                self.normalize_file(event, fields.clone(), &mut provenance)
+            }
+            SensorPayload::Dns(fields) => {
+                self.normalize_dns(event, fields.clone(), &mut provenance)
+            }
+            SensorPayload::Registry(fields) => {
+                self.normalize_registry(event, fields.clone(), &mut provenance)
+            }
             SensorPayload::ImageLoad(fields) => self.normalize_image_load(fields.clone()),
             SensorPayload::Scripting(fields) => self.normalize_powershell(fields.clone()),
             SensorPayload::PowerShellModule(fields) => {
                 self.normalize_powershell_module(fields.clone())
             }
             SensorPayload::Wmi(fields) => self.normalize_wmi(fields.clone()),
-            SensorPayload::Service(fields) => self.normalize_service(event, fields.clone()),
-            SensorPayload::Task(fields) => self.normalize_task(event, fields.clone()),
+            SensorPayload::Service(fields) => {
+                self.normalize_service(event, fields.clone(), &mut provenance)
+            }
+            SensorPayload::Task(fields) => {
+                self.normalize_task(event, fields.clone(), &mut provenance)
+            }
             SensorPayload::Security(fields) => Some(EventFields::SecurityAudit(fields.clone())),
         }?;
 
@@ -69,6 +84,7 @@ impl Normalizer {
             event_id_string: event.normalization.event_id.to_string(),
             opcode: event.normalization.action_code,
             fields,
+            provenance,
             process_context: None,
         })
     }
@@ -77,23 +93,13 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         fields: &ProcessCreationFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
         let pid = event_pid(event, fields.process_id.as_deref());
 
         if event.action == SensorAction::Stop {
-            let creation_time = event
-                .process_start_key
-                .map(|key| key.start_time)
-                .or_else(|| {
-                    if pid == 0 {
-                        None
-                    } else {
-                        self.process_cache.get_latest_creation_time(pid)
-                    }
-                });
-
-            if let Some(creation_time) = creation_time {
-                self.process_cache.remove(pid, creation_time);
+            if let Some(key) = event.process_start_key {
+                self.process_cache.remove(key.pid, key.start_time);
             }
             return None;
         }
@@ -117,32 +123,27 @@ impl Normalizer {
         if event.action == SensorAction::Start {
             if let Some(image) = fields.image.clone() {
                 let parent_pid = parse_optional_u32(fields.parent_process_id.as_deref());
-                let (parent_image, parent_command_line) = if let Some(parent_pid) = parent_pid {
-                    if let Some(parent_meta) = self.process_cache.get_metadata(parent_pid) {
-                        (Some(parent_meta.image_name), parent_meta.command_line)
-                    } else {
-                        (None, None)
+
+                if let Some(parent) = event.parent_process_start_key.and_then(|key| {
+                    self.process_cache
+                        .get_metadata_by_key(key.pid, key.start_time)
+                }) {
+                    if fields.parent_image.is_none() {
+                        fields.parent_image = Some(convert_nt_to_dos(&parent.image_name));
+                        provenance.mark_derived("ParentImage");
                     }
-                } else {
-                    (None, None)
-                };
-
-                if fields.parent_image.is_none() {
-                    fields.parent_image = parent_image;
-                }
-                if fields.parent_command_line.is_none() {
-                    fields.parent_command_line = parent_command_line;
+                    if fields.parent_command_line.is_none() {
+                        if let Some(command_line) = parent.command_line {
+                            fields.parent_command_line = Some(command_line);
+                            provenance.mark_derived("ParentCommandLine");
+                        }
+                    }
                 }
 
-                if pid != 0 {
-                    let start_time = event
-                        .process_start_key
-                        .map(|key| key.start_time)
-                        .unwrap_or_else(|| process_cache_time_fallback(event.timestamp));
-
+                if let Some(key) = event.process_start_key.filter(|key| key.pid == pid) {
                     self.process_cache.add(
                         pid,
-                        start_time,
+                        key.start_time,
                         image,
                         fields.command_line.clone(),
                         fields.user.clone(),
@@ -168,15 +169,10 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         mut fields: FileEventFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_user_field(&mut fields.user);
-
-        let pid = event_pid(event, fields.process_id.as_deref());
-        if pid != 0 {
-            if let Some(image) = self.process_cache.get_image(pid) {
-                fields.image = Some(convert_nt_to_dos(&image));
-            }
-        }
+        self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::FileEvent(fields))
     }
@@ -185,15 +181,10 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         mut fields: RegistryEventFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_user_field(&mut fields.user);
-
-        if fields.image.is_none() {
-            let pid = event_pid(event, fields.process_id.as_deref());
-            if let Some(image) = self.process_cache.get_image(pid) {
-                fields.image = Some(convert_nt_to_dos(&image));
-            }
-        }
+        self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::RegistryEvent(fields))
     }
@@ -202,15 +193,10 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         mut fields: NetworkConnectionFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_user_field(&mut fields.user);
-
-        if fields.image.is_none() {
-            let pid = event_pid(event, fields.process_id.as_deref());
-            if let Some(image) = self.process_cache.get_image(pid) {
-                fields.image = Some(convert_nt_to_dos(&image));
-            }
-        }
+        self.enrich_image(event, &mut fields.image, provenance);
 
         if fields.destination_hostname.is_none() {
             if let Some(destination_ip) = fields.destination_ip.as_deref() {
@@ -229,13 +215,9 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         mut fields: DnsQueryFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        if fields.image.is_none() {
-            let pid = event_pid(event, fields.process_id.as_deref());
-            if let Some(image) = self.process_cache.get_image(pid) {
-                fields.image = Some(convert_nt_to_dos(&image));
-            }
-        }
+        self.enrich_image(event, &mut fields.image, provenance);
 
         if let (Some(query_name), Some(query_results)) = (
             fields.query_name.as_deref(),
@@ -276,15 +258,10 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         mut fields: ServiceCreationFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_user_field(&mut fields.user);
-
-        if fields.image.is_none() {
-            let pid = event_pid(event, fields.process_id.as_deref());
-            if let Some(image) = self.process_cache.get_image(pid) {
-                fields.image = Some(convert_nt_to_dos(&image));
-            }
-        }
+        self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::ServiceCreation(fields))
     }
@@ -293,17 +270,35 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         mut fields: TaskCreationFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_user_field(&mut fields.user);
-
-        if fields.image.is_none() {
-            let pid = event_pid(event, fields.process_id.as_deref());
-            if let Some(image) = self.process_cache.get_image(pid) {
-                fields.image = Some(convert_nt_to_dos(&image));
-            }
-        }
+        self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::TaskCreation(fields))
+    }
+
+    fn enrich_image(
+        &self,
+        event: &SensorEvent,
+        image: &mut Option<String>,
+        provenance: &mut Provenance,
+    ) {
+        if image.is_some() {
+            return;
+        }
+        let Some(metadata) = self.metadata_for_event(event) else {
+            return;
+        };
+
+        *image = Some(convert_nt_to_dos(&metadata.image_name));
+        provenance.mark_derived("Image");
+    }
+
+    fn metadata_for_event(&self, event: &SensorEvent) -> Option<ProcessMetadata> {
+        let key = event.process_start_key?;
+        self.process_cache
+            .get_metadata_by_key(key.pid, key.start_time)
     }
 
     fn resolve_user_field(&self, user: &mut Option<String>) {
@@ -318,52 +313,41 @@ impl Normalizer {
     }
 
     /// Build and attach process context lazily for alert enrichment.
-    pub fn enrich_process_context(&self, event: &mut NormalizedEvent, fallback_pid: u32) {
+    pub fn enrich_process_context(
+        &self,
+        event: &mut NormalizedEvent,
+        process_start_key: Option<ProcessStartKey>,
+    ) {
         if event.process_context.is_some() {
             return;
         }
-        event.process_context = self.build_process_context(&event.fields, fallback_pid);
+        let Some(key) = process_start_key else {
+            return;
+        };
+        let Some(context) = self.build_process_context(&event.fields, key) else {
+            return;
+        };
+        mark_process_context_provenance(event, &context);
+        event.process_context = Some(context);
     }
 
     fn build_process_context(
         &self,
         fields: &EventFields,
-        fallback_pid: u32,
+        process_start_key: ProcessStartKey,
     ) -> Option<ProcessContext> {
         if matches!(fields, EventFields::ProcessCreation(_)) {
             return None;
         }
 
-        let pid_str = match fields {
-            EventFields::FileEvent(f) => f.process_id.as_deref(),
-            EventFields::RegistryEvent(f) => f.process_id.as_deref(),
-            EventFields::NetworkConnection(f) => f.process_id.as_deref(),
-            EventFields::DnsQuery(f) => f.process_id.as_deref(),
-            EventFields::ImageLoad(f) => f.process_id.as_deref(),
-            EventFields::PowerShellScript(f) => f.process_id.as_deref(),
-            EventFields::PowerShellModule(f) => f.process_id.as_deref(),
-            EventFields::WmiEvent(f) => f.process_id.as_deref(),
-            EventFields::ServiceCreation(f) => f.process_id.as_deref(),
-            EventFields::TaskCreation(f) => f.process_id.as_deref(),
-            EventFields::SecurityAudit(f) => f.get("ProcessId"),
-            EventFields::RemoteThread(f) => f.source_process_id.as_deref(),
-            EventFields::ProcessCreation(_) | EventFields::Generic(_) => None,
-        };
-
-        let pid = pid_str
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(fallback_pid);
-
-        if pid == 0 {
-            return None;
-        }
-
-        let meta = self.process_cache.get_metadata(pid)?;
+        let meta = self
+            .process_cache
+            .get_metadata_by_key(process_start_key.pid, process_start_key.start_time)?;
 
         Some(ProcessContext {
             image: Some(meta.image_name),
             command_line: meta.command_line,
-            process_id: Some(pid.to_string()),
+            process_id: Some(process_start_key.pid.to_string()),
             process_start_time: Some(meta.creation_time),
             parent_process_id: meta.parent_pid.map(|value| value.to_string()),
             parent_image: meta.parent_image,
@@ -395,11 +379,29 @@ fn format_timestamp(timestamp: SystemTime) -> String {
     DateTime::<Utc>::from(timestamp).to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
-fn process_cache_time_fallback(timestamp: SystemTime) -> u64 {
-    timestamp
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+fn mark_process_context_provenance(event: &mut NormalizedEvent, context: &ProcessContext) {
+    let derived_fields = [
+        ("Image", context.image.is_some()),
+        ("CommandLine", context.command_line.is_some()),
+        ("ProcessId", context.process_id.is_some()),
+        ("ParentProcessId", context.parent_process_id.is_some()),
+        ("ParentImage", context.parent_image.is_some()),
+        ("ParentCommandLine", context.parent_command_line.is_some()),
+        ("OriginalFileName", context.original_file_name.is_some()),
+        ("Product", context.product.is_some()),
+        ("Description", context.description.is_some()),
+        ("Company", context.company.is_some()),
+        ("FileVersion", context.file_version.is_some()),
+        ("CurrentDirectory", context.current_directory.is_some()),
+        ("IntegrityLevel", context.integrity_level.is_some()),
+        ("User", context.user.is_some()),
+    ];
+
+    for (field, present) in derived_fields {
+        if present && event.get_field(field).is_none() {
+            event.provenance.mark_derived(field);
+        }
+    }
 }
 
 fn extract_ips_from_query_results(value: &str) -> Vec<IpAddr> {
@@ -506,6 +508,7 @@ mod tests {
                 pid,
                 start_time: 123_456,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: Some("/usr/bin/curl".to_string()),
                 image_source: None,
@@ -550,6 +553,7 @@ mod tests {
                 pid,
                 start_time: 123_456,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
                 image_source: None,
@@ -585,7 +589,11 @@ mod tests {
             pid: Some(pid),
             timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(30),
             source_seq: None,
-            process_start_key: None,
+            process_start_key: Some(ProcessStartKey {
+                pid,
+                start_time: 123_456,
+            }),
+            parent_process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
                 source_ip: Some("10.0.0.5".to_string()),
@@ -613,7 +621,11 @@ mod tests {
             pid: Some(pid),
             timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(40),
             source_seq: None,
-            process_start_key: None,
+            process_start_key: Some(ProcessStartKey {
+                pid,
+                start_time: 123_456,
+            }),
+            parent_process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/sample.txt".to_string()),
@@ -680,6 +692,7 @@ mod tests {
                 pid: 42,
                 start_time: 99,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
                 image_source: None,
@@ -703,11 +716,11 @@ mod tests {
         };
 
         assert!(normalizer.normalize(&event).is_none());
-        assert_eq!(normalizer.process_cache.get_latest_creation_time(42), None);
+        assert_eq!(normalizer.process_cache.count(), 0);
     }
 
     #[test]
-    fn linux_process_stop_without_process_start_key_uses_pid_fallback() {
+    fn process_stop_without_identity_does_not_evict_by_pid() {
         let normalizer = build_normalizer();
 
         let start = process_start_event(Platform::Linux, "ebpf", 42);
@@ -719,7 +732,7 @@ mod tests {
         assert_eq!(start_normalized.get_field("Image"), Some("/usr/bin/curl"));
 
         assert!(normalizer.normalize(&stop).is_none());
-        assert_eq!(normalizer.process_cache.get_latest_creation_time(42), None);
+        assert_eq!(normalizer.process_cache.count(), 1);
     }
 
     #[test]
@@ -755,6 +768,7 @@ mod tests {
             timestamp: SystemTime::UNIX_EPOCH,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
                 source_ip: Some("10.0.0.5".to_string()),
@@ -806,6 +820,7 @@ mod tests {
             timestamp: SystemTime::UNIX_EPOCH,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/test".to_string()),
@@ -827,7 +842,7 @@ mod tests {
     }
 
     #[test]
-    fn file_events_backfill_full_process_image_from_cache() {
+    fn sensor_measured_file_image_is_not_overwritten() {
         let normalizer = build_normalizer();
         normalizer.process_cache.add(
             9,
@@ -859,6 +874,7 @@ mod tests {
             timestamp: SystemTime::UNIX_EPOCH,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/test".to_string()),
@@ -877,10 +893,11 @@ mod tests {
 
         match normalized.fields {
             EventFields::FileEvent(fields) => {
-                assert_eq!(fields.image.as_deref(), Some("/usr/bin/touch"));
+                assert_eq!(fields.image.as_deref(), Some("touch"));
             }
             other => panic!("unexpected fields: {:?}", other),
         }
+        assert!(normalized.provenance.is_empty());
     }
 
     #[test]
@@ -906,6 +923,118 @@ mod tests {
             }
             other => panic!("unexpected fields: {:?}", other),
         }
+        assert_eq!(
+            normalized.provenance.entries(),
+            &[FieldProvenance {
+                field: "Image".to_string(),
+                fidelity: Fidelity::Derived,
+            }]
+        );
+    }
+
+    fn process_start_with_identity(pid: u32, start_time: u64, image: &str) -> SensorEvent {
+        let mut event = process_start_event(Platform::Linux, "ebpf", pid);
+        event.process_start_key = Some(ProcessStartKey { pid, start_time });
+        if let SensorPayload::Process(fields) = &mut event.payload {
+            fields.image = Some(image.to_string());
+        }
+        event
+    }
+
+    #[test]
+    fn delayed_file_event_uses_original_identity_after_pid_reuse() {
+        let normalizer = build_normalizer();
+        let pid = 4242;
+        let old_start = process_start_with_identity(pid, 100, "/usr/bin/old");
+        let mut old_stop = process_stop_event(Platform::Linux, "ebpf", pid, true);
+        old_stop.process_start_key = Some(ProcessStartKey {
+            pid,
+            start_time: 100,
+        });
+        let new_start = process_start_with_identity(pid, 200, "/usr/bin/new");
+        let mut delayed = file_event(Platform::Linux, "ebpf", pid);
+        delayed.process_start_key = Some(ProcessStartKey {
+            pid,
+            start_time: 100,
+        });
+
+        normalizer
+            .normalize(&old_start)
+            .expect("old process starts");
+        assert!(normalizer.normalize(&old_stop).is_none());
+        normalizer
+            .normalize(&new_start)
+            .expect("new process starts");
+
+        let normalized = normalizer.normalize(&delayed).expect("file normalizes");
+        assert_eq!(normalized.get_field("Image"), Some("/usr/bin/old"));
+        assert_eq!(
+            normalized.provenance.entries()[0].fidelity,
+            Fidelity::Derived
+        );
+    }
+
+    #[test]
+    fn delayed_event_keeps_pre_exec_identity() {
+        let normalizer = build_normalizer();
+        let pid = 4242;
+        let before_exec = process_start_with_identity(pid, 100, "/usr/bin/old");
+        let after_exec = process_start_with_identity(pid, 200, "/usr/bin/new");
+        let mut delayed = network_event(Platform::Linux, "ebpf", pid);
+        delayed.process_start_key = Some(ProcessStartKey {
+            pid,
+            start_time: 100,
+        });
+
+        normalizer
+            .normalize(&before_exec)
+            .expect("first execution starts");
+        normalizer
+            .normalize(&after_exec)
+            .expect("second execution starts");
+
+        let normalized = normalizer
+            .normalize(&delayed)
+            .expect("network event normalizes");
+        assert_eq!(normalized.get_field("Image"), Some("/usr/bin/old"));
+    }
+
+    #[test]
+    fn process_parent_fields_use_exact_parent_identity() {
+        let normalizer = build_normalizer();
+        let parent_pid = 4000;
+        let child_pid = 4001;
+        let parent = process_start_with_identity(parent_pid, 100, "/usr/bin/parent");
+        let mut child = process_start_with_identity(child_pid, 200, "/usr/bin/child");
+        child.parent_process_start_key = Some(ProcessStartKey {
+            pid: parent_pid,
+            start_time: 100,
+        });
+        if let SensorPayload::Process(fields) = &mut child.payload {
+            fields.parent_process_id = Some(parent_pid.to_string());
+        }
+
+        normalizer.normalize(&parent).expect("parent starts");
+        let normalized = normalizer.normalize(&child).expect("child starts");
+
+        assert_eq!(normalized.get_field("ParentImage"), Some("/usr/bin/parent"));
+        assert_eq!(
+            normalized.get_field("ParentCommandLine"),
+            Some("/usr/bin/curl https://example.test")
+        );
+        assert_eq!(
+            normalized.provenance.entries(),
+            &[
+                FieldProvenance {
+                    field: "ParentImage".to_string(),
+                    fidelity: Fidelity::Derived,
+                },
+                FieldProvenance {
+                    field: "ParentCommandLine".to_string(),
+                    fidelity: Fidelity::Derived,
+                },
+            ]
+        );
     }
 
     #[test]

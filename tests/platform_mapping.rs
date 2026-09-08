@@ -44,6 +44,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         image_truncated: 0,
         _pad1: [0; 2],
         args: [0; ARGV_CAPACITY],
+        process_start_time: 123_456,
     };
     write_cstr(&mut process.image, "/usr/bin/curl");
     // Kernel-captured argv: NUL-separated, `args_len` bytes long.
@@ -97,6 +98,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         _pad1: 0,
         daddr: [0; 16],
         saddr: [0; 16],
+        process_start_time: 123_456,
     };
     network.daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
     network.saddr[..4].copy_from_slice(&[10, 0, 0, 5]);
@@ -151,6 +153,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         path: [0; FILE_PATH_LEN],
         aux_path: [0; FILE_PATH_LEN],
         comm: [0; 16],
+        process_start_time: 123_456,
     };
     write_cstr(&mut file.path, "/tmp/new.txt");
     write_cstr(&mut file.aux_path, "/tmp/old.txt");
@@ -185,6 +188,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         path: [0; FILE_PATH_LEN],
         aux_path: [0; FILE_PATH_LEN],
         comm: [0; 16],
+        process_start_time: 123_456,
     };
     write_cstr(&mut relative.path, "shadow.bak");
     write_cstr(&mut relative.aux_path, "shadow");
@@ -214,6 +218,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         path: [0; FILE_PATH_LEN],
         aux_path: [0; FILE_PATH_LEN],
         comm: [0; 16],
+        process_start_time: 123_456,
     };
     write_cstr(&mut orphan.path, "payload.sh");
     assert!(mapping::file_event_to_sensor(&DirFdIndex::new(), &orphan).is_none());
@@ -231,6 +236,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         query_results: [0; 96],
         record_type: [0; 16],
         payload: [0; 256],
+        process_start_time: 123_456,
     };
     write_cstr(&mut dns.query_name, "example.test");
     write_cstr(&mut dns.query_results, "198.51.100.10");

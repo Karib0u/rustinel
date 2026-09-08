@@ -78,6 +78,8 @@ pub struct ProcessEvent {
     ///
     /// Empty for exit events.
     pub args: [u8; ARGV_CAPACITY],
+    /// Sensor-minted identity for this execution of `pid`.
+    pub process_start_time: u64,
 }
 
 /// `connect(2)` succeeded — the connection is established.
@@ -155,6 +157,8 @@ pub struct NetworkEvent {
     pub daddr: [u8; 16],
     /// Source address (best-effort; may be all-zero at connect time).
     pub saddr: [u8; 16],
+    /// Sensor-minted identity for the process that opened the connection.
+    pub process_start_time: u64,
 }
 
 /// Bytes captured for one file path, including the NUL terminator.
@@ -217,6 +221,8 @@ pub struct FileEvent {
     pub aux_path: [u8; FILE_PATH_LEN],
     /// Null-terminated process name (`comm`, up to 15 chars).
     pub comm: [u8; 16],
+    /// Sensor-minted identity for the process that performed the operation.
+    pub process_start_time: u64,
 }
 
 /// Compact maintenance event carried on the file ring.
@@ -261,4 +267,6 @@ pub struct DnsEvent {
     pub record_type: [u8; 16],
     /// Raw DNS payload copied from userspace for userspace parsing.
     pub payload: [u8; 256],
+    /// Sensor-minted identity for the process that sent the query.
+    pub process_start_time: u64,
 }

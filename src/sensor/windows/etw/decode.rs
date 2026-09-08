@@ -96,11 +96,19 @@ pub(super) fn decode_record(
 ) -> DecodedEtwEvents {
     ETW_DECODE.record_received();
 
-    let decoded = if record.provider_id() == state.routing.kernel_registry_guid {
+    let mut decoded = if record.provider_id() == state.routing.kernel_registry_guid {
         decode_kernel_registry_record(record, schema_locator, state)
     } else {
         DecodedEtwEvents::single(decode_single_record(record, schema_locator, state))
     };
+
+    for event in decoded
+        .replayed
+        .iter_mut()
+        .chain(decoded.primary.iter_mut())
+    {
+        state.attribute_process_identity(event);
+    }
 
     let produced = decoded.replayed.len() + usize::from(decoded.primary.is_some());
     if produced > 0 {
@@ -182,6 +190,7 @@ pub(super) fn decode_single_record(
         timestamp: filetime_to_system_time(record.raw_timestamp()),
         source_seq: None,
         process_start_key: decoded.process_start_key,
+        parent_process_start_key: None,
         payload: decoded.payload,
     })
 }
@@ -476,6 +485,7 @@ pub(super) fn decode_kernel_file_record(
         timestamp: filetime_to_system_time(record.raw_timestamp()),
         source_seq: None,
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::File(fields),
     })
 }

@@ -67,6 +67,7 @@ fn build_yara_alert(pid: u32, image: &str) -> Alert {
                 integrity_level: None,
                 user: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         },
         match_details: None,

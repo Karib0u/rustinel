@@ -603,6 +603,7 @@ detection:
                 protocol: Some("tcp".to_string()),
                 initiated: Some(true),
             }),
+            provenance: Default::default(),
             process_context: None,
         };
 
@@ -645,6 +646,7 @@ detection:
                 user: Some("alice".to_string()),
                 path_truncated: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         };
 
@@ -684,6 +686,7 @@ detection:
                 process_id: Some("202".to_string()),
                 image: Some("/usr/bin/dig".to_string()),
             }),
+            provenance: Default::default(),
             process_context: None,
         };
 
@@ -741,6 +744,7 @@ detection:
                 integrity_level: None,
                 user: Some("TestUser".to_string()),
             }),
+            provenance: Default::default(),
             process_context: None,
         }
     }

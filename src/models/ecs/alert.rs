@@ -1,6 +1,6 @@
 use super::helpers::{basename, parse_u64};
 use super::user::apply_user_fields;
-use crate::models::{MatchDetails, ProcessContext};
+use crate::models::{MatchDetails, ProcessContext, Provenance};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -24,6 +24,13 @@ pub struct EcsAlert {
     /// Order in which the sensor pipeline canonicalized this event.
     #[serde(rename = "edr.event.ingest_seq")]
     pub event_ingest_seq: u64,
+
+    /// Fidelity markers for event fields reconstructed after collection.
+    #[serde(
+        rename = "edr.event.provenance",
+        skip_serializing_if = "Provenance::is_empty"
+    )]
+    pub event_provenance: Provenance,
 
     /// ECS schema version
     #[serde(rename = "ecs.version")]

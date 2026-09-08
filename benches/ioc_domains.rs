@@ -70,6 +70,7 @@ fn dns_event(query_name: &str) -> NormalizedEvent {
             process_id: None,
             image: None,
         }),
+        provenance: Default::default(),
         process_context: None,
     }
 }
