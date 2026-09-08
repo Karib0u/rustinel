@@ -152,6 +152,7 @@ fn event(category: EventCategory, event_id: u16, fields: &[(&str, &str)]) -> Nor
         event_id_string: event_id.to_string(),
         opcode: 0,
         fields: EventFields::Generic(map),
+        provenance: Default::default(),
         process_context: None,
     }
 }

@@ -239,6 +239,7 @@ impl IocEngine {
                     integrity_level: None,
                     user: None,
                 }),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
@@ -294,6 +295,7 @@ mod tests {
                 process_id: None,
                 image: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         };
 
@@ -346,6 +348,7 @@ mod tests {
                 process_id: None,
                 image: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         }
     }

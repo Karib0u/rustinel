@@ -2,6 +2,45 @@ use super::EventFields;
 use crate::sensor::Platform;
 use serde::{Deserialize, Serialize};
 
+/// Fidelity of a populated field that was not measured by the event source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Fidelity {
+    Derived,
+}
+
+/// Provenance for one non-measured event field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldProvenance {
+    pub field: String,
+    pub fidelity: Fidelity,
+}
+
+/// Sparse field-level provenance. Empty means every populated field was measured.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Provenance(Vec<FieldProvenance>);
+
+impl Provenance {
+    pub fn mark_derived(&mut self, field: &str) {
+        if self.0.iter().any(|entry| entry.field == field) {
+            return;
+        }
+        self.0.push(FieldProvenance {
+            field: field.to_string(),
+            fidelity: Fidelity::Derived,
+        });
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn entries(&self) -> &[FieldProvenance] {
+        &self.0
+    }
+}
+
 /// Normalized event structure compatible with Sigma/Sysmon format
 ///
 /// Deserialization is hand-written rather than derived so a recorded event comes
@@ -34,6 +73,9 @@ pub struct NormalizedEvent {
     pub opcode: u8,
     /// Event-specific fields
     pub fields: EventFields,
+    /// Fidelity markers for populated fields that were not sensor-measured.
+    #[serde(default, skip_serializing_if = "Provenance::is_empty")]
+    pub provenance: Provenance,
     /// Optional process context for non-process events (alert enrichment only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_context: Option<ProcessContext>,
@@ -61,6 +103,8 @@ impl<'de> Deserialize<'de> for NormalizedEvent {
             opcode: u8,
             fields: serde_json::Value,
             #[serde(default)]
+            provenance: Provenance,
+            #[serde(default)]
             process_context: Option<ProcessContext>,
         }
 
@@ -81,6 +125,7 @@ impl<'de> Deserialize<'de> for NormalizedEvent {
             event_id_string: recorded.event_id.to_string(),
             opcode: recorded.opcode,
             fields,
+            provenance: recorded.provenance,
             process_context: recorded.process_context,
         })
     }
@@ -361,6 +406,7 @@ mod round_trip_tests {
                 user: None,
                 path_truncated: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         }
     }
@@ -417,6 +463,19 @@ mod round_trip_tests {
     }
 
     #[test]
+    fn recording_round_trips_field_provenance() {
+        let mut original = file_event();
+        original.provenance.mark_derived("Image");
+
+        let json = serde_json::to_value(&original).expect("event serializes");
+        assert_eq!(json["provenance"][0]["field"], "Image");
+        assert_eq!(json["provenance"][0]["fidelity"], "derived");
+
+        let replayed = round_trip(&original);
+        assert_eq!(replayed.provenance, original.provenance);
+    }
+
+    #[test]
     fn every_recorded_field_survives_the_round_trip() {
         let mut original = NormalizedEvent {
             timestamp: "2026-08-16T09:41:02.884Z".to_string(),
@@ -448,6 +507,7 @@ mod round_trip_tests {
                 integrity_level: None,
                 user: Some("analyst".to_string()),
             }),
+            provenance: Default::default(),
             process_context: None,
         };
         original.event_id_string = original.event_id.to_string();
@@ -561,6 +621,7 @@ mod round_trip_tests {
                 protocol: Some("tcp".to_string()),
                 initiated,
             }),
+            provenance: Default::default(),
             process_context: None,
         }
     }
@@ -640,6 +701,7 @@ mod round_trip_tests {
                 process_id: None,
                 image: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         };
 
@@ -702,6 +764,7 @@ mod round_trip_tests {
                 file_version: None,
                 target_image: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         };
 

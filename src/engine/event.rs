@@ -125,6 +125,7 @@ mod tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::Generic(map),
+            provenance: Default::default(),
             process_context: None,
         }
     }

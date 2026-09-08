@@ -52,6 +52,7 @@ fn make_alert(rule: &str, image: &str) -> Alert {
                 file_version: None,
                 target_image: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         },
         match_details: None,

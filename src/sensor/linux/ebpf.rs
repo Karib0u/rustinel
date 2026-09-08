@@ -14,7 +14,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use aya::maps::{MapData, PerCpuArray, RingBuf};
@@ -601,13 +600,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 pid: Some(ev.pid),
                 timestamp: event_time,
                 source_seq: Some(ev.source_seq),
-                process_start_key: Some(ProcessStartKey {
-                    pid: ev.pid,
-                    start_time: details
-                        .as_ref()
-                        .and_then(|value| value.start_time)
-                        .unwrap_or_else(|| unix_epoch_nanos(event_time)),
-                }),
+                process_start_key: process_start_key(ev.pid, ev.process_start_time),
                 payload: SensorPayload::Process(ProcessCreationFields {
                     image: Some(image),
                     image_source: Some(image_source.to_string()),
@@ -656,7 +649,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
             pid: Some(ev.pid),
             timestamp: system_time_from_boot_ns(ev.event_time_ns),
             source_seq: Some(ev.source_seq),
-            process_start_key: None,
+            process_start_key: process_start_key(ev.pid, ev.process_start_time),
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
                 image_source: None,
@@ -727,7 +720,7 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         pid: Some(ev.pid),
         timestamp: system_time_from_boot_ns(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
-        process_start_key: None,
+        process_start_key: process_start_key(ev.pid, ev.process_start_time),
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(destination_ip),
             // The syscall tracepoint does not measure the kernel-assigned
@@ -810,7 +803,7 @@ fn build_file_event(
         pid: Some(ev.pid),
         timestamp: system_time_from_boot_ns(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
-        process_start_key: None,
+        process_start_key: process_start_key(ev.pid, ev.process_start_time),
         payload: SensorPayload::File(FileEventFields {
             source_filename,
             target_filename: Some(target_filename),
@@ -851,7 +844,7 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
         pid: Some(ev.pid),
         timestamp: system_time_from_boot_ns(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
-        process_start_key: None,
+        process_start_key: process_start_key(ev.pid, ev.process_start_time),
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name,
             query_results,
@@ -869,6 +862,10 @@ fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
     crate::sensor::dns::parse_question(payload).map(|(name, _qtype)| name)
 }
 
+fn process_start_key(pid: u32, start_time: u64) -> Option<ProcessStartKey> {
+    (start_time != 0).then_some(ProcessStartKey { pid, start_time })
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 /// Queue a decoded event, accounting for a drop rather than blocking.
@@ -884,13 +881,6 @@ fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
 
 fn resolved_linux_user(uid: u32) -> String {
     lookup_username_by_uid(uid).unwrap_or_else(|| uid.to_string())
-}
-
-fn unix_epoch_nanos(timestamp: SystemTime) -> u64 {
-    timestamp
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos() as u64)
-        .unwrap_or(0)
 }
 
 fn attach_optional_tracepoint(
@@ -987,6 +977,7 @@ mod tests {
             image_truncated: 0,
             _pad1: [0u8; 2],
             args: [0u8; ARGV_CAPACITY],
+            process_start_time: 123_456,
         }
     }
 
@@ -1027,6 +1018,7 @@ mod tests {
             path: fixed(path),
             aux_path: [0u8; FILE_PATH_LEN],
             comm: fixed(comm),
+            process_start_time: 123_456,
         }
     }
 
@@ -1075,6 +1067,7 @@ mod tests {
             query_results: [0u8; 96],
             record_type: fixed(record_type),
             payload,
+            process_start_time: 123_456,
         }
     }
 
@@ -1106,7 +1099,13 @@ mod tests {
         let event = build_process_event(&raw).expect("process exec should build");
         assert_eq!(event.action, SensorAction::Start);
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_CREATE);
-        assert!(event.process_start_key.is_some());
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: DEAD_PID,
+                start_time: 123_456,
+            })
+        );
 
         match event.payload {
             SensorPayload::Process(fields) => {
@@ -1308,9 +1307,17 @@ mod tests {
                 source[..4].copy_from_slice(&[10, 0, 0, 5]);
                 source
             },
+            process_start_time: 123_456,
         };
 
         let event = build_network_event(&raw).expect("network event should build");
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 77,
+                start_time: 123_456,
+            })
+        );
         match event.payload {
             SensorPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
@@ -1341,6 +1348,7 @@ mod tests {
             _pad1: 0,
             daddr,
             saddr: [0u8; 16],
+            process_start_time: 123_456,
         };
 
         let event = build_network_event(&raw).expect("udp connect should build");
@@ -1373,6 +1381,7 @@ mod tests {
             _pad1: 0,
             daddr: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0x10).octets(),
             saddr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x20).octets(),
+            process_start_time: 123_456,
         };
 
         let event = build_network_event(&raw).expect("ipv6 network event should build");
@@ -1409,6 +1418,7 @@ mod tests {
                 _pad1: 0,
                 daddr,
                 saddr: [0u8; 16],
+                process_start_time: 123_456,
             };
 
             assert!(
@@ -1440,6 +1450,7 @@ mod tests {
                 _pad1: 0,
                 daddr,
                 saddr: [0u8; 16],
+                process_start_time: 123_456,
             };
 
             let event = build_network_event(&raw)
@@ -1470,6 +1481,7 @@ mod tests {
             _pad1: 0,
             daddr: [0u8; 16],
             saddr: [0u8; 16],
+            process_start_time: 123_456,
         };
 
         assert!(build_network_event(&raw).is_none());
@@ -1481,6 +1493,13 @@ mod tests {
 
         let event =
             build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("file event should build");
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 55,
+                start_time: 123_456,
+            })
+        );
         match event.payload {
             SensorPayload::File(fields) => {
                 assert!(fields.source_filename.is_none());
@@ -1844,11 +1863,19 @@ mod tests {
             query_results: [0u8; 96],
             record_type: fixed("A"),
             payload,
+            process_start_time: 123_456,
         };
 
         let event = build_dns_event(&raw).expect("dns event should build");
         assert_eq!(event.action, SensorAction::Query);
         assert_eq!(event.normalization.event_id, EVENT_ID_DNS_QUERY);
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 4242,
+                start_time: 123_456,
+            })
+        );
 
         match event.payload {
             SensorPayload::Dns(fields) => {
@@ -1875,6 +1902,7 @@ mod tests {
             query_results: [0u8; 96],
             record_type: fixed("AAAA"),
             payload: [0u8; 256],
+            process_start_time: 123_456,
         };
 
         let event = build_dns_event(&raw).expect("dns event should build");
@@ -1904,6 +1932,7 @@ mod tests {
             query_results: [0u8; 96],
             record_type: fixed("A"),
             payload,
+            process_start_time: 123_456,
         };
 
         assert_eq!(parse_dns_query_name(&raw), None);
@@ -2087,6 +2116,7 @@ level: high
             query_results: [0u8; 96],
             record_type: [0u8; 16],
             payload: [0u8; 256],
+            process_start_time: 123_456,
         };
         assert!(build_dns_event(&raw).is_none());
     }

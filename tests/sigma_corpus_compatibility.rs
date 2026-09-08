@@ -278,6 +278,7 @@ fn process_event(timestamp: &str) -> NormalizedEvent {
             integrity_level: None,
             user: Some("alice".to_string()),
         }),
+        provenance: Default::default(),
         process_context: None,
     }
 }

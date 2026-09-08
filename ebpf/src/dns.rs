@@ -17,6 +17,7 @@ use aya_ebpf::{
 };
 
 use crate::events::{event_metadata, DnsEvent};
+use crate::process::current_process_start_time;
 use crate::telemetry::{record_ring_full, record_submitted, DNS_FAMILY};
 
 const DNS_EVENT_QUERY: u32 = 1;
@@ -311,6 +312,7 @@ unsafe fn emit_dns_query(scratch: *mut DnsEvent, pid: u32, uid: u32, fd: i32, re
     (*scratch).query_name = [0u8; 96];
     (*scratch).query_results = [0u8; 96];
     (*scratch).record_type = [0u8; 16];
+    (*scratch).process_start_time = current_process_start_time(pid);
     write_record_type(qtype, &mut (*scratch).record_type);
 
     // ── Stage 3: ring-buffer commit ──────────────────────────────────────────

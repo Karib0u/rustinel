@@ -13,7 +13,7 @@ use rustinel::models::{
     PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
     SecurityAuditFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
-use rustinel::sensor::{Platform, SensorPayload};
+use rustinel::sensor::{Platform, ProcessStartKey, SensorPayload};
 use serde_json::json;
 
 fn security_audit_fields(pairs: &[(&str, &str)]) -> SecurityAuditFields {
@@ -42,6 +42,7 @@ fn alert(category: EventCategory, event_id: u16, opcode: u8, fields: EventFields
             event_id_string: event_id.to_string(),
             opcode,
             fields,
+            provenance: Default::default(),
             process_context: None,
         },
         match_details: None,
@@ -86,9 +87,13 @@ fn process_context_enriches_non_process_alerts_without_overwriting_event_fields(
         .normalizer
         .normalize(&file_create_event(Platform::Windows))
         .expect("normalize file event");
-    fixture
-        .normalizer
-        .enrich_process_context(&mut file, TEST_PID);
+    fixture.normalizer.enrich_process_context(
+        &mut file,
+        Some(ProcessStartKey {
+            pid: TEST_PID,
+            start_time: common::TEST_PROCESS_START_TIME,
+        }),
+    );
 
     let mut alert = alert(EventCategory::File, 11, 64, file.fields);
     alert.event.process_context = file.process_context;
@@ -586,6 +591,7 @@ fn test_rule_id_mapping_and_omit_behavior() {
                 file_version: None,
                 target_image: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         },
         match_details: None,

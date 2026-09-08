@@ -61,6 +61,7 @@ Format:
 | `event.provider`    | Sensor that collected the event: `etw` or `windows_event_log` (Windows), `ebpf` (Linux), `esf` / `bpf` (macOS), or `yara-memory` for memory-scan hits. Not the Windows provider that wrote the record — see `edr.event_log.provider_name`. |
 | `event.sequence`    | Native source sequence when the sensor exposes one. Present for Windows Event Log, Linux eBPF, and macOS Endpoint Security events; absent for ETW and macOS BPF events. |
 | `edr.event.ingest_seq` | Strictly increasing order assigned when Rustinel normalizes the event. |
+| `edr.event.provenance` | Sparse field-level fidelity markers. A field marked `derived` was reconstructed from process metadata rather than measured on the event itself. Absent when no fields were derived. |
 | `rule.name`         | Detection rule title                                                                                                                                                                                  |
 | `rule.id`           | Optional detection rule identifier, unique amongs the rustinel rules. Formatted as: `sigma::<uuid>` for Sigma, `yara::<id>` for YARA (if metadata ID is defined), or `ioc::<type>::<value>` for IOCs. |
 | `edr.rule.severity` | Low, Medium, High, or Critical                                                                                                                                                                        |
@@ -177,6 +178,11 @@ The payload holds canonical normalized events, recorded immediately after
 normalization. It is not alert output: no rule ever ran against these events,
 and they carry no alert-only process-context enrichment. Repeated events are
 kept as-is, because capture does not deduplicate.
+
+When normalization reconstructs a missing field from process metadata, the
+event includes a sparse `provenance` array. Each entry names the field and marks
+its fidelity as `derived`. Sensor-supplied fields remain unchanged and need no
+provenance entry.
 
 ```json
 {"event_time":"2026-08-16T09:12:44.123456789Z","ingest_seq":42,"platform":"windows","provider":"etw","category":"Process","event_id":1,"opcode":1,"fields":{"Image":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","CommandLine":"powershell.exe -EncodedCommand ...","ProcessId":"6132","ParentImage":"C:\\Windows\\explorer.exe"}}

@@ -18,7 +18,7 @@ pub struct ProcessMetadata {
     pub command_line: Option<String>,
     #[allow(dead_code)]
     pub user: Option<String>,
-    /// Process creation time as Windows FILETIME (u64)
+    /// Platform-native process execution identity paired with the PID.
     #[allow(dead_code)]
     pub creation_time: u64,
     /// Parent process ID
@@ -54,18 +54,16 @@ pub struct ProcessMetadata {
 }
 
 /// Thread-safe cache for process metadata
-/// Uses compound key (PID, CreationTime) to handle Windows PID reuse
+/// Uses a compound process identity to handle PID reuse and repeated exec.
 /// Uses RwLock to allow many concurrent readers (network events) and few writers (process start/stop)
 pub struct ProcessCache {
     /// Primary storage: (PID, CreationTime) -> Metadata
     cache: RwLock<HashMap<(u32, u64), ProcessMetadata>>,
-    /// Secondary index: PID -> Latest CreationTime (for O(1) lookup from events that only have PID)
-    pid_index: RwLock<HashMap<u32, u64>>,
     /// Compound keys ordered by creation time for efficient oldest-first eviction
     eviction_order: RwLock<BTreeSet<(u64, u32)>>,
     max_entries: usize,
     /// Recently-dead processes retained briefly to avoid parent/child race conditions
-    graveyard: RwLock<HashMap<u32, GraveyardEntry>>,
+    graveyard: RwLock<HashMap<(u32, u64), GraveyardEntry>>,
     last_graveyard_cleanup: AtomicU64,
 }
 
@@ -79,7 +77,6 @@ impl ProcessCache {
     pub fn with_max_entries(max_entries: usize) -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
-            pid_index: RwLock::new(HashMap::new()),
             eviction_order: RwLock::new(BTreeSet::new()),
             max_entries,
             graveyard: RwLock::new(HashMap::new()),
@@ -91,7 +88,7 @@ impl ProcessCache {
     ///
     /// # Arguments
     /// * `pid` - Process ID
-    /// * `creation_time` - Windows FILETIME (u64) from kernel event
+    /// * `creation_time` - Platform-native execution identity from the sensor
     /// * `image` - Full path to executable
     /// * `cmd` - Command line arguments
     /// * `user` - User account name
@@ -124,9 +121,7 @@ impl ProcessCache {
         current_directory: Option<String>,
         integrity_level: Option<String>,
     ) {
-        // Lock order: pid_index -> cache -> eviction_order to avoid deadlocks with readers.
         {
-            let mut pid_index = self.pid_index.write().unwrap();
             let mut cache = self.cache.write().unwrap();
             let mut eviction_order = self.eviction_order.write().unwrap();
 
@@ -151,47 +146,31 @@ impl ProcessCache {
             );
             eviction_order.insert((creation_time, pid));
 
-            // Update secondary index to point to the latest creation time
-            pid_index.insert(pid, creation_time);
-
             while cache.len() > self.max_entries {
                 let Some((oldest_creation_time, oldest_pid)) = eviction_order.pop_first() else {
                     break;
                 };
 
                 cache.remove(&(oldest_pid, oldest_creation_time));
-                if pid_index.get(&oldest_pid) == Some(&oldest_creation_time) {
-                    pid_index.remove(&oldest_pid);
-                }
             }
         }
 
         if let Ok(mut graveyard) = self.graveyard.write() {
-            graveyard.remove(&pid);
+            graveyard.remove(&(pid, creation_time));
         }
 
         self.cleanup_graveyard_if_needed(now_secs());
     }
 
     /// Remove a process from the cache (called on process exit)
-    /// Removes both from primary storage and updates secondary index
+    /// Moves the exact process identity into the short-lived graveyard.
     pub fn remove(&self, pid: u32, creation_time: u64) {
-        // Lock order: pid_index -> cache -> eviction_order to avoid deadlocks with readers.
         let removed_meta = {
-            let mut pid_index = self.pid_index.write().unwrap();
             let mut cache = self.cache.write().unwrap();
             let mut eviction_order = self.eviction_order.write().unwrap();
 
             let meta = cache.remove(&(pid, creation_time));
             eviction_order.remove(&(creation_time, pid));
-
-            // Only remove from index if this was the latest creation_time
-            if let Some(&indexed_time) = pid_index.get(&pid) {
-                if indexed_time == creation_time {
-                    pid_index.remove(&pid);
-                }
-            }
-
             meta
         };
 
@@ -199,7 +178,7 @@ impl ProcessCache {
             let now = now_secs();
             if let Ok(mut graveyard) = self.graveyard.write() {
                 graveyard.insert(
-                    pid,
+                    (pid, creation_time),
                     GraveyardEntry {
                         metadata: meta,
                         death_time: now,
@@ -208,56 +187,6 @@ impl ProcessCache {
             }
             self.cleanup_graveyard_if_needed(now);
         }
-    }
-
-    /// Get the image name for a given PID (uses latest creation time)
-    /// Returns None if the process is not in the cache
-    pub fn get_image(&self, pid: u32) -> Option<String> {
-        let creation_time = {
-            let pid_index = self.pid_index.read().unwrap();
-            pid_index.get(&pid).copied()
-        };
-
-        if let Some(creation_time) = creation_time {
-            let cache = self.cache.read().unwrap();
-            if let Some(meta) = cache.get(&(pid, creation_time)) {
-                return Some(meta.image_name.clone());
-            }
-        }
-
-        let now = now_secs();
-        self.cleanup_graveyard_if_needed(now);
-        let graveyard = self.graveyard.read().unwrap();
-        let entry = graveyard.get(&pid)?;
-        if now.saturating_sub(entry.death_time) > GRAVEYARD_TTL_SECS {
-            return None;
-        }
-        Some(entry.metadata.image_name.clone())
-    }
-
-    /// Get full metadata for a given PID (uses latest creation time)
-    #[allow(dead_code)]
-    pub fn get_metadata(&self, pid: u32) -> Option<ProcessMetadata> {
-        let creation_time = {
-            let pid_index = self.pid_index.read().unwrap();
-            pid_index.get(&pid).copied()
-        };
-
-        if let Some(creation_time) = creation_time {
-            let cache = self.cache.read().unwrap();
-            if let Some(meta) = cache.get(&(pid, creation_time)) {
-                return Some(meta.clone());
-            }
-        }
-
-        let now = now_secs();
-        self.cleanup_graveyard_if_needed(now);
-        let graveyard = self.graveyard.read().unwrap();
-        let entry = graveyard.get(&pid)?;
-        if now.saturating_sub(entry.death_time) > GRAVEYARD_TTL_SECS {
-            return None;
-        }
-        Some(entry.metadata.clone())
     }
 
     /// Get full metadata for a given compound key (PID, CreationTime)
@@ -272,10 +201,7 @@ impl ProcessCache {
         let now = now_secs();
         self.cleanup_graveyard_if_needed(now);
         let graveyard = self.graveyard.read().unwrap();
-        let entry = graveyard.get(&pid)?;
-        if entry.metadata.creation_time != creation_time {
-            return None;
-        }
+        let entry = graveyard.get(&(pid, creation_time))?;
         if now.saturating_sub(entry.death_time) > GRAVEYARD_TTL_SECS {
             return None;
         }
@@ -287,14 +213,6 @@ impl ProcessCache {
     pub fn count(&self) -> usize {
         let cache = self.cache.read().unwrap();
         cache.len()
-    }
-
-    /// Get the latest creation time for a given PID
-    /// Used by enrichment logic to lookup parent metadata
-    #[allow(dead_code)]
-    pub fn get_latest_creation_time(&self, pid: u32) -> Option<u64> {
-        let pid_index = self.pid_index.read().unwrap();
-        pid_index.get(&pid).copied()
     }
 
     fn cleanup_graveyard_if_needed(&self, now: u64) {
@@ -365,20 +283,19 @@ mod tests {
 
         assert_eq!(cache.count(), 2);
         assert!(cache.get_metadata_by_key(10, 100).is_none());
-        assert_eq!(cache.get_image(20).as_deref(), Some("process-20"));
-        assert_eq!(cache.get_image(30).as_deref(), Some("process-30"));
+        assert!(cache.get_metadata_by_key(20, 200).is_some());
+        assert!(cache.get_metadata_by_key(30, 300).is_some());
     }
 
     #[test]
-    fn eviction_keeps_pid_index_consistent() {
+    fn eviction_keeps_newest_identity_for_reused_pid() {
         let cache = ProcessCache::with_max_entries(1);
 
         add_process(&cache, 10, 100);
         add_process(&cache, 10, 200);
 
-        assert_eq!(cache.get_latest_creation_time(10), Some(200));
         assert!(cache.get_metadata_by_key(10, 100).is_none());
-        assert_eq!(cache.get_image(10).as_deref(), Some("process-10"));
+        assert!(cache.get_metadata_by_key(10, 200).is_some());
     }
 
     #[test]
@@ -388,6 +305,29 @@ mod tests {
         add_process(&cache, 10, 100);
 
         assert_eq!(cache.count(), 0);
-        assert_eq!(cache.get_latest_creation_time(10), None);
+        assert!(cache.get_metadata_by_key(10, 100).is_none());
+    }
+
+    #[test]
+    fn graveyard_retains_each_reused_pid_identity() {
+        let cache = ProcessCache::new();
+
+        add_process(&cache, 10, 100);
+        cache.remove(10, 100);
+        add_process(&cache, 10, 200);
+        cache.remove(10, 200);
+
+        assert_eq!(
+            cache
+                .get_metadata_by_key(10, 100)
+                .map(|meta| meta.creation_time),
+            Some(100)
+        );
+        assert_eq!(
+            cache
+                .get_metadata_by_key(10, 200)
+                .map(|meta| meta.creation_time),
+            Some(200)
+        );
     }
 }

@@ -193,7 +193,10 @@ pub fn network_connect_event(platform: Platform) -> SensorEvent {
         pid: Some(TEST_PID),
         timestamp: test_time(),
         source_seq: None,
-        process_start_key: None,
+        process_start_key: Some(ProcessStartKey {
+            pid: TEST_PID,
+            start_time: TEST_PROCESS_START_TIME,
+        }),
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(TEST_DESTINATION_IP.to_string()),
             source_ip: Some(TEST_SOURCE_IP.to_string()),
@@ -257,7 +260,10 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
         pid: Some(TEST_PID),
         timestamp: test_time(),
         source_seq: None,
-        process_start_key: None,
+        process_start_key: Some(ProcessStartKey {
+            pid: TEST_PID,
+            start_time: TEST_PROCESS_START_TIME,
+        }),
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name: Some(TEST_DOMAIN.to_string()),
             query_results: Some(TEST_DESTINATION_IP.to_string()),
@@ -359,7 +365,10 @@ pub fn file_event(
         pid: Some(TEST_PID),
         timestamp: test_time(),
         source_seq: None,
-        process_start_key: None,
+        process_start_key: Some(ProcessStartKey {
+            pid: TEST_PID,
+            start_time: TEST_PROCESS_START_TIME,
+        }),
         payload: SensorPayload::File(FileEventFields {
             source_filename: source_filename.map(ToString::to_string),
             target_filename: target_filename.map(ToString::to_string),

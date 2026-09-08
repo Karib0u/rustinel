@@ -44,6 +44,7 @@ impl From<&Alert> for EcsAlert {
             timestamp: alert.event.timestamp.clone(),
             event_source_seq: alert.event.source_seq,
             event_ingest_seq: alert.event.ingest_seq,
+            event_provenance: alert.event.provenance.clone(),
             ecs_version: ECS_VERSION.to_string(),
             event_count: None,
             event_kind: "alert".to_string(),
@@ -460,6 +461,7 @@ mod tests {
                     current_directory: None,
                     integrity_level: None,
                 }),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
@@ -529,6 +531,7 @@ mod tests {
                     process_id: None,
                     image: None,
                 }),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
@@ -588,6 +591,7 @@ mod tests {
                     process_id: None,
                     image: None,
                 }),
+                provenance: Default::default(),
                 process_context: Some(ProcessContext {
                     image: Some(r"C:\Windows\System32\svchost.exe".to_string()),
                     command_line: Some("svchost.exe -k netsvcs".to_string()),
@@ -654,6 +658,7 @@ mod tests {
                     user: Some("SYSTEM".to_string()),
                     new_name: None,
                 }),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
@@ -699,6 +704,7 @@ mod tests {
                     protocol: Some("tcp".to_string()),
                     initiated,
                 }),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
@@ -723,6 +729,16 @@ mod tests {
         // the category default still describes them.
         let ecs = EcsAlert::from(&network_alert(None));
         assert_eq!(ecs.network_direction, Some("egress".to_string()));
+    }
+
+    #[test]
+    fn ecs_carries_field_provenance() {
+        let mut alert = network_alert(Some(true));
+        alert.event.provenance.mark_derived("Image");
+
+        let json = serde_json::to_value(EcsAlert::from(&alert)).expect("ECS serializes");
+        assert_eq!(json["edr.event.provenance"][0]["field"], "Image");
+        assert_eq!(json["edr.event.provenance"][0]["fidelity"], "derived");
     }
 
     #[test]
@@ -776,6 +792,7 @@ mod tests {
                     process_id: None,
                     image: None,
                 }),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
@@ -826,6 +843,7 @@ mod tests {
                     user: Some("ALICE".to_string()),
                     path_truncated: None,
                 }),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
@@ -857,6 +875,7 @@ mod tests {
                 event_id_string: "1".to_string(),
                 opcode: 1,
                 fields: EventFields::Generic(HashMap::new()),
+                provenance: Default::default(),
                 process_context: None,
             },
             match_details: Some(MatchDetails {

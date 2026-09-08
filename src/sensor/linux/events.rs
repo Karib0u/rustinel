@@ -73,6 +73,8 @@ pub struct ProcessEvent {
     pub _pad1: [u8; 2],
     /// NUL-separated argv captured at `execve` entry.
     pub args: [u8; ARGV_CAPACITY],
+    /// Sensor-minted identity for this execution of `pid`.
+    pub process_start_time: u64,
 }
 
 impl ProcessEvent {
@@ -167,6 +169,8 @@ pub struct NetworkEvent {
     /// Source address. Unspecified (all zero) until the socket is bound; see
     /// [`sport`](Self::sport).
     pub saddr: [u8; 16],
+    /// Sensor-minted identity for the process that opened the connection.
+    pub process_start_time: u64,
 }
 
 impl NetworkEvent {
@@ -228,6 +232,8 @@ pub struct FileEvent {
     pub path: [u8; FILE_PATH_LEN],
     pub aux_path: [u8; FILE_PATH_LEN],
     pub comm: [u8; 16],
+    /// Sensor-minted identity for the process that performed the operation.
+    pub process_start_time: u64,
 }
 
 /// Common prefix shared by full file events and compact index events.
@@ -266,13 +272,15 @@ pub struct DnsEvent {
     pub query_results: [u8; 96],
     pub record_type: [u8; 16],
     pub payload: [u8; 256],
+    /// Sensor-minted identity for the process that sent the query.
+    pub process_start_time: u64,
 }
 
 // ── Size assertions ──────────────────────────────────────────────────────────
 // These catch accidental struct layout divergence at compile time.
 
 const _: () = assert!(
-    core::mem::size_of::<ProcessEvent>() == 824,
+    core::mem::size_of::<ProcessEvent>() == 832,
     "ProcessEvent layout changed — update ebpf/src/events.rs to match"
 );
 // The argv fields were appended after `image`; pin their offsets so a
@@ -290,19 +298,19 @@ const _: () = assert!(
 // as a successful connect of unknown transport. Pin both offsets so that fails
 // the build instead.
 const _: () = assert!(
-    core::mem::size_of::<NetworkEvent>() == 72
+    core::mem::size_of::<NetworkEvent>() == 80
         && core::mem::offset_of!(NetworkEvent, ret) == 28
         && core::mem::offset_of!(NetworkEvent, sock_type) == 38,
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
-    core::mem::size_of::<FileEvent>() == 1096,
+    core::mem::size_of::<FileEvent>() == 1104,
     "FileEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(core::mem::size_of::<FileEventHeader>() == 8);
 const _: () = assert!(core::mem::size_of::<FileIndexEvent>() == 16);
 const _: () = assert!(
-    core::mem::size_of::<DnsEvent>() == 504,
+    core::mem::size_of::<DnsEvent>() == 512,
     "DnsEvent layout changed — update ebpf/src/events.rs to match"
 );
 
@@ -361,10 +369,7 @@ pub mod mapping {
             pid: Some(event.pid),
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
-            process_start_key: Some(ProcessStartKey {
-                pid: event.pid,
-                start_time: 0,
-            }),
+            process_start_key: process_start_key(event.pid, event.process_start_time),
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: Some(bytes_to_string(&event.image)),
                 image_source: None,
@@ -403,7 +408,7 @@ pub mod mapping {
             pid: Some(event.pid),
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
-            process_start_key: None,
+            process_start_key: process_start_key(event.pid, event.process_start_time),
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some(ip_to_string(event.af, &event.daddr)),
                 // The syscall tracepoint does not measure the kernel-assigned
@@ -461,7 +466,7 @@ pub mod mapping {
             pid: Some(event.pid),
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
-            process_start_key: None,
+            process_start_key: process_start_key(event.pid, event.process_start_time),
             payload: SensorPayload::File(FileEventFields {
                 path_truncated: truncation_marker(event.flags, source_filename.is_some())
                     .map(str::to_string),
@@ -488,7 +493,7 @@ pub mod mapping {
             pid: Some(event.pid),
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
-            process_start_key: None,
+            process_start_key: process_start_key(event.pid, event.process_start_time),
             payload: SensorPayload::Dns(DnsQueryFields {
                 query_name: Some(bytes_to_string(&event.query_name)),
                 query_results: Some(bytes_to_string(&event.query_results)),
@@ -505,6 +510,10 @@ pub mod mapping {
             10 => Ipv6Addr::from(*bytes).to_string(),
             _ => Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]).to_string(),
         }
+    }
+
+    fn process_start_key(pid: u32, start_time: u64) -> Option<ProcessStartKey> {
+        (start_time != 0).then_some(ProcessStartKey { pid, start_time })
     }
 }
 
@@ -548,6 +557,7 @@ mod tests {
             image_truncated: 0,
             _pad1: [0u8; 2],
             args: [0u8; ARGV_CAPACITY],
+            process_start_time: 123_456,
         };
         let argv = b"/bin/true\0--quiet\0";
         event.args[..argv.len()].copy_from_slice(argv);
@@ -585,6 +595,7 @@ mod tests {
             _pad1: 0,
             daddr: [0u8; 16],
             saddr: [0u8; 16],
+            process_start_time: 123_456,
         };
         assert_eq!(event.transport(), Some("udp"));
 

@@ -143,7 +143,7 @@ impl SensorEventHandler for NormalizedEventHandler {
                     // originating PID, so it can fill in context the canonical
                     // event does not carry.
                     self.normalizer
-                        .enrich_process_context(&mut alert.event, event.pid.unwrap_or(0));
+                        .enrich_process_context(&mut alert.event, event.process_start_key);
 
                     detection.alert_sink.write_alert(&alert);
                     detection.response_engine.handle_alert(&alert);

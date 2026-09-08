@@ -83,6 +83,7 @@ use crate::events::{
     FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
 };
 use crate::network::forget_socket_type;
+use crate::process::current_process_start_time;
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, FILE_FAMILY};
 
 /// O_CREAT flag — create file if it does not exist.
@@ -668,6 +669,7 @@ unsafe fn queue_file_event_from_args(dfd: i32, path_ptr: u64, kind: u32) -> Resu
     (*event).aux_dfd_token = dfd_token;
     (*event).aux_path[0] = 0;
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
+    (*event).process_start_time = current_process_start_time((*event).pid);
 
     let tid = pid_tgid as u32;
     if FILE_PENDING.insert(&tid, &*event, 0).is_err() {
@@ -728,6 +730,7 @@ unsafe fn queue_rename_event_from_args(
     (*event).dfd_token = current_dir_token((*event).pid, new_dfd);
     (*event).aux_dfd_token = current_dir_token((*event).pid, old_dfd);
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
+    (*event).process_start_time = current_process_start_time((*event).pid);
 
     let tid = pid_tgid as u32;
     if FILE_PENDING.insert(&tid, &*event, 0).is_err() {

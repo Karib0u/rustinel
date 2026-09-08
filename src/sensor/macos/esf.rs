@@ -345,10 +345,12 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
 /// ESF reports the exiting process as the message's acting process; the exit
 /// status is not carried in the shared payload (matching the Linux sensor).
 fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
-    let token = msg.process().audit_token();
+    let process = msg.process();
+    let token = process.audit_token();
     Some(process_stop_event(
         token.pid() as u32,
         token.ruid().to_string(),
+        process.start_time().map(system_time_nanos),
         msg.time(),
         msg.global_seq_num(),
     ))
@@ -358,6 +360,7 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
 fn process_stop_event(
     pid: u32,
     user: String,
+    start_time: Option<u64>,
     event_time: SystemTime,
     source_seq: Option<u64>,
 ) -> SensorEvent {
@@ -372,7 +375,7 @@ fn process_stop_event(
         pid: Some(pid),
         timestamp: event_time,
         source_seq,
-        process_start_key: None,
+        process_start_key: start_time.map(|start_time| ProcessStartKey { pid, start_time }),
         payload: SensorPayload::Process(ProcessCreationFields {
             image: None,
             image_source: None,
@@ -432,26 +435,32 @@ struct RawFile {
     source: Option<String>,
     event_time: SystemTime,
     source_seq: Option<u64>,
+    process_start_key: Option<ProcessStartKey>,
 }
 
 /// Acting process context shared by all file events: pid, executable, and the
 /// raw uid as a string. Username resolution is deferred to the normalizer
 /// (like the Linux sensor) to avoid a directory-services lookup per event on
 /// the high-volume file path.
-fn actor(msg: &Message) -> (u32, Option<String>, String) {
+fn actor(msg: &Message) -> (u32, Option<String>, String, Option<ProcessStartKey>) {
     let process = msg.process();
     let token = process.audit_token();
+    let pid = token.pid() as u32;
     let image = osstr_to_string(process.executable().path());
     (
-        token.pid() as u32,
+        pid,
         (!image.is_empty()).then_some(image),
         token.ruid().to_string(),
+        process
+            .start_time()
+            .map(system_time_nanos)
+            .map(|start_time| ProcessStartKey { pid, start_time }),
     )
 }
 
 fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent> {
     let target = create_destination_path(create.destination()?)?;
-    let (pid, image, user) = actor(msg);
+    let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Create,
         pid,
@@ -461,12 +470,13 @@ fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent
         source: None,
         event_time: msg.time(),
         source_seq: msg.global_seq_num(),
+        process_start_key,
     })
 }
 
 fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent> {
     let target = osstr_to_string(unlink.target().path());
-    let (pid, image, user) = actor(msg);
+    let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Delete,
         pid,
@@ -476,13 +486,14 @@ fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent
         source: None,
         event_time: msg.time(),
         source_seq: msg.global_seq_num(),
+        process_start_key,
     })
 }
 
 fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent> {
     let target = rename_destination_path(rename.destination()?)?;
     let source = osstr_to_string(rename.source().path());
-    let (pid, image, user) = actor(msg);
+    let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Rename,
         pid,
@@ -492,6 +503,7 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent
         source: (!source.is_empty()).then_some(source),
         event_time: msg.time(),
         source_seq: msg.global_seq_num(),
+        process_start_key,
     })
 }
 
@@ -504,7 +516,7 @@ fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
         return None;
     }
     let target = osstr_to_string(close.target().path());
-    let (pid, image, user) = actor(msg);
+    let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Modify,
         pid,
@@ -514,6 +526,7 @@ fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
         source: None,
         event_time: msg.time(),
         source_seq: msg.global_seq_num(),
+        process_start_key,
     })
 }
 
@@ -563,7 +576,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
         pid: Some(raw.pid),
         timestamp: raw.event_time,
         source_seq: raw.source_seq,
-        process_start_key: None,
+        process_start_key: raw.process_start_key,
         payload: SensorPayload::File(FileEventFields {
             source_filename: raw.source,
             target_filename: Some(raw.target),
@@ -681,6 +694,10 @@ mod tests {
             source: source.map(str::to_string),
             event_time: SystemTime::UNIX_EPOCH,
             source_seq: None,
+            process_start_key: Some(ProcessStartKey {
+                pid: 55,
+                start_time: 123_456,
+            }),
         }
     }
 
@@ -691,7 +708,13 @@ mod tests {
         assert_eq!(event.action, SensorAction::Create);
         assert_eq!(event.normalization, shared(SensorAction::Create));
         assert_eq!(event.pid, Some(55));
-        assert!(event.process_start_key.is_none());
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 55,
+                start_time: 123_456,
+            })
+        );
 
         match event.payload {
             SensorPayload::File(fields) => {
@@ -758,12 +781,24 @@ mod tests {
 
     #[test]
     fn process_stop_event_maps_exit() {
-        let event = process_stop_event(4242, "alice".to_string(), SystemTime::UNIX_EPOCH, None);
+        let event = process_stop_event(
+            4242,
+            "alice".to_string(),
+            Some(123_456),
+            SystemTime::UNIX_EPOCH,
+            None,
+        );
 
         assert_eq!(event.action, SensorAction::Stop);
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_TERMINATE);
         assert_eq!(event.pid, Some(4242));
-        assert!(event.process_start_key.is_none());
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 4242,
+                start_time: 123_456,
+            })
+        );
 
         match event.payload {
             SensorPayload::Process(fields) => {

@@ -264,6 +264,7 @@ mod tests {
                 integrity_level: None,
                 user: None,
             }),
+            provenance: Default::default(),
             process_context: None,
         }
     }
@@ -274,7 +275,9 @@ mod tests {
         let recorder =
             CaptureRecorder::start(payload.clone(), Platform::Windows).expect("capture starts");
         let sink = recorder.sink();
-        sink.record(&process_event("100"));
+        let mut first = process_event("100");
+        first.provenance.mark_derived("Image");
+        sink.record(&first);
         sink.record(&process_event("200"));
         drop(sink);
         recorder.finish().await.expect("capture finalizes");
@@ -309,6 +312,11 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].get_field("ProcessId"), Some("100"));
         assert_eq!(events[1].get_field("ProcessId"), Some("200"));
+        assert_eq!(events[0].provenance.entries()[0].field, "Image");
+        assert_eq!(
+            events[0].provenance.entries()[0].fidelity,
+            crate::models::Fidelity::Derived
+        );
         assert_eq!(recording.manifest().platform, Platform::Windows);
     }
 

@@ -97,6 +97,8 @@ async fn capture_records_canonical_events_without_alert_enrichment() {
         dns.get("process_context").is_none(),
         "alert-only process context must not be baked into a recording: {dns}"
     );
+    assert_eq!(dns["provenance"][0]["field"], "Image");
+    assert_eq!(dns["provenance"][0]["fidelity"], "derived");
 }
 
 #[tokio::test]
