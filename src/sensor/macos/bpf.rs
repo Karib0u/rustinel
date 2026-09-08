@@ -407,8 +407,8 @@ fn run_capture(device: BpfDevice, tx: Sender<SensorEvent>, shutdown: Arc<AtomicB
             continue;
         }
         let data = &buf[..n as usize];
-        for_each_packet(data, |packet| {
-            handle_packet(device.link_type, packet, &tx, &attribution_tx)
+        for_each_packet(data, |event_time, packet| {
+            handle_packet(device.link_type, event_time, packet, &tx, &attribution_tx)
         });
     }
 
@@ -442,18 +442,21 @@ fn run_attribution_worker(rx: Receiver<AttributionJob>, tx: Sender<SensorEvent>)
 /// Iterate the packets in a bpf read buffer, calling `handle` with each
 /// captured frame. Records are prefixed with a `struct bpf_hdr` and aligned to
 /// `BPF_ALIGNMENT` (4 bytes) boundaries.
-fn for_each_packet(buf: &[u8], mut handle: impl FnMut(&[u8])) {
+fn for_each_packet(buf: &[u8], mut handle: impl FnMut(SystemTime, &[u8])) {
     let mut offset = 0usize;
     while offset + BPF_HDR_FIELDS_LEN <= buf.len() {
         let caplen = read_u32(buf, offset + BH_CAPLEN_OFFSET) as usize;
         let hdrlen = read_u16(buf, offset + BH_HDRLEN_OFFSET) as usize;
+        let seconds = u64::from(read_u32(buf, offset));
+        let micros = read_u32(buf, offset + 4).min(999_999);
+        let event_time = SystemTime::UNIX_EPOCH + Duration::new(seconds, micros * 1_000);
 
         let start = offset + hdrlen;
         let end = match start.checked_add(caplen) {
             Some(end) if end <= buf.len() && start <= buf.len() => end,
             _ => break,
         };
-        handle(&buf[start..end]);
+        handle(event_time, &buf[start..end]);
 
         let advance = bpf_word_align(hdrlen + caplen);
         if advance == 0 {
@@ -469,6 +472,7 @@ fn for_each_packet(buf: &[u8], mut handle: impl FnMut(&[u8])) {
 /// need no PID lookup and go straight to the pipeline.
 fn handle_packet(
     link_type: u32,
+    event_time: SystemTime,
     frame: &[u8],
     tx: &Sender<SensorEvent>,
     attribution_tx: &SyncSender<AttributionJob>,
@@ -476,7 +480,7 @@ fn handle_packet(
     let Some(parsed) = packet::parse(link_type, frame) else {
         return;
     };
-    if let Some(event) = build_network_event(&parsed) {
+    if let Some(event) = build_network_event(&parsed, event_time) {
         match connection_ports(&parsed) {
             Some((local_port, remote_port)) => {
                 enqueue_attribution(attribution_tx, tx, event, local_port, remote_port)
@@ -484,7 +488,7 @@ fn handle_packet(
             None => try_send(tx, event),
         }
     }
-    if let Some(event) = build_dns_event(&parsed) {
+    if let Some(event) = build_dns_event(&parsed, event_time) {
         try_send(tx, event);
     }
 }
@@ -547,7 +551,7 @@ fn connection_ports(packet: &ParsedPacket) -> Option<(u16, u16)> {
 /// Only SYN segments with ACK clear are treated as new connections. PID and
 /// image attribution are filled in best-effort by the attribution worker; the
 /// normalizer enriches the rest.
-fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
+fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<SensorEvent> {
     let Transport::Tcp {
         src_port,
         dst_port,
@@ -570,7 +574,8 @@ fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: None,
-        timestamp: SystemTime::now(),
+        timestamp: event_time,
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(packet.dst_ip.to_string()),
@@ -596,7 +601,7 @@ fn build_network_event(packet: &ParsedPacket) -> Option<SensorEvent> {
 ///
 /// Handles UDP queries directly and DNS-over-TCP by skipping the 2-byte length
 /// prefix. Responses are rejected by the shared parser (QR bit).
-fn build_dns_event(packet: &ParsedPacket) -> Option<SensorEvent> {
+fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<SensorEvent> {
     let (dst_port, dns_payload) = match &packet.transport {
         Transport::Udp { dst_port, payload } => (*dst_port, *payload),
         Transport::Tcp {
@@ -618,7 +623,8 @@ fn build_dns_event(packet: &ParsedPacket) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: None,
-        timestamp: SystemTime::now(),
+        timestamp: event_time,
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name: Some(query_name),
@@ -709,9 +715,24 @@ mod tests {
         buf.extend(bpf_record(&[9, 8, 7, 6, 5]));
 
         let mut packets: Vec<Vec<u8>> = Vec::new();
-        for_each_packet(&buf, |packet| packets.push(packet.to_vec()));
+        for_each_packet(&buf, |_event_time, packet| packets.push(packet.to_vec()));
 
         assert_eq!(packets, vec![vec![1, 2, 3], vec![9, 8, 7, 6, 5]]);
+    }
+
+    #[test]
+    fn for_each_packet_reads_the_native_bpf_timestamp() {
+        let mut record = bpf_record(&[1, 2, 3]);
+        record[0..4].copy_from_slice(&1_700_000_000u32.to_ne_bytes());
+        record[4..8].copy_from_slice(&123_456u32.to_ne_bytes());
+
+        let mut timestamps = Vec::new();
+        for_each_packet(&record, |event_time, _packet| timestamps.push(event_time));
+
+        assert_eq!(
+            timestamps,
+            vec![SystemTime::UNIX_EPOCH + Duration::new(1_700_000_000, 123_456_000)]
+        );
     }
 
     #[test]
@@ -720,7 +741,7 @@ mod tests {
         buf.extend_from_slice(&[0u8; 5]); // shorter than a header
 
         let mut count = 0;
-        for_each_packet(&buf, |_| count += 1);
+        for_each_packet(&buf, |_event_time, _packet| count += 1);
         assert_eq!(count, 1);
     }
 
@@ -732,7 +753,7 @@ mod tests {
         buf[BH_HDRLEN_OFFSET..BH_HDRLEN_OFFSET + 2].copy_from_slice(&18u16.to_ne_bytes());
 
         let mut count = 0;
-        for_each_packet(&buf, |_| count += 1);
+        for_each_packet(&buf, |_event_time, _packet| count += 1);
         assert_eq!(count, 0);
     }
 
@@ -759,7 +780,8 @@ mod tests {
 
     #[test]
     fn build_network_event_emits_on_syn() {
-        let event = build_network_event(&tcp_packet(TCP_FLAG_SYN)).expect("syn should emit");
+        let event = build_network_event(&tcp_packet(TCP_FLAG_SYN), SystemTime::UNIX_EPOCH)
+            .expect("syn should emit");
         assert_eq!(event.provider, "bpf");
         assert_eq!(event.action, SensorAction::Connect);
         assert_eq!(event.normalization.event_id, EVENT_ID_NETWORK_CONNECT);
@@ -776,8 +798,12 @@ mod tests {
 
     #[test]
     fn build_network_event_ignores_syn_ack_and_established() {
-        assert!(build_network_event(&tcp_packet(TCP_FLAG_SYN | TCP_FLAG_ACK)).is_none());
-        assert!(build_network_event(&tcp_packet(TCP_FLAG_ACK)).is_none());
+        assert!(build_network_event(
+            &tcp_packet(TCP_FLAG_SYN | TCP_FLAG_ACK),
+            SystemTime::UNIX_EPOCH,
+        )
+        .is_none());
+        assert!(build_network_event(&tcp_packet(TCP_FLAG_ACK), SystemTime::UNIX_EPOCH).is_none());
     }
 
     #[test]
@@ -788,7 +814,8 @@ mod tests {
         let (attribution_tx, _attribution_rx) = std::sync::mpsc::sync_channel::<AttributionJob>(0);
         let (tx, mut rx) = tokio::sync::mpsc::channel::<SensorEvent>(8);
 
-        let event = build_network_event(&tcp_packet(TCP_FLAG_SYN)).expect("syn should emit");
+        let event = build_network_event(&tcp_packet(TCP_FLAG_SYN), SystemTime::UNIX_EPOCH)
+            .expect("syn should emit");
         enqueue_attribution(&attribution_tx, &tx, event, 51324, 443);
 
         let received = rx
@@ -837,8 +864,11 @@ mod tests {
 
     #[test]
     fn build_dns_event_maps_udp_query() {
-        let event = build_dns_event(&udp_packet(DNS_PORT, dns_query("sub.example.test", 28)))
-            .expect("dns query should emit");
+        let event = build_dns_event(
+            &udp_packet(DNS_PORT, dns_query("sub.example.test", 28)),
+            SystemTime::UNIX_EPOCH,
+        )
+        .expect("dns query should emit");
         assert_eq!(event.provider, "bpf");
         assert_eq!(event.action, SensorAction::Query);
         assert_eq!(event.normalization.event_id, EVENT_ID_DNS_QUERY);
@@ -853,7 +883,11 @@ mod tests {
 
     #[test]
     fn build_dns_event_ignores_non_dns_port() {
-        assert!(build_dns_event(&udp_packet(123, dns_query("example.test", 1))).is_none());
+        assert!(build_dns_event(
+            &udp_packet(123, dns_query("example.test", 1)),
+            SystemTime::UNIX_EPOCH,
+        )
+        .is_none());
     }
 
     #[test]
@@ -898,8 +932,11 @@ level: high
         let mut engine = Engine::new_for_platform(Platform::MacOS);
         engine.load_rules(&rules_dir).expect("load sigma rule");
 
-        let event = build_dns_event(&udp_packet(DNS_PORT, dns_query("sub.example.test", 1)))
-            .expect("dns event should build");
+        let event = build_dns_event(
+            &udp_packet(DNS_PORT, dns_query("sub.example.test", 1)),
+            SystemTime::UNIX_EPOCH,
+        )
+        .expect("dns event should build");
         let normalized = test_normalizer()
             .normalize(&event)
             .expect("dns event should normalize");

@@ -9,15 +9,15 @@
 //! 4. Spawns a tokio task that polls all ring buffers and converts raw events
 //!    into [`SensorEvent`] values for the shared pipeline.
 //!
-//! Requirements: Linux 5.8+ with BTF, `CAP_BPF` (or `CAP_SYS_ADMIN`).
+//! Requirements: Linux 5.12+ with BTF, `CAP_BPF` (or `CAP_SYS_ADMIN`).
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
-use aya::maps::{MapData, RingBuf};
+use aya::maps::{MapData, PerCpuArray, RingBuf};
 use aya::programs::{KProbe, TracePoint};
 use aya::Ebpf;
 use tokio::io::unix::AsyncFd;
@@ -31,13 +31,12 @@ use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
 };
-use crate::utils::{
-    lookup_username_by_uid, query_process_details, query_socket_metadata, SocketMetadata,
-};
+use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
+use crate::utils::{lookup_username_by_uid, query_process_details};
 
 use super::events::{
-    bytes_to_string, connect_result_is_connection, parse_event, DnsEvent, FileEvent,
-    FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
+    bytes_to_string, connect_result_is_connection, parse_event, system_time_from_boot_ns, DnsEvent,
+    FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 
@@ -60,6 +59,18 @@ const FILE_EVENT_CHANGE: u32 = 4;
 /// drain loop to name the `dfd` of later `*at` calls, never forwarded.
 const FILE_EVENT_DIR_OPEN: u32 = 5;
 const FILE_EVENT_INDEX_RESET: u32 = 6;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct KernelCounterRow {
+    kernel_seen: u64,
+    kernel_submitted: u64,
+    kernel_ring_full: u64,
+    kernel_oversized: u64,
+    kernel_map_full: u64,
+}
+
+unsafe impl aya::Pod for KernelCounterRow {}
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
@@ -256,6 +267,11 @@ impl Sensor for EbpfSensor {
             bpf.take_map("DNS_RING")
                 .context("DNS_RING map not found in eBPF object")?,
         )?;
+        let kernel_counters: PerCpuArray<MapData, KernelCounterRow> = PerCpuArray::try_from(
+            bpf.take_map("LINUX_EBPF_COUNTERS")
+                .context("LINUX_EBPF_COUNTERS map not found in eBPF object")?,
+        )?;
+        LINUX_EBPF.activate();
 
         // ── Spawn polling task ───────────────────────────────────────────────
 
@@ -270,6 +286,7 @@ impl Sensor for EbpfSensor {
                 network_ring,
                 file_ring,
                 dns_ring,
+                kernel_counters,
                 tx,
                 shutdown,
             )
@@ -294,6 +311,7 @@ async fn run_ring_poll(
     network_ring: RingBuf<MapData>,
     file_ring: RingBuf<MapData>,
     dns_ring: RingBuf<MapData>,
+    kernel_counters: PerCpuArray<MapData, KernelCounterRow>,
     tx: Sender<SensorEvent>,
     shutdown: Arc<AtomicBool>,
 ) -> Result<()> {
@@ -303,9 +321,13 @@ async fn run_ring_poll(
     let mut dns_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(dns_ring)?;
     let mut unresolved_file_events: u64 = 0;
     let mut dir_fds = DirFdIndex::new();
+    let mut counter_tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    counter_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut counter_read_failed = false;
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
+            let _ = refresh_kernel_counters(&kernel_counters);
             info!("eBPF sensor shutting down");
             break;
         }
@@ -337,6 +359,17 @@ async fn run_ring_poll(
                 guard.clear_ready();
             }
 
+            _ = counter_tick.tick() => {
+                match refresh_kernel_counters(&kernel_counters) {
+                    Ok(()) => counter_read_failed = false,
+                    Err(err) if !counter_read_failed => {
+                        warn!(error = %err, "failed to read Linux eBPF kernel counters");
+                        counter_read_failed = true;
+                    }
+                    Err(_) => {}
+                }
+            }
+
             // Wake up periodically to check the shutdown flag even when
             // the ring buffers are idle.
             _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
@@ -346,30 +379,68 @@ async fn run_ring_poll(
     Ok(())
 }
 
+fn refresh_kernel_counters(counters: &PerCpuArray<MapData, KernelCounterRow>) -> Result<()> {
+    for family in LinuxEbpfFamily::ALL {
+        let values = counters
+            .get(&(family.index() as u32), 0)
+            .with_context(|| format!("failed to read {} counter row", family.as_str()))?;
+        let sample = values
+            .iter()
+            .fold(LinuxEbpfKernelSample::default(), |mut total, value| {
+                total.kernel_seen = total.kernel_seen.saturating_add(value.kernel_seen);
+                total.kernel_submitted = total
+                    .kernel_submitted
+                    .saturating_add(value.kernel_submitted);
+                total.kernel_ring_full = total
+                    .kernel_ring_full
+                    .saturating_add(value.kernel_ring_full);
+                total.kernel_oversized = total
+                    .kernel_oversized
+                    .saturating_add(value.kernel_oversized);
+                total.kernel_map_full = total.kernel_map_full.saturating_add(value.kernel_map_full);
+                total
+            });
+        LINUX_EBPF.set_kernel_sample(family, sample);
+    }
+    Ok(())
+}
+
 // ── Ring-buffer drain helpers ────────────────────────────────────────────────
 
 fn drain_process_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::Process);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<ProcessEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Process);
             warn!("process ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Process);
         if let Some(sensor_event) = build_process_event(&ev) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Process);
             try_send(tx, sensor_event);
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Process);
         }
     }
 }
 
 fn drain_network_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::Network);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<NetworkEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Network);
             warn!("network ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Network);
         if let Some(sensor_event) = build_network_event(&ev) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Network);
             try_send(tx, sensor_event);
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Network);
         }
     }
 }
@@ -387,29 +458,43 @@ fn drain_file_ring(
     unresolved: &mut u64,
 ) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::File);
         let bytes: &[u8] = &item;
         let Some(header) = parse_event::<FileEventHeader>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
             warn!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
         if header.kind == FILE_EVENT_INDEX_RESET {
             let Some(ev) = parse_event::<FileIndexEvent>(bytes) else {
+                LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
                 warn!("file index ring: short read ({} bytes)", bytes.len());
                 continue;
             };
+            LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
             dir_fds.forget_process(ev.pid);
+            LINUX_EBPF.record_internal(LinuxEbpfFamily::File);
             continue;
         }
         let Some(ev) = parse_event::<FileEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
             warn!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
         if ev.kind == FILE_EVENT_DIR_OPEN {
             index_dir_open(&ev, dir_fds);
+            LINUX_EBPF.record_internal(LinuxEbpfFamily::File);
             continue;
         }
+        let unresolved_before = *unresolved;
         if let Some(sensor_event) = build_file_event(&ev, dir_fds, unresolved) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::File);
             try_send(tx, sensor_event);
+        } else if *unresolved > unresolved_before {
+            LINUX_EBPF.record_unresolved_file();
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::File);
         }
     }
 }
@@ -434,13 +519,19 @@ fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) {
 
 fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     while let Some(item) = rb.next() {
+        LINUX_EBPF.record_received(LinuxEbpfFamily::Dns);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<DnsEvent>(bytes) else {
+            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Dns);
             warn!("dns ring: short read ({} bytes)", bytes.len());
             continue;
         };
+        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Dns);
         if let Some(sensor_event) = build_dns_event(&ev) {
+            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Dns);
             try_send(tx, sensor_event);
+        } else {
+            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Dns);
         }
     }
 }
@@ -498,7 +589,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 ev.image_truncated != 0,
             )?;
 
-            let now = SystemTime::now();
+            let event_time = system_time_from_boot_ns(ev.event_time_ns);
             Some(SensorEvent {
                 platform: Platform::Linux,
                 provider: "ebpf",
@@ -508,13 +599,14 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     action_code: 1,
                 },
                 pid: Some(ev.pid),
-                timestamp: now,
+                timestamp: event_time,
+                source_seq: Some(ev.source_seq),
                 process_start_key: Some(ProcessStartKey {
                     pid: ev.pid,
                     start_time: details
                         .as_ref()
                         .and_then(|value| value.start_time)
-                        .unwrap_or_else(|| unix_epoch_nanos(now)),
+                        .unwrap_or_else(|| unix_epoch_nanos(event_time)),
                 }),
                 payload: SensorPayload::Process(ProcessCreationFields {
                     image: Some(image),
@@ -562,7 +654,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 action_code: 2,
             },
             pid: Some(ev.pid),
-            timestamp: SystemTime::now(),
+            timestamp: system_time_from_boot_ns(ev.event_time_ns),
+            source_seq: Some(ev.source_seq),
             process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
@@ -601,67 +694,27 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         return None;
     }
 
-    let (destination_ip, source_ip) = match ev.af {
+    let destination_ip = match ev.af {
         2 => {
             // AF_INET
             let dst = Ipv4Addr::new(ev.daddr[0], ev.daddr[1], ev.daddr[2], ev.daddr[3]);
-            let src = Ipv4Addr::new(ev.saddr[0], ev.saddr[1], ev.saddr[2], ev.saddr[3]);
             if dst.is_unspecified() {
                 return None;
             }
-            let source_ip = if src.is_unspecified() {
-                None
-            } else {
-                Some(src.to_string())
-            };
-            (dst.to_string(), source_ip)
+            dst.to_string()
         }
         10 => {
             // AF_INET6
             let dst = Ipv6Addr::from(ev.daddr);
-            let src = Ipv6Addr::from(ev.saddr);
             if dst.is_unspecified() {
                 return None;
             }
-            let source_ip = if src.is_unspecified() {
-                None
-            } else {
-                Some(src.to_string())
-            };
-            (dst.to_string(), source_ip)
+            dst.to_string()
         }
         _ => return None,
     };
 
-    // `/proc` is read after the fact, so it may describe a different socket
-    // than the one this event captured; see `socket_matches_connection`.
-    let socket_metadata = query_socket_metadata(ev.pid, ev.fd)
-        .filter(|value| socket_matches_connection(value, &destination_ip, ev.dport));
     let user = resolved_linux_user(ev.uid);
-    let source_ip = source_ip.or_else(|| {
-        socket_metadata
-            .as_ref()
-            .and_then(|value| filter_unspecified_ip(value.source_ip.clone()))
-            // A v4-mapped local address belongs to an IPv4 connection; keeping
-            // the `::ffff:` form would make `network.type` disagree with the
-            // destination it is paired with.
-            .map(|value| match value.parse::<IpAddr>() {
-                Ok(address) => unmap_ipv4(address).to_string(),
-                Err(_) => value,
-            })
-    });
-    let source_port = if ev.sport > 0 {
-        Some(ev.sport.to_string())
-    } else {
-        // An unbound socket can still be listed with a local port of 0. That
-        // is a placeholder, not a measurement, so it is dropped like the
-        // unspecified source address above.
-        socket_metadata
-            .as_ref()
-            .and_then(|value| value.source_port)
-            .filter(|port| *port > 0)
-            .map(|port| port.to_string())
-    };
 
     Some(SensorEvent {
         platform: Platform::Linux,
@@ -672,25 +725,25 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: Some(ev.pid),
-        timestamp: SystemTime::now(),
+        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        source_seq: Some(ev.source_seq),
         process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(destination_ip),
-            source_ip,
+            // The syscall tracepoint does not measure the kernel-assigned
+            // source tuple. A later procfs lookup is both racy and unbounded,
+            // so source fields stay absent until the kernel probe supplies it.
+            source_ip: None,
             destination_port: Some(ev.dport.to_string()),
-            source_port,
+            source_port: None,
             process_id: Some(ev.pid.to_string()),
             // Enriched by the normalizer from ProcessCache if PID is known.
             image: None,
             user: Some(user),
             destination_hostname: None,
-            // The kernel-side socket type is authoritative: it is recorded when
-            // the socket is created, while `/proc/net` is read after the event
-            // is drained and answers for whatever the descriptor points at then.
-            protocol: ev
-                .transport()
-                .map(str::to_string)
-                .or_else(|| socket_metadata.and_then(|value| value.protocol)),
+            // The kernel-side socket type is authoritative: it is recorded
+            // when the socket is created rather than guessed after the event.
+            protocol: ev.transport().map(str::to_string),
             // The probe hooks `connect()` only, so every captured connection
             // is one this host opened. `accept()` is not hooked, so no inbound
             // connection can reach here and be mislabelled.
@@ -755,7 +808,8 @@ fn build_file_event(
         action,
         normalization,
         pid: Some(ev.pid),
-        timestamp: SystemTime::now(),
+        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        source_seq: Some(ev.source_seq),
         process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename,
@@ -795,7 +849,8 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: Some(ev.pid),
-        timestamp: SystemTime::now(),
+        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        source_seq: Some(ev.source_seq),
         process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name,
@@ -836,61 +891,6 @@ fn unix_epoch_nanos(timestamp: SystemTime) -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
         .unwrap_or(0)
-}
-
-/// Does this `/proc/net` entry describe the connection the probe reported?
-///
-/// The metadata is resolved from `/proc/<pid>/fd/<fd>` well after the
-/// `connect()` entry that produced the event. A process that closes and reuses
-/// the descriptor in between — what happy-eyeballs does on every dual-stack
-/// name — hands back a different socket, whose local address and protocol
-/// would then be attributed to this connection. That is the same failure as
-/// reporting an unassigned address: a value nothing downstream can tell apart
-/// from a measured one. Accept the entry only when its remote end is the one
-/// the probe saw.
-fn socket_matches_connection(
-    metadata: &SocketMetadata,
-    destination_ip: &str,
-    destination_port: u16,
-) -> bool {
-    let ip_matches = metadata
-        .destination_ip
-        .as_deref()
-        .is_none_or(|value| same_ip(value, destination_ip));
-    let port_matches = metadata
-        .destination_port
-        .is_none_or(|value| value == destination_port);
-    ip_matches && port_matches
-}
-
-/// Compare two addresses, treating an IPv4-mapped form as its IPv4 address.
-///
-/// A dual-stack socket reaching an IPv4 peer is listed in `/proc/net/tcp6` as
-/// `::ffff:a.b.c.d`, while the probe read `a.b.c.d` out of the `sockaddr`.
-/// They are the same peer.
-fn same_ip(left: &str, right: &str) -> bool {
-    match (left.parse::<IpAddr>(), right.parse::<IpAddr>()) {
-        (Ok(left), Ok(right)) => unmap_ipv4(left) == unmap_ipv4(right),
-        _ => left == right,
-    }
-}
-
-fn unmap_ipv4(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(address) => address
-            .to_ipv4_mapped()
-            .map_or(IpAddr::V6(address), IpAddr::V4),
-        address => address,
-    }
-}
-
-fn filter_unspecified_ip(value: Option<String>) -> Option<String> {
-    let ip = value?;
-    let is_unspecified = ip
-        .parse::<std::net::IpAddr>()
-        .map(|value| value.is_unspecified())
-        .unwrap_or(false);
-    (!is_unspecified).then_some(ip)
 }
 
 fn attach_optional_tracepoint(
@@ -973,6 +973,8 @@ mod tests {
     /// Tests that exercise argv override `args*` explicitly.
     fn raw_process_event(kind: u32, pid: u32, image: &str) -> ProcessEvent {
         ProcessEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind,
             pid,
             uid: 1000,
@@ -1012,6 +1014,8 @@ mod tests {
     /// `/proc` lookup to resolve.
     fn file_event(kind: u32, pid: u32, path: &str, comm: &str) -> FileEvent {
         FileEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind,
             pid,
             uid: 1000,
@@ -1059,6 +1063,8 @@ mod tests {
         };
         let (payload, payload_len) = dns_query_payload(name, qtype);
         DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -1280,22 +1286,28 @@ mod tests {
     }
 
     #[test]
-    fn build_network_event_omits_zero_source_and_protocol_guessing() {
+    fn build_network_event_omits_unmeasured_source_and_protocol_guessing() {
         let mut daddr = [0u8; 16];
         daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
 
         let raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 77,
             uid: 1000,
             fd: -1,
             ret: 0,
             dport: 443,
-            sport: 0,
+            sport: 51324,
             af: 2,
             sock_type: 0,
             _pad1: 0,
             daddr,
-            saddr: [0u8; 16],
+            saddr: {
+                let mut source = [0u8; 16];
+                source[..4].copy_from_slice(&[10, 0, 0, 5]);
+                source
+            },
         };
 
         let event = build_network_event(&raw).expect("network event should build");
@@ -1316,10 +1328,10 @@ mod tests {
         daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
 
         let mut raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 77,
             uid: 1000,
-            // A closed descriptor, so `/proc/net` cannot supply a protocol and
-            // only the kernel-side socket type can answer.
             fd: -1,
             ret: 0,
             dport: 53,
@@ -1346,8 +1358,10 @@ mod tests {
     }
 
     #[test]
-    fn build_network_event_supports_ipv6() {
+    fn build_network_event_supports_ipv6_and_omits_unmeasured_source() {
         let raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 88,
             uid: 1000,
             fd: -1,
@@ -1365,45 +1379,12 @@ mod tests {
         match event.payload {
             SensorPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("2001:db8::10"));
-                assert_eq!(fields.source_ip.as_deref(), Some("fe80::20"));
+                assert!(fields.source_ip.is_none());
                 assert_eq!(fields.destination_port.as_deref(), Some("8443"));
-                assert_eq!(fields.source_port.as_deref(), Some("5353"));
+                assert!(fields.source_port.is_none());
             }
             other => panic!("unexpected payload: {:?}", other),
         }
-    }
-
-    #[test]
-    fn socket_metadata_from_a_reused_descriptor_is_rejected() {
-        // Happy-eyeballs closes the losing socket and the descriptor comes
-        // back for the next attempt, so a late `/proc` read can describe a
-        // connection to a different peer entirely.
-        let reused = SocketMetadata {
-            source_ip: Some("2001:db8::20".to_string()),
-            source_port: Some(41406),
-            destination_ip: Some("2606:4700:10::6814:179a".to_string()),
-            destination_port: Some(443),
-            protocol: Some("tcp".to_string()),
-        };
-        assert!(!socket_matches_connection(&reused, "198.51.100.10", 443));
-
-        let same_peer = SocketMetadata {
-            destination_ip: Some("198.51.100.10".to_string()),
-            ..reused.clone()
-        };
-        assert!(socket_matches_connection(&same_peer, "198.51.100.10", 443));
-
-        // The same host on another port is another connection.
-        assert!(!socket_matches_connection(&same_peer, "198.51.100.10", 80));
-
-        // A dual-stack socket lists an IPv4 peer in v4-mapped form. It is the
-        // same connection, and rejecting it would throw away good data.
-        let dual_stack = SocketMetadata {
-            source_ip: Some("::ffff:192.168.1.27".to_string()),
-            destination_ip: Some("::ffff:198.51.100.10".to_string()),
-            ..reused
-        };
-        assert!(socket_matches_connection(&dual_stack, "198.51.100.10", 443));
     }
 
     #[test]
@@ -1415,6 +1396,8 @@ mod tests {
         // connection was established.
         for result in [-111, -113, -110] {
             let raw = NetworkEvent {
+                event_time_ns: 0,
+                source_seq: 0,
                 pid: 77,
                 uid: 1000,
                 fd: -1,
@@ -1444,6 +1427,8 @@ mod tests {
         // and -EINTR leaves the kernel completing one in the background.
         for result in [0, -115, -4] {
             let raw = NetworkEvent {
+                event_time_ns: 0,
+                source_seq: 0,
                 pid: 77,
                 uid: 1000,
                 fd: -1,
@@ -1472,6 +1457,8 @@ mod tests {
     #[test]
     fn build_network_event_rejects_unspecified_destination() {
         let raw = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 77,
             uid: 1000,
             fd: -1,
@@ -1845,6 +1832,8 @@ mod tests {
     fn build_dns_event_maps_linux_dns_payload() {
         let (payload, payload_len) = dns_query_payload("example.test", 1);
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -1874,6 +1863,8 @@ mod tests {
     #[test]
     fn build_dns_event_falls_back_to_query_name_field() {
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -1901,6 +1892,8 @@ mod tests {
     fn parse_dns_query_name_rejects_truncated_payload() {
         let (payload, payload_len) = dns_query_payload("example.test", 1);
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -2082,6 +2075,8 @@ level: high
     #[test]
     fn build_dns_event_drops_empty_record_type() {
         let raw = DnsEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 1,
             uid: 0,

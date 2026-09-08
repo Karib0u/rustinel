@@ -33,6 +33,8 @@ fn alert(category: EventCategory, event_id: u16, opcode: u8, fields: EventFields
         engine: DetectionEngine::Sigma,
         event: NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "test".to_string(),
             category,
@@ -556,6 +558,8 @@ fn test_rule_id_mapping_and_omit_behavior() {
         engine: DetectionEngine::Sigma,
         event: NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "test".to_string(),
             category: EventCategory::Process,

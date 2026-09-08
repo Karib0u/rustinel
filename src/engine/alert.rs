@@ -194,6 +194,8 @@ level: high
     fn process_event(image: &str) -> NormalizedEvent {
         NormalizedEvent {
             timestamp: "2026-08-16T12:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "test".to_string(),
             category: EventCategory::Process,

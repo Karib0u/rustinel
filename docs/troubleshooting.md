@@ -425,6 +425,19 @@ the saturation was brief and bursty. For what a drop on each channel costs, see
 [Pipeline Telemetry](configuration.md#pipeline-telemetry). `sensor_events` is
 always the widest gap.
 
+On Linux, also inspect the `linux_ebpf` check. It covers loss before the shared
+`sensor_events` channel and names the affected ring:
+
+```text
+  [WARN] linux_ebpf: process ring was full 42 times
+      detail: process ring: 10042 seen, 10000 submitted, 0 in flight, 42 ring full, 0 map full, 10000 received, 10000 decoded, 10000 emitted, 0 internal, 0 dropped
+```
+
+`in flight` is queue occupancy at snapshot time, not loss. A growing
+`ring full`, `map full`, `short reads`, or userspace drop count is a detection
+gap. `unresolved_file_events` is the subset of file events whose relative path
+could not be rebuilt safely, so those events reached no rule.
+
 A backed-up YARA queue is usually event volume rather than one stuck scan:
 `scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold
 its worker.

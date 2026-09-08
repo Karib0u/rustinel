@@ -82,6 +82,7 @@ impl Recording {
             lines: BufReader::new(file).lines(),
             payload_path: self.payload_path.clone(),
             line_number: 0,
+            previous_ingest_seq: 0,
         })
     }
 }
@@ -91,6 +92,7 @@ pub struct RecordedEvents {
     lines: std::io::Lines<BufReader<File>>,
     payload_path: PathBuf,
     line_number: u64,
+    previous_ingest_seq: u64,
 }
 
 impl Iterator for RecordedEvents {
@@ -114,13 +116,28 @@ impl Iterator for RecordedEvents {
             // The checksum already proved the payload is byte-for-byte what
             // capture wrote, so a line that will not parse is a real defect
             // rather than a damaged file. Name the line so it can be found.
-            return Some(serde_json::from_str(&line).with_context(|| {
+            let event: NormalizedEvent = match serde_json::from_str(&line).with_context(|| {
                 format!(
                     "failed to parse event on line {} of {}",
                     self.line_number,
                     self.payload_path.display()
                 )
-            }));
+            }) {
+                Ok(event) => event,
+                Err(err) => return Some(Err(err)),
+            };
+
+            if event.ingest_seq <= self.previous_ingest_seq {
+                return Some(Err(anyhow::anyhow!(
+                    "event on line {} of {} has ingest_seq {}, which does not follow {}",
+                    self.line_number,
+                    self.payload_path.display(),
+                    event.ingest_seq,
+                    self.previous_ingest_seq
+                )));
+            }
+            self.previous_ingest_seq = event.ingest_seq;
+            return Some(Ok(event));
         }
     }
 }
@@ -219,6 +236,8 @@ mod tests {
     fn process_event(pid: &str) -> NormalizedEvent {
         NormalizedEvent {
             timestamp: "2026-08-16T10:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: pid.parse().expect("test pid is numeric"),
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::Process,
@@ -291,6 +310,30 @@ mod tests {
         assert_eq!(events[0].get_field("ProcessId"), Some("100"));
         assert_eq!(events[1].get_field("ProcessId"), Some("200"));
         assert_eq!(recording.manifest().platform, Platform::Windows);
+    }
+
+    #[tokio::test]
+    async fn one_thousand_same_second_events_replay_in_ingest_order() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let payload = temp.path().join("burst.ndjson");
+        let recorder =
+            CaptureRecorder::start(payload.clone(), Platform::Windows).expect("capture starts");
+        let sink = recorder.sink();
+        for ingest_seq in 1..=1_000 {
+            sink.record(&process_event(&ingest_seq.to_string()));
+        }
+        drop(sink);
+        recorder.finish().await.expect("capture finalizes");
+
+        let recording = Recording::open(&payload).expect("recording opens");
+        let ingest_order: Vec<u64> = recording
+            .events()
+            .expect("payload opens")
+            .map(|event| event.map(|event| event.ingest_seq))
+            .collect::<anyhow::Result<_>>()
+            .expect("events parse");
+
+        assert_eq!(ingest_order, (1..=1_000).collect::<Vec<_>>());
     }
 
     #[tokio::test]

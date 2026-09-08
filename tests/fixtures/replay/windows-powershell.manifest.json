@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "payload": "windows-powershell.ndjson",
   "rustinel_version": "1.3.0",
   "platform": "windows",
@@ -11,6 +11,6 @@
     "written": 4,
     "lost": 0
   },
-  "payload_bytes": 1845,
-  "payload_sha256": "f0834afe18baf43eb70d50aef846941ee83e4507c789895868cde0272917d9f2"
+  "payload_bytes": 1909,
+  "payload_sha256": "c170faf14b6cfdb167a5dfdbfb730b17512bbe991b4f1e1a9b3e6873f0a97b9b"
 }

@@ -54,6 +54,8 @@ fn engine_with_feed(dir: &Path, count: usize) -> IocEngine {
 fn dns_event(query_name: &str) -> NormalizedEvent {
     NormalizedEvent {
         timestamp: "2025-01-01T00:00:00Z".to_string(),
+        source_seq: None,
+        ingest_seq: 0,
         platform: Platform::Linux,
         provider: "bench".to_string(),
         category: EventCategory::Dns,

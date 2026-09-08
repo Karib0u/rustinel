@@ -60,7 +60,10 @@ use aya_ebpf::{
     programs::TracePointContext,
 };
 
-use crate::events::{connect_result_is_connection, NetworkEvent, SOCK_TYPE_UNKNOWN};
+use crate::events::{
+    connect_result_is_connection, event_metadata, NetworkEvent, SOCK_TYPE_UNKNOWN,
+};
+use crate::telemetry::{record_map_full, record_ring_full, record_submitted, NETWORK_FAMILY};
 
 /// AF_INET (IPv4).
 const AF_INET: u16 = 2;
@@ -115,7 +118,7 @@ static SOCKET_TYPES: LruHashMap<u64, u8> = LruHashMap::with_max_entries(16_384, 
 /// Connect candidate a thread is currently inside, keyed by TID.
 ///
 /// A thread is inside exactly one `connect(2)` at a time, so one slot per
-/// thread is enough to carry the event from entry to exit. At 56 bytes per
+/// thread is enough to carry the event from entry to exit. At 72 bytes per
 /// entry this map costs well under a megabyte of kernel memory.
 #[map]
 static NETWORK_PENDING: HashMap<u32, NetworkEvent> = HashMap::with_max_entries(16_384, 0);
@@ -184,7 +187,9 @@ unsafe fn try_handle_socket(ctx: &TracePointContext) -> Result<u32, i64> {
     }
 
     let sock_type = (ctx.read_at::<i64>(24)? & SOCK_TYPE_MASK) as u8;
-    let _ = SOCKET_PENDING.insert(&tid, &sock_type, 0);
+    if SOCKET_PENDING.insert(&tid, &sock_type, 0).is_err() {
+        record_map_full(NETWORK_FAMILY);
+    }
     Ok(0)
 }
 
@@ -260,6 +265,8 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
     };
 
     let event = NetworkEvent {
+        event_time_ns: 0,
+        source_seq: 0,
         pid,
         uid,
         fd,
@@ -276,7 +283,9 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
         daddr,
         saddr: [0u8; 16],
     };
-    let _ = NETWORK_PENDING.insert(&tid, &event, 0);
+    if NETWORK_PENDING.insert(&tid, &event, 0).is_err() {
+        record_map_full(NETWORK_FAMILY);
+    }
 
     Ok(0)
 }
@@ -297,10 +306,14 @@ unsafe fn try_handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
     }
     event.ret = ret;
 
-    if let Some(mut entry) = NETWORK_RING.reserve::<NetworkEvent>(0) {
-        entry.write(event);
-        entry.submit(0);
-    }
+    let Some(mut entry) = NETWORK_RING.reserve::<NetworkEvent>(0) else {
+        record_ring_full(NETWORK_FAMILY);
+        return Ok(0);
+    };
+    (event.event_time_ns, event.source_seq) = event_metadata();
+    entry.write(event);
+    entry.submit(0);
+    record_submitted(NETWORK_FAMILY);
 
     Ok(0)
 }

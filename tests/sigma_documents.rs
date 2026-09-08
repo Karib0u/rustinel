@@ -20,6 +20,8 @@ fn engine_for(path: &std::path::Path) -> Engine {
 fn process_event(timestamp: &str, user: &str) -> NormalizedEvent {
     NormalizedEvent {
         timestamp: timestamp.to_string(),
+        source_seq: None,
+        ingest_seq: 0,
         platform: Platform::Linux,
         provider: "test".to_string(),
         category: EventCategory::Process,
@@ -53,6 +55,8 @@ fn process_event(timestamp: &str, user: &str) -> NormalizedEvent {
 fn network_event(timestamp: &str, user: &str) -> NormalizedEvent {
     NormalizedEvent {
         timestamp: timestamp.to_string(),
+        source_seq: None,
+        ingest_seq: 0,
         platform: Platform::Linux,
         provider: "test".to_string(),
         category: EventCategory::Network,

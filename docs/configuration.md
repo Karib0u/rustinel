@@ -301,6 +301,38 @@ module, WMI, service, task, and security categories. On Windows,
 `windows_process_command_line` reports attempted, captured, and missed command
 lines after the normalizer has tried its final live-process fallback.
 
+On Linux, `linux_ebpf.families` reconciles each process, network, file, and DNS
+ring from its kernel hook through userspace decoding. Kernel values are summed
+from per-CPU counters once per second.
+
+| Field | Meaning |
+| --- | --- |
+| `kernel_seen` | Events that passed the kernel filter and reached the emit path |
+| `kernel_submitted` | Events committed to the ring |
+| `kernel_ring_full` | Events lost because a ring had no space |
+| `kernel_oversized` | Events rejected because their payload did not fit |
+| `kernel_map_full` | Pending event inserts rejected by a full kernel map |
+| `in_flight` | Submitted records still waiting for userspace at snapshot time |
+| `userspace_received` | Ring records observed by the poller |
+| `userspace_decoded` | Records with a valid family-specific layout |
+| `short_reads` | Records too short for that layout |
+| `userspace_internal` | Valid file-index control records consumed inside the poller |
+| `canonical_emitted` | Decoded events offered to the shared sensor channel |
+| `userspace_dropped` | Decoded records that produced no usable event |
+| `unresolved_file_events` | File events dropped because their path could not be rebuilt |
+
+The derived queue occupancy is `kernel_submitted - userspace_received`. It is
+reported separately from loss because a snapshot may catch records that are
+still waiting to be drained. `rustinel doctor` reports this section as
+`linux_ebpf` and names any ring that filled.
+
+The counters reconcile as `kernel_seen = kernel_submitted + kernel_ring_full +
+kernel_oversized`, `userspace_received = userspace_decoded + short_reads`, and
+`userspace_decoded = canonical_emitted + userspace_internal +
+userspace_dropped`. Across all four rings, `canonical_emitted` also equals the
+accepted plus dropped totals for the shared `sensor_events` channel once an
+update is quiescent.
+
 On Windows the snapshot also carries a `registry` section, because a registry
 write can be lost *before* any channel sees it: `SetValueKey` carries no key
 path, so a write whose key cannot be named is discarded inside the sensor and

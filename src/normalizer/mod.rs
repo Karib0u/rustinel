@@ -5,6 +5,7 @@
 //! behavior.
 
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -20,6 +21,7 @@ pub struct Normalizer {
     process_cache: Arc<ProcessCache>,
     sid_cache: Arc<SidCache>,
     dns_cache: Arc<DnsCache>,
+    ingest_seq: AtomicU64,
 }
 
 impl Normalizer {
@@ -33,6 +35,7 @@ impl Normalizer {
             process_cache,
             sid_cache,
             dns_cache,
+            ingest_seq: AtomicU64::new(0),
         }
     }
 
@@ -57,6 +60,8 @@ impl Normalizer {
 
         Some(NormalizedEvent {
             timestamp: format_timestamp(event.timestamp),
+            source_seq: event.source_seq,
+            ingest_seq: self.ingest_seq.fetch_add(1, Ordering::Relaxed) + 1,
             platform: event.platform,
             provider: event.provider.to_string(),
             category: event.category(),
@@ -387,7 +392,7 @@ fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
 }
 
 fn format_timestamp(timestamp: SystemTime) -> String {
-    DateTime::<Utc>::from(timestamp).to_rfc3339_opts(SecondsFormat::Secs, true)
+    DateTime::<Utc>::from(timestamp).to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
 fn process_cache_time_fallback(timestamp: SystemTime) -> u64 {
@@ -436,6 +441,55 @@ mod tests {
         )
     }
 
+    #[test]
+    fn canonical_events_keep_nanoseconds_and_distinct_ordering() {
+        let normalizer = build_normalizer();
+        #[cfg(not(windows))]
+        const EVENT_NANOS: u32 = 123_456_789;
+        #[cfg(not(windows))]
+        const EXPECTED_TIMESTAMP: &str = "1970-01-01T00:00:10.123456789Z";
+        // Windows SystemTime uses FILETIME's native 100 ns resolution.
+        #[cfg(windows)]
+        const EVENT_NANOS: u32 = 123_456_700;
+        #[cfg(windows)]
+        const EXPECTED_TIMESTAMP: &str = "1970-01-01T00:00:10.123456700Z";
+
+        for expected_ingest_seq in 1..=1_000 {
+            let mut event = process_start_event(Platform::Linux, "ebpf", expected_ingest_seq);
+            event.timestamp = SystemTime::UNIX_EPOCH + Duration::new(10, EVENT_NANOS);
+            event.source_seq = Some(10_000 + u64::from(expected_ingest_seq));
+
+            let normalized = normalizer.normalize(&event).expect("event normalizes");
+            assert_eq!(normalized.timestamp, EXPECTED_TIMESTAMP);
+            assert_eq!(
+                normalized.source_seq,
+                Some(10_000 + u64::from(expected_ingest_seq))
+            );
+            assert_eq!(normalized.ingest_seq, u64::from(expected_ingest_seq));
+        }
+    }
+
+    #[test]
+    fn windows_etw_ingest_order_does_not_flatten_session_time_skew() {
+        let normalizer = build_normalizer();
+        let mut process_session = process_start_event(Platform::Windows, "etw", 41);
+        process_session.timestamp = SystemTime::UNIX_EPOCH + Duration::from_millis(10_005);
+        let mut main_session = process_start_event(Platform::Windows, "etw", 42);
+        main_session.timestamp = SystemTime::UNIX_EPOCH + Duration::from_millis(10_000);
+
+        let first = normalizer
+            .normalize(&process_session)
+            .expect("process-session event normalizes");
+        let second = normalizer
+            .normalize(&main_session)
+            .expect("main-session event normalizes");
+
+        assert!(first.timestamp > second.timestamp);
+        assert_eq!((first.ingest_seq, second.ingest_seq), (1, 2));
+        assert!(first.source_seq.is_none());
+        assert!(second.source_seq.is_none());
+    }
+
     fn process_start_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
         SensorEvent {
             platform,
@@ -447,6 +501,7 @@ mod tests {
             },
             pid: Some(pid),
             timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(10),
+            source_seq: None,
             process_start_key: Some(ProcessStartKey {
                 pid,
                 start_time: 123_456,
@@ -490,6 +545,7 @@ mod tests {
             },
             pid: Some(pid),
             timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(20),
+            source_seq: None,
             process_start_key: with_start_key.then_some(ProcessStartKey {
                 pid,
                 start_time: 123_456,
@@ -528,6 +584,7 @@ mod tests {
             },
             pid: Some(pid),
             timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(30),
+            source_seq: None,
             process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
@@ -555,6 +612,7 @@ mod tests {
             },
             pid: Some(pid),
             timestamp: SystemTime::UNIX_EPOCH + Duration::from_secs(40),
+            source_seq: None,
             process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
@@ -617,6 +675,7 @@ mod tests {
             },
             pid: Some(42),
             timestamp: SystemTime::UNIX_EPOCH,
+            source_seq: None,
             process_start_key: Some(ProcessStartKey {
                 pid: 42,
                 start_time: 99,
@@ -694,6 +753,7 @@ mod tests {
             },
             pid: Some(7),
             timestamp: SystemTime::UNIX_EPOCH,
+            source_seq: None,
             process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
@@ -744,6 +804,7 @@ mod tests {
             },
             pid: Some(9),
             timestamp: SystemTime::UNIX_EPOCH,
+            source_seq: None,
             process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
@@ -796,6 +857,7 @@ mod tests {
             },
             pid: Some(9),
             timestamp: SystemTime::UNIX_EPOCH,
+            source_seq: None,
             process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,

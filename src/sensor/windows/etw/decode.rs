@@ -180,6 +180,7 @@ pub(super) fn decode_single_record(
         normalization,
         pid: decoded.pid,
         timestamp: filetime_to_system_time(record.raw_timestamp()),
+        source_seq: None,
         process_start_key: decoded.process_start_key,
         payload: decoded.payload,
     })
@@ -473,6 +474,7 @@ pub(super) fn decode_kernel_file_record(
         normalization,
         pid,
         timestamp: filetime_to_system_time(record.raw_timestamp()),
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::File(fields),
     })

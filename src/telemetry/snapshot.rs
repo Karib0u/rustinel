@@ -293,6 +293,102 @@ pub struct ProcessCommandLineSnapshot {
     pub missed: u64,
 }
 
+/// End-to-end counters for one Linux eBPF ring.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxEbpfFamilySnapshot {
+    pub ring: String,
+    pub kernel_seen: u64,
+    pub kernel_submitted: u64,
+    pub kernel_ring_full: u64,
+    pub kernel_oversized: u64,
+    pub kernel_map_full: u64,
+    pub userspace_received: u64,
+    pub userspace_decoded: u64,
+    pub short_reads: u64,
+    /// Valid control records consumed by the Linux path index.
+    #[serde(default)]
+    pub userspace_internal: u64,
+    pub canonical_emitted: u64,
+    pub userspace_dropped: u64,
+    pub unresolved_file_events: u64,
+    /// Records committed by the kernel but not yet observed by userspace.
+    #[serde(default)]
+    pub in_flight: u64,
+}
+
+impl LinuxEbpfFamilySnapshot {
+    /// Records committed by the kernel but not yet observed by userspace.
+    pub fn queue_occupancy(&self) -> u64 {
+        self.in_flight
+    }
+
+    pub fn kernel_is_reconciled(&self) -> bool {
+        self.kernel_seen
+            == self
+                .kernel_submitted
+                .saturating_add(self.kernel_ring_full)
+                .saturating_add(self.kernel_oversized)
+    }
+
+    pub fn receive_is_reconciled(&self) -> bool {
+        self.userspace_received == self.userspace_decoded.saturating_add(self.short_reads)
+    }
+
+    pub fn decode_is_reconciled(&self) -> bool {
+        self.userspace_decoded
+            == self
+                .canonical_emitted
+                .saturating_add(self.userspace_dropped)
+                .saturating_add(self.userspace_internal)
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.kernel_seen == 0
+            && self.kernel_map_full == 0
+            && self.userspace_received == 0
+            && self.userspace_dropped == 0
+    }
+
+    pub fn describe(&self) -> String {
+        format!(
+            "{} ring: {} seen, {} submitted, {} in flight, {} ring full, {} map full, {} received, {} decoded, {} emitted, {} internal, {} dropped",
+            self.ring,
+            self.kernel_seen,
+            self.kernel_submitted,
+            self.queue_occupancy(),
+            self.kernel_ring_full,
+            self.kernel_map_full,
+            self.userspace_received,
+            self.userspace_decoded,
+            self.canonical_emitted,
+            self.userspace_internal,
+            self.userspace_dropped,
+        )
+    }
+}
+
+/// Linux eBPF pipeline accounting, absent when that sensor did not run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxEbpfSnapshot {
+    pub families: Vec<LinuxEbpfFamilySnapshot>,
+}
+
+impl LinuxEbpfSnapshot {
+    pub fn active_families(&self) -> Vec<&LinuxEbpfFamilySnapshot> {
+        self.families
+            .iter()
+            .filter(|family| !family.is_idle())
+            .collect()
+    }
+
+    pub fn canonical_emitted(&self) -> u64 {
+        self.families
+            .iter()
+            .map(|family| family.canonical_emitted)
+            .fold(0u64, u64::saturating_add)
+    }
+}
+
 impl ProcessCommandLineSnapshot {
     pub fn capture_rate_pct(&self) -> f64 {
         if self.attempted == 0 {
@@ -344,6 +440,9 @@ pub struct TelemetrySnapshot {
     /// Sensor ingress volume and loss split by event category.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sensor_events_by_category: Vec<SensorEventCategorySnapshot>,
+    /// Linux eBPF kernel and userspace reconciliation counters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linux_ebpf: Option<LinuxEbpfSnapshot>,
     /// Final command-line availability for accepted Windows process starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub windows_process_command_line: Option<ProcessCommandLineSnapshot>,
@@ -374,6 +473,7 @@ impl TelemetrySnapshot {
                 .map(|channel| channel.counters().snapshot())
                 .collect(),
             sensor_events_by_category: super::sensor_event_category_snapshots(),
+            linux_ebpf: super::LINUX_EBPF.snapshot(),
             windows_process_command_line: super::WINDOWS_PROCESS_COMMAND_LINE.snapshot(),
             registry: super::REGISTRY.snapshot(),
             file_attribution: super::WINDOWS_FILE_ATTRIBUTION.snapshot(),
@@ -544,6 +644,7 @@ mod tests {
             uptime_secs: 60,
             channels,
             sensor_events_by_category: Vec::new(),
+            linux_ebpf: None,
             windows_process_command_line: None,
             registry: None,
             file_attribution: None,
@@ -605,6 +706,56 @@ mod tests {
         };
 
         assert_eq!(fidelity.capture_rate_pct(), 75.0);
+    }
+
+    #[test]
+    fn linux_ring_counters_reconcile_when_drained() {
+        let ring = LinuxEbpfFamilySnapshot {
+            ring: "process".to_string(),
+            kernel_seen: 105,
+            kernel_submitted: 100,
+            kernel_ring_full: 4,
+            kernel_oversized: 1,
+            kernel_map_full: 0,
+            userspace_received: 100,
+            userspace_decoded: 99,
+            short_reads: 1,
+            userspace_internal: 1,
+            canonical_emitted: 97,
+            userspace_dropped: 1,
+            unresolved_file_events: 0,
+            in_flight: 0,
+        };
+
+        assert!(ring.kernel_is_reconciled());
+        assert!(ring.receive_is_reconciled());
+        assert!(ring.decode_is_reconciled());
+        assert_eq!(ring.queue_occupancy(), 0);
+    }
+
+    #[test]
+    fn linux_queue_occupancy_is_not_a_drop() {
+        let ring = LinuxEbpfFamilySnapshot {
+            ring: "dns".to_string(),
+            kernel_seen: 12,
+            kernel_submitted: 12,
+            kernel_ring_full: 0,
+            kernel_oversized: 0,
+            kernel_map_full: 0,
+            userspace_received: 10,
+            userspace_decoded: 10,
+            short_reads: 0,
+            userspace_internal: 0,
+            canonical_emitted: 10,
+            userspace_dropped: 0,
+            unresolved_file_events: 0,
+            in_flight: 2,
+        };
+
+        assert_eq!(ring.queue_occupancy(), 2);
+        assert!(ring.kernel_is_reconciled());
+        assert!(ring.receive_is_reconciled());
+        assert!(ring.decode_is_reconciled());
     }
 
     fn file_attribution(resolved_from_index: u64, unresolved: u64) -> FileAttributionSnapshot {
