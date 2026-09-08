@@ -14,15 +14,18 @@
 //! | `handle_connect_exit` | `syscalls/sys_exit_connect` | emit Event 3    |
 //! | `handle_socket`       | `syscalls/sys_enter_socket` | capture type    |
 //! | `handle_socket_exit`  | `syscalls/sys_exit_socket`  | index fd type   |
-//! | `handle_openat`       | `syscalls/sys_enter_openat` | queue Event 11  |
-//! | `handle_vfs_create`   | `kprobe/vfs_create`         | confirm create  |
-//! | `handle_openat_exit`  | `syscalls/sys_exit_openat`  | emit Event 11   |
-//! | `handle_unlinkat`     | `syscalls/sys_enter_unlinkat`| queue Event 23 |
-//! | `handle_unlinkat_exit`| `syscalls/sys_exit_unlinkat`| emit Event 23  |
-//! | `handle_renameat`     | `syscalls/sys_enter_renameat` | queue rename |
-//! | `handle_renameat_exit`| `syscalls/sys_exit_renameat`  | emit rename  |
-//! | `handle_renameat2`    | `syscalls/sys_enter_renameat2`| queue rename |
-//! | `handle_renameat2_exit`| `syscalls/sys_exit_renameat2`| emit rename |
+//! | `handle_open*`        | `sys_enter_open/openat/openat2` | queue file event |
+//! | `handle_creat`        | `syscalls/sys_enter_creat`  | queue Event 11 |
+//! | `handle_vfs_create`   | `kprobe/vfs_create`         | confirm create |
+//! | `handle_open*_exit`   | `sys_exit_open/openat/openat2` | emit file event |
+//! | `handle_unlink*`      | `sys_enter_unlink/unlinkat` | queue Event 23 |
+//! | `handle_unlink*_exit` | `sys_exit_unlink/unlinkat`  | emit Event 23 |
+//! | `handle_rename*`      | `sys_enter_rename/renameat/renameat2` | queue rename |
+//! | `handle_rename*_exit` | `sys_exit_rename/renameat/renameat2` | emit rename |
+//! | `handle_mkdir*`       | `sys_enter_mkdir/mkdirat` | queue directory create |
+//! | `handle_mkdir*_exit`  | `sys_exit_mkdir/mkdirat` | emit directory create |
+//! | `handle_rmdir`        | `syscalls/sys_enter_rmdir`  | queue directory delete |
+//! | `handle_rmdir_exit`   | `syscalls/sys_exit_rmdir`   | emit directory delete |
 //! | `handle_sendto`       | `syscalls/sys_enter_sendto`  | emit DNS query |
 //! | `handle_sendmsg`      | `syscalls/sys_enter_sendmsg` | emit DNS query |
 //! | `handle_sendmmsg`     | `syscalls/sys_enter_sendmmsg`| emit DNS query |

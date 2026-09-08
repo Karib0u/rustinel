@@ -139,6 +139,17 @@ impl Sensor for EbpfSensor {
             "sys_exit_socket",
         )?;
         attach_tracepoint(&mut bpf, "handle_openat", "syscalls", "sys_enter_openat")?;
+        attach_optional_tracepoint(&mut bpf, "handle_open", "syscalls", "sys_enter_open")?;
+        attach_optional_tracepoint(&mut bpf, "handle_open_exit", "syscalls", "sys_exit_open")?;
+        attach_optional_tracepoint(&mut bpf, "handle_creat", "syscalls", "sys_enter_creat")?;
+        attach_optional_tracepoint(&mut bpf, "handle_creat_exit", "syscalls", "sys_exit_creat")?;
+        attach_tracepoint(&mut bpf, "handle_openat2", "syscalls", "sys_enter_openat2")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_openat2_exit",
+            "syscalls",
+            "sys_exit_openat2",
+        )?;
         attach_kprobe(&mut bpf, "handle_vfs_create", "vfs_create")?;
         attach_tracepoint(
             &mut bpf,
@@ -157,6 +168,13 @@ impl Sensor for EbpfSensor {
             "handle_unlinkat_exit",
             "syscalls",
             "sys_exit_unlinkat",
+        )?;
+        attach_optional_tracepoint(&mut bpf, "handle_unlink", "syscalls", "sys_enter_unlink")?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_unlink_exit",
+            "syscalls",
+            "sys_exit_unlink",
         )?;
         attach_tracepoint(
             &mut bpf,
@@ -182,6 +200,24 @@ impl Sensor for EbpfSensor {
             "syscalls",
             "sys_exit_renameat2",
         )?;
+        attach_optional_tracepoint(&mut bpf, "handle_rename", "syscalls", "sys_enter_rename")?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_rename_exit",
+            "syscalls",
+            "sys_exit_rename",
+        )?;
+        attach_optional_tracepoint(&mut bpf, "handle_mkdir", "syscalls", "sys_enter_mkdir")?;
+        attach_optional_tracepoint(&mut bpf, "handle_mkdir_exit", "syscalls", "sys_exit_mkdir")?;
+        attach_tracepoint(&mut bpf, "handle_mkdirat", "syscalls", "sys_enter_mkdirat")?;
+        attach_tracepoint(
+            &mut bpf,
+            "handle_mkdirat_exit",
+            "syscalls",
+            "sys_exit_mkdirat",
+        )?;
+        attach_optional_tracepoint(&mut bpf, "handle_rmdir", "syscalls", "sys_enter_rmdir")?;
+        attach_optional_tracepoint(&mut bpf, "handle_rmdir_exit", "syscalls", "sys_exit_rmdir")?;
         attach_tracepoint(&mut bpf, "handle_file_close", "syscalls", "sys_enter_close")?;
         attach_optional_tracepoint(&mut bpf, "handle_file_dup2", "syscalls", "sys_enter_dup2")?;
         attach_tracepoint(&mut bpf, "handle_file_dup3", "syscalls", "sys_enter_dup3")?;

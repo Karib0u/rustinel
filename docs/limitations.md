@@ -164,9 +164,9 @@ The Linux sensor covers process, network, file, and DNS.
   carries `PathTruncated` naming which side was cut. Since truncation removes
   the end of the path, `|endswith` rules and extension IOCs are what it defeats.
 - **File events whose path cannot be placed are dropped (bounded, counted).**
-  `openat`, `unlinkat`, and `renameat*` name their target with a directory
-  descriptor plus a possibly relative name, and the kernel does not expose the
-  resolved path. A process that exits before the drain leaves a name that
+  The `*at` file syscalls name their target with a directory descriptor plus a
+  possibly relative name, and the kernel does not expose the resolved path. A
+  process that exits before the drain leaves a name that
   neither `/proc/<pid>/cwd` nor the descriptor index can place, and it is
   dropped rather than reported as though `passwd` were `/etc/passwd`. Counted as
   `unresolved_file_events`.
