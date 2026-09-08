@@ -204,10 +204,10 @@ The Linux sensor covers process, network, file, and DNS.
   attempt starts and a later asynchronous failure is not retracted.
   `SourceIp`/`SourcePort` are **reported as absent**, never as `0.0.0.0`/`0`:
   the syscall never carries them and the probe does not read the bound address
-  back out of the socket. A `/proc/net` lookup fills them in when it provably
-  describes the same connection, which under happy-eyeballs it usually does
-  not, so most Linux network events carry no source address or port. Only
-  AF_INET and AF_INET6.
+  back out of the socket. The sensor does not try to reconstruct them later
+  from `/proc/net`: by then the descriptor may name a different socket, and
+  scanning the system-wide socket tables for every event stalls the ring drain
+  under connection churn. Only AF_INET and AF_INET6.
 - **`Protocol` is absent for sockets created before the sensor started.** The
   transport comes from the type the socket was created with, so `socket(2)` is
   watched and the type indexed by descriptor. A descriptor the sensor never

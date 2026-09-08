@@ -11,8 +11,6 @@ pub(crate) mod path_allowlist;
 #[cfg(windows)]
 pub mod pe;
 pub mod process;
-#[cfg(target_os = "linux")]
-pub mod socket;
 pub mod time;
 pub mod user;
 
@@ -30,8 +28,6 @@ pub use process::{
     hash_command_line, query_process_command_line, query_process_identity,
     validate_process_identity, ProcessIdentity,
 };
-#[cfg(target_os = "linux")]
-pub use socket::{query_socket_metadata, SocketMetadata};
 pub use time::now_timestamp_string;
 #[cfg(windows)]
 pub use user::lookup_account_sid;

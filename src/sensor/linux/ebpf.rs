@@ -11,7 +11,7 @@
 //!
 //! Requirements: Linux 5.8+ with BTF, `CAP_BPF` (or `CAP_SYS_ADMIN`).
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -31,9 +31,7 @@ use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
 };
-use crate::utils::{
-    lookup_username_by_uid, query_process_details, query_socket_metadata, SocketMetadata,
-};
+use crate::utils::{lookup_username_by_uid, query_process_details};
 
 use super::events::{
     bytes_to_string, connect_result_is_connection, parse_event, system_time_from_boot_ns, DnsEvent,
@@ -603,67 +601,27 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         return None;
     }
 
-    let (destination_ip, source_ip) = match ev.af {
+    let destination_ip = match ev.af {
         2 => {
             // AF_INET
             let dst = Ipv4Addr::new(ev.daddr[0], ev.daddr[1], ev.daddr[2], ev.daddr[3]);
-            let src = Ipv4Addr::new(ev.saddr[0], ev.saddr[1], ev.saddr[2], ev.saddr[3]);
             if dst.is_unspecified() {
                 return None;
             }
-            let source_ip = if src.is_unspecified() {
-                None
-            } else {
-                Some(src.to_string())
-            };
-            (dst.to_string(), source_ip)
+            dst.to_string()
         }
         10 => {
             // AF_INET6
             let dst = Ipv6Addr::from(ev.daddr);
-            let src = Ipv6Addr::from(ev.saddr);
             if dst.is_unspecified() {
                 return None;
             }
-            let source_ip = if src.is_unspecified() {
-                None
-            } else {
-                Some(src.to_string())
-            };
-            (dst.to_string(), source_ip)
+            dst.to_string()
         }
         _ => return None,
     };
 
-    // `/proc` is read after the fact, so it may describe a different socket
-    // than the one this event captured; see `socket_matches_connection`.
-    let socket_metadata = query_socket_metadata(ev.pid, ev.fd)
-        .filter(|value| socket_matches_connection(value, &destination_ip, ev.dport));
     let user = resolved_linux_user(ev.uid);
-    let source_ip = source_ip.or_else(|| {
-        socket_metadata
-            .as_ref()
-            .and_then(|value| filter_unspecified_ip(value.source_ip.clone()))
-            // A v4-mapped local address belongs to an IPv4 connection; keeping
-            // the `::ffff:` form would make `network.type` disagree with the
-            // destination it is paired with.
-            .map(|value| match value.parse::<IpAddr>() {
-                Ok(address) => unmap_ipv4(address).to_string(),
-                Err(_) => value,
-            })
-    });
-    let source_port = if ev.sport > 0 {
-        Some(ev.sport.to_string())
-    } else {
-        // An unbound socket can still be listed with a local port of 0. That
-        // is a placeholder, not a measurement, so it is dropped like the
-        // unspecified source address above.
-        socket_metadata
-            .as_ref()
-            .and_then(|value| value.source_port)
-            .filter(|port| *port > 0)
-            .map(|port| port.to_string())
-    };
 
     Some(SensorEvent {
         platform: Platform::Linux,
@@ -679,21 +637,20 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(destination_ip),
-            source_ip,
+            // The syscall tracepoint does not measure the kernel-assigned
+            // source tuple. A later procfs lookup is both racy and unbounded,
+            // so source fields stay absent until the kernel probe supplies it.
+            source_ip: None,
             destination_port: Some(ev.dport.to_string()),
-            source_port,
+            source_port: None,
             process_id: Some(ev.pid.to_string()),
             // Enriched by the normalizer from ProcessCache if PID is known.
             image: None,
             user: Some(user),
             destination_hostname: None,
-            // The kernel-side socket type is authoritative: it is recorded when
-            // the socket is created, while `/proc/net` is read after the event
-            // is drained and answers for whatever the descriptor points at then.
-            protocol: ev
-                .transport()
-                .map(str::to_string)
-                .or_else(|| socket_metadata.and_then(|value| value.protocol)),
+            // The kernel-side socket type is authoritative: it is recorded
+            // when the socket is created rather than guessed after the event.
+            protocol: ev.transport().map(str::to_string),
             // The probe hooks `connect()` only, so every captured connection
             // is one this host opened. `accept()` is not hooked, so no inbound
             // connection can reach here and be mislabelled.
@@ -841,61 +798,6 @@ fn unix_epoch_nanos(timestamp: SystemTime) -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
         .unwrap_or(0)
-}
-
-/// Does this `/proc/net` entry describe the connection the probe reported?
-///
-/// The metadata is resolved from `/proc/<pid>/fd/<fd>` well after the
-/// `connect()` entry that produced the event. A process that closes and reuses
-/// the descriptor in between — what happy-eyeballs does on every dual-stack
-/// name — hands back a different socket, whose local address and protocol
-/// would then be attributed to this connection. That is the same failure as
-/// reporting an unassigned address: a value nothing downstream can tell apart
-/// from a measured one. Accept the entry only when its remote end is the one
-/// the probe saw.
-fn socket_matches_connection(
-    metadata: &SocketMetadata,
-    destination_ip: &str,
-    destination_port: u16,
-) -> bool {
-    let ip_matches = metadata
-        .destination_ip
-        .as_deref()
-        .is_none_or(|value| same_ip(value, destination_ip));
-    let port_matches = metadata
-        .destination_port
-        .is_none_or(|value| value == destination_port);
-    ip_matches && port_matches
-}
-
-/// Compare two addresses, treating an IPv4-mapped form as its IPv4 address.
-///
-/// A dual-stack socket reaching an IPv4 peer is listed in `/proc/net/tcp6` as
-/// `::ffff:a.b.c.d`, while the probe read `a.b.c.d` out of the `sockaddr`.
-/// They are the same peer.
-fn same_ip(left: &str, right: &str) -> bool {
-    match (left.parse::<IpAddr>(), right.parse::<IpAddr>()) {
-        (Ok(left), Ok(right)) => unmap_ipv4(left) == unmap_ipv4(right),
-        _ => left == right,
-    }
-}
-
-fn unmap_ipv4(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(address) => address
-            .to_ipv4_mapped()
-            .map_or(IpAddr::V6(address), IpAddr::V4),
-        address => address,
-    }
-}
-
-fn filter_unspecified_ip(value: Option<String>) -> Option<String> {
-    let ip = value?;
-    let is_unspecified = ip
-        .parse::<std::net::IpAddr>()
-        .map(|value| value.is_unspecified())
-        .unwrap_or(false);
-    (!is_unspecified).then_some(ip)
 }
 
 fn attach_optional_tracepoint(
@@ -1293,7 +1195,7 @@ mod tests {
     }
 
     #[test]
-    fn build_network_event_omits_zero_source_and_protocol_guessing() {
+    fn build_network_event_omits_unmeasured_source_and_protocol_guessing() {
         let mut daddr = [0u8; 16];
         daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
 
@@ -1305,12 +1207,16 @@ mod tests {
             fd: -1,
             ret: 0,
             dport: 443,
-            sport: 0,
+            sport: 51324,
             af: 2,
             sock_type: 0,
             _pad1: 0,
             daddr,
-            saddr: [0u8; 16],
+            saddr: {
+                let mut source = [0u8; 16];
+                source[..4].copy_from_slice(&[10, 0, 0, 5]);
+                source
+            },
         };
 
         let event = build_network_event(&raw).expect("network event should build");
@@ -1335,8 +1241,6 @@ mod tests {
             source_seq: 0,
             pid: 77,
             uid: 1000,
-            // A closed descriptor, so `/proc/net` cannot supply a protocol and
-            // only the kernel-side socket type can answer.
             fd: -1,
             ret: 0,
             dport: 53,
@@ -1363,7 +1267,7 @@ mod tests {
     }
 
     #[test]
-    fn build_network_event_supports_ipv6() {
+    fn build_network_event_supports_ipv6_and_omits_unmeasured_source() {
         let raw = NetworkEvent {
             event_time_ns: 0,
             source_seq: 0,
@@ -1384,45 +1288,12 @@ mod tests {
         match event.payload {
             SensorPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("2001:db8::10"));
-                assert_eq!(fields.source_ip.as_deref(), Some("fe80::20"));
+                assert!(fields.source_ip.is_none());
                 assert_eq!(fields.destination_port.as_deref(), Some("8443"));
-                assert_eq!(fields.source_port.as_deref(), Some("5353"));
+                assert!(fields.source_port.is_none());
             }
             other => panic!("unexpected payload: {:?}", other),
         }
-    }
-
-    #[test]
-    fn socket_metadata_from_a_reused_descriptor_is_rejected() {
-        // Happy-eyeballs closes the losing socket and the descriptor comes
-        // back for the next attempt, so a late `/proc` read can describe a
-        // connection to a different peer entirely.
-        let reused = SocketMetadata {
-            source_ip: Some("2001:db8::20".to_string()),
-            source_port: Some(41406),
-            destination_ip: Some("2606:4700:10::6814:179a".to_string()),
-            destination_port: Some(443),
-            protocol: Some("tcp".to_string()),
-        };
-        assert!(!socket_matches_connection(&reused, "198.51.100.10", 443));
-
-        let same_peer = SocketMetadata {
-            destination_ip: Some("198.51.100.10".to_string()),
-            ..reused.clone()
-        };
-        assert!(socket_matches_connection(&same_peer, "198.51.100.10", 443));
-
-        // The same host on another port is another connection.
-        assert!(!socket_matches_connection(&same_peer, "198.51.100.10", 80));
-
-        // A dual-stack socket lists an IPv4 peer in v4-mapped form. It is the
-        // same connection, and rejecting it would throw away good data.
-        let dual_stack = SocketMetadata {
-            source_ip: Some("::ffff:192.168.1.27".to_string()),
-            destination_ip: Some("::ffff:198.51.100.10".to_string()),
-            ..reused
-        };
-        assert!(socket_matches_connection(&dual_stack, "198.51.100.10", 443));
     }
 
     #[test]
