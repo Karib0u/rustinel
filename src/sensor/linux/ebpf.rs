@@ -1273,7 +1273,13 @@ mod tests {
         let event = build_process_event(&raw).expect("process exit should build");
         assert_eq!(event.action, SensorAction::Stop);
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_TERMINATE);
-        assert!(event.process_start_key.is_none());
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 42,
+                start_time: 123_456,
+            })
+        );
 
         match event.payload {
             SensorPayload::Process(fields) => {
