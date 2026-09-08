@@ -601,6 +601,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 timestamp: event_time,
                 source_seq: Some(ev.source_seq),
                 process_start_key: process_start_key(ev.pid, ev.process_start_time),
+                parent_process_start_key: None,
                 payload: SensorPayload::Process(ProcessCreationFields {
                     image: Some(image),
                     image_source: Some(image_source.to_string()),
@@ -650,6 +651,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
             timestamp: system_time_from_boot_ns(ev.event_time_ns),
             source_seq: Some(ev.source_seq),
             process_start_key: process_start_key(ev.pid, ev.process_start_time),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
                 image_source: None,
@@ -721,6 +723,7 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         timestamp: system_time_from_boot_ns(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
+        parent_process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(destination_ip),
             // The syscall tracepoint does not measure the kernel-assigned
@@ -803,6 +806,7 @@ fn build_file_event(
         timestamp: system_time_from_boot_ns(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
+        parent_process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename,
             target_filename: Some(target_filename),
@@ -846,6 +850,7 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
         timestamp: system_time_from_boot_ns(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
+        parent_process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name,
             query_results,

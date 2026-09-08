@@ -4,10 +4,126 @@ use super::super::file_paths::FilePathCache;
 use super::super::registry_paths::RegistryPathCache;
 use super::routing::EtwRouting;
 use crate::models::RegistryEventFields;
-use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
+use crate::sensor::{
+    Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, MutexGuard};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const PROCESS_IDENTITY_HISTORY_100NS: u64 = 5 * 10_000_000;
+const PROCESS_IDENTITY_CLEANUP_100NS: u64 = 10 * 10_000_000;
+const WINDOWS_EPOCH_DELTA_100NS: u64 = 116_444_736_000_000_000;
+
+#[derive(Debug, Clone, Copy)]
+struct ProcessLifetime {
+    key: ProcessStartKey,
+    stopped_at: Option<u64>,
+}
+
+#[derive(Default)]
+pub(super) struct ProcessIdentityIndex {
+    by_pid: HashMap<u32, Vec<ProcessLifetime>>,
+    last_cleanup_at: u64,
+}
+
+impl ProcessIdentityIndex {
+    pub(super) fn seeded(keys: impl IntoIterator<Item = ProcessStartKey>) -> Self {
+        let mut index = Self::default();
+        for key in keys {
+            index.observe_start(key);
+        }
+        index
+    }
+
+    fn observe_start(&mut self, key: ProcessStartKey) {
+        let lifetimes = self.by_pid.entry(key.pid).or_default();
+        if lifetimes.iter().any(|lifetime| lifetime.key == key) {
+            return;
+        }
+        lifetimes.push(ProcessLifetime {
+            key,
+            stopped_at: None,
+        });
+        lifetimes.sort_unstable_by_key(|lifetime| lifetime.key.start_time);
+    }
+
+    fn observe_stop(&mut self, key: ProcessStartKey, stopped_at: u64) {
+        if let Some(lifetime) = self
+            .by_pid
+            .get_mut(&key.pid)
+            .and_then(|lifetimes| lifetimes.iter_mut().find(|lifetime| lifetime.key == key))
+        {
+            lifetime.stopped_at = Some(stopped_at);
+        }
+    }
+
+    fn resolve(&self, pid: u32, event_at: u64) -> Option<ProcessStartKey> {
+        self.by_pid.get(&pid)?.iter().rev().find_map(|lifetime| {
+            let started = lifetime.key.start_time <= event_at;
+            let not_stopped = lifetime
+                .stopped_at
+                .is_none_or(|stopped_at| event_at <= stopped_at);
+            (started && not_stopped).then_some(lifetime.key)
+        })
+    }
+
+    fn attribute(&mut self, event: &mut SensorEvent) {
+        let event_at = system_time_to_filetime(event.timestamp);
+        self.cleanup(event_at);
+
+        if let SensorPayload::Process(fields) = &event.payload {
+            if event.action == SensorAction::Start {
+                event.parent_process_start_key = fields
+                    .parent_process_id
+                    .as_deref()
+                    .and_then(|pid| pid.parse::<u32>().ok())
+                    .and_then(|pid| self.resolve(pid, event_at));
+
+                if let Some(key) = event.process_start_key {
+                    self.observe_start(key);
+                }
+                return;
+            }
+
+            if event.action == SensorAction::Stop {
+                if event.process_start_key.is_none() {
+                    event.process_start_key = event.pid.and_then(|pid| self.resolve(pid, event_at));
+                }
+                if let Some(key) = event.process_start_key {
+                    self.observe_stop(key, event_at);
+                }
+                return;
+            }
+        }
+
+        if event.process_start_key.is_none() {
+            event.process_start_key = event.pid.and_then(|pid| self.resolve(pid, event_at));
+        }
+    }
+
+    fn cleanup(&mut self, now: u64) {
+        if now.saturating_sub(self.last_cleanup_at) < PROCESS_IDENTITY_CLEANUP_100NS {
+            return;
+        }
+        self.last_cleanup_at = now;
+        self.by_pid.retain(|_, lifetimes| {
+            lifetimes.retain(|lifetime| {
+                lifetime.stopped_at.is_none_or(|stopped_at| {
+                    now.saturating_sub(stopped_at) <= PROCESS_IDENTITY_HISTORY_100NS
+                })
+            });
+            !lifetimes.is_empty()
+        });
+    }
+}
+
+fn system_time_to_filetime(timestamp: SystemTime) -> u64 {
+    let since_unix = timestamp.duration_since(UNIX_EPOCH).unwrap_or_default();
+    WINDOWS_EPOCH_DELTA_100NS
+        .saturating_add(since_unix.as_secs().saturating_mul(10_000_000))
+        .saturating_add(u64::from(since_unix.subsec_nanos()) / 100)
+}
 
 /// Registry writes held briefly while their `OpenKey` or `CreateKey` naming
 /// event catches up in the ETW stream.
@@ -44,6 +160,7 @@ impl PendingRegistryEvent {
             timestamp: self.timestamp,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload: SensorPayload::Registry(self.fields),
         }
     }
@@ -172,16 +289,29 @@ pub(super) struct EtwState {
     pub(super) file_paths: Mutex<FilePathCache>,
     pub(super) registry_paths: Mutex<RegistryPathCache>,
     pub(super) pending_registry_events: Mutex<PendingRegistryEvents>,
+    process_identities: Mutex<ProcessIdentityIndex>,
 }
 
 impl EtwState {
     pub(super) fn new() -> Self {
+        Self::with_process_identities([])
+    }
+
+    pub(super) fn with_process_identities(keys: impl IntoIterator<Item = ProcessStartKey>) -> Self {
         Self {
             routing: EtwRouting::new(),
             file_paths: Mutex::new(FilePathCache::new()),
             registry_paths: Mutex::new(RegistryPathCache::new()),
             pending_registry_events: Mutex::new(PendingRegistryEvents::new()),
+            process_identities: Mutex::new(ProcessIdentityIndex::seeded(keys)),
         }
+    }
+
+    pub(super) fn attribute_process_identity(&self, event: &mut SensorEvent) {
+        self.process_identities
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .attribute(event);
     }
 
     /// The path index is derived state, so a poisoned lock is recoverable and
@@ -240,6 +370,28 @@ mod tests {
             timestamp: UNIX_EPOCH,
             event_at,
         }
+    }
+
+    #[test]
+    fn process_identity_index_resolves_the_generation_active_at_event_time() {
+        let pid = 42;
+        let old = ProcessStartKey {
+            pid,
+            start_time: 100,
+        };
+        let new = ProcessStartKey {
+            pid,
+            start_time: 300,
+        };
+        let mut index = ProcessIdentityIndex::default();
+
+        index.observe_start(old);
+        index.observe_stop(old, 200);
+        index.observe_start(new);
+
+        assert_eq!(index.resolve(pid, 150), Some(old));
+        assert_eq!(index.resolve(pid, 250), None);
+        assert_eq!(index.resolve(pid, 350), Some(new));
     }
 
     #[test]

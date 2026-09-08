@@ -238,6 +238,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         timestamp,
         source_seq: Some(source_seq),
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::Security(fields),
     })
 }

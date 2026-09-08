@@ -127,6 +127,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             pid: TEST_PID,
             start_time: TEST_PROCESS_START_TIME,
         }),
+        parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
             image: Some(image.to_string()),
             image_source: None,
@@ -167,6 +168,7 @@ pub fn service_installation_event() -> SensorEvent {
         timestamp: test_time(),
         source_seq: None,
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::Service(ServiceCreationFields {
             provider_name: Some(TEST_SERVICE_PROVIDER.to_string()),
             service_name: Some(TEST_SERVICE_NAME.to_string()),
@@ -197,6 +199,7 @@ pub fn network_connect_event(platform: Platform) -> SensorEvent {
             pid: TEST_PID,
             start_time: TEST_PROCESS_START_TIME,
         }),
+        parent_process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(TEST_DESTINATION_IP.to_string()),
             source_ip: Some(TEST_SOURCE_IP.to_string()),
@@ -264,6 +267,7 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
             pid: TEST_PID,
             start_time: TEST_PROCESS_START_TIME,
         }),
+        parent_process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name: Some(TEST_DOMAIN.to_string()),
             query_results: Some(TEST_DESTINATION_IP.to_string()),
@@ -311,6 +315,7 @@ pub fn powershell_module_event() -> SensorEvent {
         timestamp: test_time(),
         source_seq: None,
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::PowerShellModule(PowerShellModuleFields {
             context_info: Some(TEST_PS_MODULE_CONTEXT.to_string()),
             payload: Some(TEST_PS_MODULE_PAYLOAD.to_string()),
@@ -337,6 +342,7 @@ pub fn powershell_script_event() -> SensorEvent {
         timestamp: test_time(),
         source_seq: None,
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::Scripting(PowerShellScriptFields {
             script_block_text: Some("Get-Process".to_string()),
             script_block_id: Some("script-block-4104".to_string()),
@@ -369,6 +375,7 @@ pub fn file_event(
             pid: TEST_PID,
             start_time: TEST_PROCESS_START_TIME,
         }),
+        parent_process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename: source_filename.map(ToString::to_string),
             target_filename: target_filename.map(ToString::to_string),

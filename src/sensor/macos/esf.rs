@@ -315,6 +315,7 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             pid: raw.pid,
             start_time: raw.start_time,
         }),
+        parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
             image: Some(raw.image),
             image_source: None,
@@ -376,6 +377,7 @@ fn process_stop_event(
         timestamp: event_time,
         source_seq,
         process_start_key: start_time.map(|start_time| ProcessStartKey { pid, start_time }),
+        parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
             image: None,
             image_source: None,
@@ -577,6 +579,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
         timestamp: raw.event_time,
         source_seq: raw.source_seq,
         process_start_key: raw.process_start_key,
+        parent_process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename: raw.source,
             target_filename: Some(raw.target),

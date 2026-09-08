@@ -370,6 +370,7 @@ pub mod mapping {
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: Some(bytes_to_string(&event.image)),
                 image_source: None,
@@ -409,6 +410,7 @@ pub mod mapping {
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
+            parent_process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some(ip_to_string(event.af, &event.daddr)),
                 // The syscall tracepoint does not measure the kernel-assigned
@@ -467,6 +469,7 @@ pub mod mapping {
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
+            parent_process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 path_truncated: truncation_marker(event.flags, source_filename.is_some())
                     .map(str::to_string),
@@ -495,6 +498,7 @@ pub mod mapping {
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
+            parent_process_start_key: None,
             payload: SensorPayload::Dns(DnsQueryFields {
                 query_name: Some(bytes_to_string(&event.query_name)),
                 query_results: Some(bytes_to_string(&event.query_results)),

@@ -88,6 +88,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         timestamp,
         source_seq: Some(source_seq),
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::Service(ServiceCreationFields {
             // Carried from the record rather than assumed: the guard above has
             // already rejected anything else, so this is the provider the

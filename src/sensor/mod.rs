@@ -106,6 +106,7 @@ pub struct SensorEvent {
     /// Native source ordering token, absent when the source has none.
     pub source_seq: Option<u64>,
     pub process_start_key: Option<ProcessStartKey>,
+    pub parent_process_start_key: Option<ProcessStartKey>,
     pub payload: SensorPayload,
 }
 
@@ -373,6 +374,7 @@ mod tests {
             timestamp: SystemTime::UNIX_EPOCH,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload,
         };
 

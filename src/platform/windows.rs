@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context};
 
 use crate::cli::ServiceAction;
+use crate::sensor::ProcessStartKey;
 use crate::service::{
     execute_backend_action, run_backend_action, ManagedServicePaths, ServiceBackend,
     ServiceCommandResult, ServiceStatus, SERVICE_DESCRIPTION, WINDOWS_SERVICE_DISPLAY_NAME,
@@ -400,6 +401,21 @@ mod native_snapshot {
             Ok(processes)
         }
     }
+}
+
+/// Snapshot stable identities for processes that predate the ETW sessions.
+pub fn snapshot_process_start_keys() -> anyhow::Result<Vec<ProcessStartKey>> {
+    let processes = native_snapshot::query_system_processes()
+        .map_err(|e| anyhow::anyhow!("Failed to query system processes: {}", e))?;
+
+    Ok(processes
+        .into_iter()
+        .filter(|process| process.creation_time != 0)
+        .map(|process| ProcessStartKey {
+            pid: process.pid,
+            start_time: process.creation_time,
+        })
+        .collect())
 }
 
 /// Snapshot all running processes using Native API (NtQuerySystemInformation).

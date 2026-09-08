@@ -577,6 +577,7 @@ fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<
         timestamp: event_time,
         source_seq: None,
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(packet.dst_ip.to_string()),
             source_ip: Some(packet.src_ip.to_string()),
@@ -626,6 +627,7 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<Sens
         timestamp: event_time,
         source_seq: None,
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name: Some(query_name),
             query_results: None,

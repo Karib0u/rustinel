@@ -42,6 +42,7 @@ fn security_event(event_id: u16, action: SensorAction, pairs: &[(&str, &str)]) -
         timestamp: SystemTime::now(),
         source_seq: None,
         process_start_key: None,
+        parent_process_start_key: None,
         payload: SensorPayload::Security(fields),
     }
 }

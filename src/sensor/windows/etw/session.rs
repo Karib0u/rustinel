@@ -276,7 +276,14 @@ impl EtwSensor {
     /// create the second one is reported as a startup error rather than as a
     /// sensor that silently runs without process events.
     pub(super) fn run_sessions(&self, tx: &Sender<SensorEvent>) -> Result<()> {
-        let state = Arc::new(EtwState::new());
+        let process_identities = match crate::platform::windows::snapshot_process_start_keys() {
+            Ok(keys) => keys,
+            Err(err) => {
+                warn!("Failed to snapshot process identities: {err}");
+                Vec::new()
+            }
+        };
+        let state = Arc::new(EtwState::with_process_identities(process_identities));
 
         let main_builder = build_session(
             TRACE_SESSION_NAME,

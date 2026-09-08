@@ -43,7 +43,9 @@ impl Normalizer {
     pub fn normalize(&self, event: &SensorEvent) -> Option<NormalizedEvent> {
         let mut provenance = Provenance::default();
         let fields = match &event.payload {
-            SensorPayload::Process(fields) => self.normalize_process(event, fields),
+            SensorPayload::Process(fields) => {
+                self.normalize_process(event, fields, &mut provenance)
+            }
             SensorPayload::Network(fields) => {
                 self.normalize_network(event, fields.clone(), &mut provenance)
             }
@@ -91,6 +93,7 @@ impl Normalizer {
         &self,
         event: &SensorEvent,
         fields: &ProcessCreationFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
         let pid = event_pid(event, fields.process_id.as_deref());
 
@@ -120,6 +123,22 @@ impl Normalizer {
         if event.action == SensorAction::Start {
             if let Some(image) = fields.image.clone() {
                 let parent_pid = parse_optional_u32(fields.parent_process_id.as_deref());
+
+                if let Some(parent) = event.parent_process_start_key.and_then(|key| {
+                    self.process_cache
+                        .get_metadata_by_key(key.pid, key.start_time)
+                }) {
+                    if fields.parent_image.is_none() {
+                        fields.parent_image = Some(convert_nt_to_dos(&parent.image_name));
+                        provenance.mark_derived("ParentImage");
+                    }
+                    if fields.parent_command_line.is_none() {
+                        if let Some(command_line) = parent.command_line {
+                            fields.parent_command_line = Some(command_line);
+                            provenance.mark_derived("ParentCommandLine");
+                        }
+                    }
+                }
 
                 if let Some(key) = event.process_start_key.filter(|key| key.pid == pid) {
                     self.process_cache.add(
@@ -489,6 +508,7 @@ mod tests {
                 pid,
                 start_time: 123_456,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: Some("/usr/bin/curl".to_string()),
                 image_source: None,
@@ -533,6 +553,7 @@ mod tests {
                 pid,
                 start_time: 123_456,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
                 image_source: None,
@@ -572,6 +593,7 @@ mod tests {
                 pid,
                 start_time: 123_456,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
                 source_ip: Some("10.0.0.5".to_string()),
@@ -603,6 +625,7 @@ mod tests {
                 pid,
                 start_time: 123_456,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/sample.txt".to_string()),
@@ -669,6 +692,7 @@ mod tests {
                 pid: 42,
                 start_time: 99,
             }),
+            parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 image: None,
                 image_source: None,
@@ -744,6 +768,7 @@ mod tests {
             timestamp: SystemTime::UNIX_EPOCH,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
                 source_ip: Some("10.0.0.5".to_string()),
@@ -795,6 +820,7 @@ mod tests {
             timestamp: SystemTime::UNIX_EPOCH,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/test".to_string()),
@@ -848,6 +874,7 @@ mod tests {
             timestamp: SystemTime::UNIX_EPOCH,
             source_seq: None,
             process_start_key: None,
+            parent_process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/test".to_string()),
@@ -970,6 +997,44 @@ mod tests {
             .normalize(&delayed)
             .expect("network event normalizes");
         assert_eq!(normalized.get_field("Image"), Some("/usr/bin/old"));
+    }
+
+    #[test]
+    fn process_parent_fields_use_exact_parent_identity() {
+        let normalizer = build_normalizer();
+        let parent_pid = 4000;
+        let child_pid = 4001;
+        let parent = process_start_with_identity(parent_pid, 100, "/usr/bin/parent");
+        let mut child = process_start_with_identity(child_pid, 200, "/usr/bin/child");
+        child.parent_process_start_key = Some(ProcessStartKey {
+            pid: parent_pid,
+            start_time: 100,
+        });
+        if let SensorPayload::Process(fields) = &mut child.payload {
+            fields.parent_process_id = Some(parent_pid.to_string());
+        }
+
+        normalizer.normalize(&parent).expect("parent starts");
+        let normalized = normalizer.normalize(&child).expect("child starts");
+
+        assert_eq!(normalized.get_field("ParentImage"), Some("/usr/bin/parent"));
+        assert_eq!(
+            normalized.get_field("ParentCommandLine"),
+            Some("/usr/bin/curl https://example.test")
+        );
+        assert_eq!(
+            normalized.provenance.entries(),
+            &[
+                FieldProvenance {
+                    field: "ParentImage".to_string(),
+                    fidelity: Fidelity::Derived,
+                },
+                FieldProvenance {
+                    field: "ParentCommandLine".to_string(),
+                    fidelity: Fidelity::Derived,
+                },
+            ]
+        );
     }
 
     #[test]
