@@ -43,7 +43,8 @@ pub(crate) fn telemetry_results(
         );
     };
 
-    let mut results = registry_results(&snapshot);
+    let mut results = linux_ebpf_results(&snapshot);
+    results.extend(registry_results(&snapshot));
     results.extend(file_attribution_results(&snapshot));
     results.extend(etw_decode_results(&snapshot));
 
@@ -86,6 +87,116 @@ pub(crate) fn telemetry_results(
 
     results.insert(0, result);
     (results, Some(snapshot))
+}
+
+/// Linux eBPF loss and reconciliation across every ring family.
+fn linux_ebpf_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let Some(ebpf) = snapshot.linux_ebpf.as_ref() else {
+        return Vec::new();
+    };
+
+    let mut findings = Vec::new();
+    for family in &ebpf.families {
+        if family.kernel_ring_full > 0 {
+            findings.push(format!(
+                "{} ring was full {} times",
+                family.ring, family.kernel_ring_full
+            ));
+        }
+        if family.kernel_oversized > 0 {
+            findings.push(format!(
+                "{} ring rejected {} oversized events",
+                family.ring, family.kernel_oversized
+            ));
+        }
+        if family.kernel_map_full > 0 {
+            findings.push(format!(
+                "{} pending maps rejected {} inserts",
+                family.ring, family.kernel_map_full
+            ));
+        }
+        if family.short_reads > 0 {
+            findings.push(format!(
+                "{} ring produced {} short reads",
+                family.ring, family.short_reads
+            ));
+        }
+        if family.unresolved_file_events > 0 {
+            findings.push(format!(
+                "{} file events had no resolvable path",
+                family.unresolved_file_events
+            ));
+        }
+        let other_userspace_drops = family
+            .userspace_dropped
+            .saturating_sub(family.unresolved_file_events);
+        if other_userspace_drops > 0 {
+            findings.push(format!(
+                "{} ring dropped {} decoded events in userspace",
+                family.ring, other_userspace_drops
+            ));
+        }
+        if !family.kernel_is_reconciled() {
+            findings.push(format!("{} kernel counters do not reconcile", family.ring));
+        }
+        if !family.receive_is_reconciled() {
+            findings.push(format!("{} receive counters do not reconcile", family.ring));
+        }
+        if !family.decode_is_reconciled() {
+            findings.push(format!("{} decode counters do not reconcile", family.ring));
+        }
+    }
+
+    let submitted = ebpf
+        .families
+        .iter()
+        .map(|family| family.kernel_submitted)
+        .fold(0u64, u64::saturating_add);
+    let in_flight = ebpf
+        .families
+        .iter()
+        .map(|family| family.queue_occupancy())
+        .fold(0u64, u64::saturating_add);
+    let detail = ebpf
+        .families
+        .iter()
+        .map(|family| family.describe())
+        .collect::<Vec<_>>()
+        .join("; ");
+    if let Some(sensor_channel) = snapshot
+        .channels
+        .iter()
+        .find(|channel| channel.channel == "sensor_events")
+    {
+        let channel_offered = sensor_channel
+            .accepted
+            .saturating_add(sensor_channel.dropped);
+        if ebpf.canonical_emitted() != channel_offered {
+            findings.push(format!(
+                "{} canonical events were emitted but the sensor channel accounted for {}",
+                ebpf.canonical_emitted(),
+                channel_offered
+            ));
+        }
+    }
+
+    if findings.is_empty() {
+        return vec![DiagnosticResult::pass(
+            "linux_ebpf",
+            format!(
+                "Linux eBPF pipeline reconciles across {} submitted events ({} in flight)",
+                submitted, in_flight
+            ),
+        )];
+    }
+
+    vec![
+        DiagnosticResult::warn("linux_ebpf", findings.join("; "), detail).with_fix(
+            "Kernel ring or map failures are detection gaps. Reduce event volume or investigate a \
+         stalled ring drain. A small non-growing reconciliation mismatch may be a snapshot taken \
+         during an update; a growing mismatch should be reported",
+        ),
+    ]
 }
 
 /// Registry key-path resolution, the one gap a channel counter cannot show.
@@ -278,7 +389,7 @@ mod tests {
     use crate::doctor::inspect::DiagnosticStatus;
     use crate::telemetry::{
         ChannelSnapshot, EtwDecodeFailureSnapshot, EtwDecodeSnapshot, FileAttributionSnapshot,
-        RegistrySnapshot,
+        LinuxEbpfFamilySnapshot, LinuxEbpfSnapshot, RegistrySnapshot,
     };
 
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
@@ -289,6 +400,7 @@ mod tests {
             uptime_secs: 3600,
             channels,
             sensor_events_by_category: Vec::new(),
+            linux_ebpf: None,
             windows_process_command_line: None,
             registry: None,
             file_attribution: None,
@@ -305,6 +417,56 @@ mod tests {
             dropped_channel_closed: 0,
             high_water_mark: 8192,
         }
+    }
+
+    fn linux_ring(ring: &str) -> LinuxEbpfFamilySnapshot {
+        LinuxEbpfFamilySnapshot {
+            ring: ring.to_string(),
+            kernel_seen: 10,
+            kernel_submitted: 10,
+            kernel_ring_full: 0,
+            kernel_oversized: 0,
+            kernel_map_full: 0,
+            userspace_received: 10,
+            userspace_decoded: 10,
+            short_reads: 0,
+            userspace_internal: 0,
+            canonical_emitted: 10,
+            userspace_dropped: 0,
+            unresolved_file_events: 0,
+            in_flight: 0,
+        }
+    }
+
+    #[test]
+    fn linux_ring_overflow_warns_and_names_the_ring() {
+        let mut snap = snapshot(vec![channel("sensor_events", 8, 0)]);
+        let mut process = linux_ring("process");
+        process.kernel_seen = 12;
+        process.kernel_ring_full = 2;
+        snap.linux_ebpf = Some(LinuxEbpfSnapshot {
+            families: vec![process],
+        });
+
+        let results = linux_ebpf_results(&snap);
+
+        assert_eq!(results[0].id, "linux_ebpf");
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.contains("process ring was full 2 times"));
+    }
+
+    #[test]
+    fn clean_quiesced_linux_pipeline_passes() {
+        let mut snap = snapshot(vec![channel("sensor_events", 10, 0)]);
+        snap.linux_ebpf = Some(LinuxEbpfSnapshot {
+            families: vec![linux_ring("process")],
+        });
+
+        let results = linux_ebpf_results(&snap);
+
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+        assert!(results[0].message.contains("10 submitted events"));
+        assert!(results[0].message.contains("0 in flight"));
     }
 
     #[test]

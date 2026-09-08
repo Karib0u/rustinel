@@ -17,6 +17,7 @@ use aya_ebpf::{
 };
 
 use crate::events::DnsEvent;
+use crate::telemetry::{record_ring_full, record_submitted, DNS_FAMILY};
 
 const DNS_EVENT_QUERY: u32 = 1;
 const DNS_HEADER_LEN: usize = 12;
@@ -314,10 +315,13 @@ unsafe fn emit_dns_query(scratch: *mut DnsEvent, pid: u32, uid: u32, fd: i32, re
 
     // ── Stage 3: ring-buffer commit ──────────────────────────────────────────
 
-    if let Some(mut entry) = DNS_RING.reserve::<DnsEvent>(0) {
-        entry.write(*scratch);
-        entry.submit(0);
-    }
+    let Some(mut entry) = DNS_RING.reserve::<DnsEvent>(0) else {
+        record_ring_full(DNS_FAMILY);
+        return;
+    };
+    entry.write(*scratch);
+    entry.submit(0);
+    record_submitted(DNS_FAMILY);
 }
 
 #[inline(always)]

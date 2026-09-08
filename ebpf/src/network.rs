@@ -61,6 +61,7 @@ use aya_ebpf::{
 };
 
 use crate::events::{connect_result_is_connection, NetworkEvent, SOCK_TYPE_UNKNOWN};
+use crate::telemetry::{record_map_full, record_ring_full, record_submitted, NETWORK_FAMILY};
 
 /// AF_INET (IPv4).
 const AF_INET: u16 = 2;
@@ -184,7 +185,9 @@ unsafe fn try_handle_socket(ctx: &TracePointContext) -> Result<u32, i64> {
     }
 
     let sock_type = (ctx.read_at::<i64>(24)? & SOCK_TYPE_MASK) as u8;
-    let _ = SOCKET_PENDING.insert(&tid, &sock_type, 0);
+    if SOCKET_PENDING.insert(&tid, &sock_type, 0).is_err() {
+        record_map_full(NETWORK_FAMILY);
+    }
     Ok(0)
 }
 
@@ -276,7 +279,9 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
         daddr,
         saddr: [0u8; 16],
     };
-    let _ = NETWORK_PENDING.insert(&tid, &event, 0);
+    if NETWORK_PENDING.insert(&tid, &event, 0).is_err() {
+        record_map_full(NETWORK_FAMILY);
+    }
 
     Ok(0)
 }
@@ -297,10 +302,13 @@ unsafe fn try_handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
     }
     event.ret = ret;
 
-    if let Some(mut entry) = NETWORK_RING.reserve::<NetworkEvent>(0) {
-        entry.write(event);
-        entry.submit(0);
-    }
+    let Some(mut entry) = NETWORK_RING.reserve::<NetworkEvent>(0) else {
+        record_ring_full(NETWORK_FAMILY);
+        return Ok(0);
+    };
+    entry.write(event);
+    entry.submit(0);
+    record_submitted(NETWORK_FAMILY);
 
     Ok(0)
 }

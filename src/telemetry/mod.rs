@@ -27,8 +27,9 @@ use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
     snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, EtwDecodeFailureSnapshot,
-    EtwDecodeSnapshot, FileAttributionSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot,
-    SensorEventCategorySnapshot, TelemetrySnapshot, SNAPSHOT_FILE_NAME,
+    EtwDecodeSnapshot, FileAttributionSnapshot, LinuxEbpfFamilySnapshot, LinuxEbpfSnapshot,
+    ProcessCommandLineSnapshot, RegistrySnapshot, SensorEventCategorySnapshot, TelemetrySnapshot,
+    SNAPSHOT_FILE_NAME,
 };
 
 use crate::models::EventCategory;
@@ -36,6 +37,226 @@ use crate::sensor::SensorEvent;
 
 /// Tracing target for pipeline telemetry accounting.
 pub const TARGET_TELEMETRY: &str = "telemetry";
+
+/// Linux ring-buffer program families, in snapshot order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinuxEbpfFamily {
+    Process,
+    Network,
+    File,
+    Dns,
+}
+
+impl LinuxEbpfFamily {
+    pub const ALL: [Self; 4] = [Self::Process, Self::Network, Self::File, Self::Dns];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Process => "process",
+            Self::Network => "network",
+            Self::File => "file",
+            Self::Dns => "dns",
+        }
+    }
+
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Process => 0,
+            Self::Network => 1,
+            Self::File => 2,
+            Self::Dns => 3,
+        }
+    }
+}
+
+/// Aggregated kernel counters copied from one per-CPU eBPF map row.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct LinuxEbpfKernelSample {
+    pub kernel_seen: u64,
+    pub kernel_submitted: u64,
+    pub kernel_ring_full: u64,
+    pub kernel_oversized: u64,
+    pub kernel_map_full: u64,
+}
+
+#[derive(Debug, Default)]
+struct LinuxEbpfFamilyCounters {
+    kernel_seen: AtomicU64,
+    kernel_submitted: AtomicU64,
+    kernel_ring_full: AtomicU64,
+    kernel_oversized: AtomicU64,
+    kernel_map_full: AtomicU64,
+    userspace_received: AtomicU64,
+    userspace_decoded: AtomicU64,
+    short_reads: AtomicU64,
+    userspace_internal: AtomicU64,
+    canonical_emitted: AtomicU64,
+    userspace_dropped: AtomicU64,
+    unresolved_file_events: AtomicU64,
+}
+
+impl LinuxEbpfFamilyCounters {
+    const fn new() -> Self {
+        Self {
+            kernel_seen: AtomicU64::new(0),
+            kernel_submitted: AtomicU64::new(0),
+            kernel_ring_full: AtomicU64::new(0),
+            kernel_oversized: AtomicU64::new(0),
+            kernel_map_full: AtomicU64::new(0),
+            userspace_received: AtomicU64::new(0),
+            userspace_decoded: AtomicU64::new(0),
+            short_reads: AtomicU64::new(0),
+            userspace_internal: AtomicU64::new(0),
+            canonical_emitted: AtomicU64::new(0),
+            userspace_dropped: AtomicU64::new(0),
+            unresolved_file_events: AtomicU64::new(0),
+        }
+    }
+}
+
+/// End-to-end Linux eBPF accounting.
+#[derive(Debug)]
+pub struct LinuxEbpfCounters {
+    active: AtomicBool,
+    families: [LinuxEbpfFamilyCounters; 4],
+}
+
+pub static LINUX_EBPF: LinuxEbpfCounters = LinuxEbpfCounters::new();
+
+impl LinuxEbpfCounters {
+    const fn new() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            families: [
+                LinuxEbpfFamilyCounters::new(),
+                LinuxEbpfFamilyCounters::new(),
+                LinuxEbpfFamilyCounters::new(),
+                LinuxEbpfFamilyCounters::new(),
+            ],
+        }
+    }
+
+    pub fn activate(&self) {
+        self.active.store(true, Ordering::Release);
+    }
+
+    pub fn set_kernel_sample(&self, family: LinuxEbpfFamily, sample: LinuxEbpfKernelSample) {
+        let counters = &self.families[family.index()];
+        counters
+            .kernel_seen
+            .store(sample.kernel_seen, Ordering::Relaxed);
+        counters
+            .kernel_submitted
+            .store(sample.kernel_submitted, Ordering::Relaxed);
+        counters
+            .kernel_ring_full
+            .store(sample.kernel_ring_full, Ordering::Relaxed);
+        counters
+            .kernel_oversized
+            .store(sample.kernel_oversized, Ordering::Relaxed);
+        counters
+            .kernel_map_full
+            .store(sample.kernel_map_full, Ordering::Relaxed);
+    }
+
+    pub fn record_received(&self, family: LinuxEbpfFamily) {
+        self.families[family.index()]
+            .userspace_received
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_decoded(&self, family: LinuxEbpfFamily) {
+        self.families[family.index()]
+            .userspace_decoded
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_short_read(&self, family: LinuxEbpfFamily) {
+        self.families[family.index()]
+            .short_reads
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_emitted(&self, family: LinuxEbpfFamily) {
+        self.families[family.index()]
+            .canonical_emitted
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_internal(&self, family: LinuxEbpfFamily) {
+        self.families[family.index()]
+            .userspace_internal
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_dropped(&self, family: LinuxEbpfFamily) {
+        self.families[family.index()]
+            .userspace_dropped
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_unresolved_file(&self) {
+        let counters = &self.families[LinuxEbpfFamily::File.index()];
+        counters.userspace_dropped.fetch_add(1, Ordering::Relaxed);
+        counters
+            .unresolved_file_events
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> Option<LinuxEbpfSnapshot> {
+        if !self.active.load(Ordering::Acquire) {
+            return None;
+        }
+
+        Some(LinuxEbpfSnapshot {
+            families: LinuxEbpfFamily::ALL
+                .into_iter()
+                .map(|family| {
+                    let counters = &self.families[family.index()];
+                    let kernel_submitted = counters.kernel_submitted.load(Ordering::Relaxed);
+                    let userspace_received = counters.userspace_received.load(Ordering::Relaxed);
+                    LinuxEbpfFamilySnapshot {
+                        ring: family.as_str().to_string(),
+                        kernel_seen: counters.kernel_seen.load(Ordering::Relaxed),
+                        kernel_submitted,
+                        kernel_ring_full: counters.kernel_ring_full.load(Ordering::Relaxed),
+                        kernel_oversized: counters.kernel_oversized.load(Ordering::Relaxed),
+                        kernel_map_full: counters.kernel_map_full.load(Ordering::Relaxed),
+                        userspace_received,
+                        userspace_decoded: counters.userspace_decoded.load(Ordering::Relaxed),
+                        short_reads: counters.short_reads.load(Ordering::Relaxed),
+                        userspace_internal: counters.userspace_internal.load(Ordering::Relaxed),
+                        canonical_emitted: counters.canonical_emitted.load(Ordering::Relaxed),
+                        userspace_dropped: counters.userspace_dropped.load(Ordering::Relaxed),
+                        unresolved_file_events: counters
+                            .unresolved_file_events
+                            .load(Ordering::Relaxed),
+                        in_flight: kernel_submitted.saturating_sub(userspace_received),
+                    }
+                })
+                .collect(),
+        })
+    }
+
+    #[cfg(test)]
+    pub fn reset(&self) {
+        self.active.store(false, Ordering::Relaxed);
+        for counters in &self.families {
+            counters.kernel_seen.store(0, Ordering::Relaxed);
+            counters.kernel_submitted.store(0, Ordering::Relaxed);
+            counters.kernel_ring_full.store(0, Ordering::Relaxed);
+            counters.kernel_oversized.store(0, Ordering::Relaxed);
+            counters.kernel_map_full.store(0, Ordering::Relaxed);
+            counters.userspace_received.store(0, Ordering::Relaxed);
+            counters.userspace_decoded.store(0, Ordering::Relaxed);
+            counters.short_reads.store(0, Ordering::Relaxed);
+            counters.userspace_internal.store(0, Ordering::Relaxed);
+            counters.canonical_emitted.store(0, Ordering::Relaxed);
+            counters.userspace_dropped.store(0, Ordering::Relaxed);
+            counters.unresolved_file_events.store(0, Ordering::Relaxed);
+        }
+    }
+}
 
 /// Minimum spacing between cumulative drop warnings for one channel.
 ///

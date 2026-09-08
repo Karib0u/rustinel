@@ -80,6 +80,7 @@ use crate::events::{
     FILE_PATH_LEN,
 };
 use crate::network::forget_socket_type;
+use crate::telemetry::{record_map_full, record_ring_full, record_submitted, FILE_FAMILY};
 
 /// O_CREAT flag — create file if it does not exist.
 const O_CREAT: u64 = 0x40;
@@ -348,6 +349,7 @@ unsafe fn try_reset_dir_index(_ctx: &TracePointContext) -> Result<u32, i64> {
     let _ = DIR_FD_EPOCHS.insert(&pid, &epoch, 0);
 
     let Some(mut entry) = FILE_RING.reserve::<FileIndexEvent>(0) else {
+        record_ring_full(FILE_FAMILY);
         return Ok(0);
     };
     let event = entry.as_mut_ptr();
@@ -356,6 +358,7 @@ unsafe fn try_reset_dir_index(_ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).fd = -1;
     (*event)._pad = 0;
     entry.submit(0);
+    record_submitted(FILE_FAMILY);
     Ok(0)
 }
 
@@ -529,7 +532,9 @@ unsafe fn queue_file_event(ctx: &TracePointContext, kind: u32) -> Result<u32, i6
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
     let tid = pid_tgid as u32;
-    let _ = FILE_PENDING.insert(&tid, &*event, 0);
+    if FILE_PENDING.insert(&tid, &*event, 0).is_err() {
+        record_map_full(FILE_FAMILY);
+    }
     Ok(0)
 }
 
@@ -577,7 +582,9 @@ unsafe fn queue_rename_event(ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
 
     let tid = pid_tgid as u32;
-    let _ = FILE_PENDING.insert(&tid, &*event, 0);
+    if FILE_PENDING.insert(&tid, &*event, 0).is_err() {
+        record_map_full(FILE_FAMILY);
+    }
     Ok(0)
 }
 
@@ -608,7 +615,11 @@ unsafe fn emit_pending_file_event(
         // through the 512-byte BPF stack, and reserve + `copy_nonoverlapping`
         // lowers to a byte-at-a-time loop between two pointer types whose
         // bounds the verifier has to re-derive on every iteration.
-        let _ = FILE_RING.output::<FileEvent>(&*pending, 0);
+        if FILE_RING.output::<FileEvent>(&*pending, 0).is_err() {
+            record_ring_full(FILE_FAMILY);
+        } else {
+            record_submitted(FILE_FAMILY);
+        }
     }
 
     let _ = FILE_PENDING.remove(&tid);
