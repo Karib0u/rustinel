@@ -103,6 +103,8 @@ pub struct SensorEvent {
     pub normalization: SensorNormalization,
     pub pid: Option<u32>,
     pub timestamp: SystemTime,
+    /// Native source ordering token, absent when the source has none.
+    pub source_seq: Option<u64>,
     pub process_start_key: Option<ProcessStartKey>,
     pub payload: SensorPayload,
 }
@@ -369,6 +371,7 @@ mod tests {
             },
             pid: Some(4242),
             timestamp: SystemTime::UNIX_EPOCH,
+            source_seq: None,
             process_start_key: None,
             payload,
         };

@@ -3,7 +3,8 @@ target = "bpfel-unknown-none"
 
 [target.bpfel-unknown-none]
 linker = "bpf-linker"
-rustflags = ["-C", "link-arg=--btf"]
+# v3 enables atomic fetch-add, which supplies a unique global source sequence.
+rustflags = ["-C", "target-cpu=v3", "-C", "link-arg=--btf"]
 
 [unstable]
 build-std = ["core"]

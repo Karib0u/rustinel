@@ -250,6 +250,8 @@ fn write_summary(path: &Path, summary: &CompatibilitySummary) -> anyhow::Result<
 fn process_event(timestamp: &str) -> NormalizedEvent {
     NormalizedEvent {
         timestamp: timestamp.to_string(),
+        source_seq: None,
+        ingest_seq: 0,
         platform: Platform::Linux,
         provider: "test".to_string(),
         category: EventCategory::Process,

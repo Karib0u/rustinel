@@ -121,6 +121,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
         },
         pid: Some(TEST_PID),
         timestamp: test_time(),
+        source_seq: None,
         process_start_key: Some(ProcessStartKey {
             pid: TEST_PID,
             start_time: TEST_PROCESS_START_TIME,
@@ -163,6 +164,7 @@ pub fn service_installation_event() -> SensorEvent {
         },
         pid: None,
         timestamp: test_time(),
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::Service(ServiceCreationFields {
             provider_name: Some(TEST_SERVICE_PROVIDER.to_string()),
@@ -189,6 +191,7 @@ pub fn network_connect_event(platform: Platform) -> SensorEvent {
         },
         pid: Some(TEST_PID),
         timestamp: test_time(),
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(TEST_DESTINATION_IP.to_string()),
@@ -252,6 +255,7 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
         },
         pid: Some(TEST_PID),
         timestamp: test_time(),
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             query_name: Some(TEST_DOMAIN.to_string()),
@@ -298,6 +302,7 @@ pub fn powershell_module_event() -> SensorEvent {
         },
         pid: Some(TEST_PID),
         timestamp: test_time(),
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::PowerShellModule(PowerShellModuleFields {
             context_info: Some(TEST_PS_MODULE_CONTEXT.to_string()),
@@ -323,6 +328,7 @@ pub fn powershell_script_event() -> SensorEvent {
         },
         pid: Some(TEST_PID),
         timestamp: test_time(),
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::Scripting(PowerShellScriptFields {
             script_block_text: Some("Get-Process".to_string()),
@@ -351,6 +357,7 @@ pub fn file_event(
             .expect("file action is in the shared table"),
         pid: Some(TEST_PID),
         timestamp: test_time(),
+        source_seq: None,
         process_start_key: None,
         payload: SensorPayload::File(FileEventFields {
             source_filename: source_filename.map(ToString::to_string),

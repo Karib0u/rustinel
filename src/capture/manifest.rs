@@ -18,7 +18,7 @@ use crate::sensor::Platform;
 /// Version of the recording format: the manifest layout together with the
 /// NDJSON event schema it describes. Consumers reject versions they do not
 /// understand rather than guessing at unknown fields.
-pub const CAPTURE_SCHEMA_VERSION: u32 = 1;
+pub const CAPTURE_SCHEMA_VERSION: u32 = 2;
 
 /// Suffix appended to the payload stem to derive the manifest path.
 const MANIFEST_EXTENSION: &str = "manifest.json";

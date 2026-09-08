@@ -8,6 +8,37 @@
 //! When modifying either side, update both files together and run the
 //! cross-platform golden tests to verify byte-level compatibility.
 
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
+#[cfg(target_os = "linux")]
+use std::time::{Duration, SystemTime};
+
+#[cfg(target_os = "linux")]
+static BOOT_EPOCH: OnceLock<SystemTime> = OnceLock::new();
+
+/// Convert the kernel's `CLOCK_BOOTTIME` nanoseconds into wall-clock time.
+#[cfg(target_os = "linux")]
+pub fn system_time_from_boot_ns(event_time_ns: u64) -> SystemTime {
+    let boot_epoch = *BOOT_EPOCH.get_or_init(|| {
+        let mut current = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        let uptime = if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut current) } == 0 {
+            Duration::new(current.tv_sec.max(0) as u64, current.tv_nsec.max(0) as u32)
+        } else {
+            Duration::ZERO
+        };
+        SystemTime::now()
+            .checked_sub(uptime)
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    });
+
+    boot_epoch
+        .checked_add(Duration::from_nanos(event_time_ns))
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
 /// Maximum bytes of argv the eBPF exec path captures. Mirrors
 /// `ARGV_CAPACITY` in `ebpf/src/events.rs`.
 pub const ARGV_CAPACITY: usize = 512;
@@ -23,6 +54,8 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ProcessEvent {
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     pub kind: u32,
     pub pid: u32,
     pub uid: u32,
@@ -110,6 +143,8 @@ pub const SOCK_DGRAM: u8 = 2;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NetworkEvent {
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     pub pid: u32,
     pub uid: u32,
     /// Connected socket file descriptor.
@@ -175,6 +210,8 @@ pub const FILE_FLAG_AUX_PATH_TRUNCATED: u32 = 1 << 1;
 pub struct FileEvent {
     pub kind: u32,
     pub pid: u32,
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     pub uid: u32,
     /// Bitmask of `FILE_FLAG_*` — currently path truncation.
     pub flags: u32,
@@ -217,6 +254,8 @@ pub struct FileIndexEvent {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct DnsEvent {
+    pub event_time_ns: u64,
+    pub source_seq: u64,
     pub kind: u32,
     pub pid: u32,
     pub uid: u32,
@@ -233,17 +272,17 @@ pub struct DnsEvent {
 // These catch accidental struct layout divergence at compile time.
 
 const _: () = assert!(
-    core::mem::size_of::<ProcessEvent>() == 808,
+    core::mem::size_of::<ProcessEvent>() == 824,
     "ProcessEvent layout changed — update ebpf/src/events.rs to match"
 );
 // The argv fields were appended after `image`; pin their offsets so a
 // reordering on either side fails the build instead of decoding garbage.
 const _: () = assert!(
-    core::mem::offset_of!(ProcessEvent, args_len) == 288
-        && core::mem::offset_of!(ProcessEvent, args_count) == 290
-        && core::mem::offset_of!(ProcessEvent, args_truncated) == 292
-        && core::mem::offset_of!(ProcessEvent, image_truncated) == 293
-        && core::mem::offset_of!(ProcessEvent, args) == 296,
+    core::mem::offset_of!(ProcessEvent, args_len) == 304
+        && core::mem::offset_of!(ProcessEvent, args_count) == 306
+        && core::mem::offset_of!(ProcessEvent, args_truncated) == 308
+        && core::mem::offset_of!(ProcessEvent, image_truncated) == 309
+        && core::mem::offset_of!(ProcessEvent, args) == 312,
     "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
 );
 // `ret` and `sock_type` took over slots that used to be explicit padding, so a
@@ -251,19 +290,19 @@ const _: () = assert!(
 // as a successful connect of unknown transport. Pin both offsets so that fails
 // the build instead.
 const _: () = assert!(
-    core::mem::size_of::<NetworkEvent>() == 56
-        && core::mem::offset_of!(NetworkEvent, ret) == 12
-        && core::mem::offset_of!(NetworkEvent, sock_type) == 22,
+    core::mem::size_of::<NetworkEvent>() == 72
+        && core::mem::offset_of!(NetworkEvent, ret) == 28
+        && core::mem::offset_of!(NetworkEvent, sock_type) == 38,
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
-    core::mem::size_of::<FileEvent>() == 1080,
+    core::mem::size_of::<FileEvent>() == 1096,
     "FileEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(core::mem::size_of::<FileEventHeader>() == 8);
 const _: () = assert!(core::mem::size_of::<FileIndexEvent>() == 16);
 const _: () = assert!(
-    core::mem::size_of::<DnsEvent>() == 484,
+    core::mem::size_of::<DnsEvent>() == 504,
     "DnsEvent layout changed — update ebpf/src/events.rs to match"
 );
 
@@ -291,18 +330,18 @@ pub fn bytes_to_string(buf: &[u8]) -> String {
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod mapping {
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    use std::time::SystemTime;
-
     use crate::models::{
         DnsQueryFields, FileEventFields, NetworkConnectionFields, ProcessCreationFields,
     };
     use crate::sensor::{
         Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
     };
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     use super::super::paths::{resolve_at_path, truncation_marker, DirFdIndex};
-    use super::{bytes_to_string, DnsEvent, FileEvent, NetworkEvent, ProcessEvent};
+    use super::{
+        bytes_to_string, system_time_from_boot_ns, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
+    };
 
     const PROVIDER: &str = "ebpf";
 
@@ -320,7 +359,8 @@ pub mod mapping {
                 action_code: event.kind as u8,
             },
             pid: Some(event.pid),
-            timestamp: SystemTime::now(),
+            timestamp: system_time_from_boot_ns(event.event_time_ns),
+            source_seq: Some(event.source_seq),
             process_start_key: Some(ProcessStartKey {
                 pid: event.pid,
                 start_time: 0,
@@ -361,7 +401,8 @@ pub mod mapping {
                 action_code: 12,
             },
             pid: Some(event.pid),
-            timestamp: SystemTime::now(),
+            timestamp: system_time_from_boot_ns(event.event_time_ns),
+            source_seq: Some(event.source_seq),
             process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some(ip_to_string(event.af, &event.daddr)),
@@ -420,7 +461,8 @@ pub mod mapping {
             action,
             normalization,
             pid: Some(event.pid),
-            timestamp: SystemTime::now(),
+            timestamp: system_time_from_boot_ns(event.event_time_ns),
+            source_seq: Some(event.source_seq),
             process_start_key: None,
             payload: SensorPayload::File(FileEventFields {
                 path_truncated: truncation_marker(event.flags, source_filename.is_some())
@@ -446,7 +488,8 @@ pub mod mapping {
                 action_code: event.kind as u8,
             },
             pid: Some(event.pid),
-            timestamp: SystemTime::now(),
+            timestamp: system_time_from_boot_ns(event.event_time_ns),
+            source_seq: Some(event.source_seq),
             process_start_key: None,
             payload: SensorPayload::Dns(DnsQueryFields {
                 query_name: Some(bytes_to_string(&event.query_name)),
@@ -492,9 +535,23 @@ mod tests {
         assert!(parse_event::<DnsEvent>(&raw).is_none());
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn boot_clock_conversion_preserves_kernel_event_deltas() {
+        let earlier = system_time_from_boot_ns(1_000_000_000);
+        let later = system_time_from_boot_ns(1_123_456_789);
+
+        assert_eq!(
+            later.duration_since(earlier).expect("time moves forward"),
+            std::time::Duration::from_nanos(123_456_789)
+        );
+    }
+
     #[test]
     fn process_event_round_trips_kernel_argv_through_raw_bytes() {
         let mut event = ProcessEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             kind: 1,
             pid: 4242,
             uid: 1000,
@@ -531,6 +588,8 @@ mod tests {
     #[test]
     fn transport_names_only_the_socket_types_it_knows() {
         let mut event = NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 0,
             pid: 42,
             uid: 1000,
             fd: 3,
