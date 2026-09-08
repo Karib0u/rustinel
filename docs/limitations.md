@@ -19,6 +19,7 @@ full rather than hide them.
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
 | Image paths are truncated, and truncation is unmarked on process events | Linux |
+| `User` is the real UID, not the effective one | Linux, macOS |
 
 ## Windows (ETW and Event Log)
 
@@ -75,6 +76,10 @@ three platforms, but several Sysmon-style fields are unavailable.
   lab desktop over 45 seconds: 399 of 33,029 file events resolved (1.2%), with
   no index evictions - so on a freshly started agent the gap is wide, and it is
   handles older than the session rather than index pressure that causes it.
+  This is scheduled rather than accepted: a classic `FileIo` rundown, which
+  enumerates the handles already open when the session starts, is lab-validated
+  as a fix costing roughly 100 ms at startup
+  ([#428](https://github.com/Karib0u/rustinel/issues/428)).
 - **A small share of registry writes is still unattributed (silent risk).**
   Registry keys open before the trace session are named from the kernel handle
   table at startup, which covered 5,908 of 6,644 open keys (88.9%) in 32 ms on a
@@ -164,9 +169,9 @@ The Linux sensor covers process, network, file, and DNS.
   carries `PathTruncated` naming which side was cut. Since truncation removes
   the end of the path, `|endswith` rules and extension IOCs are what it defeats.
 - **File events whose path cannot be placed are dropped (bounded, counted).**
-  `openat`, `unlinkat`, and `renameat*` name their target with a directory
-  descriptor plus a possibly relative name, and the kernel does not expose the
-  resolved path. A process that exits before the drain leaves a name that
+  The `*at` file syscalls name their target with a directory descriptor plus a
+  possibly relative name, and the kernel does not expose the resolved path. A
+  process that exits before the drain leaves a name that
   neither `/proc/<pid>/cwd` nor the descriptor index can place, and it is
   dropped rather than reported as though `passwd` were `/etc/passwd`. Counted as
   `unresolved_file_events`.
@@ -199,10 +204,10 @@ The Linux sensor covers process, network, file, and DNS.
   attempt starts and a later asynchronous failure is not retracted.
   `SourceIp`/`SourcePort` are **reported as absent**, never as `0.0.0.0`/`0`:
   the syscall never carries them and the probe does not read the bound address
-  back out of the socket. A `/proc/net` lookup fills them in when it provably
-  describes the same connection, which under happy-eyeballs it usually does
-  not, so most Linux network events carry no source address or port. Only
-  AF_INET and AF_INET6.
+  back out of the socket. The sensor does not try to reconstruct them later
+  from `/proc/net`: by then the descriptor may name a different socket, and
+  scanning the system-wide socket tables for every event stalls the ring drain
+  under connection churn. Only AF_INET and AF_INET6.
 - **`Protocol` is absent for sockets created before the sensor started.** The
   transport comes from the type the socket was created with, so `socket(2)` is
   watched and the type indexed by descriptor. A descriptor the sensor never
@@ -212,6 +217,12 @@ The Linux sensor covers process, network, file, and DNS.
   to be a fixed `tcp`, which matched UDP traffic and never matched
   `Protocol: 'udp'`. Socket types other than `SOCK_STREAM` and `SOCK_DGRAM`
   (a raw or SCTP socket) are also left absent rather than named.
+- **`User` is the real UID, not the effective one (silent risk).**
+  `bpf_get_current_uid_gid()` returns the real UID, so a process running with
+  effective root through a setuid binary is reported as the unprivileged caller
+  and a rule filtering `User: 'root'` does not see it. Measured with a
+  setuid-root binary: userspace `euid=0`, sensor `User=1000`. Same defect as
+  macOS ([#327](https://github.com/Karib0u/rustinel/issues/327)).
 - **No library-load, module-load, or ptrace events.** Sigma rules in those
   categories never match.
 - **Kernel requirements.** Linux 5.8+ with BTF and `CAP_BPF` + `CAP_PERFMON` +

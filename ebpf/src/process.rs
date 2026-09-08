@@ -48,12 +48,12 @@ use aya_ebpf::{
     EbpfContext,
 };
 
-use crate::events::{ProcessEvent, ARGV_CAPACITY, PROCESS_IMAGE_CAPACITY};
+use crate::events::{event_metadata, ProcessEvent, ARGV_CAPACITY, PROCESS_IMAGE_CAPACITY};
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, PROCESS_FAMILY};
 
 /// Ring buffer shared with the userspace loader for process events.
 ///
-/// The 808-byte event leaves room for more than 2,500 queued events, including
+/// The 824-byte event leaves room for more than 2,500 queued events, including
 /// the measured 1,600-event burst that motivated the image-path fallback.
 #[map]
 pub static PROCESS_RING: RingBuf = RingBuf::with_byte_size(2 * 1024 * 1024, 0);
@@ -158,7 +158,10 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
         return Ok(0);
     };
     let event = entry.as_mut_ptr();
+    let (event_time_ns, source_seq) = event_metadata();
 
+    (*event).event_time_ns = event_time_ns;
+    (*event).source_seq = source_seq;
     (*event).kind = PROCESS_EVENT_EXEC;
     (*event).pid = pid;
     (*event).uid = uid;
@@ -312,7 +315,10 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
         return Ok(0);
     };
     let event = entry.as_mut_ptr();
+    let (event_time_ns, source_seq) = event_metadata();
 
+    (*event).event_time_ns = event_time_ns;
+    (*event).source_seq = source_seq;
     (*event).kind = PROCESS_EVENT_EXIT;
     (*event).pid = pid;
     (*event).uid = uid;

@@ -583,6 +583,8 @@ detection:
 
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Linux,
             provider: "ebpf".to_string(),
             category: crate::models::EventCategory::Network,
@@ -625,6 +627,8 @@ detection:
 
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Linux,
             provider: "ebpf".to_string(),
             category: crate::models::EventCategory::File,
@@ -664,6 +668,8 @@ detection:
 
         let event = NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Linux,
             provider: "ebpf".to_string(),
             category: crate::models::EventCategory::Dns,
@@ -707,6 +713,8 @@ detection:
     fn process_event(platform: Platform, image: &str, command_line: &str) -> NormalizedEvent {
         NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform,
             provider: "test".to_string(),
             category: crate::models::EventCategory::Process,

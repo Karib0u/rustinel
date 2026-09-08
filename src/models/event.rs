@@ -11,8 +11,14 @@ use serde::{Deserialize, Serialize};
 /// See [`EventFields::from_recorded`].
 #[derive(Debug, Clone, Serialize)]
 pub struct NormalizedEvent {
-    /// Event timestamp
+    /// Native event timestamp.
+    #[serde(rename = "event_time")]
     pub timestamp: String,
+    /// Native source ordering token, when the source exposes one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_seq: Option<u64>,
+    /// Strictly increasing order in which this process canonicalized events.
+    pub ingest_seq: u64,
     /// Sensor platform that produced the underlying event.
     pub platform: Platform,
     /// Sensor provider name (for example `etw` or `ebpf`).
@@ -42,7 +48,12 @@ impl<'de> Deserialize<'de> for NormalizedEvent {
         /// left untyped until the category has been read.
         #[derive(Deserialize)]
         struct RecordedEvent {
-            timestamp: String,
+            #[serde(alias = "timestamp")]
+            event_time: String,
+            #[serde(default)]
+            source_seq: Option<u64>,
+            #[serde(default)]
+            ingest_seq: u64,
             platform: Platform,
             provider: String,
             category: EventCategory,
@@ -58,7 +69,9 @@ impl<'de> Deserialize<'de> for NormalizedEvent {
             .map_err(serde::de::Error::custom)?;
 
         Ok(Self {
-            timestamp: recorded.timestamp,
+            timestamp: recorded.event_time,
+            source_seq: recorded.source_seq,
+            ingest_seq: recorded.ingest_seq,
             platform: recorded.platform,
             provider: recorded.provider,
             category: recorded.category,
@@ -129,7 +142,7 @@ impl NormalizedEvent {
     pub fn get_field(&self, key: &str) -> Option<&str> {
         // Fast path for common fields
         match key {
-            "timestamp" => return Some(&self.timestamp),
+            "timestamp" | "event_time" => return Some(&self.timestamp),
             "EventID" => return Some(&self.event_id_string),
             _ => {}
         }
@@ -330,6 +343,8 @@ mod round_trip_tests {
     fn file_event() -> NormalizedEvent {
         NormalizedEvent {
             timestamp: "2026-08-16T09:41:03.402Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::File,
@@ -381,9 +396,32 @@ mod round_trip_tests {
     }
 
     #[test]
+    fn recording_uses_the_three_field_time_and_order_contract() {
+        let mut event = file_event();
+        event.source_seq = Some(44);
+        event.ingest_seq = 7;
+
+        let json = serde_json::to_value(&event).expect("event serializes");
+
+        assert_eq!(json["event_time"], event.timestamp);
+        assert_eq!(json["source_seq"], 44);
+        assert_eq!(json["ingest_seq"], 7);
+        assert!(json.get("timestamp").is_none());
+    }
+
+    #[test]
+    fn recording_omits_a_source_sequence_when_the_source_has_none() {
+        let json = serde_json::to_value(file_event()).expect("event serializes");
+
+        assert!(json.get("source_seq").is_none());
+    }
+
+    #[test]
     fn every_recorded_field_survives_the_round_trip() {
         let mut original = NormalizedEvent {
             timestamp: "2026-08-16T09:41:02.884Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::MacOS,
             provider: "esf".to_string(),
             category: EventCategory::Process,
@@ -503,6 +541,8 @@ mod round_trip_tests {
     fn network_event(initiated: Option<bool>) -> NormalizedEvent {
         NormalizedEvent {
             timestamp: "2026-08-16T09:41:05.001Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::Network,
@@ -581,6 +621,8 @@ mod round_trip_tests {
         // matching every `service: system` rule.
         let event = NormalizedEvent {
             timestamp: "2026-08-25T12:34:56.123Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "windows_event_log".to_string(),
             category: EventCategory::Service,
@@ -632,6 +674,8 @@ mod round_trip_tests {
     fn absent_process_identity_fields_are_not_synthesized() {
         let event = NormalizedEvent {
             timestamp: "2026-08-16T12:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform: Platform::Windows,
             provider: "etw".to_string(),
             category: EventCategory::Process,

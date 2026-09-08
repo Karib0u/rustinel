@@ -189,6 +189,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-08-16T10:00:01Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Windows,
                 provider: "etw".to_string(),
                 category: EventCategory::Process,

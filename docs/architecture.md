@@ -128,12 +128,12 @@ The Linux sensor loads eBPF programs with Aya and currently covers:
 - DNS queries observed from userspace `sendto`, `sendmsg`, and `sendmmsg` calls. The eBPF program emits a bounded raw DNS payload and userspace parses `QueryName`, keeping string parsing out of the verifier-sensitive in-kernel path. Linux DNS response answers are not parsed yet, so `QueryResults` remains unavailable on Linux.
 
 The loader attaches a mix of tracepoints and kprobes: `sched_process_exec` and
-`sched_process_exit`, enter/exit pairs on `execve`, `execveat`, `openat`,
-`unlinkat`, `renameat`, and `renameat2`, entry hooks on `connect`, `sendto`,
-`sendmsg`, and `sendmmsg`, and a `vfs_create` kprobe. The authoritative list is
-in `src/sensor/linux/`.
+`sched_process_exit`, enter/exit pairs on `open`, `openat`, `openat2`, `creat`,
+`unlink`, `unlinkat`, `rename`, `renameat`, `renameat2`, `mkdir`, `mkdirat`, and
+`rmdir`, entry hooks on `connect`, `sendto`, `sendmsg`, and `sendmmsg`, and a
+`vfs_create` kprobe. The authoritative list is in `src/sensor/linux/`.
 
-Requirements for the Linux sensor are kernel 5.8+, BTF, and eBPF privileges.
+Requirements for the Linux sensor are kernel 5.12+, BTF, and eBPF privileges.
 
 ### macOS
 

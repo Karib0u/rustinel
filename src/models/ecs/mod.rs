@@ -42,6 +42,8 @@ impl From<&Alert> for EcsAlert {
 
         let mut ecs = EcsAlert {
             timestamp: alert.event.timestamp.clone(),
+            event_source_seq: alert.event.source_seq,
+            event_ingest_seq: alert.event.ingest_seq,
             ecs_version: ECS_VERSION.to_string(),
             event_count: None,
             event_kind: "alert".to_string(),
@@ -430,6 +432,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 9,
                 platform: Platform::Windows,
                 provider: "etw".to_string(),
                 category: EventCategory::Process,
@@ -467,6 +471,11 @@ mod tests {
         assert_eq!(ecs.event_module, EVENT_MODULE);
         assert_eq!(ecs.event_dataset, "edr.process");
         assert_eq!(ecs.event_provider, "etw");
+        assert_eq!(ecs.event_source_seq, None);
+        assert_eq!(ecs.event_ingest_seq, 9);
+        let json = serde_json::to_value(&ecs).expect("ECS alert serializes");
+        assert!(json.get("event.sequence").is_none());
+        assert_eq!(json["edr.event.ingest_seq"], 9);
         assert_eq!(ecs.host_os_type, "windows");
         assert_eq!(ecs.host_os_family, "windows");
         assert_eq!(ecs.event_category, vec!["process".to_string()]);
@@ -501,6 +510,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
+                source_seq: Some(81234),
+                ingest_seq: 10,
                 platform: Platform::Windows,
                 provider: "windows_event_log".to_string(),
                 category: EventCategory::Service,
@@ -535,6 +546,11 @@ mod tests {
         // sensor that collected the record, and the Windows provider that
         // wrote it.
         assert_eq!(ecs.event_provider, "windows_event_log");
+        assert_eq!(ecs.event_source_seq, Some(81234));
+        assert_eq!(ecs.event_ingest_seq, 10);
+        let json = serde_json::to_value(&ecs).expect("ECS alert serializes");
+        assert_eq!(json["event.sequence"], 81234);
+        assert_eq!(json["edr.event.ingest_seq"], 10);
         assert_eq!(
             ecs.edr_event_log_provider_name,
             Some("Service Control Manager".to_string())
@@ -553,6 +569,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Windows,
                 provider: "etw".to_string(),
                 category: EventCategory::Service,
@@ -619,6 +637,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Windows,
                 provider: "etw".to_string(),
                 category: EventCategory::Registry,
@@ -659,6 +679,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Windows,
                 provider: "etw".to_string(),
                 category: EventCategory::Network,
@@ -738,6 +760,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Linux,
                 provider: "ebpf".to_string(),
                 category: EventCategory::Dns,
@@ -784,6 +808,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Windows,
                 provider: "etw".to_string(),
                 category: EventCategory::File,
@@ -822,6 +848,8 @@ mod tests {
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-02-04T00:00:00Z".to_string(),
+                source_seq: None,
+                ingest_seq: 0,
                 platform: Platform::Windows,
                 provider: "etw".to_string(),
                 category: EventCategory::Process,

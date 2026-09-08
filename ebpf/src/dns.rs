@@ -16,7 +16,7 @@ use aya_ebpf::{
     programs::TracePointContext,
 };
 
-use crate::events::DnsEvent;
+use crate::events::{event_metadata, DnsEvent};
 use crate::telemetry::{record_ring_full, record_submitted, DNS_FAMILY};
 
 const DNS_EVENT_QUERY: u32 = 1;
@@ -319,6 +319,7 @@ unsafe fn emit_dns_query(scratch: *mut DnsEvent, pid: u32, uid: u32, fd: i32, re
         record_ring_full(DNS_FAMILY);
         return;
     };
+    ((*scratch).event_time_ns, (*scratch).source_seq) = event_metadata();
     entry.write(*scratch);
     entry.submit(0);
     record_submitted(DNS_FAMILY);

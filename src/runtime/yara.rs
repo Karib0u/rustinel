@@ -101,6 +101,8 @@ pub fn build_yara_alert(
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: utils::now_timestamp_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform,
             provider: provider.to_string(),
             category: EventCategory::Process,
@@ -183,6 +185,8 @@ pub fn build_yara_memory_alert(
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: utils::now_timestamp_string(),
+            source_seq: None,
+            ingest_seq: 0,
             platform,
             provider: provider.to_string(),
             category: EventCategory::Process,

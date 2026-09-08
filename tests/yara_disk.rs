@@ -75,6 +75,8 @@ fn build_yara_alert(
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: chrono::DateTime::<chrono::Utc>::from(test_time()).to_rfc3339(),
+            source_seq: None,
+            ingest_seq: 0,
             platform,
             provider: provider_for(platform).to_string(),
             category: EventCategory::Process,
