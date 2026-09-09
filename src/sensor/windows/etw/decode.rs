@@ -294,11 +294,8 @@ pub(super) fn decode_process(
         parser,
         &[mappings.get_etw_field("ParentImage")?, "ParentProcessName"],
     );
-    let raw_current_directory = try_get_string(parser, mappings.get_etw_field("CurrentDirectory")?);
-
     let image = raw_image.map(|path| convert_nt_to_dos(&path));
     let parent_image = raw_parent_image.map(|path| convert_nt_to_dos(&path));
-    let current_directory = raw_current_directory.map(|path| convert_nt_to_dos(&path));
 
     let fields = ProcessCreationFields {
         cgroup_id: None,
@@ -319,12 +316,12 @@ pub(super) fn decode_process(
         parent_process_id: try_get_uint(parser, mappings.get_etw_field("ParentProcessId")?),
         parent_image,
         parent_command_line: try_get_string(parser, mappings.get_etw_field("ParentCommandLine")?),
-        current_directory,
+        current_directory: None,
         // `MandatoryLabel` is a SID; Sigma matches on Sysmon's level name.
         // It is only on the start template, so a stop event has none.
         integrity_level: try_get_string(parser, mappings.get_etw_field("IntegrityLevel")?)
             .and_then(|sid| integrity_level_from_sid(&sid)),
-        user: try_get_string(parser, mappings.get_etw_field("User")?),
+        user: None,
     };
 
     let process_start_key = match action {
@@ -806,9 +803,9 @@ pub(super) fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option
         description: None,
         company: None,
         file_version: None,
-        signed: try_get_string(parser, mappings.get_etw_field("Signed")?),
-        signature: try_get_string(parser, mappings.get_etw_field("Signature")?),
-        user: try_get_string(parser, mappings.get_etw_field("User")?),
+        signed: None,
+        signature: None,
+        user: None,
     };
 
     Some(DecodedEtwEvent {
@@ -891,12 +888,11 @@ pub(super) fn decode_task(parser: &Parser, record: &EventRecord) -> Option<Decod
     let mappings = field_maps::task_creation_mappings();
     let fields = TaskCreationFields {
         task_name: try_get_string(parser, mappings.get_etw_field("TaskName")?),
-        task_content: try_get_string(parser, mappings.get_etw_field("TaskContent")?),
+        task_content: None,
         user_name: try_get_string(parser, mappings.get_etw_field("UserName")?),
-        user: try_get_string(parser, mappings.get_etw_field("User")?),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
-        image: try_get_string(parser, mappings.get_etw_field("Image")?)
-            .map(|path| convert_nt_to_dos(&path)),
+        user: None,
+        process_id: None,
+        image: None,
     };
 
     Some(DecodedEtwEvent {

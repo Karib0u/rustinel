@@ -55,7 +55,11 @@ fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
             .expect("command line")
             .contains("example.test"));
         assert_normalized_field_eq(&normalized, "ProcessId", &TEST_PID.to_string());
-        assert_normalized_field_eq(&normalized, "User", TEST_USER);
+        if platform == Platform::Windows {
+            assert_eq!(normalized.get_field("User"), None);
+        } else {
+            assert_normalized_field_eq(&normalized, "User", TEST_USER);
+        }
 
         let alert = engine
             .check_event(&normalized)
@@ -222,7 +226,11 @@ fn sigma_network_detection_pipeline_enriches_repeats_and_maps_to_ecs() {
             "DestinationPort",
             &TEST_DESTINATION_PORT.to_string(),
         );
-        assert_normalized_field_eq(&first, "SourceIp", TEST_SOURCE_IP);
+        if platform == Platform::Linux {
+            assert_eq!(first.get_field("SourceIp"), None);
+        } else {
+            assert_normalized_field_eq(&first, "SourceIp", TEST_SOURCE_IP);
+        }
         assert_normalized_field_eq(&first, "Protocol", "tcp");
 
         let repeated = harness
@@ -307,6 +315,14 @@ level: low
 "#
             ),
         );
+        let rename_fields = if platform == Platform::Windows {
+            r#"    TargetFilename|endswith: "rustinel-renamed.txt"
+    Image|contains: "curl""#
+        } else {
+            r#"    SourceFilename|endswith: "rustinel-fixture.txt"
+    TargetFilename|endswith: "rustinel-renamed.txt"
+    Image|contains: "curl""#
+        };
         fixture.write_rule(
             "file_rename.yml",
             &format!(
@@ -316,9 +332,7 @@ logsource:
   category: file_rename
 detection:
   selection:
-    SourceFilename|endswith: "rustinel-fixture.txt"
-    TargetFilename|endswith: "rustinel-renamed.txt"
-    Image|contains: "curl"
+{rename_fields}
   condition: selection
 level: low
 "#
@@ -351,7 +365,11 @@ level: low
             .normalizer
             .normalize(&file_rename_event(platform))
             .expect("file rename should normalize");
-        assert_normalized_field_eq(&rename, "SourceFilename", test_file_path(platform));
+        if platform == Platform::Windows {
+            assert_eq!(rename.get_field("SourceFilename"), None);
+        } else {
+            assert_normalized_field_eq(&rename, "SourceFilename", test_file_path(platform));
+        }
         assert_normalized_field_eq(&rename, "TargetFilename", renamed_test_file_path(platform));
         assert_normalized_field_eq(&rename, "Image", image_for(platform));
 

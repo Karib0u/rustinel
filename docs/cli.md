@@ -170,8 +170,14 @@ Doctor reports `pass`, `warn`, or `fail` for configuration discovery and parsing
 resolved paths, writable log and alert directories, installed rules pack state,
 pack compatibility and checksum metadata, Sigma, YARA, and IOC parsing, Sigma
 rules left inert by a missing collector, native
-service state, active-response safety, platform telemetry prerequisites, and
-pipeline drop counters.
+service state, active-response safety, the field-availability contract,
+platform telemetry prerequisites, and pipeline drop counters.
+
+The `field_availability` check confirms that the machine-readable contract was
+loaded and summarizes `always`, `conditional`, and permanently unavailable
+field entries for the current platform. Its detail names permanent gaps; the
+complete generated baseline lives in
+`compatibility/field-availability.json`.
 
 The `sigma_rules_inert` check reports how many loaded Sigma rules have no
 backing collector on this platform - they parse, they count toward the rule
