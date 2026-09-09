@@ -48,6 +48,19 @@ pub(crate) fn from_file(file: &File) -> Option<FileIdentity> {
     })
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn from_stat(stat: &libc::stat) -> FileIdentity {
+    FileIdentity {
+        platform: PlatformFileIdentity::Unix {
+            device: stat.st_dev as u64,
+            inode: stat.st_ino,
+        },
+        size: stat.st_size as u64,
+        modified: timestamp(stat.st_mtime, stat.st_mtime_nsec),
+        changed: timestamp(stat.st_ctime, stat.st_ctime_nsec),
+    }
+}
+
 #[cfg(unix)]
 fn timestamp(seconds: i64, nanos: i64) -> i128 {
     i128::from(seconds) * 1_000_000_000 + i128::from(nanos)
@@ -106,6 +119,21 @@ pub(crate) fn unchanged(file: &File, path: &Path, initial: &FileIdentity) -> boo
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn esf_stat_matches_open_file_identity() {
+        use std::os::fd::AsRawFd;
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // fstat initializes the entire stat on success.
+        assert_eq!(
+            unsafe { libc::fstat(file.as_file().as_raw_fd(), stat.as_mut_ptr()) },
+            0
+        );
+        let stat = unsafe { stat.assume_init() };
+        assert_eq!(Some(from_stat(&stat)), from_file(file.as_file()));
+    }
 
     #[test]
     fn replacement_with_same_size_and_mtime_has_different_identity() {

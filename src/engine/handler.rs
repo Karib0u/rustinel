@@ -27,7 +27,7 @@ pub struct DetectionPipeline {
     /// Live detector store (sigma/ioc hot-reloaded atomically).
     pub detectors: Arc<DetectorStore>,
     /// Hash worker channel (optional).
-    pub ioc_hash_tx: Option<mpsc::Sender<(String, u32)>>,
+    pub ioc_hash_tx: Option<mpsc::Sender<crate::scanner::FileScanTarget>>,
     /// ECS NDJSON alert sink.
     pub alert_sink: AlertSink,
     /// Active response engine.
@@ -116,7 +116,7 @@ impl SensorEventHandler for NormalizedEventHandler {
                                 if let Err(err) = crate::telemetry::try_send(
                                     crate::telemetry::ChannelId::IocHash,
                                     tx,
-                                    (image.to_string(), pid),
+                                    crate::scanner::FileScanTarget::new(image, pid, fields),
                                 ) {
                                     debug!(
                                         target: TARGET_ENGINE,

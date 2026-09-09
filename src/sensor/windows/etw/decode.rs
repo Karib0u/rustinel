@@ -302,6 +302,7 @@ pub(super) fn decode_process(
 
     let fields = ProcessCreationFields {
         cgroup_id: None,
+        exec: Default::default(),
         parent_process_id_derived: false,
         image: image.clone(),
         image_source: None,

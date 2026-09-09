@@ -325,6 +325,7 @@ mod tests {
     fn payload_category_matches_variant() {
         let payload = SensorPayload::Process(ProcessCreationFields {
             cgroup_id: None,
+            exec: Default::default(),
             parent_process_id_derived: false,
             image: Some("/usr/bin/bash".to_string()),
             image_source: None,

@@ -221,6 +221,7 @@ impl IocEngine {
                 opcode: 1,
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
                     cgroup_id: None,
+                    exec: Default::default(),
                     parent_process_id_derived: false,
                     image: Some(path.to_string()),
                     image_source: None,

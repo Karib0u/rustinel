@@ -176,7 +176,7 @@ impl LivePipeline {
 
         // 9. YARA background worker
         let (yara_tx, yara_worker_handle) = if cfg.scanner.yara_enabled {
-            let (tx, rx) = mpsc::channel::<(String, u32)>(1000);
+            let (tx, rx) = mpsc::channel::<crate::scanner::FileScanTarget>(1000);
             let handle = runtime_yara::spawn_yara_file_worker(
                 Arc::clone(&detectors),
                 alert_sink.clone(),
@@ -227,7 +227,7 @@ impl LivePipeline {
 
         // 10. IOC hash background worker
         let (ioc_hash_tx, ioc_hash_worker_handle) = if ioc_engine.is_enabled() {
-            let (hash_tx, hash_rx) = mpsc::channel::<(String, u32)>(1000);
+            let (hash_tx, hash_rx) = mpsc::channel::<crate::scanner::FileScanTarget>(1000);
             let handle = runtime_ioc::spawn_ioc_hash_worker(
                 Arc::clone(&detectors),
                 alert_sink.clone(),

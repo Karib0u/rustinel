@@ -65,9 +65,38 @@ impl EventFields {
     }
 }
 
+/// Optional authoritative exec metadata. Absent signature fields mean unknown.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ExecMetadata {
+    #[serde(rename = "Signed", skip_serializing_if = "Option::is_none")]
+    pub signed: Option<String>,
+    #[serde(rename = "PreExecImage", skip_serializing_if = "Option::is_none")]
+    pub pre_exec_image: Option<String>,
+    #[serde(rename = "RealUserId", skip_serializing_if = "Option::is_none")]
+    pub real_user_id: Option<String>,
+    #[serde(rename = "Script", skip_serializing_if = "Option::is_none")]
+    pub script: Option<String>,
+    #[serde(rename = "SignatureStatus", skip_serializing_if = "Option::is_none")]
+    pub signature_status: Option<String>,
+    #[serde(rename = "SigningId", skip_serializing_if = "Option::is_none")]
+    pub signing_id: Option<String>,
+    #[serde(rename = "TeamId", skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
+    #[serde(rename = "CdHash", skip_serializing_if = "Option::is_none")]
+    pub cdhash: Option<String>,
+    #[serde(rename = "CodeSigningFlags", skip_serializing_if = "Option::is_none")]
+    pub codesigning_flags: Option<String>,
+    #[serde(rename = "IsPlatformBinary", skip_serializing_if = "Option::is_none")]
+    pub is_platform_binary: Option<bool>,
+    #[serde(skip)]
+    pub(crate) file_identity: Option<crate::utils::file_identity::FileIdentity>,
+}
+
 /// Process creation/access event fields (Sigma: process_creation, process_access)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessCreationFields {
+    #[serde(flatten, default)]
+    pub exec: Option<Box<ExecMetadata>>,
     #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 

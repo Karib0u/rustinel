@@ -677,6 +677,7 @@ mod tests {
                 opcode: 1,
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
                     cgroup_id: None,
+                    exec: Default::default(),
                     parent_process_id_derived: false,
                     image: image.map(str::to_string),
                     image_source: None,

@@ -82,7 +82,8 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     };
 
     handler.handle_event(&process_start_event(Platform::Linux));
-    let (path, pid) = file_rx.try_recv().expect("disk job queued");
+    let target = file_rx.try_recv().expect("disk job queued");
+    let (path, pid) = (target.path, target.pid);
     assert_eq!(path, common::image_for(Platform::Linux));
     assert_eq!(pid, TEST_PID);
     let memory = memory_rx.try_recv().expect("memory job queued");

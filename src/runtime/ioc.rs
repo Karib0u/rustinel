@@ -16,7 +16,7 @@ pub fn spawn_ioc_hash_worker(
     detectors: Arc<DetectorStore>,
     alert_sink: AlertSink,
     response_engine: ResponseEngine,
-    mut rx: mpsc::Receiver<(String, u32)>,
+    mut rx: mpsc::Receiver<crate::scanner::FileScanTarget>,
     platform: Platform,
     provider: &'static str,
 ) -> tokio::task::JoinHandle<()> {
@@ -35,7 +35,9 @@ pub fn spawn_ioc_hash_worker(
         let mut hash_error_limiter =
             LogRateLimiter::new(Duration::from_secs(WORKER_DEBUG_LOG_WINDOW_SECS));
 
-        while let Some((path, pid)) = rx.blocking_recv() {
+        while let Some(target) = rx.blocking_recv() {
+            let path = target.path.clone();
+            let pid = target.pid;
             if path.is_empty() {
                 continue;
             }
@@ -85,7 +87,12 @@ pub fn spawn_ioc_hash_worker(
                 }
             }
 
-            let hashes = match cache.get_or_compute(Path::new(&path), requirements, &mut buf) {
+            let hashes = match cache.get_or_compute_for_identity(
+                Path::new(&path),
+                requirements,
+                &mut buf,
+                target.identity.as_ref(),
+            ) {
                 Ok(hashes) => hashes,
                 Err(err) => {
                     let decision = hash_error_limiter.should_emit("hash_error");

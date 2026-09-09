@@ -194,6 +194,32 @@ impl NormalizedEvent {
 
         match &self.fields {
             EventFields::ProcessCreation(f) => match key {
+                "Signed" => f.exec.as_ref().and_then(|exec| exec.signed.as_deref()),
+                "PreExecImage" => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.pre_exec_image.as_deref()),
+                "RealUserId" => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.real_user_id.as_deref()),
+                "Script" => f.exec.as_ref().and_then(|exec| exec.script.as_deref()),
+                "SignatureStatus" => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.signature_status.as_deref()),
+                "SigningId" => f.exec.as_ref().and_then(|exec| exec.signing_id.as_deref()),
+                "TeamId" => f.exec.as_ref().and_then(|exec| exec.team_id.as_deref()),
+                "CdHash" => f.exec.as_ref().and_then(|exec| exec.cdhash.as_deref()),
+                "CodeSigningFlags" => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.codesigning_flags.as_deref()),
+                "IsPlatformBinary" => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.is_platform_binary)
+                    .map(|v| if v { "true" } else { "false" }),
                 "Image" => f.image.as_deref(),
                 "ImageSource" => f.image_source.as_deref(),
                 "ImageTruncated" => f
@@ -490,6 +516,7 @@ mod round_trip_tests {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some("/bin/zsh".to_string()),
                 image_source: None,
@@ -749,6 +776,7 @@ mod round_trip_tests {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                 image_source: None,
@@ -794,6 +822,7 @@ mod round_trip_tests {
         event.opcode = 1;
         event.fields = EventFields::ProcessCreation(ProcessCreationFields {
             cgroup_id: None,
+            exec: Default::default(),
             parent_process_id_derived: false,
             image: Some(image.to_string()),
             image_source: None,
