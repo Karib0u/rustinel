@@ -71,8 +71,8 @@
 
 use aya_ebpf::{
     helpers::{
-        bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_ktime_get_ns,
-        bpf_probe_read_user, bpf_probe_read_user_str_bytes,
+        bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_ktime_get_ns, bpf_probe_read_user,
+        bpf_probe_read_user_str_bytes,
     },
     macros::{kprobe, map, tracepoint},
     maps::{HashMap, LruHashMap, PerCpuArray, RingBuf},
@@ -881,7 +881,7 @@ unsafe fn queue_file_event_from_args(dfd: i32, path_ptr: u64, kind: u32) -> Resu
     let pid_tgid = bpf_get_current_pid_tgid();
     (*event).kind = kind;
     (*event).pid = (pid_tgid >> 32) as u32;
-    (*event).uid = bpf_get_current_uid_gid() as u32;
+    (*event).uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
     (*event).flags = if truncated {
         FILE_FLAG_PATH_TRUNCATED
     } else {
@@ -977,7 +977,7 @@ unsafe fn queue_rename_event_from_args(
     let pid_tgid = bpf_get_current_pid_tgid();
     (*event).kind = FILE_KIND_RENAME;
     (*event).pid = (pid_tgid >> 32) as u32;
-    (*event).uid = bpf_get_current_uid_gid() as u32;
+    (*event).uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
     (*event).flags = flags;
     (*event).dfd = new_dfd;
     (*event).aux_dfd = old_dfd;

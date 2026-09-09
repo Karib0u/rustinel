@@ -251,6 +251,14 @@ impl NormalizedEvent {
                 "CommandLine" => f.command_line.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
                 "CgroupId" => f.cgroup_id.as_deref(),
+                "RealGroupId" => f.linux_identity.real_group_id.as_deref(),
+                "EffectiveUserId" => f.linux_identity.effective_user_id.as_deref(),
+                "EffectiveGroupId" => f.linux_identity.effective_group_id.as_deref(),
+                "MountNamespace" => f.linux_identity.mount_namespace.as_deref(),
+                "PidNamespace" => f.linux_identity.pid_namespace.as_deref(),
+                "NetworkNamespace" => f.linux_identity.network_namespace.as_deref(),
+                "SessionId" => f.linux_identity.session_id.as_deref(),
+                "ControllingTty" => f.linux_identity.controlling_tty.as_deref(),
                 "ParentProcessId" => f.parent_process_id.as_deref(),
                 "ParentImage" => f.parent_image.as_deref(),
                 "ParentCommandLine" => f.parent_command_line.as_deref(),
@@ -522,6 +530,7 @@ mod round_trip_tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
@@ -782,6 +791,7 @@ mod round_trip_tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
@@ -830,6 +840,7 @@ mod round_trip_tests {
         event.event_id_string = "1".to_string();
         event.opcode = 1;
         event.fields = EventFields::ProcessCreation(ProcessCreationFields {
+            linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
             parent_process_id_derived: false,

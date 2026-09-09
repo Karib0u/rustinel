@@ -49,6 +49,7 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ProcessEvent {
+    pub identity: crate::task_identity_abi::TaskIdentity,
     pub event_time_ns: u64,
     pub source_seq: u64,
     /// Cgroup v2 inode-like identifier measured by the kernel helper.
@@ -61,7 +62,7 @@ pub struct ProcessEvent {
     pub kind: u32,
     /// Thread group ID — the POSIX "process ID".
     pub pid: u32,
-    /// Effective UID of the new process.
+    /// Real UID; effective credentials are carried in `identity`.
     pub uid: u32,
     /// Process parent captured by the fork tracepoint.
     pub parent_pid: u32,
@@ -93,7 +94,7 @@ pub struct ProcessEvent {
     pub args: [u8; ARGV_CAPACITY],
 }
 
-const _: () = assert!(core::mem::size_of::<ProcessEvent>() == 856);
+const _: () = assert!(core::mem::size_of::<ProcessEvent>() == 944);
 
 /// `connect(2)` succeeded — the connection is established.
 pub const CONNECT_RESULT_OK: i32 = 0;

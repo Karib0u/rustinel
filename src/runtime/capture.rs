@@ -135,8 +135,8 @@ pub(crate) struct CaptureSession {
 
 impl CaptureSession {
     /// Process metadata cache, so platforms that can enumerate running
-    /// processes seed it before the sensors start. Only Windows does today.
-    #[cfg(windows)]
+    /// processes can seed it during startup.
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn process_cache(&self) -> &Arc<ProcessCache> {
         &self.process_cache
     }

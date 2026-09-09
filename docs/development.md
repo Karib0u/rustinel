@@ -62,6 +62,25 @@ cd ..
 
 `build.rs` watches `ebpf/src`, `ebpf/Cargo.toml`, and `ebpf/rustinel-ebpf.o`. On Linux builds it embeds either the prebuilt object or a freshly compiled one.
 
+### Linux task identity validation
+
+Build the eBPF object first, then run the ignored live comparison as root on an
+isolated Linux test host with tracefs mounted:
+
+```sh
+RUSTINEL_EBPF_OBJECT=/absolute/path/to/rustinel-ebpf.o \
+  cargo test --test linux_task_identity live_task_identity_matches_proc -- --ignored --nocapture
+```
+
+This exercises real versus effective credentials, active PID namespace versus
+child PID namespace, mount and network namespaces, session/TTY, kernel birth
+time, and startup inventory reconciliation. It also execs from a non-leader
+thread to check that kernel birth time remains separate from execution identity.
+Run the same object on 5.10, 5.15, 6.1, and 6.8 before changing the read plans.
+In a disposable VM, hide `/sys/kernel/btf` and run
+`live_without_btf_keeps_base_telemetry` to check graceful degradation. Never hide
+host BTF on a shared machine.
+
 ## Recommended Dev Runs
 
 ### Windows

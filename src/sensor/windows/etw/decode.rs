@@ -298,6 +298,7 @@ pub(super) fn decode_process(
     let parent_image = raw_parent_image.map(|path| convert_nt_to_dos(&path));
 
     let fields = ProcessCreationFields {
+        linux_identity: Default::default(),
         cgroup_id: None,
         exec: Default::default(),
         parent_process_id_derived: false,

@@ -8,6 +8,9 @@
 //! When modifying either side, update both files together and run the
 //! cross-platform golden tests to verify byte-level compatibility.
 
+#[path = "../../../ebpf/src/task_identity_abi.rs"]
+pub mod task_identity_abi;
+
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 #[cfg(target_os = "linux")]
@@ -54,6 +57,7 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ProcessEvent {
+    pub identity: self::task_identity_abi::TaskIdentity,
     pub event_time_ns: u64,
     pub source_seq: u64,
     pub cgroup_id: u64,
@@ -85,6 +89,47 @@ pub struct ProcessEvent {
 }
 
 impl ProcessEvent {
+    pub fn exec_metadata(&self) -> Option<Box<crate::models::ExecMetadata>> {
+        Some(Box::new(crate::models::ExecMetadata {
+            real_user_id: Some(self.uid.to_string()),
+            ..Default::default()
+        }))
+    }
+
+    pub fn effective_uid(&self) -> Option<String> {
+        self.identity_value(task_identity_abi::EUID)
+            .map(|uid| uid.to_string())
+    }
+
+    fn identity_value(&self, field: usize) -> Option<u64> {
+        (self.identity.valid & (1 << field) != 0).then_some(self.identity.values[field])
+    }
+
+    pub fn linux_identity(&self) -> Box<crate::models::LinuxProcessIdentity> {
+        use task_identity_abi::*;
+        let text = |field| self.identity_value(field).map(|value| value.to_string());
+        let controlling_tty = self
+            .identity_value(TTY_MAJOR)
+            .zip(self.identity_value(TTY_MINOR))
+            .zip(self.identity_value(TTY_INDEX))
+            .and_then(|((major, minor), index)| {
+                minor
+                    .checked_add(index)
+                    .map(|minor| format!("{major}:{minor}"))
+            });
+        Box::new(crate::models::LinuxProcessIdentity {
+            real_group_id: Some(self.identity.real_gid.to_string()),
+            effective_user_id: text(EUID),
+            effective_group_id: text(EGID),
+            mount_namespace: text(MOUNT_NS),
+            pid_namespace: text(PID_NS),
+            network_namespace: text(NET_NS),
+            session_id: text(SESSION_ID),
+            controlling_tty,
+            kernel_start_boottime: self.identity_value(START_BOOTTIME),
+        })
+    }
+
     /// Command line reconstructed from the kernel argv capture.
     ///
     /// Returns `None` when the kernel captured nothing, so callers can fall
@@ -287,18 +332,18 @@ pub struct DnsEvent {
 // These catch accidental struct layout divergence at compile time.
 
 const _: () = assert!(
-    core::mem::size_of::<ProcessEvent>() == 856,
+    core::mem::size_of::<ProcessEvent>() == 944,
     "ProcessEvent layout changed — update ebpf/src/events.rs to match"
 );
 // The argv fields were appended after `image`; pin their offsets so a
 // reordering on either side fails the build instead of decoding garbage.
 const _: () = assert!(
-    core::mem::offset_of!(ProcessEvent, args_len) == 336
-        && core::mem::offset_of!(ProcessEvent, args_count) == 338
-        && core::mem::offset_of!(ProcessEvent, args_truncated) == 340
-        && core::mem::offset_of!(ProcessEvent, image_truncated) == 341
-        && core::mem::offset_of!(ProcessEvent, parent_pid_derived) == 342
-        && core::mem::offset_of!(ProcessEvent, args) == 344,
+    core::mem::offset_of!(ProcessEvent, args_len) == 424
+        && core::mem::offset_of!(ProcessEvent, args_count) == 426
+        && core::mem::offset_of!(ProcessEvent, args_truncated) == 428
+        && core::mem::offset_of!(ProcessEvent, image_truncated) == 429
+        && core::mem::offset_of!(ProcessEvent, parent_pid_derived) == 430
+        && core::mem::offset_of!(ProcessEvent, args) == 432,
     "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
 );
 // `ret` and `sock_type` took over slots that used to be explicit padding, so a
@@ -383,8 +428,9 @@ pub mod mapping {
                 event.parent_process_start_time,
             ),
             payload: SensorPayload::Process(ProcessCreationFields {
+                linux_identity: event.linux_identity(),
                 cgroup_id: (event.cgroup_id != 0).then(|| event.cgroup_id.to_string()),
-                exec: Default::default(),
+                exec: event.exec_metadata(),
                 parent_process_id_derived: event.parent_pid_derived != 0,
                 image: Some(bytes_to_string(&event.image)),
                 image_source: None,
@@ -406,7 +452,7 @@ pub mod mapping {
                 parent_command_line: None,
                 current_directory: None,
                 integrity_level: None,
-                user: Some(event.uid.to_string()),
+                user: event.effective_uid(),
             }),
         }
     }
@@ -434,7 +480,7 @@ pub mod mapping {
                 source_port: None,
                 process_id: Some(event.pid.to_string()),
                 image: None,
-                user: Some(event.uid.to_string()),
+                user: (event.uid != u32::MAX).then(|| event.uid.to_string()),
                 destination_hostname: None,
                 protocol: event.transport().map(str::to_string),
                 // The probe hooks `connect()` only, so every captured
@@ -494,7 +540,7 @@ pub mod mapping {
                 image: None,
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
-                user: Some(event.uid.to_string()),
+                user: (event.uid != u32::MAX).then(|| event.uid.to_string()),
             }),
         })
     }
@@ -562,6 +608,7 @@ mod tests {
     #[test]
     fn process_event_round_trips_kernel_argv_through_raw_bytes() {
         let mut event = ProcessEvent {
+            identity: Default::default(),
             event_time_ns: 0,
             source_seq: 0,
             cgroup_id: 55,

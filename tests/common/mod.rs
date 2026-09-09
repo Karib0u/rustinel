@@ -129,17 +129,28 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
         }),
         parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
-            cgroup_id: None,
-            exec: (platform == Platform::MacOS).then(|| {
-                serde_json::from_value(serde_json::json!({
-                    "RealUserId": "501",
-                    "Signed": "false",
-                    "SignatureStatus": "unsigned",
-                    "CodeSigningFlags": "0",
-                    "IsPlatformBinary": false
-                }))
-                .expect("macOS exec metadata fixture")
+            linux_identity: Box::new(rustinel::models::LinuxProcessIdentity {
+                real_group_id: (platform == Platform::Linux).then(|| "1000".to_string()),
+                ..Default::default()
             }),
+            cgroup_id: None,
+            exec: if platform == Platform::Linux {
+                Some(
+                    serde_json::from_value(serde_json::json!({"RealUserId": "1000"}))
+                        .expect("Linux real UID fixture"),
+                )
+            } else {
+                (platform == Platform::MacOS).then(|| {
+                    serde_json::from_value(serde_json::json!({
+                        "RealUserId": "501",
+                        "Signed": "false",
+                        "SignatureStatus": "unsigned",
+                        "CodeSigningFlags": "0",
+                        "IsPlatformBinary": false
+                    }))
+                    .expect("macOS exec metadata fixture")
+                })
+            },
             parent_process_id_derived: false,
             image: Some(image.to_string()),
             image_source: (platform == Platform::Linux).then(|| "proc".to_string()),

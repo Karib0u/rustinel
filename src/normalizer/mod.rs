@@ -120,6 +120,21 @@ impl Normalizer {
 
         let mut fields = fields.clone();
         self.resolve_user_field(&mut fields.user);
+        #[cfg(target_os = "linux")]
+        if event.platform == Platform::Linux {
+            if let Some(uid) = fields
+                .linux_identity
+                .effective_user_id
+                .as_deref()
+                .and_then(|id| id.parse::<u32>().ok())
+            {
+                // Account lookup belongs downstream, outside the ring drain.
+                if let Some(name) = crate::utils::lookup_username_by_uid(uid) {
+                    fields.user = Some(name);
+                    provenance.mark_derived("User");
+                }
+            }
+        }
         if fields.process_start_time.is_none() {
             fields.process_start_time = event.process_start_key.map(|key| key.start_time);
             if fields.process_start_time.is_some()
@@ -534,8 +549,15 @@ mod tests {
             }),
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
+                linux_identity: Box::new(LinuxProcessIdentity {
+                    real_group_id: Some("1000".to_string()),
+                    ..Default::default()
+                }),
                 cgroup_id: None,
-                exec: Default::default(),
+                exec: Some(Box::new(ExecMetadata {
+                    real_user_id: Some("1000".to_string()),
+                    ..Default::default()
+                })),
                 parent_process_id_derived: false,
                 image: Some("/usr/bin/curl".to_string()),
                 image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
@@ -582,6 +604,7 @@ mod tests {
             }),
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
@@ -724,6 +747,7 @@ mod tests {
             }),
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,

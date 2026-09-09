@@ -491,7 +491,44 @@ const LINUX_PROCESS: &[FieldContract] = &[
     always("Image"),
     always("ImageSource"),
     always("ProcessId"),
-    always("User"),
+    always("RealUserId"),
+    always("RealGroupId"),
+    conditional(
+        "EffectiveUserId",
+        "runtime BTF resolves this field and the kernel read succeeds",
+    ),
+    conditional(
+        "EffectiveGroupId",
+        "runtime BTF resolves this field and the kernel read succeeds",
+    ),
+    conditional(
+        "MountNamespace",
+        "runtime BTF resolves this field and the kernel read succeeds",
+    ),
+    conditional(
+        "PidNamespace",
+        "runtime BTF resolves this field and the kernel read succeeds",
+    ),
+    conditional(
+        "NetworkNamespace",
+        "runtime BTF resolves this field and the kernel read succeeds",
+    ),
+    conditional(
+        "SessionId",
+        "runtime BTF resolves this field and the kernel read succeeds",
+    ),
+    conditional(
+        "KernelStartBoottime",
+        "runtime BTF resolves this field and the kernel read succeeds",
+    ),
+    conditional(
+        "ControllingTty",
+        "runtime BTF resolves terminal fields and the process has a controlling terminal",
+    ),
+    conditional(
+        "User",
+        "runtime BTF resolves effective credentials and the kernel read succeeds",
+    ),
     conditional(
         "ImageTruncated",
         "the raw exec filename exceeded the kernel capture buffer",
@@ -533,7 +570,10 @@ const LINUX_NETWORK: &[FieldContract] = &[
     always("DestinationIp"),
     always("DestinationPort"),
     always("ProcessId"),
-    always("User"),
+    conditional(
+        "User",
+        "runtime BTF resolves effective credentials and the kernel read succeeds",
+    ),
     always("Initiated"),
     conditional(
         "Protocol",
@@ -560,7 +600,10 @@ const LINUX_NETWORK: &[FieldContract] = &[
 const LINUX_FILE: &[FieldContract] = &[
     always("TargetFilename"),
     always("ProcessId"),
-    always("User"),
+    conditional(
+        "User",
+        "runtime BTF resolves effective credentials and the kernel read succeeds",
+    ),
     conditional(
         "SourceFilename",
         "the action is rename and the old path can be resolved",

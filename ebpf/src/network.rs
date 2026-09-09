@@ -55,7 +55,7 @@
 //!   offset 16: ret                 (i64 — the new descriptor, or -errno)
 
 use aya_ebpf::{
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_probe_read_user},
+    helpers::{bpf_get_current_pid_tgid, bpf_probe_read_user},
     macros::{map, tracepoint},
     maps::{HashMap, LruHashMap, RingBuf},
     programs::TracePointContext,
@@ -258,7 +258,7 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
     // mid-syscall. Drop it before this syscall's exit can emit it.
     let _ = NETWORK_PENDING.remove(&tid);
 
-    let uid = bpf_get_current_uid_gid() as u32;
+    let uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
     let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
         NETWORK_TRACEPOINT_OFFSETS.connect_fd
     )))? as i32;

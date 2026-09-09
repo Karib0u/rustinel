@@ -85,7 +85,6 @@ table and run `cargo run --bin generate-field-availability`, not this section.
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
 | Image paths are truncated, and truncation is unmarked on process events | Linux |
-| `User` is the real UID, not the effective one | Linux |
 
 ## Windows (ETW and Event Log)
 
@@ -238,9 +237,10 @@ rejected before any program attaches.
   provenance. Ordinary fork, vfork, clone, and clone3 process creation records
   the creator TGID at `sched_process_fork`. Thread creation is excluded.
 - **Processes that predate the sensor may have no parent identity.** The fork
-  relationship and sensor-minted execution key do not exist for tasks already
-  running at startup. Missing data stays absent instead of consulting a later,
-  potentially reparented procfs record.
+  relationship does not exist for tasks already running at startup. A bounded
+  startup inventory supplies metadata only after kernel `start_boottime` matches
+  the inventoried `/proc` start ticks. Fork parents remain absent when unobserved;
+  later procfs reparenting is not substituted for the original relationship.
 - **File paths are capped at 511 bytes, and the overflow is marked.** The event
   carries `PathTruncated` naming which side was cut. Since truncation removes
   the end of the path, `|endswith` rules and extension IOCs are what it defeats.
@@ -293,17 +293,17 @@ rejected before any program attaches.
   to be a fixed `tcp`, which matched UDP traffic and never matched
   `Protocol: 'udp'`. Socket types other than `SOCK_STREAM` and `SOCK_DGRAM`
   (a raw or SCTP socket) are also left absent rather than named.
-- **`User` is the real UID, not the effective one (silent risk).**
-  `bpf_get_current_uid_gid()` returns the real UID, so a process running with
-  effective root through a setuid binary is reported as the unprivileged caller
-  and a rule filtering `User: 'root'` does not see it. Measured with a
-  setuid-root binary: userspace `euid=0`, sensor `User=1000`
-  ([#327](https://github.com/Karib0u/rustinel/issues/327)).
+- **Kernel identity fields depend on runtime BTF.** `User` uses the effective
+  UID. Missing BTF or an unsupported member disables only the affected fields,
+  with `linux_task_<field>` doctor warnings; an unknown effective UID stays
+  absent. Rules requiring those fields cannot match while they are unavailable.
+  No build-kernel offsets are used as fallback.
 - **No library-load, module-load, or ptrace events.** Sigma rules in those
   categories never match.
-- **Kernel requirements.** Linux 5.8+ with BTF and `CAP_BPF` + `CAP_PERFMON` +
-  `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`). Older or BTF-less kernels and many
-  restricted containers are unsupported.
+- **Kernel requirements.** Linux 5.8+ with `CAP_BPF` + `CAP_PERFMON` +
+  `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`). Older kernels and many
+  restricted containers are unsupported. BTF is needed for kernel process
+  identity fields and startup inventory reconciliation.
 
 ## macOS (ESF, experimental)
 

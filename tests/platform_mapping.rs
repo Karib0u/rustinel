@@ -30,6 +30,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     use std::os::fd::AsRawFd;
 
     let mut process = ProcessEvent {
+        identity: Default::default(),
         event_time_ns: 0,
         source_seq: 0,
         cgroup_id: 55,

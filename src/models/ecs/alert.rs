@@ -130,6 +130,57 @@ pub struct EcsAlert {
     )]
     pub edr_process_cgroup_id: Option<String>,
 
+    #[serde(
+        rename = "edr.process.real_user_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_real_user_id: Option<String>,
+    #[serde(
+        rename = "edr.process.real_group_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_real_group_id: Option<String>,
+    #[serde(
+        rename = "edr.process.effective_user_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_effective_user_id: Option<String>,
+    #[serde(
+        rename = "edr.process.effective_group_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_effective_group_id: Option<String>,
+    #[serde(
+        rename = "edr.process.mount_namespace",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_mount_namespace: Option<String>,
+    #[serde(
+        rename = "edr.process.pid_namespace",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_pid_namespace: Option<String>,
+    #[serde(
+        rename = "edr.process.network_namespace",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_network_namespace: Option<String>,
+    #[serde(
+        rename = "edr.process.session_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_session_id: Option<String>,
+    #[serde(
+        rename = "edr.process.controlling_tty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_controlling_tty: Option<String>,
+    #[serde(
+        rename = "edr.process.kernel_start_boottime",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_kernel_start_boottime: Option<u64>,
+
     #[serde(rename = "process.name", skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
 

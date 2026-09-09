@@ -143,7 +143,7 @@ condition must be analysed before deciding whether that rule can fire.
 | Platform | Always | Conditional | Never |
 | --- | ---: | ---: | ---: |
 | windows | 19 | 184 | 40 |
-| linux | 23 | 24 | 19 |
+| linux | 19 | 38 | 19 |
 | macos | 27 | 22 | 28 |
 
 The complete machine-readable baseline is

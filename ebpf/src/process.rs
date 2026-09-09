@@ -84,7 +84,7 @@ unsafe fn tracepoint_offset(value: *const u32) -> usize {
 
 /// Ring buffer shared with the userspace loader for process events.
 ///
-/// The 856-byte event leaves room for more than 2,400 queued events, including
+/// The 944-byte event leaves room for more than 2,200 queued events, including
 /// the measured 1,600-event burst that motivated the image-path fallback.
 #[map]
 pub static PROCESS_RING: RingBuf = RingBuf::with_byte_size(2 * 1024 * 1024, 0);
@@ -113,6 +113,12 @@ struct ForkRelationship {
     _pad: [u8; 3],
 }
 
+#[map]
+static PROCESS_INVENTORY: aya_ebpf::maps::HashMap<
+    u32,
+    crate::task_identity_abi::InventoryIdentity,
+> = aya_ebpf::maps::HashMap::with_max_entries(crate::task_identity_abi::INVENTORY_CAPACITY, 0);
+
 const CLONE_PARENT: u64 = 0x0000_8000;
 const CLONE_THREAD: u64 = 0x0001_0000;
 
@@ -121,7 +127,25 @@ const PROCESS_EVENT_EXIT: u32 = 2;
 
 #[inline(always)]
 pub unsafe fn current_process_start_time(pid: u32) -> u64 {
-    PROCESS_START_TIMES.get(&pid).copied().unwrap_or(0)
+    if let Some(start) = PROCESS_START_TIMES.get(&pid) {
+        return *start;
+    }
+    let Some(inventory) = PROCESS_INVENTORY.get(&pid) else {
+        return 0;
+    };
+    let Some(start) = crate::task_identity::start_boottime() else {
+        return 0;
+    };
+    let hz = inventory.clock_ticks_per_second;
+    if hz == 0 || hz > 1_000_000 {
+        return 0;
+    }
+    let ticks = (start / 1_000_000_000) * hz + (start % 1_000_000_000) * hz / 1_000_000_000;
+    if ticks == inventory.start_ticks {
+        inventory.identity_time
+    } else {
+        0
+    }
 }
 
 /// Maximum bytes copied for a single argument, including its NUL terminator.
@@ -283,6 +307,7 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).kind = PROCESS_EVENT_EXEC;
     (*event).pid = pid;
     (*event).uid = uid;
+    crate::task_identity::capture(core::ptr::addr_of_mut!((*event).identity));
     attach_fork_relationship(event, pid);
     (*event).comm = comm;
     (*event).image = image;
@@ -541,6 +566,7 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).kind = PROCESS_EVENT_EXIT;
     (*event).pid = pid;
     (*event).uid = uid;
+    crate::task_identity::capture(core::ptr::addr_of_mut!((*event).identity));
     (*event).parent_pid = 0;
     (*event).creator_tid = 0;
     (*event).creator_tgid = 0;
@@ -556,6 +582,7 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     entry.submit(0);
     let _ = PROCESS_START_TIMES.remove(&pid);
     let _ = PROCESS_PARENTS.remove(&pid);
+    let _ = PROCESS_INVENTORY.remove(&pid);
     record_submitted(PROCESS_FAMILY);
 
     Ok(0)

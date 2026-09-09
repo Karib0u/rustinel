@@ -33,7 +33,7 @@
 //! | `handle_sendmsg`      | `syscalls/sys_enter_sendmsg` | emit DNS query |
 //! | `handle_sendmmsg`     | `syscalls/sys_enter_sendmmsg`| emit DNS query |
 //!
-//! Requirements: Linux 5.8+ with BTF enabled (CO-RE / ring-buffer support).
+//! Requirements: Linux 5.8+; runtime BTF enables task identity fields.
 
 #![no_std]
 #![no_main]
@@ -45,6 +45,8 @@ pub mod events;
 pub mod file;
 pub mod network;
 pub mod process;
+pub mod task_identity;
+pub mod task_identity_abi;
 pub mod telemetry;
 
 /// Ring-buffer and loader-global ABI implemented by this object.
@@ -53,7 +55,7 @@ pub mod telemetry;
 /// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
 #[used]
 #[no_mangle]
-pub static RUSTINEL_ABI_VERSION: u32 = 1;
+pub static RUSTINEL_ABI_VERSION: u32 = 2;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

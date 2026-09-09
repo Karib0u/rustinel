@@ -63,6 +63,7 @@ mod tests {
 
     fn process_fields(image: &str) -> ProcessCreationFields {
         ProcessCreationFields {
+            linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
             parent_process_id_derived: false,

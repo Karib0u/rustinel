@@ -69,6 +69,11 @@ Format:
 | `edr.process.image_source` | Linux process image provenance. Process exec events use `execve` for the raw invocation string captured by the kernel. |
 | `edr.process.image_truncated` | *(Linux process alerts only)* `true` when `process.executable` is a kernel-captured prefix whose suffix did not fit the 256-byte buffer. Absent when the path is complete. |
 | `edr.process.cgroup_id` | Kernel cgroup identifier measured at Linux process exec. Container and runtime resolution is handled separately. |
+| `edr.process.real_user_id`, `edr.process.real_group_id` | Linux real credentials, distinct from effective credentials. |
+| `edr.process.effective_user_id`, `edr.process.effective_group_id` | Linux effective credentials measured at exec. `User` resolves the effective UID to an account name. |
+| `edr.process.mount_namespace`, `edr.process.pid_namespace`, `edr.process.network_namespace` | Namespace inode numbers. PID namespace is the active namespace, as in `/proc/PID/ns/pid`. |
+| `edr.process.session_id`, `edr.process.controlling_tty` | Host session ID and controlling terminal device as `major:minor`. No terminal leaves the TTY absent. |
+| `edr.process.kernel_start_boottime` | Kernel process birth time in nanoseconds since boot, separate from the sensor's execution identity. |
 | `event.count`       | *(rollup only)* Number of suppressed repeats this rollup represents, i.e. occurrences within the dedup window excluding the first. Absent on the live first emission, which represents a single event. Summing `event.count` across lines (absent = 1) gives the true event volume. |
 
 ### Windows Process Alert Example

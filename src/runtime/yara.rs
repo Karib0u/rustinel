@@ -110,6 +110,7 @@ pub fn build_yara_alert(
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
@@ -198,6 +199,7 @@ pub fn build_yara_memory_alert(
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
