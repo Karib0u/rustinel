@@ -7,10 +7,7 @@
 //! should enrich the event with the domain in userspace via the raw payload.
 
 use aya_ebpf::{
-    helpers::{
-        bpf_get_current_pid_tgid, bpf_get_current_uid_gid, bpf_probe_read_user,
-        bpf_probe_read_user_buf,
-    },
+    helpers::{bpf_get_current_pid_tgid, bpf_probe_read_user, bpf_probe_read_user_buf},
     macros::{map, tracepoint},
     maps::{PerCpuArray, RingBuf},
     programs::TracePointContext,
@@ -157,7 +154,7 @@ pub fn handle_sendmmsg(ctx: TracePointContext) -> u32 {
 #[inline(always)]
 unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-    let uid = bpf_get_current_uid_gid() as u32;
+    let uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
     let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
         DNS_TRACEPOINT_OFFSETS.sendto_fd
     )))? as i32;
@@ -201,7 +198,7 @@ unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
 #[inline(always)]
 unsafe fn try_handle_sendmsg(ctx: &TracePointContext) -> Result<u32, i64> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-    let uid = bpf_get_current_uid_gid() as u32;
+    let uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
     let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
         DNS_TRACEPOINT_OFFSETS.sendmsg_fd
     )))? as i32;
@@ -238,7 +235,7 @@ unsafe fn try_handle_sendmsg(ctx: &TracePointContext) -> Result<u32, i64> {
 #[inline(always)]
 unsafe fn try_handle_sendmmsg(ctx: &TracePointContext) -> Result<u32, i64> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-    let uid = bpf_get_current_uid_gid() as u32;
+    let uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
     let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
         DNS_TRACEPOINT_OFFSETS.sendmmsg_fd
     )))? as i32;

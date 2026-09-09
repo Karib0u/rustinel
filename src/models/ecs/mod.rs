@@ -67,6 +67,16 @@ impl From<&Alert> for EcsAlert {
             edr_process_image_source: None,
             edr_process_image_truncated: None,
             edr_process_cgroup_id: None,
+            edr_process_real_user_id: None,
+            edr_process_real_group_id: None,
+            edr_process_effective_user_id: None,
+            edr_process_effective_group_id: None,
+            edr_process_mount_namespace: None,
+            edr_process_pid_namespace: None,
+            edr_process_network_namespace: None,
+            edr_process_session_id: None,
+            edr_process_controlling_tty: None,
+            edr_process_kernel_start_boottime: None,
             process_name: None,
             process_command_line: None,
             process_pid: None,
@@ -153,6 +163,17 @@ impl From<&Alert> for EcsAlert {
                 ecs.edr_process_image_source = f.image_source.clone();
                 ecs.edr_process_image_truncated = f.image_truncated;
                 ecs.edr_process_cgroup_id = f.cgroup_id.clone();
+                ecs.edr_process_real_user_id =
+                    f.exec.as_ref().and_then(|exec| exec.real_user_id.clone());
+                ecs.edr_process_real_group_id = f.linux_identity.real_group_id.clone();
+                ecs.edr_process_effective_user_id = f.linux_identity.effective_user_id.clone();
+                ecs.edr_process_effective_group_id = f.linux_identity.effective_group_id.clone();
+                ecs.edr_process_mount_namespace = f.linux_identity.mount_namespace.clone();
+                ecs.edr_process_pid_namespace = f.linux_identity.pid_namespace.clone();
+                ecs.edr_process_network_namespace = f.linux_identity.network_namespace.clone();
+                ecs.edr_process_session_id = f.linux_identity.session_id.clone();
+                ecs.edr_process_controlling_tty = f.linux_identity.controlling_tty.clone();
+                ecs.edr_process_kernel_start_boottime = f.linux_identity.kernel_start_boottime;
                 ecs.process_command_line = f.command_line.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
                 ecs.process_parent_executable = f.parent_image.clone();
@@ -429,6 +450,7 @@ mod tests {
                 event_id_string: "1".to_string(),
                 opcode: 1,
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
+                    linux_identity: Default::default(),
                     cgroup_id: Some("123456".to_string()),
                     exec: Default::default(),
                     parent_process_id_derived: false,

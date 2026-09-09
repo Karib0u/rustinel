@@ -43,7 +43,7 @@ pub const TARGET_TELEMETRY: &str = "telemetry";
 /// Bump this whenever a ring-buffer event layout or loader-patched global
 /// changes. This lives outside the Linux-only sensor module because telemetry
 /// snapshots are compiled on every supported platform.
-pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 1;
+pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 2;
 
 /// Linux ring-buffer program families, in snapshot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

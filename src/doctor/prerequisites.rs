@@ -31,7 +31,7 @@ pub(crate) fn platform_prerequisite_results() -> Vec<DiagnosticResult> {
 
 #[cfg(target_os = "linux")]
 fn linux_prerequisite_results() -> Vec<DiagnosticResult> {
-    vec![
+    let mut results = vec![
         linux_kernel_result(),
         linux_privilege_result(),
         linux_btf_result(),
@@ -45,7 +45,16 @@ fn linux_prerequisite_results() -> Vec<DiagnosticResult> {
             "telemetry_prerequisites",
             "Linux eBPF telemetry prerequisites were inspected",
         ),
-    ]
+    ];
+    let plans = crate::sensor::linux::task_btf::TaskPlans::load();
+    for (name, reason) in plans.warnings {
+        results.push(DiagnosticResult::warn(
+            name,
+            "Kernel process identity field disabled",
+            reason,
+        ));
+    }
+    results
 }
 
 #[cfg(target_os = "linux")]
@@ -93,9 +102,9 @@ fn linux_btf_result() -> DiagnosticResult {
     if path.is_file() {
         DiagnosticResult::pass("linux_btf", "Kernel BTF is available")
     } else {
-        DiagnosticResult::fail(
+        DiagnosticResult::warn(
             "linux_btf",
-            "Kernel BTF is not available",
+            "Kernel BTF is unavailable; task identity fields are disabled",
             path.display().to_string(),
         )
         .with_fix("Install kernel BTF data or use a kernel with CONFIG_DEBUG_INFO_BTF")

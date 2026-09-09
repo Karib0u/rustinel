@@ -3,7 +3,9 @@
 pub(crate) mod abi;
 pub mod ebpf;
 pub mod events;
+mod inventory;
 pub mod paths;
+pub mod task_btf;
 mod tracepoint_format;
 
 pub use ebpf::EbpfSensor;

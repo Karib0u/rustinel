@@ -125,7 +125,7 @@ pack or `--no-start` to register without starting. See
 | Platform | Requirements |
 | --- | --- |
 | Windows | Windows 10/11 or Server 2016+, x64 Visual C++ Redistributable, Administrator |
-| Linux | Kernel 5.8+ with BTF; root, or `CAP_BPF` + `CAP_PERFMON` + `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`); `tracefs` and `debugfs` mounted |
+| Linux | Kernel 5.8+; BTF for process identity fields; root, or `CAP_BPF` + `CAP_PERFMON` + `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`); `tracefs` and `debugfs` mounted |
 | macOS | macOS 11+, root, signed Endpoint Security client, Full Disk Access, and `/dev/bpf*` access for network and DNS |
 
 Source builds need Rust 1.92 and platform build tools. See

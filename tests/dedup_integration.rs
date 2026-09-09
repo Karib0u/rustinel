@@ -33,6 +33,7 @@ fn make_alert(rule: &str, image: &str) -> Alert {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,

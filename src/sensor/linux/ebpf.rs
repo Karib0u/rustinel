@@ -9,7 +9,7 @@
 //! 4. Spawns a tokio task that polls all ring buffers and converts raw events
 //!    into [`SensorEvent`] values for the shared pipeline.
 //!
-//! Requirements: Linux 5.12+ with BTF, `CAP_BPF` (or `CAP_SYS_ADMIN`).
+//! Requirements: Linux 5.8+ and eBPF privileges; runtime BTF enables task identity.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -76,12 +76,20 @@ unsafe impl aya::Pod for KernelCounterRow {}
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
 pub struct EbpfSensor {
+    process_cache: Option<Arc<crate::state::ProcessCache>>,
     shutdown: Arc<AtomicBool>,
 }
 
 impl EbpfSensor {
+    pub fn with_process_cache(cache: Arc<crate::state::ProcessCache>) -> Self {
+        Self {
+            process_cache: Some(cache),
+            ..Self::new()
+        }
+    }
     pub fn new() -> Self {
         Self {
+            process_cache: None,
             shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -124,7 +132,20 @@ impl Sensor for EbpfSensor {
             .override_global("DNS_TRACEPOINT_OFFSETS", &layouts.dns, true);
         let mut bpf = loader
             .load(bytes)
-            .context("eBPF object load failed — ensure BTF is available and kernel is 5.8+")?;
+            .context("eBPF object load failed; ensure the kernel is 5.8+")?;
+
+        let task_plans = super::task_btf::TaskPlans::load();
+        for (diagnostic, reason) in &task_plans.warnings {
+            warn!(%diagnostic, %reason, "kernel process identity field disabled");
+        }
+        let mut offsets =
+            aya::maps::Array::<_, super::events::task_identity_abi::ReadPlan>::try_from(
+                bpf.map_mut("TASK_IDENTITY_OFFSETS")
+                    .context("missing task identity offsets map")?,
+            )?;
+        for (index, plan) in task_plans.plans.iter().enumerate() {
+            offsets.set(index as u32, *plan, 0)?;
+        }
 
         // ── Attach programs ──────────────────────────────────────────────────
 
@@ -275,6 +296,14 @@ impl Sensor for EbpfSensor {
         info!("eBPF tracepoints attached");
 
         // ── Take ring-buffer maps ────────────────────────────────────────────
+
+        if let Some(cache) = &self.process_cache {
+            if task_plans.plans[super::events::task_identity_abi::START_BOOTTIME].len != 0 {
+                if let Err(error) = super::inventory::seed(&mut bpf, cache) {
+                    warn!(%error, "linux_process_inventory: startup inventory unavailable");
+                }
+            }
+        }
 
         let process_ring: RingBuf<MapData> = RingBuf::try_from(
             bpf.take_map("PROCESS_RING")
@@ -605,6 +634,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     command_line: ev.kernel_command_line(),
                     process_id: Some(ev.pid.to_string()),
                     process_start_time: None,
+                    linux_identity: ev.linux_identity(),
                     cgroup_id: (ev.cgroup_id != 0).then(|| ev.cgroup_id.to_string()),
                     parent_process_id: (ev.parent_pid != 0).then(|| ev.parent_pid.to_string()),
                     parent_image: None,
@@ -612,8 +642,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     current_directory: None,
                     // Windows-specific; absent on Linux.
                     integrity_level: None,
-                    user: Some(ev.uid.to_string()),
-                    exec: Default::default(),
+                    user: ev.effective_uid(),
+                    exec: ev.exec_metadata(),
                     parent_process_id_derived: ev.parent_pid_derived != 0,
                 }),
             })
@@ -644,14 +674,15 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 command_line: None,
                 process_id: Some(ev.pid.to_string()),
                 process_start_time: None,
+                linux_identity: ev.linux_identity(),
                 cgroup_id: (ev.cgroup_id != 0).then(|| ev.cgroup_id.to_string()),
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,
                 current_directory: None,
                 integrity_level: None,
-                user: Some(ev.uid.to_string()),
-                exec: Default::default(),
+                user: ev.effective_uid(),
+                exec: ev.exec_metadata(),
                 parent_process_id_derived: false,
             }),
         }),
@@ -717,7 +748,7 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
             process_id: Some(ev.pid.to_string()),
             // Enriched by the normalizer from ProcessCache if PID is known.
             image: None,
-            user: Some(user),
+            user,
             destination_hostname: None,
             // The kernel-side socket type is authoritative: it is recorded
             // when the socket is created rather than guessed after the event.
@@ -798,7 +829,7 @@ fn build_file_event(
             image: None,
             creation_utc_time: None,
             previous_creation_utc_time: None,
-            user: Some(user),
+            user,
             path_truncated,
         }),
     })
@@ -867,8 +898,8 @@ fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
     let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
 
-fn resolved_linux_user(uid: u32) -> String {
-    lookup_username_by_uid(uid).unwrap_or_else(|| uid.to_string())
+fn resolved_linux_user(uid: u32) -> Option<String> {
+    (uid != u32::MAX).then(|| lookup_username_by_uid(uid).unwrap_or_else(|| uid.to_string()))
 }
 
 fn attach_optional_tracepoint(
@@ -991,10 +1022,43 @@ mod tests {
     use crate::state::{DnsCache, ProcessCache, SidCache};
     use std::sync::Arc;
 
+    #[test]
+    fn effective_root_is_distinct_from_real_uid_and_missing_credentials() {
+        use super::super::events::task_identity_abi::*;
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, 424242, "/usr/bin/example");
+        raw.identity.values[EUID] = 0;
+        raw.identity.valid = 1 << EUID;
+        let event = build_process_event(&raw).unwrap();
+        let normalizer = Normalizer::new(
+            Arc::new(ProcessCache::new()),
+            Arc::new(SidCache::new()),
+            Arc::new(DnsCache::new()),
+        );
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert_eq!(normalized.get_field("User"), Some("root"));
+        assert_eq!(normalized.get_field("RealUserId"), Some("1000"));
+        assert_eq!(normalized.get_field("EffectiveUserId"), Some("0"));
+        let recorded = serde_json::to_value(&normalized).unwrap();
+        assert_eq!(recorded["fields"]["EffectiveUserId"], "0");
+        assert!(recorded["fields"].get("MountNamespace").is_none());
+        let replay: crate::models::NormalizedEvent = serde_json::from_value(recorded).unwrap();
+        assert_eq!(replay.get_field("EffectiveUserId"), Some("0"));
+
+        raw.identity.valid = 0;
+        let absent = normalizer
+            .normalize(&build_process_event(&raw).unwrap())
+            .unwrap();
+        assert_eq!(absent.get_field("User"), None);
+        assert_eq!(absent.get_field("EffectiveUserId"), None);
+        assert_eq!(absent.get_field("RealUserId"), Some("1000"));
+        assert_eq!(resolved_linux_user(u32::MAX), None);
+    }
+
     /// Build a `ProcessEvent` the way the kernel would, with no argv capture.
     /// Tests that exercise argv override `args*` explicitly.
     fn raw_process_event(kind: u32, pid: u32, image: &str) -> ProcessEvent {
         ProcessEvent {
+            identity: Default::default(),
             event_time_ns: 0,
             source_seq: 0,
             cgroup_id: 55,
@@ -1157,7 +1221,9 @@ mod tests {
 
     #[test]
     fn build_process_exec_uses_fork_time_parent_identity_and_cgroup() {
-        let raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
+        raw.identity.valid = 1 << super::super::events::task_identity_abi::EUID;
+        raw.identity.values[super::super::events::task_identity_abi::EUID] = 1000;
 
         let event = build_process_event(&raw).expect("process exec should build");
         assert_eq!(

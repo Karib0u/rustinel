@@ -2621,8 +2621,117 @@
       "action": "start",
       "provider": "ebpf",
       "source": "execve tracepoints",
-      "field": "User",
+      "field": "RealUserId",
       "availability": "always"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "RealGroupId",
+      "availability": "always"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "EffectiveUserId",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves this field and the kernel read succeeds"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "EffectiveGroupId",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves this field and the kernel read succeeds"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "MountNamespace",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves this field and the kernel read succeeds"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "PidNamespace",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves this field and the kernel read succeeds"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "NetworkNamespace",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves this field and the kernel read succeeds"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "SessionId",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves this field and the kernel read succeeds"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "KernelStartBoottime",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves this field and the kernel read succeeds"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "ControllingTty",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves terminal fields and the process has a controlling terminal"
+    },
+    {
+      "platform": "linux",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "ebpf",
+      "source": "execve tracepoints",
+      "field": "User",
+      "availability": "conditional",
+      "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
       "platform": "linux",
@@ -2816,7 +2925,8 @@
       "provider": "ebpf",
       "source": "connect tracepoints",
       "field": "User",
-      "availability": "always"
+      "availability": "conditional",
+      "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
       "platform": "linux",
@@ -2908,7 +3018,8 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
-      "availability": "always"
+      "availability": "conditional",
+      "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
       "platform": "linux",
@@ -2985,7 +3096,8 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
-      "availability": "always"
+      "availability": "conditional",
+      "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
       "platform": "linux",
@@ -3062,7 +3174,8 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
-      "availability": "always"
+      "availability": "conditional",
+      "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
       "platform": "linux",
@@ -3139,7 +3252,8 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
-      "availability": "always"
+      "availability": "conditional",
+      "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
       "platform": "linux",

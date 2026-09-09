@@ -133,7 +133,8 @@ The loader attaches a mix of tracepoints and kprobes: `sched_process_exec` and
 `rmdir`, entry hooks on `connect`, `sendto`, `sendmsg`, and `sendmmsg`, and a
 `vfs_create` kprobe. The authoritative list is in `src/sensor/linux/`.
 
-Requirements for the Linux sensor are kernel 5.12+, BTF, and eBPF privileges.
+Requirements for the Linux sensor are kernel 5.8+ and eBPF privileges.
+Runtime BTF enables kernel process identity fields; doctor reports unavailable fields.
 
 ### macOS
 

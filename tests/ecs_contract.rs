@@ -135,6 +135,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 1,
                 1,
                 EventFields::ProcessCreation(ProcessCreationFields {
+                    linux_identity: Default::default(),
                     cgroup_id: None,
                     exec: Default::default(),
                     parent_process_id_derived: false,
@@ -500,6 +501,7 @@ fn ecs_version_field_is_9_4_0() {
         1,
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
+            linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
             parent_process_id_derived: false,
@@ -534,6 +536,7 @@ fn ecs_process_image_truncation_marker_is_preserved() {
         1,
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
+            linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
             parent_process_id_derived: false,
@@ -581,6 +584,7 @@ fn test_rule_id_mapping_and_omit_behavior() {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,

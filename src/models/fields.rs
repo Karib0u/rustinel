@@ -91,11 +91,39 @@ pub struct ExecMetadata {
     pub(crate) file_identity: Option<crate::utils::file_identity::FileIdentity>,
 }
 
+/// Linux kernel process identity measured at the event, when available.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LinuxProcessIdentity {
+    #[serde(rename = "RealGroupId", skip_serializing_if = "Option::is_none")]
+    pub real_group_id: Option<String>,
+    #[serde(rename = "EffectiveUserId", skip_serializing_if = "Option::is_none")]
+    pub effective_user_id: Option<String>,
+    #[serde(rename = "EffectiveGroupId", skip_serializing_if = "Option::is_none")]
+    pub effective_group_id: Option<String>,
+    #[serde(rename = "MountNamespace", skip_serializing_if = "Option::is_none")]
+    pub mount_namespace: Option<String>,
+    #[serde(rename = "PidNamespace", skip_serializing_if = "Option::is_none")]
+    pub pid_namespace: Option<String>,
+    #[serde(rename = "NetworkNamespace", skip_serializing_if = "Option::is_none")]
+    pub network_namespace: Option<String>,
+    #[serde(rename = "SessionId", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(rename = "ControllingTty", skip_serializing_if = "Option::is_none")]
+    pub controlling_tty: Option<String>,
+    #[serde(
+        rename = "KernelStartBoottime",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub kernel_start_boottime: Option<u64>,
+}
+
 /// Process creation/access event fields (Sigma: process_creation, process_access)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessCreationFields {
     #[serde(flatten, default)]
     pub exec: Option<Box<ExecMetadata>>,
+    #[serde(flatten, default)]
+    pub linux_identity: Box<LinuxProcessIdentity>,
     #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 
