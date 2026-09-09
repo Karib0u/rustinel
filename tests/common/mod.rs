@@ -129,6 +129,8 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
         }),
         parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
+            cgroup_id: None,
+            parent_process_id_derived: false,
             image: Some(image.to_string()),
             image_source: None,
             image_truncated: None,

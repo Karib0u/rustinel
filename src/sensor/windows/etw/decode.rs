@@ -301,6 +301,8 @@ pub(super) fn decode_process(
     let current_directory = raw_current_directory.map(|path| convert_nt_to_dos(&path));
 
     let fields = ProcessCreationFields {
+        cgroup_id: None,
+        parent_process_id_derived: false,
         image: image.clone(),
         image_source: None,
         image_truncated: None,

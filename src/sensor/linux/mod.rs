@@ -3,6 +3,7 @@
 pub mod ebpf;
 pub mod events;
 pub mod paths;
+mod tracepoint_format;
 
 pub use ebpf::EbpfSensor;
 

@@ -204,6 +204,8 @@ mod tests {
     #[test]
     fn typed_process_fields_expose_sigma_names() {
         let fields = ProcessCreationFields {
+            cgroup_id: None,
+            parent_process_id_derived: false,
             image: Some("/usr/bin/curl".to_string()),
             image_source: None,
             image_truncated: Some(true),

@@ -108,11 +108,21 @@ impl Normalizer {
         self.resolve_user_field(&mut fields.user);
         if fields.process_start_time.is_none() {
             fields.process_start_time = event.process_start_key.map(|key| key.start_time);
+            if fields.process_start_time.is_some()
+                && event.platform == Platform::Linux
+                && event.provider == "ebpf"
+            {
+                provenance.mark_derived("ProcessStartTime");
+            }
+        }
+        if fields.parent_process_id_derived && fields.parent_process_id.is_some() {
+            provenance.mark_derived("ParentProcessId");
         }
 
         if event.action == SensorAction::Start && fields.command_line.is_none() && pid != 0 {
             if let Some(command_line) = query_process_command_line(pid) {
                 fields.command_line = Some(command_line);
+                provenance.mark_derived("CommandLine");
             }
         }
 
@@ -510,6 +520,8 @@ mod tests {
             }),
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
+                cgroup_id: None,
+                parent_process_id_derived: false,
                 image: Some("/usr/bin/curl".to_string()),
                 image_source: None,
                 image_truncated: None,
@@ -555,6 +567,8 @@ mod tests {
             }),
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
+                cgroup_id: None,
+                parent_process_id_derived: false,
                 image: None,
                 image_source: None,
                 image_truncated: None,
@@ -694,6 +708,8 @@ mod tests {
             }),
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
+                cgroup_id: None,
+                parent_process_id_derived: false,
                 image: None,
                 image_source: None,
                 image_truncated: None,
@@ -1025,6 +1041,10 @@ mod tests {
         assert_eq!(
             normalized.provenance.entries(),
             &[
+                FieldProvenance {
+                    field: "ProcessStartTime".to_string(),
+                    fidelity: Fidelity::Derived,
+                },
                 FieldProvenance {
                     field: "ParentImage".to_string(),
                     fidelity: Fidelity::Derived,

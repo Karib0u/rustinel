@@ -66,6 +66,7 @@ impl From<&Alert> for EcsAlert {
             process_executable: None,
             edr_process_image_source: None,
             edr_process_image_truncated: None,
+            edr_process_cgroup_id: None,
             process_name: None,
             process_command_line: None,
             process_pid: None,
@@ -156,6 +157,7 @@ impl From<&Alert> for EcsAlert {
                 ecs.process_executable = f.image.clone();
                 ecs.edr_process_image_source = f.image_source.clone();
                 ecs.edr_process_image_truncated = f.image_truncated;
+                ecs.edr_process_cgroup_id = f.cgroup_id.clone();
                 ecs.process_command_line = f.command_line.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
                 ecs.process_parent_executable = f.parent_image.clone();
@@ -442,6 +444,8 @@ mod tests {
                 event_id_string: "1".to_string(),
                 opcode: 1,
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
+                    cgroup_id: Some("123456".to_string()),
+                    parent_process_id_derived: false,
                     image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                     image_source: None,
                     image_truncated: None,
@@ -494,6 +498,7 @@ mod tests {
             Some(r"C:\Windows\System32\cmd.exe")
         );
         assert_eq!(ecs.process_pid, Some(1234));
+        assert_eq!(ecs.edr_process_cgroup_id.as_deref(), Some("123456"));
         assert_eq!(ecs.process_name.as_deref(), Some("cmd.exe"));
         assert_eq!(ecs.user_name.as_deref(), Some("SYSTEM"));
         assert!(ecs.edr_process_target_image.is_none());

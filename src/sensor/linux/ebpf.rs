@@ -18,7 +18,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use aya::maps::{MapData, PerCpuArray, RingBuf};
 use aya::programs::{KProbe, TracePoint};
-use aya::Ebpf;
+use aya::{Ebpf, EbpfLoader};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, warn};
@@ -31,13 +31,14 @@ use crate::sensor::{
     SensorPayload,
 };
 use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
-use crate::utils::{lookup_username_by_uid, query_process_details};
+use crate::utils::lookup_username_by_uid;
 
 use super::events::{
     bytes_to_string, connect_result_is_connection, parse_event, system_time_from_boot_ns, DnsEvent,
     FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
+use super::tracepoint_format::ProcessTracepointOffsets;
 
 /// Sysmon-compatible event IDs emitted for Linux events.
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
@@ -112,12 +113,18 @@ impl Sensor for EbpfSensor {
         };
         let bytes: &[u8] = override_bytes.as_deref().unwrap_or(super::EBPF_BYTES);
 
-        let mut bpf = Ebpf::load(bytes)
+        let process_offsets = ProcessTracepointOffsets::load()
+            .context("failed to resolve process tracepoint layouts")?;
+        let mut loader = EbpfLoader::new();
+        loader.override_global("PROCESS_TRACEPOINT_OFFSETS", &process_offsets, true);
+        let mut bpf = loader
+            .load(bytes)
             .context("eBPF object load failed — ensure BTF is available and kernel is 5.8+")?;
 
         // ── Attach programs ──────────────────────────────────────────────────
 
         attach_tracepoint(&mut bpf, "handle_exec", "sched", "sched_process_exec")?;
+        attach_tracepoint(&mut bpf, "handle_fork", "sched", "sched_process_fork")?;
         attach_tracepoint(&mut bpf, "handle_exit", "sched", "sched_process_exit")?;
         attach_tracepoint(&mut bpf, "handle_file_exec", "sched", "sched_process_exec")?;
         attach_tracepoint(&mut bpf, "handle_file_exit", "sched", "sched_process_exit")?;
@@ -129,6 +136,20 @@ impl Sensor for EbpfSensor {
             "handle_execveat",
             "syscalls",
             "sys_enter_execveat",
+        )?;
+        attach_tracepoint(&mut bpf, "handle_clone", "syscalls", "sys_enter_clone")?;
+        attach_optional_tracepoint(&mut bpf, "handle_clone3", "syscalls", "sys_enter_clone3")?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_process_fork",
+            "syscalls",
+            "sys_enter_fork",
+        )?;
+        attach_optional_tracepoint(
+            &mut bpf,
+            "handle_process_vfork",
+            "syscalls",
+            "sys_enter_vfork",
         )?;
         // Entry captures the destination while the sockaddr is still readable;
         // exit is what decides whether the attempt became a connection.
@@ -537,56 +558,17 @@ fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
 
 // ── Event builders ───────────────────────────────────────────────────────────
 
-/// Pick the image path for an exec event.
-///
-/// The tracepoint carries `bprm->filename`, i.e. the literal string userspace
-/// passed to `execve()` — `./malware` stays `./malware`. Downstream consumers
-/// (YARA queueing, the allowlist, Sigma `Image` rules, IOC path regexes) all
-/// need a real path, so prefer `/proc/<pid>/exe`, which is absolute,
-/// symlink-resolved, and immune to the caller's `chdir`. The raw kernel string
-/// stays as a fallback for short-lived processes that exit before the userspace
-/// ring drain gets to `/proc`.
-fn resolve_exec_image(
-    proc_exe: Option<&str>,
-    raw_filename: &str,
-    raw_truncated: bool,
-) -> Option<(String, &'static str, bool)> {
-    if let Some(image) = proc_exe.filter(|value| !value.is_empty()) {
-        return Some((image.to_string(), "proc", false));
-    }
-
-    (!raw_filename.is_empty()).then(|| (raw_filename.to_string(), "execve", raw_truncated))
-}
-
-/// Pick the command line for an exec event.
-///
-/// The kernel capture is authoritative when it is complete: it is the argv
-/// this exec was called with, taken before the process could exit or exec
-/// again. `/proc/<pid>/cmdline` is only consulted when the kernel capture is
-/// missing or hit its bounds — and the truncated kernel value is still better
-/// than nothing when `/proc` has already gone away.
-fn resolve_command_line(
-    kernel: Option<String>,
-    truncated: bool,
-    proc_cmdline: Option<String>,
-) -> Option<String> {
-    match kernel {
-        Some(value) if !truncated => Some(value),
-        Some(value) => proc_cmdline.or(Some(value)),
-        None => proc_cmdline,
-    }
+/// Use only the filename carried by the exec tracepoint in the ring drain.
+/// Any path canonicalization belongs in bounded downstream enrichment.
+fn resolve_exec_image(raw_filename: &str, raw_truncated: bool) -> Option<(String, bool)> {
+    (!raw_filename.is_empty()).then(|| (raw_filename.to_string(), raw_truncated))
 }
 
 fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
-    let user = resolved_linux_user(ev.uid);
     match ev.kind {
         PROCESS_EVENT_EXEC => {
-            let details = query_process_details(ev.pid);
-            let (image, image_source, image_truncated) = resolve_exec_image(
-                details.as_ref().and_then(|value| value.image.as_deref()),
-                &bytes_to_string(&ev.image),
-                ev.image_truncated != 0,
-            )?;
+            let (image, image_truncated) =
+                resolve_exec_image(&bytes_to_string(&ev.image), ev.image_truncated != 0)?;
 
             let event_time = system_time_from_boot_ns(ev.event_time_ns);
             Some(SensorEvent {
@@ -601,10 +583,13 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 timestamp: event_time,
                 source_seq: Some(ev.source_seq),
                 process_start_key: process_start_key(ev.pid, ev.process_start_time),
-                parent_process_start_key: None,
+                parent_process_start_key: process_start_key(
+                    ev.parent_pid,
+                    ev.parent_process_start_time,
+                ),
                 payload: SensorPayload::Process(ProcessCreationFields {
                     image: Some(image),
-                    image_source: Some(image_source.to_string()),
+                    image_source: Some("execve".to_string()),
                     image_truncated: image_truncated.then_some(true),
                     original_file_name: None,
                     product: None,
@@ -612,30 +597,18 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     company: None,
                     file_version: None,
                     target_image: None,
-                    command_line: resolve_command_line(
-                        ev.kernel_command_line(),
-                        ev.args_truncated != 0,
-                        details
-                            .as_ref()
-                            .and_then(|value| value.command_line.clone()),
-                    ),
+                    command_line: ev.kernel_command_line(),
                     process_id: Some(ev.pid.to_string()),
                     process_start_time: None,
-                    parent_process_id: details
-                        .as_ref()
-                        .and_then(|value| value.parent_process_id.map(|pid| pid.to_string())),
-                    parent_image: details
-                        .as_ref()
-                        .and_then(|value| value.parent_image.clone()),
-                    parent_command_line: details
-                        .as_ref()
-                        .and_then(|value| value.parent_command_line.clone()),
-                    current_directory: details
-                        .as_ref()
-                        .and_then(|value| value.current_directory.clone()),
+                    cgroup_id: (ev.cgroup_id != 0).then(|| ev.cgroup_id.to_string()),
+                    parent_process_id: (ev.parent_pid != 0).then(|| ev.parent_pid.to_string()),
+                    parent_image: None,
+                    parent_command_line: None,
+                    current_directory: None,
                     // Windows-specific; absent on Linux.
                     integrity_level: None,
-                    user: Some(user),
+                    user: Some(ev.uid.to_string()),
+                    parent_process_id_derived: ev.parent_pid_derived != 0,
                 }),
             })
         }
@@ -665,12 +638,14 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 command_line: None,
                 process_id: Some(ev.pid.to_string()),
                 process_start_time: None,
+                cgroup_id: (ev.cgroup_id != 0).then(|| ev.cgroup_id.to_string()),
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,
                 current_directory: None,
                 integrity_level: None,
-                user: Some(user),
+                user: Some(ev.uid.to_string()),
+                parent_process_id_derived: false,
             }),
         }),
         _ => None,
@@ -971,19 +946,24 @@ mod tests {
         ProcessEvent {
             event_time_ns: 0,
             source_seq: 0,
+            cgroup_id: 55,
+            process_start_time: 123_456,
+            parent_process_start_time: 111_222,
             kind,
             pid,
             uid: 1000,
-            _pad: 0,
+            parent_pid: 41,
+            creator_tid: 43,
+            creator_tgid: 41,
             comm: fixed("bash"),
             image: fixed(image),
             args_len: 0,
             args_count: 0,
             args_truncated: 0,
             image_truncated: 0,
-            _pad1: [0u8; 2],
+            parent_pid_derived: 0,
+            _pad1: 0,
             args: [0u8; ARGV_CAPACITY],
-            process_start_time: 123_456,
         }
     }
 
@@ -1093,9 +1073,7 @@ mod tests {
             .expect("raw dns event should normalize")
     }
 
-    /// Never a live pid: above every possible `/proc/sys/kernel/pid_max`, so
-    /// `query_process_details` is guaranteed to come back empty and the builder
-    /// falls back to the raw tracepoint filename.
+    /// Never a live pid: above every possible `/proc/sys/kernel/pid_max`.
     const DEAD_PID: u32 = u32::MAX;
 
     #[test]
@@ -1127,18 +1105,99 @@ mod tests {
     }
 
     #[test]
-    fn build_process_exec_event_resolves_relative_image_from_proc() {
-        let expected = std::fs::read_link("/proc/self/exe")
-            .expect("current process should expose /proc/self/exe");
-        // `./rustinel` is what the kernel records when a binary is run
-        // relatively.
+    fn build_process_exec_uses_fork_time_parent_identity_and_cgroup() {
+        let raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        assert_eq!(
+            event.parent_process_start_key,
+            Some(ProcessStartKey {
+                pid: 41,
+                start_time: 111_222,
+            })
+        );
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert_eq!(fields.parent_process_id.as_deref(), Some("41"));
+                assert_eq!(fields.cgroup_id.as_deref(), Some("55"));
+                assert_eq!(fields.user.as_deref(), Some("1000"));
+                assert!(!fields.parent_process_id_derived);
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn process_that_predates_sensor_does_not_invent_a_parent() {
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
+        raw.parent_pid = 0;
+        raw.parent_process_start_time = 0;
+        raw.creator_tid = 0;
+        raw.creator_tgid = 0;
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        assert!(event.parent_process_start_key.is_none());
+        match event.payload {
+            SensorPayload::Process(fields) => assert!(fields.parent_process_id.is_none()),
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fork_map_eviction_leaves_parent_unattributed() {
+        // An LRU miss is encoded as a zeroed relationship in the kernel event.
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
+        raw.parent_pid = 0;
+        raw.parent_process_start_time = 0;
+        raw.creator_tid = 0;
+        raw.creator_tgid = 0;
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        assert!(event.parent_process_start_key.is_none());
+        match event.payload {
+            SensorPayload::Process(fields) => assert!(fields.parent_process_id.is_none()),
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn clone_parent_approximation_is_marked_derived() {
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/usr/bin/bash");
+        raw.parent_pid_derived = 1;
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        let normalized = test_normalizer()
+            .normalize(&event)
+            .expect("process exec should normalize");
+        assert!(normalized.provenance.entries().iter().any(|entry| {
+            entry.field == "ParentProcessId" && entry.fidelity == crate::models::Fidelity::Derived
+        }));
+    }
+
+    #[test]
+    fn repeated_exec_keeps_parent_but_mints_a_new_identity() {
+        let first = raw_process_event(PROCESS_EVENT_EXEC, 42, "/usr/bin/first");
+        let mut second = raw_process_event(PROCESS_EVENT_EXEC, 42, "/usr/bin/second");
+        second.process_start_time = 654_321;
+
+        let first = build_process_event(&first).expect("first exec should build");
+        let second = build_process_event(&second).expect("second exec should build");
+        assert_ne!(first.process_start_key, second.process_start_key);
+        assert_eq!(
+            first.parent_process_start_key,
+            second.parent_process_start_key
+        );
+    }
+
+    #[test]
+    fn build_process_exec_event_keeps_relative_kernel_image() {
         let raw = raw_process_event(PROCESS_EVENT_EXEC, std::process::id(), "./rustinel");
 
         let event = build_process_event(&raw).expect("process exec should build");
         match event.payload {
             SensorPayload::Process(fields) => {
-                assert_eq!(fields.image.as_deref(), expected.to_str());
-                assert_eq!(fields.image_source.as_deref(), Some("proc"));
+                assert_eq!(fields.image.as_deref(), Some("./rustinel"));
+                assert_eq!(fields.image_source.as_deref(), Some("execve"));
             }
             other => panic!("unexpected payload: {:?}", other),
         }
@@ -1146,8 +1205,7 @@ mod tests {
 
     #[test]
     fn build_process_exec_event_uses_kernel_argv_for_a_dead_process() {
-        // DEAD_PID has no `/proc` entry — exactly the short-lived case where
-        // userspace enrichment loses the command line.
+        // The command line comes entirely from the kernel snapshot.
         let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/bin/true");
         let (args, args_len, args_count) = packed_argv(&["/bin/true", "--quiet"]);
         raw.args = args;
@@ -1185,74 +1243,23 @@ mod tests {
     }
 
     #[test]
-    fn resolve_command_line_prefers_a_complete_kernel_capture() {
+    fn resolve_exec_image_uses_only_the_kernel_filename() {
         assert_eq!(
-            resolve_command_line(
-                Some("/bin/true --quiet".to_string()),
-                false,
-                Some("/bin/true".to_string()),
-            )
-            .as_deref(),
-            Some("/bin/true --quiet")
+            resolve_exec_image("./malware", false),
+            Some(("./malware".to_string(), false))
         );
+        assert_eq!(
+            resolve_exec_image("/usr/bin/bash", false),
+            Some(("/usr/bin/bash".to_string(), false))
+        );
+        assert_eq!(resolve_exec_image("", false), None);
     }
 
     #[test]
-    fn resolve_command_line_prefers_proc_when_the_kernel_capture_is_truncated() {
+    fn resolve_exec_image_marks_a_truncated_kernel_filename() {
         assert_eq!(
-            resolve_command_line(
-                Some("/bin/sh -c long".to_string()),
-                true,
-                Some("/bin/sh -c long and complete".to_string()),
-            )
-            .as_deref(),
-            Some("/bin/sh -c long and complete")
-        );
-    }
-
-    #[test]
-    fn resolve_command_line_keeps_a_truncated_capture_when_proc_is_gone() {
-        assert_eq!(
-            resolve_command_line(Some("/bin/sh -c long".to_string()), true, None).as_deref(),
-            Some("/bin/sh -c long")
-        );
-        assert_eq!(
-            resolve_command_line(None, false, Some("/bin/sh".to_string())).as_deref(),
-            Some("/bin/sh")
-        );
-        assert_eq!(resolve_command_line(None, false, None), None);
-    }
-
-    #[test]
-    fn resolve_exec_image_prefers_proc_exe_over_raw_filename() {
-        assert_eq!(
-            resolve_exec_image(Some("/tmp/malware"), "./malware", true),
-            Some(("/tmp/malware".to_string(), "proc", false))
-        );
-    }
-
-    #[test]
-    fn resolve_exec_image_falls_back_to_raw_filename() {
-        assert_eq!(
-            resolve_exec_image(None, "./malware", false),
-            Some(("./malware".to_string(), "execve", false))
-        );
-        assert_eq!(
-            resolve_exec_image(Some(""), "/usr/bin/bash", false),
-            Some(("/usr/bin/bash".to_string(), "execve", false))
-        );
-        assert_eq!(resolve_exec_image(None, "", false), None);
-    }
-
-    #[test]
-    fn resolve_exec_image_marks_only_a_truncated_raw_fallback() {
-        assert_eq!(
-            resolve_exec_image(None, "/very/long/prefix", true),
-            Some(("/very/long/prefix".to_string(), "execve", true))
-        );
-        assert_eq!(
-            resolve_exec_image(Some("/complete/path"), "/very/long/prefix", true),
-            Some(("/complete/path".to_string(), "proc", false))
+            resolve_exec_image("/very/long/prefix", true),
+            Some(("/very/long/prefix".to_string(), true))
         );
     }
 

@@ -206,6 +206,7 @@ impl NormalizedEvent {
                 "FileVersion" => f.file_version.as_deref(),
                 "CommandLine" => f.command_line.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
+                "CgroupId" => f.cgroup_id.as_deref(),
                 "ParentProcessId" => f.parent_process_id.as_deref(),
                 "ParentImage" => f.parent_image.as_deref(),
                 "ParentCommandLine" => f.parent_command_line.as_deref(),
@@ -488,6 +489,8 @@ mod round_trip_tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                cgroup_id: None,
+                parent_process_id_derived: false,
                 image: Some("/bin/zsh".to_string()),
                 image_source: None,
                 image_truncated: None,
@@ -745,6 +748,8 @@ mod round_trip_tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                cgroup_id: None,
+                parent_process_id_derived: false,
                 image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                 image_source: None,
                 image_truncated: None,
@@ -788,6 +793,8 @@ mod round_trip_tests {
         event.event_id_string = "1".to_string();
         event.opcode = 1;
         event.fields = EventFields::ProcessCreation(ProcessCreationFields {
+            cgroup_id: None,
+            parent_process_id_derived: false,
             image: Some(image.to_string()),
             image_source: None,
             image_truncated: None,

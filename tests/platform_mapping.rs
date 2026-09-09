@@ -32,19 +32,24 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     let mut process = ProcessEvent {
         event_time_ns: 0,
         source_seq: 0,
+        cgroup_id: 55,
+        process_start_time: 123_456,
+        parent_process_start_time: 111_222,
         kind: 1,
         pid: 42,
         uid: 1000,
-        _pad: 0,
+        parent_pid: 41,
+        creator_tid: 43,
+        creator_tgid: 41,
         comm: [0; 16],
         image: [0; PROCESS_IMAGE_CAPACITY],
         args_len: 0,
         args_count: 0,
         args_truncated: 0,
         image_truncated: 0,
-        _pad1: [0; 2],
+        parent_pid_derived: 0,
+        _pad1: 0,
         args: [0; ARGV_CAPACITY],
-        process_start_time: 123_456,
     };
     write_cstr(&mut process.image, "/usr/bin/curl");
     // Kernel-captured argv: NUL-separated, `args_len` bytes long.
