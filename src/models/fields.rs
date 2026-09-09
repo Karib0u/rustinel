@@ -21,7 +21,6 @@ pub enum EventFields {
     ImageLoad(ImageLoadFields),
     PowerShellScript(PowerShellScriptFields),
     PowerShellModule(PowerShellModuleFields),
-    RemoteThread(RemoteThreadFields),
     WmiEvent(WmiEventFields),
     ServiceCreation(ServiceCreationFields),
     TaskCreation(TaskCreationFields),
@@ -38,10 +37,10 @@ impl EventFields {
     /// event, which is all an untagged structural guess could conclude from
     /// `{"Image": ..., "ProcessId": ...}`.
     ///
-    /// [`EventFields::Generic`] and [`EventFields::RemoteThread`] have no
-    /// category of their own and are never produced by normalization, so they
-    /// never appear in a recording; a payload written from one is read back as
-    /// the typed variant of its category.
+    /// [`EventFields::Generic`] has no category of its own and is never
+    /// produced by normalization, so it never appears in a recording; a
+    /// payload written from one is read back as the typed variant of its
+    /// category.
     pub fn from_recorded(
         category: EventCategory,
         payload: serde_json::Value,
@@ -373,34 +372,6 @@ pub struct PowerShellModuleFields {
 
     #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-
-    #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-}
-
-/// Remote thread creation event fields (Sigma: create_remote_thread)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemoteThreadFields {
-    #[serde(rename = "SourceProcessId", skip_serializing_if = "Option::is_none")]
-    pub source_process_id: Option<String>,
-
-    #[serde(rename = "SourceImage", skip_serializing_if = "Option::is_none")]
-    pub source_image: Option<String>,
-
-    #[serde(rename = "TargetProcessId", skip_serializing_if = "Option::is_none")]
-    pub target_process_id: Option<String>,
-
-    #[serde(rename = "TargetImage", skip_serializing_if = "Option::is_none")]
-    pub target_image: Option<String>,
-
-    #[serde(rename = "StartAddress", skip_serializing_if = "Option::is_none")]
-    pub start_address: Option<String>,
-
-    #[serde(rename = "StartModule", skip_serializing_if = "Option::is_none")]
-    pub start_module: Option<String>,
-
-    #[serde(rename = "StartFunction", skip_serializing_if = "Option::is_none")]
-    pub start_function: Option<String>,
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,

@@ -63,6 +63,7 @@ notify = "8.2.0"
 [target.'cfg(target_os = "linux")'.dependencies]
 aya = { version = "0.14", default-features = false }
 libc = "0.2"
+object = { version = "0.39", default-features = false, features = ["elf", "read_core", "std"] }
 
 # YARA-X uses its native JIT outside macOS.
 [target.'cfg(not(target_os = "macos"))'.dependencies]

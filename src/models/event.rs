@@ -192,6 +192,24 @@ impl NormalizedEvent {
             _ => {}
         }
 
+        // A model field may be retained for a future collector without being
+        // honest to expose for this event shape today. The availability table
+        // is the boundary between the permissive storage model and Sigma.
+        if matches!(
+            crate::field_availability::availability_for_event(self, key),
+            Some(crate::field_availability::Availability::Never(_))
+        ) {
+            return None;
+        }
+
+        self.get_field_unchecked(key)
+    }
+
+    /// Read the typed payload without applying the availability contract.
+    ///
+    /// Contract validation uses this to detect a decoder that omitted an
+    /// `Always` field. Sigma callers must use [`Self::get_field`].
+    pub(crate) fn get_field_unchecked(&self, key: &str) -> Option<&str> {
         match &self.fields {
             EventFields::ProcessCreation(f) => match key {
                 "Signed" => f.exec.as_ref().and_then(|exec| exec.signed.as_deref()),
@@ -321,17 +339,6 @@ impl NormalizedEvent {
                 "Payload" => f.payload.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
                 "Image" => f.image.as_deref(),
-                "User" => f.user.as_deref(),
-                _ => None,
-            },
-            EventFields::RemoteThread(f) => match key {
-                "SourceProcessId" => f.source_process_id.as_deref(),
-                "SourceImage" => f.source_image.as_deref(),
-                "TargetProcessId" => f.target_process_id.as_deref(),
-                "TargetImage" => f.target_image.as_deref(),
-                "StartAddress" => f.start_address.as_deref(),
-                "StartModule" => f.start_module.as_deref(),
-                "StartFunction" => f.start_function.as_deref(),
                 "User" => f.user.as_deref(),
                 _ => None,
             },
@@ -816,6 +823,8 @@ mod round_trip_tests {
         let image = r"\\?\C:\Program Files\ユニコード\tool.exe ";
         let current_directory = r"\\server\share\folder.with.dots\..\leaf";
         let mut event = file_event();
+        event.platform = Platform::MacOS;
+        event.provider = "esf".to_string();
         event.category = EventCategory::Process;
         event.event_id = 1;
         event.event_id_string = "1".to_string();

@@ -102,6 +102,9 @@ mount -t debugfs debugfs /sys/kernel/debug
 
 - some minimal Linux environments, including some WSL 2 distros, may start without these filesystems mounted
 - retry without `RUSTINEL_EBPF_OBJECT` if you were using an override
+- if the error names an ABI mismatch, rebuild the eBPF object and userspace
+  binary together; the loader refuses to decode an object with a different
+  ring-buffer schema
 - if you are iterating on the eBPF program, rebuild the object and retry
 - check the operational log for the exact Aya or loader error
 
@@ -432,6 +435,19 @@ On Linux, also inspect the `linux_ebpf` check. It covers loss before the shared
   [WARN] linux_ebpf: process ring was full 42 times
       detail: process ring: 10042 seen, 10000 submitted, 0 in flight, 42 ring full, 0 map full, 10000 received, 10000 decoded, 10000 emitted, 0 internal, 0 dropped
 ```
+
+The same section reports kernel-dependent coverage by feature. A missing hook
+does not stop the other Linux telemetry families; it produces a named check
+such as `linux_ebpf_dns_capability` instead:
+
+```text
+  [WARN] linux_ebpf_dns_capability: Linux eBPF dns telemetry is degraded
+      detail: handle_sendmmsg: syscalls/sys_enter_sendmmsg: tracepoint is unavailable
+```
+
+The `linux_ebpf.abi_version` and `linux_ebpf.features` fields in
+`telemetry.json` carry the same active/degraded feature set for automated
+inventory.
 
 `in flight` is queue occupancy at snapshot time, not loss. A growing
 `ring full`, `map full`, `short reads`, or userspace drop count is a detection

@@ -3201,6 +3201,7 @@ dependencies = [
  "md-5 0.11.0",
  "memmap2",
  "notify",
+ "object",
  "pelite",
  "regex",
  "reqwest",

@@ -36,7 +36,8 @@
 //! A userspace path is eligible only when the file event captured the same
 //! token, so an untracked reopen cannot consume an older `(pid, fd)` entry.
 //!
-//! sys_enter_openat tracepoint format (x86_64, 64-bit ABI):
+//! Example sys_enter_openat tracepoint format (x86_64, 64-bit ABI). These
+//! offsets are documentation only; the loader supplies this kernel's values:
 //!   offset  0: common_type         (u16)
 //!   offset  2: common_flags        (u8)
 //!   offset  3: common_preempt_count(u8)
@@ -85,6 +86,62 @@ use crate::events::{
 use crate::network::forget_socket_type;
 use crate::process::current_process_start_time;
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, FILE_FAMILY};
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FileTracepointOffsets {
+    pub openat_dfd: u32,
+    pub openat_path: u32,
+    pub openat_flags: u32,
+    pub openat_ret: u32,
+    pub open_path: u32,
+    pub open_flags: u32,
+    pub open_ret: u32,
+    pub creat_path: u32,
+    pub creat_ret: u32,
+    pub openat2_dfd: u32,
+    pub openat2_path: u32,
+    pub openat2_how: u32,
+    pub openat2_ret: u32,
+    pub unlinkat_dfd: u32,
+    pub unlinkat_path: u32,
+    pub unlinkat_ret: u32,
+    pub unlink_path: u32,
+    pub unlink_ret: u32,
+    pub renameat_old_dfd: u32,
+    pub renameat_old_path: u32,
+    pub renameat_new_dfd: u32,
+    pub renameat_new_path: u32,
+    pub renameat_ret: u32,
+    pub renameat2_old_dfd: u32,
+    pub renameat2_old_path: u32,
+    pub renameat2_new_dfd: u32,
+    pub renameat2_new_path: u32,
+    pub renameat2_ret: u32,
+    pub rename_old_path: u32,
+    pub rename_new_path: u32,
+    pub rename_ret: u32,
+    pub mkdir_path: u32,
+    pub mkdir_ret: u32,
+    pub mkdirat_dfd: u32,
+    pub mkdirat_path: u32,
+    pub mkdirat_ret: u32,
+    pub rmdir_path: u32,
+    pub rmdir_ret: u32,
+    pub close_fd: u32,
+    pub dup2_old_fd: u32,
+    pub dup2_new_fd: u32,
+    pub dup3_old_fd: u32,
+    pub dup3_new_fd: u32,
+}
+
+#[no_mangle]
+pub static FILE_TRACEPOINT_OFFSETS: FileTracepointOffsets = unsafe { core::mem::zeroed() };
+
+#[inline(always)]
+unsafe fn tracepoint_offset(value: *const u32) -> usize {
+    core::ptr::read_volatile(value) as usize
+}
 
 /// O_CREAT flag — create file if it does not exist.
 const O_CREAT: u64 = 0x40;
@@ -202,25 +259,49 @@ pub fn handle_vfs_create(ctx: ProbeContext) -> u32 {
 /// Emit a file-create event only after `openat` succeeds.
 #[tracepoint]
 pub fn handle_openat_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_open_exit(&ctx) }.unwrap_or(1)
+    unsafe {
+        try_handle_open_exit(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.openat_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Emit a legacy `open` file event only after the syscall succeeds.
 #[tracepoint]
 pub fn handle_open_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_open_exit(&ctx) }.unwrap_or(1)
+    unsafe {
+        try_handle_open_exit(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.open_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Emit a legacy `creat` event only after the syscall succeeds.
 #[tracepoint]
 pub fn handle_creat_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_open_exit(&ctx) }.unwrap_or(1)
+    unsafe {
+        try_handle_open_exit(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.creat_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Emit an `openat2` file event only after the syscall succeeds.
 #[tracepoint]
 pub fn handle_openat2_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_open_exit(&ctx) }.unwrap_or(1)
+    unsafe {
+        try_handle_open_exit(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.openat2_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential file-delete event for `unlinkat`.
@@ -232,19 +313,40 @@ pub fn handle_unlinkat(ctx: TracePointContext) -> u32 {
 /// Emit a file-delete event only after `unlinkat` succeeds.
 #[tracepoint]
 pub fn handle_unlinkat_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_DELETE) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_DELETE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.unlinkat_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential file-delete event for legacy `unlink`.
 #[tracepoint]
 pub fn handle_unlink(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_legacy_file_event(&ctx, FILE_KIND_DELETE) }.unwrap_or(1)
+    unsafe {
+        try_handle_legacy_file_event(
+            &ctx,
+            FILE_KIND_DELETE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.unlink_path)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Emit a file-delete event only after legacy `unlink` succeeds.
 #[tracepoint]
 pub fn handle_unlink_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_DELETE) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_DELETE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.unlink_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential file-rename event for `renameat`.
@@ -256,19 +358,33 @@ pub fn handle_renameat(ctx: TracePointContext) -> u32 {
 /// Emit a file-rename event only after `renameat` succeeds.
 #[tracepoint]
 pub fn handle_renameat_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_RENAME) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_RENAME,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.renameat_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential file-rename event for `renameat2`.
 #[tracepoint]
 pub fn handle_renameat2(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_renameat(&ctx) }.unwrap_or(1)
+    unsafe { try_handle_renameat2(&ctx) }.unwrap_or(1)
 }
 
 /// Emit a file-rename event only after `renameat2` succeeds.
 #[tracepoint]
 pub fn handle_renameat2_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_RENAME) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_RENAME,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.renameat2_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential file-rename event for legacy `rename`.
@@ -280,43 +396,85 @@ pub fn handle_rename(ctx: TracePointContext) -> u32 {
 /// Emit a file-rename event only after legacy `rename` succeeds.
 #[tracepoint]
 pub fn handle_rename_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_RENAME) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_RENAME,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.rename_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential directory-create event for legacy `mkdir`.
 #[tracepoint]
 pub fn handle_mkdir(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_legacy_file_event(&ctx, FILE_KIND_CREATE) }.unwrap_or(1)
+    unsafe {
+        try_handle_legacy_file_event(
+            &ctx,
+            FILE_KIND_CREATE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.mkdir_path)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Emit a directory-create event only after legacy `mkdir` succeeds.
 #[tracepoint]
 pub fn handle_mkdir_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_CREATE) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_CREATE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.mkdir_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential directory-create event for `mkdirat`.
 #[tracepoint]
 pub fn handle_mkdirat(ctx: TracePointContext) -> u32 {
-    unsafe { queue_file_event(&ctx, FILE_KIND_CREATE) }.unwrap_or(1)
+    unsafe { try_handle_mkdirat(&ctx) }.unwrap_or(1)
 }
 
 /// Emit a directory-create event only after `mkdirat` succeeds.
 #[tracepoint]
 pub fn handle_mkdirat_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_CREATE) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_CREATE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.mkdirat_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Queue a potential directory-delete event for `rmdir`.
 #[tracepoint]
 pub fn handle_rmdir(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_legacy_file_event(&ctx, FILE_KIND_DELETE) }.unwrap_or(1)
+    unsafe {
+        try_handle_legacy_file_event(
+            &ctx,
+            FILE_KIND_DELETE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.rmdir_path)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Emit a directory-delete event only after `rmdir` succeeds.
 #[tracepoint]
 pub fn handle_rmdir_exit(ctx: TracePointContext) -> u32 {
-    unsafe { try_handle_file_operation_exit(&ctx, FILE_KIND_DELETE) }.unwrap_or(1)
+    unsafe {
+        try_handle_file_operation_exit(
+            &ctx,
+            FILE_KIND_DELETE,
+            tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.rmdir_ret)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Invalidate an indexed descriptor before it can be closed and reused.
@@ -334,7 +492,7 @@ pub fn handle_file_dup2(ctx: TracePointContext) -> u32 {
 /// Invalidate the destination descriptor that `dup3` may replace.
 #[tracepoint]
 pub fn handle_file_dup3(ctx: TracePointContext) -> u32 {
-    unsafe { try_invalidate_dup_target(&ctx) }.unwrap_or(1)
+    unsafe { try_invalidate_dup3_target(&ctx) }.unwrap_or(1)
 }
 
 /// Reset a process index before `close_range` can recycle many descriptors.
@@ -404,7 +562,9 @@ unsafe fn invalidate_fd(pid: u32, fd: i32) {
 
 #[inline(always)]
 unsafe fn try_invalidate_close(ctx: &TracePointContext) -> Result<u32, i64> {
-    let fd = ctx.read_at::<i64>(16)? as i32;
+    let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.close_fd
+    )))? as i32;
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
     invalidate_fd(pid, fd);
     Ok(0)
@@ -427,13 +587,33 @@ unsafe fn invalidate_dir_token(pid: u32, fd: i32) {
 
 #[inline(always)]
 unsafe fn try_invalidate_dup_target(ctx: &TracePointContext) -> Result<u32, i64> {
-    let old_fd = ctx.read_at::<i64>(16)? as i32;
-    let new_fd = ctx.read_at::<i64>(24)? as i32;
+    let old_fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.dup2_old_fd
+    )))? as i32;
+    let new_fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.dup2_new_fd
+    )))? as i32;
     if old_fd == new_fd {
         return Ok(0);
     }
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
     // `dup2`/`dup3` close whatever `new_fd` held without a `close` syscall.
+    invalidate_fd(pid, new_fd);
+    Ok(0)
+}
+
+#[inline(always)]
+unsafe fn try_invalidate_dup3_target(ctx: &TracePointContext) -> Result<u32, i64> {
+    let old_fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.dup3_old_fd
+    )))? as i32;
+    let new_fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.dup3_new_fd
+    )))? as i32;
+    if old_fd == new_fd {
+        return Ok(0);
+    }
+    let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
     invalidate_fd(pid, new_fd);
     Ok(0)
 }
@@ -466,22 +646,34 @@ unsafe fn try_reset_dir_index(_ctx: &TracePointContext) -> Result<u32, i64> {
 
 #[inline(always)]
 unsafe fn try_handle_openat(ctx: &TracePointContext) -> Result<u32, i64> {
-    let flags: u64 = ctx.read_at::<u64>(32)?;
-    let dfd = ctx.read_at::<i64>(16)? as i32;
-    let path_ptr = ctx.read_at::<u64>(24)?;
+    let flags: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.openat_flags
+    )))?;
+    let dfd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.openat_dfd
+    )))? as i32;
+    let path_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.openat_path
+    )))?;
     try_queue_open(flags, dfd, path_ptr)
 }
 
 #[inline(always)]
 unsafe fn try_handle_open(ctx: &TracePointContext) -> Result<u32, i64> {
-    let path_ptr = ctx.read_at::<u64>(16)?;
-    let flags = ctx.read_at::<u64>(24)?;
+    let path_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.open_path
+    )))?;
+    let flags = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.open_flags
+    )))?;
     try_queue_open(flags, AT_FDCWD, path_ptr)
 }
 
 #[inline(always)]
 unsafe fn try_handle_creat(ctx: &TracePointContext) -> Result<u32, i64> {
-    let path_ptr = ctx.read_at::<u64>(16)?;
+    let path_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.creat_path
+    )))?;
     let tid = bpf_get_current_pid_tgid() as u32;
     let _ = OPENAT_CREATED.remove(&tid);
     queue_file_event_from_args(AT_FDCWD, path_ptr, FILE_KIND_CREATE)
@@ -489,9 +681,15 @@ unsafe fn try_handle_creat(ctx: &TracePointContext) -> Result<u32, i64> {
 
 #[inline(always)]
 unsafe fn try_handle_openat2(ctx: &TracePointContext) -> Result<u32, i64> {
-    let dfd = ctx.read_at::<i64>(16)? as i32;
-    let path_ptr = ctx.read_at::<u64>(24)?;
-    let how_ptr = ctx.read_at::<u64>(32)?;
+    let dfd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.openat2_dfd
+    )))? as i32;
+    let path_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.openat2_path
+    )))?;
+    let how_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.openat2_how
+    )))?;
     if how_ptr == 0 {
         return Ok(0);
     }
@@ -531,8 +729,8 @@ unsafe fn try_queue_open(flags: u64, dfd: i32, path_ptr: u64) -> Result<u32, i64
 }
 
 #[inline(always)]
-unsafe fn try_handle_open_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let ret: i64 = ctx.read_at::<i64>(16)?;
+unsafe fn try_handle_open_exit(ctx: &TracePointContext, ret_offset: usize) -> Result<u32, i64> {
+    let ret: i64 = ctx.read_at::<i64>(ret_offset)?;
     let tid = bpf_get_current_pid_tgid() as u32;
     // Clean up the vfs_create marker regardless.
     let _ = OPENAT_CREATED.remove(&tid);
@@ -566,18 +764,31 @@ unsafe fn try_handle_open_exit(ctx: &TracePointContext) -> Result<u32, i64> {
 
 #[inline(always)]
 unsafe fn try_handle_unlinkat(ctx: &TracePointContext) -> Result<u32, i64> {
-    queue_file_event(ctx, FILE_KIND_DELETE)
+    queue_file_event(
+        ctx,
+        FILE_KIND_DELETE,
+        tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.unlinkat_dfd)),
+        tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.unlinkat_path)),
+    )
 }
 
 #[inline(always)]
-unsafe fn try_handle_legacy_file_event(ctx: &TracePointContext, kind: u32) -> Result<u32, i64> {
-    let path_ptr = ctx.read_at::<u64>(16)?;
+unsafe fn try_handle_legacy_file_event(
+    ctx: &TracePointContext,
+    kind: u32,
+    path_offset: usize,
+) -> Result<u32, i64> {
+    let path_ptr = ctx.read_at::<u64>(path_offset)?;
     queue_file_event_from_args(AT_FDCWD, path_ptr, kind)
 }
 
 #[inline(always)]
-unsafe fn try_handle_file_operation_exit(ctx: &TracePointContext, kind: u32) -> Result<u32, i64> {
-    let ret: i64 = ctx.read_at::<i64>(16)?;
+unsafe fn try_handle_file_operation_exit(
+    ctx: &TracePointContext,
+    kind: u32,
+    ret_offset: usize,
+) -> Result<u32, i64> {
+    let ret: i64 = ctx.read_at::<i64>(ret_offset)?;
     emit_pending_file_event(kind, kind, kind, ret == 0)
 }
 
@@ -588,9 +799,23 @@ unsafe fn try_handle_renameat(ctx: &TracePointContext) -> Result<u32, i64> {
 
 #[inline(always)]
 unsafe fn try_handle_rename(ctx: &TracePointContext) -> Result<u32, i64> {
-    let old_path_ptr = ctx.read_at::<u64>(16)?;
-    let new_path_ptr = ctx.read_at::<u64>(24)?;
+    let old_path_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.rename_old_path
+    )))?;
+    let new_path_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.rename_new_path
+    )))?;
     queue_rename_event_from_args(AT_FDCWD, old_path_ptr, AT_FDCWD, new_path_ptr)
+}
+
+#[inline(always)]
+unsafe fn try_handle_mkdirat(ctx: &TracePointContext) -> Result<u32, i64> {
+    queue_file_event(
+        ctx,
+        FILE_KIND_CREATE,
+        tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.mkdirat_dfd)),
+        tracepoint_offset(core::ptr::addr_of!(FILE_TRACEPOINT_OFFSETS.mkdirat_path)),
+    )
 }
 
 #[inline(always)]
@@ -628,10 +853,14 @@ unsafe fn read_user_path(ptr: u64, dst: &mut [u8; FILE_PATH_LEN]) -> Option<bool
 }
 
 #[inline(always)]
-unsafe fn queue_file_event(ctx: &TracePointContext, kind: u32) -> Result<u32, i64> {
-    // The tracked *at path syscalls share dfd at 16 and pathname at 24.
-    let dfd = ctx.read_at::<i64>(16)? as i32;
-    let path_ptr: u64 = ctx.read_at::<u64>(24)?;
+unsafe fn queue_file_event(
+    ctx: &TracePointContext,
+    kind: u32,
+    dfd_offset: usize,
+    path_offset: usize,
+) -> Result<u32, i64> {
+    let dfd = ctx.read_at::<i64>(dfd_offset)? as i32;
+    let path_ptr: u64 = ctx.read_at::<u64>(path_offset)?;
     queue_file_event_from_args(dfd, path_ptr, kind)
 }
 
@@ -680,10 +909,35 @@ unsafe fn queue_file_event_from_args(dfd: i32, path_ptr: u64, kind: u32) -> Resu
 
 #[inline(always)]
 unsafe fn queue_rename_event(ctx: &TracePointContext) -> Result<u32, i64> {
-    let old_dfd = ctx.read_at::<i64>(16)? as i32;
-    let old_path_ptr: u64 = ctx.read_at::<u64>(24)?;
-    let new_dfd = ctx.read_at::<i64>(32)? as i32;
-    let new_path_ptr: u64 = ctx.read_at::<u64>(40)?;
+    let old_dfd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat_old_dfd
+    )))? as i32;
+    let old_path_ptr: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat_old_path
+    )))?;
+    let new_dfd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat_new_dfd
+    )))? as i32;
+    let new_path_ptr: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat_new_path
+    )))?;
+    queue_rename_event_from_args(old_dfd, old_path_ptr, new_dfd, new_path_ptr)
+}
+
+#[inline(always)]
+unsafe fn try_handle_renameat2(ctx: &TracePointContext) -> Result<u32, i64> {
+    let old_dfd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat2_old_dfd
+    )))? as i32;
+    let old_path_ptr: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat2_old_path
+    )))?;
+    let new_dfd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat2_new_dfd
+    )))? as i32;
+    let new_path_ptr: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        FILE_TRACEPOINT_OFFSETS.renameat2_new_path
+    )))?;
     queue_rename_event_from_args(old_dfd, old_path_ptr, new_dfd, new_path_ptr)
 }
 

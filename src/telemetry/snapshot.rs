@@ -370,7 +370,24 @@ impl LinuxEbpfFamilySnapshot {
 /// Linux eBPF pipeline accounting, absent when that sensor did not run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinuxEbpfSnapshot {
+    /// ABI version shared by the loader and the object that was loaded.
+    #[serde(default)]
+    pub abi_version: u32,
+    /// Runtime hook availability grouped by telemetry family.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<LinuxEbpfFeatureSnapshot>,
     pub families: Vec<LinuxEbpfFamilySnapshot>,
+}
+
+/// Runtime capability state for one Linux telemetry family.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxEbpfFeatureSnapshot {
+    pub feature: String,
+    pub active: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attached_hooks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable_hooks: Vec<String>,
 }
 
 impl LinuxEbpfSnapshot {
@@ -706,6 +723,29 @@ mod tests {
         };
 
         assert_eq!(fidelity.capture_rate_pct(), 75.0);
+    }
+
+    #[test]
+    fn linux_feature_set_is_serialized_with_the_abi() {
+        let snapshot = LinuxEbpfSnapshot {
+            abi_version: 1,
+            features: vec![LinuxEbpfFeatureSnapshot {
+                feature: "dns".to_string(),
+                active: true,
+                attached_hooks: vec!["handle_sendto".to_string()],
+                unavailable_hooks: vec!["handle_sendmmsg: unavailable".to_string()],
+            }],
+            families: Vec::new(),
+        };
+
+        let json = serde_json::to_value(snapshot).unwrap();
+        assert_eq!(json["abi_version"], 1);
+        assert_eq!(json["features"][0]["feature"], "dns");
+        assert_eq!(json["features"][0]["active"], true);
+        assert_eq!(
+            json["features"][0]["unavailable_hooks"][0],
+            "handle_sendmmsg: unavailable"
+        );
     }
 
     #[test]

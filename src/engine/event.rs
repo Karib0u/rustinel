@@ -41,7 +41,15 @@ impl<'a> RsigmaEvent<'a> {
     /// fields do not serialize to a JSON object.
     fn field_map(&self) -> serde_json::Map<String, Value> {
         match serde_json::to_value(&self.event.fields) {
-            Ok(Value::Object(map)) => map,
+            Ok(Value::Object(mut map)) => {
+                map.retain(|field, _| {
+                    !matches!(
+                        crate::field_availability::availability_for_event(self.event, field),
+                        Some(crate::field_availability::Availability::Never(_))
+                    )
+                });
+                map
+            }
             _ => serde_json::Map::new(),
         }
     }
@@ -49,9 +57,25 @@ impl<'a> RsigmaEvent<'a> {
 
 impl Event for RsigmaEvent<'_> {
     fn get_field(&self, path: &str) -> Option<EventValue<'_>> {
-        self.event
-            .get_field(path)
-            .map(|value| EventValue::Str(Cow::Borrowed(value)))
+        if let Some(value) = self.event.get_field(path) {
+            return Some(EventValue::Str(Cow::Borrowed(value)));
+        }
+
+        // ProcessStartTime is stored as a number, so the normalized event's
+        // borrowed string accessor cannot expose it directly.
+        match (&self.event.fields, path) {
+            (crate::models::EventFields::ProcessCreation(fields), "ProcessStartTime")
+                if !matches!(
+                    crate::field_availability::availability_for_event(self.event, path),
+                    Some(crate::field_availability::Availability::Never(_))
+                ) =>
+            {
+                fields
+                    .process_start_time
+                    .map(|value| EventValue::Str(Cow::Owned(value.to_string())))
+            }
+            _ => None,
+        }
     }
 
     fn any_string_value(&self, pred: &dyn Fn(&str) -> bool) -> bool {
@@ -103,7 +127,7 @@ impl Event for RsigmaEvent<'_> {
 mod tests {
     use super::*;
     use crate::models::{
-        EventCategory, EventFields, NetworkConnectionFields, NormalizedEvent,
+        EventCategory, EventFields, ImageLoadFields, NetworkConnectionFields, NormalizedEvent,
         ProcessCreationFields, SecurityAuditFields,
     };
     use crate::sensor::Platform;
@@ -139,6 +163,35 @@ mod tests {
             Some(EventValue::Str(Cow::Borrowed("/usr/bin/curl")))
         );
         assert_eq!(adapter.get_field("Missing"), None);
+    }
+
+    #[test]
+    fn never_fields_are_absent_from_the_sigma_field_map() {
+        let mut event = generic_event(&[]);
+        event.platform = Platform::Windows;
+        event.provider = "etw".to_string();
+        event.category = EventCategory::ImageLoad;
+        event.event_id = 7;
+        event.event_id_string = "7".to_string();
+        event.opcode = 10;
+        event.fields = EventFields::ImageLoad(ImageLoadFields {
+            image_loaded: Some(r"C:\Windows\System32\kernel32.dll".to_string()),
+            process_id: Some("42".to_string()),
+            image: None,
+            original_file_name: None,
+            product: None,
+            description: None,
+            company: None,
+            file_version: None,
+            signed: Some("true".to_string()),
+            signature: Some("Fake Signer".to_string()),
+            user: None,
+        });
+
+        let adapter = RsigmaEvent::new(&event);
+        let fields = adapter.field_map();
+        assert!(!fields.contains_key("Signed"));
+        assert!(!fields.contains_key("Signature"));
     }
 
     #[test]
@@ -218,7 +271,7 @@ mod tests {
             target_image: None,
             command_line: Some("curl http://example.test".to_string()),
             process_id: Some("1234".to_string()),
-            process_start_time: None,
+            process_start_time: Some(123_456),
             parent_process_id: None,
             parent_image: None,
             parent_command_line: None,
@@ -239,6 +292,10 @@ mod tests {
         assert_eq!(
             adapter.get_field("ImageTruncated"),
             Some(EventValue::Str(Cow::Borrowed("true")))
+        );
+        assert_eq!(
+            adapter.get_field("ProcessStartTime"),
+            Some(EventValue::Str(Cow::Owned("123456".to_string())))
         );
         let keys = adapter.field_keys();
         assert!(keys.iter().any(|key| key.as_ref() == "Image"));

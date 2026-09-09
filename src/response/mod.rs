@@ -452,15 +452,6 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();
         }
-        EventFields::RemoteThread(f) => {
-            if let Some(target_pid) = parse_pid(f.target_process_id.as_deref()) {
-                pid = Some(target_pid);
-                image = f.target_image.clone();
-            } else {
-                pid = parse_pid(f.source_process_id.as_deref());
-                image = f.source_image.clone();
-            }
-        }
         EventFields::SecurityAudit(f) => {
             pid = f.process_id();
             image = f.get("ProcessName").map(str::to_string);

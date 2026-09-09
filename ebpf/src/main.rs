@@ -47,6 +47,14 @@ pub mod network;
 pub mod process;
 pub mod telemetry;
 
+/// Ring-buffer and loader-global ABI implemented by this object.
+///
+/// Userspace reads this ELF symbol before asking the kernel to load any
+/// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
+#[used]
+#[no_mangle]
+pub static RUSTINEL_ABI_VERSION: u32 = 1;
+
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}

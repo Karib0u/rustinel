@@ -21,7 +21,7 @@
 //! - file or loaded-image path
 //! - registry path, data, event type, and rename target
 //! - DNS query, answers, and response status
-//! - script, WMI, remote-thread, service, and task targets
+//! - script, WMI, service, and task targets
 //!
 //! Timestamps and rollup counts are deliberately excluded. Missing fields remain
 //! `None`, which is distinct from a present value but stable across repeated alerts.
@@ -98,11 +98,6 @@ struct SubjectIdentity {
     wmi_query: Option<String>,
     wmi_namespace: Option<String>,
     wmi_event_type: Option<String>,
-    remote_thread_target_pid: Option<u64>,
-    remote_thread_target_image: Option<String>,
-    remote_thread_start_address: Option<String>,
-    remote_thread_start_module: Option<String>,
-    remote_thread_start_function: Option<String>,
     process_target_image: Option<String>,
 }
 
@@ -160,11 +155,6 @@ impl DedupKey {
                 wmi_query: ecs.edr_wmi_query.clone(),
                 wmi_namespace: ecs.edr_wmi_namespace.clone(),
                 wmi_event_type: ecs.edr_wmi_event_type.clone(),
-                remote_thread_target_pid: ecs.edr_remote_thread_target_pid,
-                remote_thread_target_image: ecs.edr_remote_thread_target_image.clone(),
-                remote_thread_start_address: ecs.edr_remote_thread_start_address.clone(),
-                remote_thread_start_module: ecs.edr_remote_thread_start_module.clone(),
-                remote_thread_start_function: ecs.edr_remote_thread_start_function.clone(),
                 process_target_image: ecs.edr_process_target_image.clone(),
             },
         }

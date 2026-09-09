@@ -307,16 +307,9 @@ ECS `event.provider`, names the Rustinel sensor that collected it (`etw`,
 entirely a `system` and `application` channel concern, so that gap costs three
 rules.
 
-DNS field availability:
-
-| Field | Windows ETW | Linux eBPF | macOS bpf |
-| --- | --- | --- | --- |
-| `QueryName` | Yes | Yes | Yes |
-| `QueryResults` | Yes | No | No |
-| `QueryStatus` | Yes | No | No |
-| `RecordType` | No | Yes | Yes |
-| `Image` | Yes | Yes | No |
-| `ProcessId` | Yes | Yes | No |
+DNS fields vary by source. The generated
+[field availability contract](limitations.md#field-availability-contract) is
+the canonical per-platform list.
 
 DNS capture is **plaintext port 53 only** on Linux and macOS: DNS-over-HTTPS,
 DNS-over-TLS, and cached resolver answers that send no packet are invisible, and

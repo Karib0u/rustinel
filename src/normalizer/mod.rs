@@ -73,7 +73,7 @@ impl Normalizer {
             SensorPayload::Security(fields) => Some(EventFields::SecurityAudit(fields.clone())),
         }?;
 
-        Some(NormalizedEvent {
+        let normalized = NormalizedEvent {
             timestamp: format_timestamp(event.timestamp),
             source_seq: event.source_seq,
             ingest_seq: self.ingest_seq.fetch_add(1, Ordering::Relaxed) + 1,
@@ -86,7 +86,21 @@ impl Normalizer {
             fields,
             provenance,
             process_context: None,
-        })
+        };
+
+        // Decoder contracts are checked at the shared boundary, so every
+        // decoder test that normalizes its output fails if an `Always` field
+        // disappears. Keep release telemetry flowing; debug and test builds
+        // turn contract drift into an immediate, actionable failure.
+        let missing_always = crate::field_availability::missing_always_fields(&normalized);
+        debug_assert!(
+            missing_always.is_empty(),
+            "decoder omitted Always field(s) for {}: {:?}",
+            crate::field_availability::category_name(normalized.category),
+            missing_always
+        );
+
+        Some(normalized)
     }
 
     fn normalize_process(
@@ -524,7 +538,7 @@ mod tests {
                 exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some("/usr/bin/curl".to_string()),
-                image_source: None,
+                image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
                 image_truncated: None,
                 original_file_name: None,
                 product: None,
@@ -612,14 +626,14 @@ mod tests {
             parent_process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
-                source_ip: Some("10.0.0.5".to_string()),
+                source_ip: (platform == Platform::Windows).then(|| "10.0.0.5".to_string()),
                 destination_port: Some("443".to_string()),
-                source_port: Some("51324".to_string()),
+                source_port: (platform == Platform::Windows).then(|| "51324".to_string()),
                 process_id: Some(pid.to_string()),
                 image: None,
                 user: Some("alice".to_string()),
                 destination_hostname: None,
-                protocol: None,
+                protocol: Some("tcp".to_string()),
                 initiated: Some(true),
             }),
         }
@@ -847,7 +861,7 @@ mod tests {
                 image: Some("/usr/bin/touch".to_string()),
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
-                user: None,
+                user: Some("alice".to_string()),
                 path_truncated: None,
             }),
         };
@@ -901,7 +915,7 @@ mod tests {
                 image: Some("touch".to_string()),
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
-                user: None,
+                user: Some("alice".to_string()),
                 path_truncated: None,
             }),
         };
@@ -1072,14 +1086,7 @@ mod tests {
         assert_shared_fields_equal(
             &windows,
             &linux,
-            &[
-                "Image",
-                "CommandLine",
-                "ProcessId",
-                "ParentProcessId",
-                "CurrentDirectory",
-                "User",
-            ],
+            &["Image", "CommandLine", "ProcessId", "ParentProcessId"],
         );
     }
 
@@ -1107,9 +1114,7 @@ mod tests {
             &linux,
             &[
                 "DestinationIp",
-                "SourceIp",
                 "DestinationPort",
-                "SourcePort",
                 "ProcessId",
                 "Image",
                 "User",

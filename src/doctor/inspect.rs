@@ -98,6 +98,11 @@ impl DiagnosticResult {
         self.fix = Some(fix.into());
         self
     }
+
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -242,6 +247,7 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
             let paths = ResolvedPaths::from_config(&cfg, selected_path);
             results.extend(path_results(&cfg, &paths));
             results.extend(rule_validation_results(&cfg, platform));
+            results.push(field_availability_result(platform));
             results.extend(platform_prerequisite_results());
 
             let (pipeline_results, telemetry) = telemetry_results(&cfg, &paths.logs_dir);
@@ -284,6 +290,41 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
             )
         }
     }
+}
+
+fn field_availability_result(platform: InstallPlatform) -> DiagnosticResult {
+    let platform = match platform {
+        InstallPlatform::Windows => crate::sensor::Platform::Windows,
+        InstallPlatform::Linux => crate::sensor::Platform::Linux,
+        InstallPlatform::Macos => crate::sensor::Platform::MacOS,
+    };
+    let mut counts = [0usize; 3];
+    let mut permanent = Vec::new();
+    for contract in crate::field_availability::FIELD_AVAILABILITY
+        .iter()
+        .filter(|contract| contract.platform == platform)
+    {
+        for field in contract.fields {
+            match field.availability {
+                crate::field_availability::Availability::Always => counts[0] += 1,
+                crate::field_availability::Availability::Conditional(_) => counts[1] += 1,
+                crate::field_availability::Availability::Never(_) => {
+                    counts[2] += 1;
+                    permanent.push(format!("{}.{}", contract.category, field.field));
+                }
+            }
+        }
+    }
+    permanent.sort();
+    permanent.dedup();
+    DiagnosticResult::pass(
+        "field_availability",
+        format!(
+            "Field availability contract loaded ({} always, {} conditional, {} unavailable)",
+            counts[0], counts[1], counts[2]
+        ),
+    )
+    .with_detail(format!("permanently unavailable: {}", permanent.join(", ")))
 }
 
 pub fn run_cli(config_path: Option<PathBuf>, json: bool) -> anyhow::Result<i32> {
@@ -663,6 +704,19 @@ mod tests {
 
         let output = format_human(&report);
         assert!(output.contains("fix: fix it"));
+    }
+
+    #[test]
+    fn field_availability_diagnostic_reads_the_contract() {
+        let result = field_availability_result(InstallPlatform::Windows);
+
+        assert_eq!(result.id, "field_availability");
+        assert_eq!(result.status, DiagnosticStatus::Pass);
+        assert!(result.message.contains("unavailable"));
+        assert!(result
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("process_creation.User")));
     }
 
     #[test]
