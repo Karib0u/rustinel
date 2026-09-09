@@ -38,6 +38,13 @@ use crate::sensor::SensorEvent;
 /// Tracing target for pipeline telemetry accounting.
 pub const TARGET_TELEMETRY: &str = "telemetry";
 
+/// Version shared by Linux eBPF userspace telemetry and the object loader.
+///
+/// Bump this whenever a ring-buffer event layout or loader-patched global
+/// changes. This lives outside the Linux-only sensor module because telemetry
+/// snapshots are compiled on every supported platform.
+pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 1;
+
 /// Linux ring-buffer program families, in snapshot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinuxEbpfFamily {
@@ -251,7 +258,7 @@ impl LinuxEbpfCounters {
         }
 
         Some(LinuxEbpfSnapshot {
-            abi_version: crate::sensor::linux::abi::LINUX_EBPF_ABI_VERSION,
+            abi_version: LINUX_EBPF_ABI_VERSION,
             features: self
                 .features
                 .lock()

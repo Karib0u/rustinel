@@ -3,8 +3,7 @@
 use anyhow::{bail, Context, Result};
 use object::{Object, ObjectSection, ObjectSymbol};
 
-/// Bump this whenever a ring-buffer event layout or loader-patched global changes.
-pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 1;
+use crate::telemetry::LINUX_EBPF_ABI_VERSION;
 
 const ABI_SYMBOL: &str = "RUSTINEL_ABI_VERSION";
 
