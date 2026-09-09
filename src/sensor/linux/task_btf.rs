@@ -152,6 +152,15 @@ impl Btf {
                         bitfield: flagged && raw >> 24 != 0,
                     });
                 }
+            } else if kind == 13 {
+                for param in payload.as_chunks::<8>().0 {
+                    ty.members.push(Member {
+                        name: name(word(param, 0)?)?,
+                        ty: word(param, 4)?,
+                        bits: 0,
+                        bitfield: false,
+                    });
+                }
             } else if kind == 6 {
                 for entry in payload.as_chunks::<8>().0 {
                     ty.members.push(Member {
@@ -303,6 +312,110 @@ impl Btf {
         Ok(plan)
     }
 
+    fn socket_field(&self, root: &str, path: &[&str], width: u32) -> Result<u32> {
+        let mut ty = self
+            .types
+            .iter()
+            .find(|ty| ty.kind == 4 && ty.name == root)
+            .with_context(|| format!("missing {root}"))?;
+        let mut offset = 0u32;
+        for component in path {
+            let (delta, id) = self.member(ty, component, 0)?;
+            offset = offset
+                .checked_add(delta)
+                .context("socket offset overflow")?;
+            ty = self.ty(id)?;
+        }
+        ensure!(offset <= 65535, "socket offset exceeds verifier bounds");
+        match width {
+            16 => ensure!(
+                ty.kind == 4 && ty.size_type == 16,
+                "unsupported IPv6 address layout"
+            ),
+            8 => {
+                ensure!(ty.kind == 2, "expected socket pointer");
+                let pointee = self.ty(ty.size_type)?;
+                ensure!(
+                    pointee.kind == 4 && pointee.name == "sock",
+                    "expected pointer to sock"
+                );
+            }
+            _ => self.scalar(ty, width)?,
+        }
+        Ok(offset)
+    }
+
+    fn function(&self, name: &str, returns_sock: bool) -> Result<usize> {
+        let func = self
+            .types
+            .iter()
+            .find(|ty| ty.kind == 12 && ty.name == name)
+            .with_context(|| format!("missing function {name}"))?;
+        let proto = self.ty(func.size_type)?;
+        ensure!(proto.kind == 13, "missing function prototype");
+        let ret = self.ty(proto.size_type)?;
+        if returns_sock {
+            ensure!(
+                ret.kind == 2 && self.ty(ret.size_type)?.name == "sock",
+                "unexpected accept return type"
+            );
+        } else {
+            self.scalar(ret, 4)?;
+        }
+        let first = self.ty(proto
+            .members
+            .first()
+            .context("missing socket parameter")?
+            .ty)?;
+        ensure!(first.kind == 2, "expected socket argument pointer");
+        ensure!(
+            self.ty(first.size_type)?.name == if returns_sock { "sock" } else { "socket" },
+            "unexpected socket argument"
+        );
+        Ok(proto.members.len())
+    }
+
+    fn socket_layout(&self) -> Result<SocketLayout> {
+        use super::socket_tuple_abi::SocketOffsets;
+        ensure!(
+            self.function("inet_stream_connect", false)? == 4,
+            "unsupported stream connect prototype"
+        );
+        ensure!(
+            self.function("inet_dgram_connect", false)? == 4,
+            "unsupported datagram connect prototype"
+        );
+        let accept_args = self.function("inet_csk_accept", true)?;
+        ensure!(
+            matches!(accept_args, 2 | 4),
+            "unsupported accept prototype: {accept_args} arguments"
+        );
+        let field = |name, width| self.socket_field("sock", &["__sk_common", name], width);
+        let (protocol, protocol_width) = match self.socket_field("sock", &["sk_protocol"], 1) {
+            Ok(offset) => (offset, 1),
+            Err(_) => (self.socket_field("sock", &["sk_protocol"], 2)?, 2),
+        };
+        Ok(SocketLayout {
+            offsets: SocketOffsets {
+                socket_sk: self.socket_field("socket", &["sk"], 8)?,
+                family: field("skc_family", 2)?,
+                saddr: field("skc_rcv_saddr", 4)?,
+                daddr: field("skc_daddr", 4)?,
+                sport: field("skc_num", 2)?,
+                dport: field("skc_dport", 2)?,
+                saddr6: field("skc_v6_rcv_saddr", 16)?,
+                daddr6: field("skc_v6_daddr", 16)?,
+                protocol,
+                protocol_width,
+            },
+            accept_program: if accept_args == 2 {
+                "handle_accept2"
+            } else {
+                "handle_accept4"
+            },
+        })
+    }
+
     fn scalar(&self, ty: &Type, width: u32) -> Result<()> {
         ensure!(
             ty.kind == 1 && ty.size_type == width && ty.int_encoding & 0xffffff == width * 8,
@@ -440,5 +553,154 @@ mod tests {
         let plans = TaskPlans::resolve(Btf::parse(&[]));
         assert_eq!(plans.warnings.len(), FIELD_COUNT);
         assert!(plans.plans.iter().all(|plan| plan.len == 0));
+    }
+}
+
+unsafe impl aya::Pod for super::socket_tuple_abi::SocketOffsets {}
+
+pub struct SocketLayout {
+    pub offsets: super::socket_tuple_abi::SocketOffsets,
+    pub accept_program: &'static str,
+}
+
+impl SocketLayout {
+    pub fn load() -> Result<Self> {
+        Self::from_bytes(&std::fs::read(BTF_PATH).context("reading kernel BTF")?)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Btf::parse(bytes)?.socket_layout()
+    }
+}
+
+#[cfg(test)]
+mod socket_tests {
+    use super::*;
+
+    fn fixture(protocol_offset: u32, accept_args: usize) -> Btf {
+        let scalar = |size| Type {
+            kind: 1,
+            size_type: size,
+            int_encoding: size * 8,
+            ..Type::default()
+        };
+        let member = |name: &str, ty, offset| Member {
+            name: name.into(),
+            ty,
+            bits: offset * 8,
+            bitfield: false,
+        };
+        let composite = |name: &str, size, members| Type {
+            name: name.into(),
+            kind: 4,
+            size_type: size,
+            members,
+            ..Type::default()
+        };
+        let proto = |first, count, ret| Type {
+            kind: 13,
+            size_type: ret,
+            members: (0..count)
+                .map(|i| member("", if i == 0 { first } else { 3 }, 0))
+                .collect(),
+            ..Type::default()
+        };
+        let func = |name: &str, proto| Type {
+            name: name.into(),
+            kind: 12,
+            size_type: proto,
+            ..Type::default()
+        };
+        Btf {
+            types: vec![
+                Type::default(),
+                scalar(1),
+                scalar(2),
+                scalar(4),                         // 0..3
+                composite("in6_addr", 16, vec![]), // 4
+                composite(
+                    "sock_common",
+                    128,
+                    vec![
+                        // 5
+                        member("skc_daddr", 3, 0),
+                        member("skc_rcv_saddr", 3, 4),
+                        member("skc_dport", 2, 12),
+                        member("skc_num", 2, 14),
+                        member("skc_family", 2, 16),
+                        member("skc_v6_daddr", 4, 56),
+                        member("skc_v6_rcv_saddr", 4, 72),
+                    ],
+                ),
+                composite(
+                    "sock",
+                    1024,
+                    vec![
+                        member("__sk_common", 5, 0),
+                        member("sk_protocol", 2, protocol_offset),
+                    ],
+                ), // 6
+                Type {
+                    kind: 2,
+                    size_type: 6,
+                    ..Type::default()
+                }, // 7
+                composite("socket", 128, vec![member("sk", 7, 24)]), // 8
+                Type {
+                    kind: 2,
+                    size_type: 8,
+                    ..Type::default()
+                }, // 9
+                proto(9, 4, 3),                                      // 10
+                func("inet_stream_connect", 10),
+                func("inet_dgram_connect", 10), // 11,12
+                proto(7, accept_args, 7),
+                func("inet_csk_accept", 13), // 13,14
+            ],
+        }
+    }
+
+    #[test]
+    fn socket_offsets_and_accept_index_follow_kernel_btf() {
+        for (offset, args) in [(540, 4), (548, 4), (516, 4), (548, 2)] {
+            let layout = fixture(offset, args).socket_layout().unwrap();
+            assert_eq!(layout.offsets.protocol, offset);
+            assert_eq!(layout.offsets.protocol_width, 2);
+            assert_eq!(layout.offsets.daddr, 0);
+            assert_eq!(layout.offsets.socket_sk, 24);
+            assert_eq!(
+                layout.accept_program,
+                if args == 2 {
+                    "handle_accept2"
+                } else {
+                    "handle_accept4"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_layouts_select_fallback_without_guessed_offsets() {
+        assert!(SocketLayout::from_bytes(&[]).is_err());
+        assert!(fixture(548, 3).socket_layout().is_err());
+        assert!(fixture(65536, 4).socket_layout().is_err());
+        let mut btf = fixture(548, 4);
+        btf.types[6].members[1].name = "renamed_protocol".into();
+        assert!(btf.socket_layout().is_err());
+        btf.types[6].members[1].name = "sk_protocol".into();
+        btf.types[6].members[1].bitfield = true;
+        assert!(btf.socket_layout().is_err());
+        btf.types[6].members[1].bitfield = false;
+        btf.types[10].members.pop();
+        assert!(btf.socket_layout().is_err());
+    }
+
+    #[test]
+    fn protocol_width_is_resolved_and_unknown_width_is_rejected() {
+        let mut btf = fixture(516, 4);
+        btf.types[6].members[1].ty = 1;
+        assert_eq!(btf.socket_layout().unwrap().offsets.protocol_width, 1);
+        btf.types[6].members[1].ty = 3;
+        assert!(btf.socket_layout().is_err());
     }
 }

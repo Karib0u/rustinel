@@ -81,6 +81,27 @@ In a disposable VM, hide `/sys/kernel/btf` and run
 `live_without_btf_keeps_base_telemetry` to check graceful degradation. Never hide
 host BTF on a shared machine.
 
+### Linux socket tuple validation
+
+Build the object above, then run on an isolated Linux host with eBPF privileges,
+tracefs, kernel BTF, and a non-loopback IPv4 interface:
+
+```sh
+cargo test --test linux_socket_tuple running_kernel_socket_layout -- --ignored --nocapture
+sudo env RUSTINEL_EBPF_OBJECT=/absolute/path/to/rustinel-ebpf.o \
+  cargo test --test linux_socket_tuple live_tuple_and_connection_churn -- --ignored --nocapture
+```
+
+The live test checks TCP connect and accept direction, UDP sockets created before
+attachment, kernel loopback filtering, and 2,000 connections while the ring drain
+runs. It prints received event counts and maximum delivery delay. Run the same
+object on a kernel with the four-argument accept prototype and one with the
+two-argument prototype. Run `live_without_socket_btf_uses_syscall_fallback` with an empty file bind-mounted
+over `/sys/kernel/btf/vmlinux` inside a private mount namespace to verify the
+syscall fallback. Never hide BTF in the host mount namespace. Fixture tests also
+cover layout rejection and capability state. The sensor's minimum remains Linux 5.8 due
+to ring buffers; a kernel version alone is never used to select the tuple tier.
+
 ## Recommended Dev Runs
 
 ### Windows

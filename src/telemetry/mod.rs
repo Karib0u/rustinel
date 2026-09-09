@@ -43,7 +43,7 @@ pub const TARGET_TELEMETRY: &str = "telemetry";
 /// Bump this whenever a ring-buffer event layout or loader-patched global
 /// changes. This lives outside the Linux-only sensor module because telemetry
 /// snapshots are compiled on every supported platform.
-pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 2;
+pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 3;
 
 /// Linux ring-buffer program families, in snapshot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,7 +321,15 @@ fn linux_feature_is_active(feature: &LinuxEbpfFeatureSnapshot) -> bool {
     let attached = |hook: &str| feature.attached_hooks.iter().any(|value| value == hook);
     match feature.feature.as_str() {
         "process" => attached("handle_exec"),
-        "network" => attached("handle_connect") && attached("handle_connect_exit"),
+        "network" => {
+            (attached("handle_connect") && attached("handle_connect_exit"))
+                || (attached("handle_stream_connect") && attached("handle_dgram_connect"))
+        }
+        "network_tuple" => {
+            attached("handle_stream_connect")
+                && attached("handle_dgram_connect")
+                && (attached("handle_accept2") || attached("handle_accept4"))
+        }
         "dns" => ["handle_sendto", "handle_sendmsg", "handle_sendmmsg"]
             .into_iter()
             .any(attached),
@@ -1264,6 +1272,31 @@ mod tests {
         assert!(linux_feature_is_active(&linux_feature(
             "file",
             &["handle_unlinkat", "handle_unlinkat_exit"]
+        )));
+    }
+
+    #[test]
+    fn socket_tier_requires_connect_pair_and_btf_selected_accept() {
+        let connect = ["handle_stream_connect", "handle_dgram_connect"];
+        assert!(linux_feature_is_active(&linux_feature("network", &connect)));
+        assert!(!linux_feature_is_active(&linux_feature(
+            "network_tuple",
+            &connect
+        )));
+        for accept in ["handle_accept2", "handle_accept4"] {
+            assert!(linux_feature_is_active(&linux_feature(
+                "network_tuple",
+                &[connect[0], connect[1], accept]
+            )));
+        }
+        // Missing trampoline support leaves the syscall tier active.
+        let fallback = ["handle_connect", "handle_connect_exit"];
+        assert!(linux_feature_is_active(&linux_feature(
+            "network", &fallback
+        )));
+        assert!(!linux_feature_is_active(&linux_feature(
+            "network_tuple",
+            &fallback
         )));
     }
 

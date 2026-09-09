@@ -36,9 +36,6 @@ pub(super) struct NetworkTracepointOffsets {
     pub connect_fd: u32,
     pub connect_addr: u32,
     pub connect_ret: u32,
-    pub socket_family: u32,
-    pub socket_type: u32,
-    pub socket_ret: u32,
 }
 
 #[repr(C)]
@@ -234,23 +231,6 @@ impl TracepointLayouts {
             &[FieldSpec::one("ret", 8)],
         ) {
             self.network.connect_ret = v[0];
-        }
-        if let Some(v) = self.fields(
-            "handle_socket",
-            "syscalls",
-            "sys_enter_socket",
-            &[FieldSpec::one("family", 8), FieldSpec::one("type", 8)],
-        ) {
-            self.network.socket_family = v[0];
-            self.network.socket_type = v[1];
-        }
-        if let Some(v) = self.fields(
-            "handle_socket_exit",
-            "syscalls",
-            "sys_exit_socket",
-            &[FieldSpec::one("ret", 8)],
-        ) {
-            self.network.socket_ret = v[0];
         }
     }
 

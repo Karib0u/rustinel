@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use aya::maps::{MapData, PerCpuArray, RingBuf};
-use aya::programs::{KProbe, TracePoint};
+use aya::programs::{FExit, KProbe, TracePoint};
 use aya::{Ebpf, EbpfLoader};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
@@ -177,24 +177,15 @@ impl Sensor for EbpfSensor {
             "syscalls",
             "sys_enter_vfork",
         )?;
-        // Entry captures the destination while the sockaddr is still readable;
-        // exit is what decides whether the attempt became a connection.
-        attach_tracepoint(&mut bpf, "handle_connect", "syscalls", "sys_enter_connect")?;
-        attach_tracepoint(
-            &mut bpf,
-            "handle_connect_exit",
-            "syscalls",
-            "sys_exit_connect",
-        )?;
-        // `connect()` does not name its transport; the socket type is only
-        // visible while `socket()` runs, and its descriptor only on return.
-        attach_tracepoint(&mut bpf, "handle_socket", "syscalls", "sys_enter_socket")?;
-        attach_tracepoint(
-            &mut bpf,
-            "handle_socket_exit",
-            "syscalls",
-            "sys_exit_socket",
-        )?;
+        if !attach_socket_tuple(&mut bpf)? {
+            attach_tracepoint(&mut bpf, "handle_connect", "syscalls", "sys_enter_connect")?;
+            attach_tracepoint(
+                &mut bpf,
+                "handle_connect_exit",
+                "syscalls",
+                "sys_exit_connect",
+            )?;
+        }
         attach_tracepoint(&mut bpf, "handle_openat", "syscalls", "sys_enter_openat")?;
         attach_optional_tracepoint(&mut bpf, "handle_open", "syscalls", "sys_enter_open")?;
         attach_optional_tracepoint(&mut bpf, "handle_open_exit", "syscalls", "sys_exit_open")?;
@@ -739,24 +730,23 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         parent_process_start_key: None,
         payload: SensorPayload::Network(NetworkConnectionFields {
             destination_ip: Some(destination_ip),
-            // The syscall tracepoint does not measure the kernel-assigned
-            // source tuple. A later procfs lookup is both racy and unbounded,
-            // so source fields stay absent until the kernel probe supplies it.
-            source_ip: None,
+            source_ip: (ev.tuple_flags & super::socket_tuple_abi::TUPLE_MEASURED != 0).then(|| {
+                if ev.af == 2 {
+                    Ipv4Addr::new(ev.saddr[0], ev.saddr[1], ev.saddr[2], ev.saddr[3]).to_string()
+                } else {
+                    Ipv6Addr::from(ev.saddr).to_string()
+                }
+            }),
             destination_port: Some(ev.dport.to_string()),
-            source_port: None,
+            source_port: (ev.tuple_flags & super::socket_tuple_abi::TUPLE_MEASURED != 0)
+                .then(|| ev.sport.to_string()),
             process_id: Some(ev.pid.to_string()),
             // Enriched by the normalizer from ProcessCache if PID is known.
             image: None,
             user,
             destination_hostname: None,
-            // The kernel-side socket type is authoritative: it is recorded
-            // when the socket is created rather than guessed after the event.
             protocol: ev.transport().map(str::to_string),
-            // The probe hooks `connect()` only, so every captured connection
-            // is one this host opened. `accept()` is not hooked, so no inbound
-            // connection can reach here and be mislabelled.
-            initiated: Some(true),
+            initiated: Some(ev.tuple_flags & super::socket_tuple_abi::INBOUND == 0),
         }),
     })
 }
@@ -902,6 +892,61 @@ fn resolved_linux_user(uid: u32) -> Option<String> {
     (uid != u32::MAX).then(|| lookup_username_by_uid(uid).unwrap_or_else(|| uid.to_string()))
 }
 
+/// Try the complete tuple tier before enabling the syscall fallback. Failure
+/// detaches every partial attachment so the fallback cannot duplicate events.
+fn attach_socket_tuple(bpf: &mut Ebpf) -> Result<bool> {
+    let mut loaded = Vec::new();
+    let result = (|| -> Result<()> {
+        let layout = super::task_btf::SocketLayout::load()?;
+        let btf = aya::Btf::from_sys_fs()?;
+        aya::maps::Array::<_, super::socket_tuple_abi::SocketOffsets>::try_from(
+            bpf.map_mut("SOCKET_OFFSETS")
+                .context("missing socket offsets map")?,
+        )?
+        .set(0, layout.offsets, 0)?;
+        for (name, target) in [
+            ("handle_stream_connect", "inet_stream_connect"),
+            ("handle_dgram_connect", "inet_dgram_connect"),
+            (layout.accept_program, "inet_csk_accept"),
+        ] {
+            let program: &mut FExit = bpf
+                .program_mut(name)
+                .context("missing socket program")?
+                .try_into()?;
+            program
+                .load(target, &btf)
+                .with_context(|| format!("load {target}"))?;
+            loaded.push(name);
+            program
+                .attach()
+                .with_context(|| format!("attach {target}"))?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        for name in loaded {
+            // Unloading closes every link owned by the program.
+            let program: &mut FExit = bpf
+                .program_mut(name)
+                .expect("loaded socket program")
+                .try_into()
+                .expect("socket fexit program");
+            program
+                .unload()
+                .context("cannot roll back socket tier; refusing duplicate capture")?;
+        }
+        let reason = format!("{error:#}");
+        LINUX_EBPF.record_hook("network_tuple", "socket_fexit", false, Some(&reason));
+        warn!(%reason, "kernel socket tuple unavailable; using connect syscalls");
+        return Ok(false);
+    }
+    for name in loaded {
+        LINUX_EBPF.record_hook("network_tuple", name, true, None);
+        LINUX_EBPF.record_hook("network", name, true, None);
+    }
+    Ok(true)
+}
+
 fn attach_optional_tracepoint(
     bpf: &mut Ebpf,
     program: &str,
@@ -998,11 +1043,8 @@ fn features_for_program(program: &str) -> &'static [&'static str] {
         | "handle_clone3"
         | "handle_process_fork"
         | "handle_process_vfork" => &["process"],
-        "handle_connect" | "handle_connect_exit" | "handle_socket" | "handle_socket_exit" => {
-            &["network"]
-        }
+        "handle_connect" | "handle_connect_exit" => &["network"],
         "handle_sendto" | "handle_sendmsg" | "handle_sendmmsg" => &["dns"],
-        "handle_file_close" | "handle_file_dup2" | "handle_file_dup3" => &["file", "network"],
         _ => &["file"],
     }
 }
@@ -1435,8 +1477,8 @@ mod tests {
             dport: 443,
             sport: 51324,
             af: 2,
-            sock_type: 0,
-            _pad1: 0,
+            protocol: 0,
+            tuple_flags: 0,
             daddr,
             saddr: {
                 let mut source = [0u8; 16];
@@ -1445,6 +1487,20 @@ mod tests {
             },
             process_start_time: 123_456,
         };
+
+        let mut measured = raw;
+        measured.protocol = 6;
+        measured.tuple_flags = super::super::socket_tuple_abi::TUPLE_MEASURED
+            | super::super::socket_tuple_abi::INBOUND;
+        match build_network_event(&measured).unwrap().payload {
+            SensorPayload::Network(fields) => {
+                assert_eq!(fields.source_ip.as_deref(), Some("10.0.0.5"));
+                assert_eq!(fields.source_port.as_deref(), Some("51324"));
+                assert_eq!(fields.protocol.as_deref(), Some("tcp"));
+                assert_eq!(fields.initiated, Some(false));
+            }
+            _ => panic!("expected network fields"),
+        }
 
         let event = build_network_event(&raw).expect("network event should build");
         assert_eq!(
@@ -1466,7 +1522,7 @@ mod tests {
     }
 
     #[test]
-    fn build_network_event_reports_the_kernel_socket_type() {
+    fn build_network_event_reports_the_kernel_ip_protocol() {
         let mut daddr = [0u8; 16];
         daddr[..4].copy_from_slice(&[198, 51, 100, 10]);
 
@@ -1480,8 +1536,8 @@ mod tests {
             dport: 53,
             sport: 0,
             af: 2,
-            sock_type: 2, // SOCK_DGRAM
-            _pad1: 0,
+            protocol: 17, // UDP
+            tuple_flags: 0,
             daddr,
             saddr: [0u8; 16],
             process_start_time: 123_456,
@@ -1493,7 +1549,7 @@ mod tests {
             other => panic!("unexpected payload: {:?}", other),
         }
 
-        raw.sock_type = 1; // SOCK_STREAM
+        raw.protocol = 6; // TCP
         let event = build_network_event(&raw).expect("tcp connect should build");
         match event.payload {
             SensorPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("tcp")),
@@ -1513,13 +1569,23 @@ mod tests {
             dport: 8443,
             sport: 5353,
             af: 10,
-            sock_type: 0,
-            _pad1: 0,
+            protocol: 0,
+            tuple_flags: 0,
             daddr: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0x10).octets(),
             saddr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x20).octets(),
             process_start_time: 123_456,
         };
 
+        let mut measured = raw;
+        measured.tuple_flags = super::super::socket_tuple_abi::TUPLE_MEASURED;
+        match build_network_event(&measured).unwrap().payload {
+            SensorPayload::Network(fields) => {
+                assert_eq!(fields.source_ip.as_deref(), Some("fe80::20"));
+                assert_eq!(fields.source_port.as_deref(), Some("5353"));
+                assert_eq!(fields.initiated, Some(true));
+            }
+            _ => panic!("expected IPv6 network fields"),
+        }
         let event = build_network_event(&raw).expect("ipv6 network event should build");
         match event.payload {
             SensorPayload::Network(fields) => {
@@ -1550,8 +1616,8 @@ mod tests {
                 dport: 443,
                 sport: 0,
                 af: 2,
-                sock_type: 0,
-                _pad1: 0,
+                protocol: 0,
+                tuple_flags: 0,
                 daddr,
                 saddr: [0u8; 16],
                 process_start_time: 123_456,
@@ -1582,8 +1648,8 @@ mod tests {
                 dport: 443,
                 sport: 0,
                 af: 2,
-                sock_type: 0,
-                _pad1: 0,
+                protocol: 0,
+                tuple_flags: 0,
                 daddr,
                 saddr: [0u8; 16],
                 process_start_time: 123_456,
@@ -1613,8 +1679,8 @@ mod tests {
             dport: 443,
             sport: 0,
             af: 2,
-            sock_type: 0,
-            _pad1: 0,
+            protocol: 0,
+            tuple_flags: 0,
             daddr: [0u8; 16],
             saddr: [0u8; 16],
             process_start_time: 123_456,

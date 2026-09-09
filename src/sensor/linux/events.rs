@@ -181,19 +181,7 @@ pub fn connect_result_is_connection(result: i32) -> bool {
     )
 }
 
-/// The kernel did not watch this socket being created, so its type is not
-/// known. Mirrors `SOCK_TYPE_UNKNOWN` in `ebpf/src/events.rs`.
-pub const SOCK_TYPE_UNKNOWN: u8 = 0;
-
-/// `SOCK_STREAM` — TCP for AF_INET and AF_INET6.
-pub const SOCK_STREAM: u8 = 1;
-
-/// `SOCK_DGRAM` — UDP for AF_INET and AF_INET6.
-pub const SOCK_DGRAM: u8 = 2;
-
-/// Outbound connection event. Produced by `handle_connect_exit`
-/// (`syscalls/sys_exit_connect`), which emits only the attempts that
-/// connected.
+/// Connection event from a kernel socket or the syscall fallback.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NetworkEvent {
@@ -201,7 +189,7 @@ pub struct NetworkEvent {
     pub source_seq: u64,
     pub pid: u32,
     pub uid: u32,
-    /// Connected socket file descriptor.
+    /// Socket descriptor in the syscall fallback; -1 in the fexit tier.
     pub fd: i32,
     /// `connect(2)` return value — always one of the values
     /// [`connect_result_is_connection`] accepts.
@@ -213,10 +201,10 @@ pub struct NetworkEvent {
     pub sport: u16,
     /// Address family: 2 = IPv4, 10 = IPv6.
     pub af: u16,
-    /// Socket type the descriptor was created with: [`SOCK_STREAM`],
-    /// [`SOCK_DGRAM`], another `SOCK_*` value, or [`SOCK_TYPE_UNKNOWN`].
-    pub sock_type: u8,
-    pub _pad1: u8,
+    /// IP protocol number read from sk_protocol; zero in the syscall fallback.
+    pub protocol: u8,
+    /// TUPLE_MEASURED and INBOUND from socket_tuple_abi.
+    pub tuple_flags: u8,
     pub daddr: [u8; 16],
     /// Source address. Unspecified (all zero) until the socket is bound; see
     /// [`sport`](Self::sport).
@@ -226,17 +214,12 @@ pub struct NetworkEvent {
 }
 
 impl NetworkEvent {
-    /// Transport name for the Sigma `Protocol` field and ECS
-    /// `network.transport`.
-    ///
-    /// `None` when the socket type was not captured, or names a transport
-    /// this maps no name for. `connect(2)` carries no protocol of its own, so
-    /// the alternative to an absent value is a guess: before the socket type
-    /// was tracked every event was labelled `tcp`, including UDP connects.
+    /// IP transport name measured from sk_protocol. Unknown protocols and the
+    /// syscall fallback remain absent.
     pub fn transport(&self) -> Option<&'static str> {
-        match self.sock_type {
-            SOCK_STREAM => Some("tcp"),
-            SOCK_DGRAM => Some("udp"),
+        match self.protocol {
+            6 => Some("tcp"),
+            17 => Some("udp"),
             _ => None,
         }
     }
@@ -346,14 +329,14 @@ const _: () = assert!(
         && core::mem::offset_of!(ProcessEvent, args) == 432,
     "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
 );
-// `ret` and `sock_type` took over slots that used to be explicit padding, so a
+// `ret` and `protocol` took over slots that used to be explicit padding, so a
 // stale copy of either side would decode zeros there and pass every event off
 // as a successful connect of unknown transport. Pin both offsets so that fails
 // the build instead.
 const _: () = assert!(
     core::mem::size_of::<NetworkEvent>() == 80
         && core::mem::offset_of!(NetworkEvent, ret) == 28
-        && core::mem::offset_of!(NetworkEvent, sock_type) == 38,
+        && core::mem::offset_of!(NetworkEvent, protocol) == 38,
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
@@ -473,19 +456,19 @@ pub mod mapping {
             parent_process_start_key: None,
             payload: SensorPayload::Network(NetworkConnectionFields {
                 destination_ip: Some(ip_to_string(event.af, &event.daddr)),
-                // The syscall tracepoint does not measure the kernel-assigned
-                // source tuple, so the source fields are consistently absent.
-                source_ip: None,
+                source_ip: (event.tuple_flags & super::super::socket_tuple_abi::TUPLE_MEASURED
+                    != 0)
+                    .then(|| ip_to_string(event.af, &event.saddr)),
                 destination_port: Some(event.dport.to_string()),
-                source_port: None,
+                source_port: (event.tuple_flags & super::super::socket_tuple_abi::TUPLE_MEASURED
+                    != 0)
+                    .then(|| event.sport.to_string()),
                 process_id: Some(event.pid.to_string()),
                 image: None,
                 user: (event.uid != u32::MAX).then(|| event.uid.to_string()),
                 destination_hostname: None,
                 protocol: event.transport().map(str::to_string),
-                // The probe hooks `connect()` only, so every captured
-                // connection is one this host opened.
-                initiated: Some(true),
+                initiated: Some(event.tuple_flags & super::super::socket_tuple_abi::INBOUND == 0),
             }),
         }
     }
@@ -651,7 +634,7 @@ mod tests {
     }
 
     #[test]
-    fn transport_names_only_the_socket_types_it_knows() {
+    fn transport_names_only_known_ip_protocols() {
         let mut event = NetworkEvent {
             event_time_ns: 0,
             source_seq: 0,
@@ -662,22 +645,22 @@ mod tests {
             dport: 53,
             sport: 0,
             af: 2,
-            sock_type: SOCK_DGRAM,
-            _pad1: 0,
+            protocol: 17,
+            tuple_flags: 0,
             daddr: [0u8; 16],
             saddr: [0u8; 16],
             process_start_time: 123_456,
         };
         assert_eq!(event.transport(), Some("udp"));
 
-        event.sock_type = SOCK_STREAM;
+        event.protocol = 6;
         assert_eq!(event.transport(), Some("tcp"));
 
-        // A socket the sensor never saw created, and a type with no name here,
+        // An unmeasured protocol, and a protocol with no name here,
         // are both absent rather than guessed as `tcp`.
-        event.sock_type = SOCK_TYPE_UNKNOWN;
+        event.protocol = 0;
         assert_eq!(event.transport(), None);
-        event.sock_type = 3; // SOCK_RAW
+        event.protocol = 132; // SCTP
         assert_eq!(event.transport(), None);
     }
 

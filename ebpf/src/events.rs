@@ -126,19 +126,7 @@ pub fn connect_result_is_connection(result: i32) -> bool {
     )
 }
 
-/// The sensor did not watch this socket being created, so its type is not
-/// known. Userspace reports no `Protocol` rather than guessing one.
-pub const SOCK_TYPE_UNKNOWN: u8 = 0;
-
-/// `SOCK_STREAM` — TCP for AF_INET and AF_INET6.
-pub const SOCK_STREAM: u8 = 1;
-
-/// `SOCK_DGRAM` — UDP for AF_INET and AF_INET6.
-pub const SOCK_DGRAM: u8 = 2;
-
-/// Outbound connection event. Queued by `handle_connect` on
-/// `syscalls/sys_enter_connect` and emitted by `handle_connect_exit` on
-/// `syscalls/sys_exit_connect`, which drops attempts that never connected.
+/// Connection event from a kernel socket or the syscall fallback.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NetworkEvent {
@@ -148,7 +136,7 @@ pub struct NetworkEvent {
     pub pid: u32,
     /// Effective UID.
     pub uid: u32,
-    /// Socket file descriptor supplied to `connect(2)`.
+    /// Socket descriptor in the syscall fallback; -1 in the fexit tier.
     pub fd: i32,
     /// `connect(2)` return value: 0, or the negative errno of a connect that
     /// is still under way. Failed attempts are never emitted, so this is
@@ -160,11 +148,10 @@ pub struct NetworkEvent {
     pub sport: u16,
     /// Address family: 2 = AF_INET, 10 = AF_INET6.
     pub af: u16,
-    /// Socket type the descriptor was created with, masked to
-    /// `SOCK_TYPE_MASK`: [`SOCK_STREAM`], [`SOCK_DGRAM`], another `SOCK_*`
-    /// value, or [`SOCK_TYPE_UNKNOWN`] when the creation was not observed.
-    pub sock_type: u8,
-    pub _pad1: u8,
+    /// IP protocol number read from sk_protocol; zero in the syscall fallback.
+    pub protocol: u8,
+    /// TUPLE_MEASURED and INBOUND from socket_tuple_abi.
+    pub tuple_flags: u8,
     /// Destination address. For AF_INET: first 4 bytes hold the IPv4 address
     /// (network byte order); remaining bytes are zero. For AF_INET6: all 16
     /// bytes hold the address.

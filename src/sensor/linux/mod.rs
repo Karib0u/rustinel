@@ -5,6 +5,8 @@ pub mod ebpf;
 pub mod events;
 mod inventory;
 pub mod paths;
+#[path = "../../../ebpf/src/socket_tuple_abi.rs"]
+pub mod socket_tuple_abi;
 pub mod task_btf;
 mod tracepoint_format;
 

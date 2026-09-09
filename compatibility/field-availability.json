@@ -2893,7 +2893,7 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "DestinationIp",
       "availability": "always"
     },
@@ -2903,7 +2903,7 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "DestinationPort",
       "availability": "always"
     },
@@ -2913,7 +2913,7 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "ProcessId",
       "availability": "always"
     },
@@ -2923,7 +2923,7 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "User",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
@@ -2934,7 +2934,7 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "Initiated",
       "availability": "always"
     },
@@ -2944,10 +2944,10 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "Protocol",
       "availability": "conditional",
-      "reason": "the socket was observed being created and is TCP or UDP"
+      "reason": "the socket fexit tier is active and sk_protocol names TCP or UDP"
     },
     {
       "platform": "linux",
@@ -2955,7 +2955,7 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "Image",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
@@ -2966,7 +2966,7 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "DestinationHostname",
       "availability": "conditional",
       "reason": "a preceding observed DNS answer resolves the destination"
@@ -2977,10 +2977,10 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "SourceIp",
-      "availability": "never",
-      "reason": "connect syscall arguments do not carry the kernel-assigned source address"
+      "availability": "conditional",
+      "reason": "the socket fexit tier measures the bound source address"
     },
     {
       "platform": "linux",
@@ -2988,10 +2988,10 @@
       "event_id": 3,
       "action": "connect",
       "provider": "ebpf",
-      "source": "connect tracepoints",
+      "source": "socket fexit or connect tracepoints",
       "field": "SourcePort",
-      "availability": "never",
-      "reason": "connect syscall arguments do not carry the kernel-assigned source port"
+      "availability": "conditional",
+      "reason": "the socket fexit tier measures the bound source port"
     },
     {
       "platform": "linux",
