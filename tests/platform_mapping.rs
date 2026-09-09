@@ -100,8 +100,8 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         dport: 443,
         sport: 51324,
         af: 2,
-        sock_type: 2,
-        _pad1: 0,
+        protocol: 17,
+        tuple_flags: 0,
         daddr: [0; 16],
         saddr: [0; 16],
         process_start_time: 123_456,
@@ -115,7 +115,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
             assert!(fields.source_ip.is_none());
             assert!(fields.source_port.is_none());
             // The hook covers UDP connects too, so the transport comes from
-            // the socket type rather than a fixed `tcp`.
+            // the measured IP protocol rather than a fixed `tcp`.
             assert_eq!(fields.protocol.as_deref(), Some("udp"));
             // The probe hooks `connect()` only, so a captured connection is
             // outbound by construction.
@@ -123,6 +123,28 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         }
         _ => panic!("expected network payload"),
     }
+
+    network.tuple_flags = rustinel::sensor::linux::socket_tuple_abi::TUPLE_MEASURED
+        | rustinel::sensor::linux::socket_tuple_abi::INBOUND;
+    let measured = mapping::network_event_to_sensor(&network);
+    let normalizer = TestNormalizer::new();
+    let normalized = normalizer.normalizer.normalize(&measured).unwrap();
+    assert!(normalized.provenance.entries().iter().all(|entry| ![
+        "SourceIp",
+        "SourcePort",
+        "Protocol"
+    ]
+    .contains(&entry.field.as_str())));
+    match normalized.fields {
+        EventFields::NetworkConnection(fields) => {
+            assert_eq!(fields.source_ip.as_deref(), Some("10.0.0.5"));
+            assert_eq!(fields.source_port.as_deref(), Some("51324"));
+            assert_eq!(fields.protocol.as_deref(), Some("udp"));
+            assert_eq!(fields.initiated, Some(false));
+        }
+        _ => panic!("expected measured network payload"),
+    }
+    network.tuple_flags = 0;
 
     // Zero placeholders are absent too, never `0.0.0.0` and `0`.
     network.sport = 0;

@@ -226,11 +226,7 @@ fn sigma_network_detection_pipeline_enriches_repeats_and_maps_to_ecs() {
             "DestinationPort",
             &TEST_DESTINATION_PORT.to_string(),
         );
-        if platform == Platform::Linux {
-            assert_eq!(first.get_field("SourceIp"), None);
-        } else {
-            assert_normalized_field_eq(&first, "SourceIp", TEST_SOURCE_IP);
-        }
+        assert_normalized_field_eq(&first, "SourceIp", TEST_SOURCE_IP);
         assert_normalized_field_eq(&first, "Protocol", "tcp");
 
         let repeated = harness

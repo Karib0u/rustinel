@@ -83,7 +83,6 @@ use crate::events::{
     event_metadata, FileEvent, FileIndexEvent, FILE_FLAG_AUX_PATH_TRUNCATED,
     FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
 };
-use crate::network::forget_socket_type;
 use crate::process::current_process_start_time;
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, FILE_FAMILY};
 
@@ -550,14 +549,9 @@ unsafe fn current_dir_token(pid: u32, fd: i32) -> u64 {
 /// Invalidate every per-descriptor index entry `fd` owns before the number can
 /// be recycled.
 ///
-/// The directory index and the socket-type index are keyed the same way and
-/// invalidated at the same moments, so they share this one program rather than
-/// each attaching to `sys_enter_close`, which is among the hottest tracepoints
-/// on the machine.
 #[inline(always)]
 unsafe fn invalidate_fd(pid: u32, fd: i32) {
     invalidate_dir_token(pid, fd);
-    forget_socket_type(pid, fd);
 }
 
 #[inline(always)]

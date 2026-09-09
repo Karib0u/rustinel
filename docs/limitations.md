@@ -20,8 +20,6 @@ table and run `cargo run --bin generate-field-availability`, not this section.
 | linux | `dns_query` | `22 / query` | `socket send tracepoints` | `QueryStatus` | the eBPF DNS probe does not parse response status |
 | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
 | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
-| linux | `network_connection` | `3 / connect` | `connect tracepoints` | `SourceIp` | connect syscall arguments do not carry the kernel-assigned source address |
-| linux | `network_connection` | `3 / connect` | `connect tracepoints` | `SourcePort` | connect syscall arguments do not carry the kernel-assigned source port |
 | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |
 | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Description` | PE version resources are Windows-only |
 | linux | `process_creation` | `1 / start` | `execve tracepoints` | `FileVersion` | PE version resources are Windows-only |
@@ -269,30 +267,24 @@ rejected before any program attaches.
   is decoded only for A, NS, CNAME, PTR, TXT, and AAAA. Every other type is
   reported as the literal string `OTHER`, so a rule selecting on any other
   record type cannot match.
-- **Network is outbound `connect()` only.** No inbound or `accept()` visibility,
-  so every event carries `Initiated: true` and a rule selecting
-  `Initiated: 'false'` has nothing to match on Linux — inbound connections are
-  absent rather than misreported. Capture is split across syscall entry and
-  exit, so a `connect()` that is refused, unreachable, or times out is dropped
-  instead of being reported as a connection. A non-blocking connect is the
-  exception: it returns `EINPROGRESS` immediately and its outcome is delivered
-  on the socket long after the syscall returns, so it is reported when the
-  attempt starts and a later asynchronous failure is not retracted.
-  `SourceIp`/`SourcePort` are **reported as absent**, never as `0.0.0.0`/`0`:
-  the syscall never carries them and the probe does not read the bound address
-  back out of the socket. The sensor does not try to reconstruct them later
-  from `/proc/net`: by then the descriptor may name a different socket, and
-  scanning the system-wide socket tables for every event stalls the ring drain
-  under connection churn. Only AF_INET and AF_INET6.
-- **`Protocol` is absent for sockets created before the sensor started.** The
-  transport comes from the type the socket was created with, so `socket(2)` is
-  watched and the type indexed by descriptor. A descriptor the sensor never
-  watched being created — opened before startup, inherited across `fork`, or
-  received over `SCM_RIGHTS` — reports no `Protocol` at all, and a rule
-  selecting either value does not match it. That is deliberate: the field used
-  to be a fixed `tcp`, which matched UDP traffic and never matched
-  `Protocol: 'udp'`. Socket types other than `SOCK_STREAM` and `SOCK_DGRAM`
-  (a raw or SCTP socket) are also left absent rather than named.
+- **Network fidelity depends on the socket fexit capability.** With runtime BTF
+  and all three probes attached, connect and accept events carry the bound
+  source address, source port, and TCP/UDP protocol as measured fields. Accepted
+  connections carry `Initiated: false`, with the peer as source and the local
+  listener as destination. Offsets and the accept prototype come
+  from the running kernel, including `sk_protocol`; no compiled layout is used.
+  If BTF, a required member, or an attachment is unavailable, the entire network
+  tier falls back to outbound connect syscalls. `SourceIp`, `SourcePort`, and
+  `Protocol` are absent in that tier, and inbound connections are invisible.
+  `linux_ebpf_network_tuple_capability` reports the degradation in doctor.
+  **Silent risk:** rules requiring those fields or inbound visibility cannot
+  match while the fallback is active. The sensor still requires Linux 5.8+
+  because its event transport uses ring buffers, even though fexit was added
+  in 5.5. Only AF_INET and AF_INET6 are captured; IPv4 loopback and IPv6 `::1`
+  are filtered in the kernel. Unknown IP protocols remain unnamed.
+  Refused, unreachable, and timed-out connects are dropped. `EINPROGRESS` and
+  `EINTR` are reported as attempts underway; later failures are not retracted.
+  No per-event `/proc/net` scan or descriptor-to-socket cache is used.
 - **Kernel identity fields depend on runtime BTF.** `User` uses the effective
   UID. Missing BTF or an unsupported member disables only the affected fields,
   with `linux_task_<field>` doctor warnings; an unknown effective UID stays

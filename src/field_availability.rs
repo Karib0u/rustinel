@@ -577,7 +577,7 @@ const LINUX_NETWORK: &[FieldContract] = &[
     always("Initiated"),
     conditional(
         "Protocol",
-        "the socket was observed being created and is TCP or UDP",
+        "the socket fexit tier is active and sk_protocol names TCP or UDP",
     ),
     conditional(
         "Image",
@@ -587,13 +587,13 @@ const LINUX_NETWORK: &[FieldContract] = &[
         "DestinationHostname",
         "a preceding observed DNS answer resolves the destination",
     ),
-    never(
+    conditional(
         "SourceIp",
-        "connect syscall arguments do not carry the kernel-assigned source address",
+        "the socket fexit tier measures the bound source address",
     ),
-    never(
+    conditional(
         "SourcePort",
-        "connect syscall arguments do not carry the kernel-assigned source port",
+        "the socket fexit tier measures the bound source port",
     ),
 ];
 
@@ -1044,7 +1044,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         Some(3),
         Connect,
         "ebpf",
-        "connect tracepoints",
+        "socket fexit or connect tracepoints",
         LINUX_NETWORK
     ),
     contract!(

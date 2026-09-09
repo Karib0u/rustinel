@@ -15,8 +15,6 @@
 //! | `handle_process_*fork`| `syscalls/sys_enter_*fork`  | capture flags   |
 //! | `handle_connect`      | `syscalls/sys_enter_connect`| queue Event 3   |
 //! | `handle_connect_exit` | `syscalls/sys_exit_connect` | emit Event 3    |
-//! | `handle_socket`       | `syscalls/sys_enter_socket` | capture type    |
-//! | `handle_socket_exit`  | `syscalls/sys_exit_socket`  | index fd type   |
 //! | `handle_open*`        | `sys_enter_open/openat/openat2` | queue file event |
 //! | `handle_creat`        | `syscalls/sys_enter_creat`  | queue Event 11 |
 //! | `handle_vfs_create`   | `kprobe/vfs_create`         | confirm create |
@@ -45,6 +43,8 @@ pub mod events;
 pub mod file;
 pub mod network;
 pub mod process;
+pub mod socket_tuple;
+pub mod socket_tuple_abi;
 pub mod task_identity;
 pub mod task_identity_abi;
 pub mod telemetry;
@@ -55,7 +55,7 @@ pub mod telemetry;
 /// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
 #[used]
 #[no_mangle]
-pub static RUSTINEL_ABI_VERSION: u32 = 2;
+pub static RUSTINEL_ABI_VERSION: u32 = 3;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
