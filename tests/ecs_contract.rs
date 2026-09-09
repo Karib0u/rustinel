@@ -136,6 +136,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 1,
                 EventFields::ProcessCreation(ProcessCreationFields {
                     cgroup_id: None,
+                    exec: Default::default(),
                     parent_process_id_derived: false,
                     image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                     image_source: None,
@@ -500,6 +501,7 @@ fn ecs_version_field_is_9_4_0() {
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
             cgroup_id: None,
+            exec: Default::default(),
             parent_process_id_derived: false,
             image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
             image_source: None,
@@ -533,6 +535,7 @@ fn ecs_process_image_truncation_marker_is_preserved() {
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
             cgroup_id: None,
+            exec: Default::default(),
             parent_process_id_derived: false,
             image: Some(long_prefix),
             image_source: None,
@@ -579,6 +582,7 @@ fn test_rule_id_mapping_and_omit_behavior() {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                 image_source: None,

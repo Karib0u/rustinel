@@ -49,6 +49,7 @@ fn build_yara_alert(pid: u32, image: &str) -> Alert {
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some(image.to_string()),
                 image_source: None,

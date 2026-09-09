@@ -41,7 +41,7 @@ fn a_saturated_scan_queue_counts_every_shed_event() {
     let _guard = counters_guard();
     let (accepted_before, dropped_before) = totals(ChannelId::YaraFileScan);
 
-    let (tx, _rx) = tokio::sync::mpsc::channel::<(String, u32)>(2);
+    let (tx, _rx) = tokio::sync::mpsc::channel::<rustinel::scanner::FileScanTarget>(2);
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(YaraEventHandler {
         tx,
@@ -78,7 +78,7 @@ fn accepted_events_are_counted_after_the_queue_drains() {
     let _guard = counters_guard();
     let (accepted_before, dropped_before) = totals(ChannelId::YaraFileScan);
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, u32)>(1);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<rustinel::scanner::FileScanTarget>(1);
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(YaraEventHandler {
         tx,

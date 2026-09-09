@@ -111,6 +111,7 @@ pub fn build_yara_alert(
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some(path.to_string()),
                 image_source: None,
@@ -198,6 +199,7 @@ pub fn build_yara_memory_alert(
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some(image.to_string()),
                 image_source: None,
@@ -231,7 +233,7 @@ pub fn spawn_yara_file_worker(
     alert_sink: AlertSink,
     response_engine: ResponseEngine,
     match_debug: MatchDebugLevel,
-    mut rx: mpsc::Receiver<(String, u32)>,
+    mut rx: mpsc::Receiver<crate::scanner::FileScanTarget>,
     allowlist_paths: Vec<String>,
     platform: Platform,
     provider: &'static str,
@@ -245,7 +247,9 @@ pub fn spawn_yara_file_worker(
             LogRateLimiter::new(Duration::from_secs(WORKER_LOG_WINDOW_SECS));
         let mut counters = YaraScanCounters::default();
 
-        while let Some((path, pid)) = rx.blocking_recv() {
+        while let Some(target) = rx.blocking_recv() {
+            let path = target.path.clone();
+            let pid = target.pid;
             if scanner::is_path_allowlisted(&path, &allowlist_paths) {
                 counters.record_skip();
                 tracing::trace!(
@@ -265,7 +269,7 @@ pub fn spawn_yara_file_worker(
             );
 
             let scanner = detectors.yara();
-            let scan_result = scanner.scan_file(&path, match_debug);
+            let scan_result = scanner.scan_target(&target, match_debug);
             counters.record_result(&scan_result);
             match scan_result {
                 Ok(matches) => {

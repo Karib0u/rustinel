@@ -613,6 +613,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     // Windows-specific; absent on Linux.
                     integrity_level: None,
                     user: Some(ev.uid.to_string()),
+                    exec: Default::default(),
                     parent_process_id_derived: ev.parent_pid_derived != 0,
                 }),
             })
@@ -650,6 +651,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 current_directory: None,
                 integrity_level: None,
                 user: Some(ev.uid.to_string()),
+                exec: Default::default(),
                 parent_process_id_derived: false,
             }),
         }),

@@ -611,7 +611,30 @@ const MACOS_PROCESS: &[FieldContract] = &[
     always("User"),
     conditional("CommandLine", "ESF supplies at least one exec argument"),
     conditional("ParentProcessId", "the parent PID is non-zero"),
-    conditional("ParentImage", "the parent process remains queryable"),
+    conditional(
+        "ParentImage",
+        "derived from the process cache by an observed stable parent identity",
+    ),
+    conditional(
+        "ParentCommandLine",
+        "the stable parent identity resolves to a cached command line",
+    ),
+    always("RealUserId"),
+    always("Signed"),
+    always("SignatureStatus"),
+    always("CodeSigningFlags"),
+    always("IsPlatformBinary"),
+    conditional(
+        "PreExecImage",
+        "ESF supplies a non-empty acting process executable path",
+    ),
+    conditional(
+        "Script",
+        "message version 2+ supplies a script for direct shebang execution",
+    ),
+    conditional("SigningId", "ESF supplies a non-empty signing identifier"),
+    conditional("TeamId", "ESF supplies a non-empty signing team identifier"),
+    conditional("CdHash", "the executable has the CS_SIGNED flag"),
     conditional("CurrentDirectory", "ESF supplies an exec working directory"),
     never(
         "CgroupId",
@@ -621,10 +644,6 @@ const MACOS_PROCESS: &[FieldContract] = &[
     never(
         "ImageTruncated",
         "ESF does not use the Linux raw-image buffer",
-    ),
-    never(
-        "ParentCommandLine",
-        "ESF exec events do not carry the parent command line",
     ),
     never(
         "IntegrityLevel",

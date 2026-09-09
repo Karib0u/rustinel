@@ -272,9 +272,26 @@ Per-platform process notes:
   `ParentProcessId` is captured at fork before reparenting can occur.
   `ParentImage` and `ParentCommandLine` are bounded cache enrichment and carry
   `Derived` provenance. `CurrentDirectory` may be absent.
-- **macOS:** ESF exec events carry `CommandLine`, `ParentImage`,
-  `ParentProcessId`, and `CurrentDirectory` natively. `ParentCommandLine` is not
-  provided, and `IntegrityLevel` is a Windows field with no macOS equivalent.
+- **macOS:** ESF supplies `Image` from the post-exec target and `PreExecImage`
+  from the acting process before exec. `ParentImage` and `ParentCommandLine`
+  come from the process cache by stable identity and carry `Derived` provenance.
+  The sensor probes `parent_audit_token` availability (message version 4+) and
+  maps its PID/generation to an observed process start key. Older messages use
+  `ppid`; after reparenting, `original_ppid` takes precedence. These PID fallbacks
+  mark `ParentProcessId` as `Derived` and leave parent enrichment absent when
+  the cache cannot resolve an unambiguous identity. No late parent path lookup
+  occurs. `CommandLine` and `CurrentDirectory` are native ESF fields.
+  `User` uses the effective UID; `RealUserId` preserves the numeric real UID.
+  `Script` is the native interpreter script path for direct shebang execution
+  (message version 2+), absent for scripts passed as interpreter arguments.
+  `Signed` is `true` or `false`. `SignatureStatus` is `unsigned`, `valid`, or
+  `invalid`; absence means unknown.
+  `valid` reflects the kernel's validation at event time, not a full disk scan
+  or a trust/notarization verdict. `SigningId`, `TeamId`, `CdHash`,
+  `CodeSigningFlags`, and `IsPlatformBinary` preserve signing metadata.
+  Executable stat identity is carried internally to YARA and IOC hash targets;
+  a replaced or modified executable is rejected instead of attributed to the
+  exec event. `IntegrityLevel` has no macOS equivalent.
 - **Windows:** `IntegrityLevel` is decoded from the mandatory-label SID on the
   process start event and spelled the way Sysmon spells it (`System`, `High`,
   `Medium`), so it is absent on process stop events. Several other modelled

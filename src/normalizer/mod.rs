@@ -535,6 +535,7 @@ mod tests {
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: Some("/usr/bin/curl".to_string()),
                 image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
@@ -582,6 +583,7 @@ mod tests {
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: None,
                 image_source: None,
@@ -723,6 +725,7 @@ mod tests {
             parent_process_start_key: None,
             payload: SensorPayload::Process(ProcessCreationFields {
                 cgroup_id: None,
+                exec: Default::default(),
                 parent_process_id_derived: false,
                 image: None,
                 image_source: None,

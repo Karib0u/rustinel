@@ -14,6 +14,7 @@
 //! entitlement, and user approval (TCC). Dev builds can run with SIP/AMFI
 //! relaxed.
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::IsTerminal;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -32,7 +33,7 @@ use endpoint_sec_sys::{es_event_type_t, NewClientError};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use crate::models::{FileEventFields, ProcessCreationFields};
+use crate::models::{ExecMetadata, FileEventFields, ProcessCreationFields};
 use crate::sensor::{
     Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
     SensorPayload,
@@ -178,9 +179,13 @@ fn run_client(
     shutdown: Arc<AtomicBool>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
 ) {
+    let identities = Mutex::new(ExecIdentities::default());
     let handler =
         move |_client: &mut Client<'_>, msg: Message| match catch_unwind(AssertUnwindSafe(|| {
-            build_sensor_event(&msg)
+            build_sensor_event(
+                &msg,
+                &mut identities.lock().expect("ESF identity mutex poisoned"),
+            )
         })) {
             Ok(Some(event)) => try_send(&tx, event),
             Ok(None) => {}
@@ -221,15 +226,81 @@ fn run_client(
 ///
 /// Returns `None` for messages that carry no detection signal or are not yet
 /// mapped. Per-event-class translation is filled in incrementally.
-fn build_sensor_event(msg: &Message) -> Option<SensorEvent> {
+fn build_sensor_event(msg: &Message, identities: &mut ExecIdentities) -> Option<SensorEvent> {
     match msg.event()? {
-        Event::NotifyExec(exec) => build_exec_event(msg, &exec),
+        Event::NotifyExec(exec) => build_exec_event(msg, &exec, identities),
         Event::NotifyExit(_) => build_exit_event(msg),
         Event::NotifyCreate(create) => build_create_event(msg, &create),
         Event::NotifyUnlink(unlink) => build_unlink_event(msg, &unlink),
         Event::NotifyRename(rename) => build_rename_event(msg, &rename),
         Event::NotifyClose(close) => build_close_event(msg, &close),
         _ => None,
+    }
+}
+
+/// Bounded bridge from ES audit generations to the shared cache's start keys.
+/// Retain old generations so a reused PID cannot satisfy an older parent token.
+#[derive(Default)]
+struct ExecIdentities {
+    keys: BTreeMap<(u32, i32), ProcessStartKey>,
+}
+
+impl ExecIdentities {
+    fn observe(&mut self, generation: i32, key: ProcessStartKey) {
+        // A re-exec keeps its fork time, but replaces the image in ProcessCache.
+        // Retire the prior audit generation so it cannot resolve to that new image.
+        let replaced: Vec<_> = self
+            .keys
+            .range((key.pid, i32::MIN)..=(key.pid, i32::MAX))
+            .filter(|(_, existing)| **existing == key)
+            .map(|(token, _)| *token)
+            .collect();
+        for token in replaced {
+            self.keys.remove(&token);
+        }
+        self.keys.insert((key.pid, generation), key);
+        if self.keys.len() > 65_536 {
+            self.keys.pop_first();
+        }
+    }
+
+    fn parent(&self, pid: u32, generation: Option<i32>) -> Option<ProcessStartKey> {
+        if let Some(generation) = generation {
+            // Never fall back to a bare PID when an authoritative token misses.
+            return self.keys.get(&(pid, generation)).copied();
+        }
+        let mut candidates = self.keys.range((pid, i32::MIN)..=(pid, i32::MAX));
+        let key = *candidates.next()?.1;
+        // PID-only fallback is conservative when more than one lifetime was seen.
+        candidates.all(|(_, other)| *other == key).then_some(key)
+    }
+}
+
+fn parent_identity(
+    ppid: i32,
+    original_ppid: i32,
+    token: Option<(i32, i32)>,
+) -> (i32, Option<i32>, bool) {
+    if ppid == 1 && original_ppid > 1 {
+        let generation = token
+            .filter(|(pid, _)| *pid == original_ppid)
+            .map(|(_, generation)| generation);
+        return (original_ppid, generation, true);
+    }
+    match token.filter(|(pid, _)| *pid > 0) {
+        Some((pid, generation)) => (pid, Some(generation), false),
+        None => (ppid, None, true),
+    }
+}
+
+// XNU osfmk/kern/cs_blobs.h: CS_SIGNED and CS_VALID are independent bits.
+fn signature_status(flags: u32) -> &'static str {
+    if flags & 0x2000_0000 == 0 {
+        "unsigned"
+    } else if flags & 1 != 0 {
+        "valid"
+    } else {
+        "invalid"
     }
 }
 
@@ -242,7 +313,9 @@ struct RawExec {
     image: String,
     command_line: Option<String>,
     parent_pid: i32,
-    parent_image: Option<String>,
+    parent_process_start_key: Option<ProcessStartKey>,
+    parent_derived: bool,
+    metadata: ExecMetadata,
     current_directory: Option<String>,
     user: String,
     /// Process start time, as nanoseconds since the Unix epoch.
@@ -252,7 +325,11 @@ struct RawExec {
 }
 
 /// Extract the fields we care about from an ESF exec event.
-fn build_exec_event(msg: &Message, exec: &EventExec) -> Option<SensorEvent> {
+fn build_exec_event(
+    msg: &Message,
+    exec: &EventExec,
+    identities: &mut ExecIdentities,
+) -> Option<SensorEvent> {
     let target = exec.target();
     let token = target.audit_token();
 
@@ -277,19 +354,57 @@ fn build_exec_event(msg: &Message, exec: &EventExec) -> Option<SensorEvent> {
         .map(system_time_nanos)
         .unwrap_or_else(|| system_time_nanos(event_time));
 
-    let parent_pid = target.ppid();
-    let parent_image = (parent_pid > 0)
-        .then(|| crate::utils::process_image_path(parent_pid as u32))
-        .flatten();
+    // The binding probes message version >= 4 before reading parent_audit_token.
+    // Older messages use ppid (or original_ppid after reparenting), marked Derived.
+    let parent_token = target
+        .parent_audit_token()
+        .map(|token| (token.pid(), token.pidversion()));
+    let (parent_pid, parent_generation, parent_derived) =
+        parent_identity(target.ppid(), target.original_ppid(), parent_token);
+    let parent_process_start_key = identities
+        .parent(parent_pid as u32, parent_generation)
+        // A PID-only parent must have existed when the child was forked.
+        .filter(|key| parent_generation.is_some() || key.start_time <= start_time);
+    if let Some(start_time) = target.start_time().map(system_time_nanos) {
+        identities.observe(
+            token.pidversion(),
+            ProcessStartKey {
+                pid: token.pid() as u32,
+                start_time,
+            },
+        );
+    }
+    let flags = target.codesigning_flags();
+    let nonempty = |value: &OsStr| {
+        let value = osstr_to_string(value);
+        (!value.is_empty()).then_some(value)
+    };
+    let metadata = ExecMetadata {
+        signed: Some((flags & 0x2000_0000 != 0).to_string()),
+        pre_exec_image: nonempty(msg.process().executable().path()),
+        real_user_id: Some(token.ruid().to_string()),
+        script: exec.script().and_then(|file| nonempty(file.path())),
+        signature_status: Some(signature_status(flags).to_string()),
+        signing_id: nonempty(target.signing_id()),
+        team_id: nonempty(target.team_id()),
+        cdhash: (flags & 0x2000_0000 != 0).then(|| hex::encode(target.cdhash())),
+        codesigning_flags: Some(flags.to_string()),
+        is_platform_binary: Some(target.is_platform_binary()),
+        file_identity: Some(crate::utils::file_identity::from_stat(
+            target.executable().stat(),
+        )),
+    };
 
     Some(process_start_event(RawExec {
         pid: token.pid() as u32,
         image,
         command_line,
         parent_pid,
-        parent_image,
+        parent_process_start_key,
+        parent_derived,
+        metadata,
         current_directory,
-        user: token.ruid().to_string(),
+        user: token.euid().to_string(),
         start_time,
         event_time,
         source_seq: msg.global_seq_num(),
@@ -315,10 +430,11 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             pid: raw.pid,
             start_time: raw.start_time,
         }),
-        parent_process_start_key: None,
+        parent_process_start_key: raw.parent_process_start_key,
         payload: SensorPayload::Process(ProcessCreationFields {
             cgroup_id: None,
-            parent_process_id_derived: false,
+            exec: Some(Box::new(raw.metadata)),
+            parent_process_id_derived: raw.parent_derived,
             image: Some(raw.image),
             image_source: None,
             image_truncated: None,
@@ -332,7 +448,7 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             process_id: Some(raw.pid.to_string()),
             process_start_time: Some(raw.start_time),
             parent_process_id,
-            parent_image: raw.parent_image,
+            parent_image: None,
             // ESF exec events do not carry the parent's command line.
             parent_command_line: None,
             current_directory: raw.current_directory,
@@ -352,7 +468,7 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
     let token = process.audit_token();
     Some(process_stop_event(
         token.pid() as u32,
-        token.ruid().to_string(),
+        token.euid().to_string(),
         process.start_time().map(system_time_nanos),
         msg.time(),
         msg.global_seq_num(),
@@ -382,6 +498,7 @@ fn process_stop_event(
         parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
             cgroup_id: None,
+            exec: Default::default(),
             parent_process_id_derived: false,
             image: None,
             image_source: None,
@@ -456,7 +573,7 @@ fn actor(msg: &Message) -> (u32, Option<String>, String, Option<ProcessStartKey>
     (
         pid,
         (!image.is_empty()).then_some(image),
-        token.ruid().to_string(),
+        token.euid().to_string(),
         process
             .start_time()
             .map(system_time_nanos)
@@ -633,6 +750,166 @@ mod tests {
     }
 
     #[test]
+    fn parent_token_is_probed_at_message_version_four() {
+        // These C fields admit zero values, including raw pointers. This test
+        // only reads the audit token and never dereferences executable/tty.
+        let mut raw: endpoint_sec_sys::es_process_t = unsafe { std::mem::zeroed() };
+        raw.parent_audit_token.val[5] = 42;
+        raw.parent_audit_token.val[7] = 9;
+        assert!(endpoint_sec::Process::new(&raw, 3)
+            .parent_audit_token()
+            .is_none());
+        let token = endpoint_sec::Process::new(&raw, 4)
+            .parent_audit_token()
+            .unwrap();
+        assert_eq!((token.pid(), token.pidversion()), (42, 9));
+    }
+
+    #[test]
+    fn parent_resolution_preserves_generations_and_reparenting() {
+        let mut identities = ExecIdentities::default();
+        let old = ProcessStartKey {
+            pid: 42,
+            start_time: 100,
+        };
+        let new = ProcessStartKey {
+            pid: 42,
+            start_time: 200,
+        };
+        identities.observe(1, old);
+        assert_eq!(identities.parent(42, None), Some(old));
+        identities.observe(2, new);
+        assert_eq!(identities.parent(42, Some(1)), Some(old));
+        assert_eq!(identities.parent(42, Some(3)), None);
+        assert_eq!(identities.parent(42, None), None);
+        identities.observe(3, new);
+        assert_eq!(identities.parent(42, Some(2)), None);
+        assert_eq!(identities.parent(42, Some(3)), Some(new));
+        assert_eq!(parent_identity(1, 42, Some((1, 9))), (42, None, true));
+        assert_eq!(parent_identity(1, 42, Some((42, 1))), (42, Some(1), true));
+        assert_eq!(parent_identity(42, 42, None), (42, None, true));
+        assert_eq!(parent_identity(42, 42, Some((42, 1))), (42, Some(1), false));
+    }
+
+    #[test]
+    fn signature_absence_is_unknown_and_invalid_is_still_signed() {
+        assert!(ExecMetadata::default().signature_status.is_none());
+        assert_eq!(signature_status(0), "unsigned");
+        assert_eq!(signature_status(0x2000_0000), "invalid");
+        assert_eq!(signature_status(0x2000_0001), "valid");
+    }
+
+    #[test]
+    fn reexec_keeps_actor_separate_from_cached_parent() {
+        use crate::normalizer::Normalizer;
+        use crate::state::{DnsCache, ProcessCache, SidCache};
+        let normalizer = Normalizer::new(
+            Arc::new(ProcessCache::new()),
+            Arc::new(SidCache::new()),
+            Arc::new(DnsCache::new()),
+        );
+        let unsigned_metadata = || ExecMetadata {
+            real_user_id: Some("0".to_string()),
+            signed: Some("false".to_string()),
+            signature_status: Some("unsigned".to_string()),
+            codesigning_flags: Some("0".to_string()),
+            is_platform_binary: Some(false),
+            ..Default::default()
+        };
+        let make = |pid, image: &str, parent: Option<ProcessStartKey>, metadata| {
+            process_start_event(RawExec {
+                pid,
+                image: image.to_string(),
+                command_line: Some(image.to_string()),
+                parent_pid: parent.map_or(0, |key: ProcessStartKey| key.pid as i32),
+                parent_process_start_key: parent,
+                parent_derived: false,
+                metadata,
+                current_directory: None,
+                user: "0".to_string(),
+                start_time: u64::from(pid),
+                event_time: SystemTime::UNIX_EPOCH,
+                source_seq: None,
+            })
+        };
+        normalizer
+            .normalize(&make(40, "/sbin/launchd", None, unsigned_metadata()))
+            .unwrap();
+        let parent = Some(ProcessStartKey {
+            pid: 40,
+            start_time: 40,
+        });
+        normalizer
+            .normalize(&make(42, "/bin/bash", parent, unsigned_metadata()))
+            .unwrap();
+        let metadata = ExecMetadata {
+            signed: Some("true".to_string()),
+            pre_exec_image: Some("/bin/bash".to_string()),
+            real_user_id: Some("501".to_string()),
+            script: Some("/tmp/payload.sh".to_string()),
+            signature_status: Some("valid".to_string()),
+            signing_id: Some("com.apple.sh".to_string()),
+            team_id: Some("TEAM".to_string()),
+            cdhash: Some("abcd".to_string()),
+            codesigning_flags: Some("536870913".to_string()),
+            is_platform_binary: Some(true),
+            ..Default::default()
+        };
+        let normalized = normalizer
+            .normalize(&make(42, "/bin/sh", parent, metadata))
+            .unwrap();
+        assert_eq!(normalized.get_field("ParentImage"), Some("/sbin/launchd"));
+        assert_eq!(normalized.get_field("PreExecImage"), Some("/bin/bash"));
+        assert_eq!(normalized.get_field("Image"), Some("/bin/sh"));
+        assert_eq!(normalized.get_field("User"), Some("0"));
+        assert_eq!(normalized.get_field("RealUserId"), Some("501"));
+        assert_eq!(normalized.get_field("Script"), Some("/tmp/payload.sh"));
+        assert_eq!(normalized.get_field("SignatureStatus"), Some("valid"));
+        assert_eq!(normalized.get_field("Signed"), Some("true"));
+        assert_eq!(normalized.get_field("IsPlatformBinary"), Some("true"));
+        assert!(normalized
+            .provenance
+            .entries()
+            .iter()
+            .any(|entry| entry.field == "ParentImage"));
+        normalizer.normalize(&process_stop_event(
+            40,
+            "0".to_string(),
+            Some(40),
+            SystemTime::UNIX_EPOCH,
+            None,
+        ));
+        let mut orphan = make(43, "/bin/sh", parent, unsigned_metadata());
+        if let SensorPayload::Process(fields) = &mut orphan.payload {
+            fields.parent_process_id_derived = true;
+        }
+        let orphan = normalizer.normalize(&orphan).unwrap();
+        assert_eq!(orphan.get_field("ParentImage"), Some("/sbin/launchd"));
+        assert!(orphan
+            .provenance
+            .entries()
+            .iter()
+            .any(|entry| entry.field == "ParentProcessId"));
+        let json = serde_json::to_string(&normalized).unwrap();
+        let replay: crate::models::NormalizedEvent = serde_json::from_str(&json).unwrap();
+        for key in [
+            "ParentImage",
+            "PreExecImage",
+            "RealUserId",
+            "Script",
+            "SignatureStatus",
+            "Signed",
+            "SigningId",
+            "TeamId",
+            "CdHash",
+            "CodeSigningFlags",
+            "IsPlatformBinary",
+        ] {
+            assert_eq!(replay.get_field(key), normalized.get_field(key), "{key}");
+        }
+    }
+
+    #[test]
     fn not_permitted_hint_points_at_full_disk_access() {
         let msg = new_client_error_hint(&NewClientError::NotPermitted);
         assert!(msg.contains("NotPermitted"));
@@ -647,12 +924,24 @@ mod tests {
 
     #[test]
     fn process_start_event_maps_exec_fields() {
+        use crate::sensor::SensorEventHandler;
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let identity = crate::utils::file_identity::from_file(file.as_file());
         let event = process_start_event(RawExec {
             pid: 4242,
             image: "/usr/bin/curl".to_string(),
             command_line: Some("/usr/bin/curl https://example.test".to_string()),
             parent_pid: 501,
-            parent_image: Some("/bin/zsh".to_string()),
+            parent_process_start_key: Some(ProcessStartKey {
+                pid: 501,
+                start_time: 100,
+            }),
+            parent_derived: false,
+            metadata: ExecMetadata {
+                pre_exec_image: Some("/bin/zsh".to_string()),
+                file_identity: identity.clone(),
+                ..Default::default()
+            },
             current_directory: Some("/Users/alice".to_string()),
             user: "alice".to_string(),
             start_time: 1_700_000_000_000_000_000,
@@ -666,6 +955,15 @@ mod tests {
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_CREATE);
         assert_eq!(event.pid, Some(4242));
         assert_eq!(event.source_seq, Some(77));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        crate::scanner::YaraEventHandler {
+            tx,
+            memory_tx: None,
+            allowlist_paths: vec![],
+        }
+        .handle_event(&event);
+        assert_eq!(rx.try_recv().unwrap().identity, identity);
+
         assert_eq!(
             event.process_start_key,
             Some(ProcessStartKey {
@@ -685,7 +983,11 @@ mod tests {
                 assert_eq!(fields.parent_process_id.as_deref(), Some("501"));
                 assert_eq!(fields.current_directory.as_deref(), Some("/Users/alice"));
                 assert_eq!(fields.user.as_deref(), Some("alice"));
-                assert_eq!(fields.parent_image.as_deref(), Some("/bin/zsh"));
+                assert!(fields.parent_image.is_none());
+                assert_eq!(
+                    fields.exec.as_ref().unwrap().pre_exec_image.as_deref(),
+                    Some("/bin/zsh")
+                );
             }
             other => panic!("unexpected payload: {other:?}"),
         }
@@ -824,7 +1126,9 @@ mod tests {
             image: "/sbin/launchd".to_string(),
             command_line: None,
             parent_pid: 0,
-            parent_image: None,
+            parent_process_start_key: None,
+            parent_derived: false,
+            metadata: Default::default(),
             current_directory: None,
             user: "root".to_string(),
             start_time: 0,

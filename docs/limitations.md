@@ -46,7 +46,6 @@ table and run `cargo run --bin generate-field-availability`, not this section.
 | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `ImageTruncated` | ESF does not use the Linux raw-image buffer |
 | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `IntegrityLevel` | Windows integrity levels do not exist on macOS |
 | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `OriginalFileName` | PE version resources are Windows-only |
-| macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `ParentCommandLine` | ESF exec events do not carry the parent command line |
 | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `Product` | PE version resources are Windows-only |
 | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `TargetImage` | a process-creation event has no target process |
 | windows | `create_remote_thread` | `8` | `none` | `*` | no Rustinel sensor produces remote-thread creation telemetry |
@@ -86,7 +85,7 @@ table and run `cargo run --bin generate-field-availability`, not this section.
 | Writes through handles or keys opened before startup are invisible | Windows |
 | Security channel events depend on audit policy Rustinel does not set | Windows |
 | Image paths are truncated, and truncation is unmarked on process events | Linux |
-| `User` is the real UID, not the effective one | Linux, macOS |
+| `User` is the real UID, not the effective one | Linux |
 
 ## Windows (ETW and Event Log)
 
@@ -298,8 +297,8 @@ rejected before any program attaches.
   `bpf_get_current_uid_gid()` returns the real UID, so a process running with
   effective root through a setuid binary is reported as the unprivileged caller
   and a rule filtering `User: 'root'` does not see it. Measured with a
-  setuid-root binary: userspace `euid=0`, sensor `User=1000`. Same defect as
-  macOS ([#327](https://github.com/Karib0u/rustinel/issues/327)).
+  setuid-root binary: userspace `euid=0`, sensor `User=1000`
+  ([#327](https://github.com/Karib0u/rustinel/issues/327)).
 - **No library-load, module-load, or ptrace events.** Sigma rules in those
   categories never match.
 - **Kernel requirements.** Linux 5.8+ with BTF and `CAP_BPF` + `CAP_PERFMON` +
@@ -324,12 +323,11 @@ would succeed.
   `RUSTINEL_BPF_INTERFACE`). A wire capture also cannot say who opened the
   connection, so `Initiated` is left absent and rules selecting on it — either
   value — do not match on macOS.
-- **`User` is the real UID, not the effective one (silent risk).** Process,
-  exit, and file events report `token.ruid()`. Sigma's `User` is the identity a
-  process is operating under, which is the effective UID; the two differ for
-  setuid and seteuid processes, so a rule filtering `User: 'root'` does not see
-  a privileged process as root
-  ([#327](https://github.com/Karib0u/rustinel/issues/327)).
+- **Parent enrichment depends on observed identities (silent risk).** An exec
+  whose parent was not observed by the sensor, or whose identity was evicted,
+  has no `ParentImage` or `ParentCommandLine`. PID-only fallback is omitted
+  when multiple process lifetimes are known for that PID. The bounded process
+  cache retains exited parents briefly; after expiry, their image is absent.
 - **Memory scanning is restricted.** YARA memory scanning uses `task_for_pid`,
   which generally needs root plus SIP/AMFI relaxation or an entitlement; when
   denied it silently returns nothing. File scanning is unaffected.

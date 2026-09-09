@@ -384,6 +384,7 @@ pub mod mapping {
             ),
             payload: SensorPayload::Process(ProcessCreationFields {
                 cgroup_id: (event.cgroup_id != 0).then(|| event.cgroup_id.to_string()),
+                exec: Default::default(),
                 parent_process_id_derived: event.parent_pid_derived != 0,
                 image: Some(bytes_to_string(&event.image)),
                 image_source: None,

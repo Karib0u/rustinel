@@ -178,7 +178,53 @@ fn missing_always_fields_detect_decoder_contract_drift() {
             integrity_level: None,
             user: None,
             parent_process_id_derived: false,
+            exec: None,
         }),
     );
     assert_eq!(missing_always_fields(&process), vec!["ProcessId"]);
+}
+
+#[test]
+fn macos_exec_metadata_is_exposed_by_the_contract() {
+    let fields = serde_json::from_value(serde_json::json!({
+        "Image": "/bin/sh", "ProcessId": "42", "ProcessStartTime": 100,
+        "User": "0", "RealUserId": "501", "PreExecImage": "/bin/bash",
+        "ParentImage": "/sbin/launchd", "ParentCommandLine": "/sbin/launchd",
+        "Script": "/tmp/example.sh", "Signed": "true", "SignatureStatus": "valid",
+        "SigningId": "com.apple.sh", "TeamId": "TEAM", "CdHash": "abcd",
+        "CodeSigningFlags": "536870913", "IsPlatformBinary": true
+    }))
+    .unwrap();
+    let mut process = event(
+        EventCategory::Process,
+        1,
+        1,
+        EventFields::ProcessCreation(fields),
+    );
+    process.platform = Platform::MacOS;
+    process.provider = "esf".to_string();
+    assert!(missing_always_fields(&process).is_empty());
+    for field in [
+        "RealUserId",
+        "PreExecImage",
+        "ParentImage",
+        "ParentCommandLine",
+        "Script",
+        "Signed",
+        "SignatureStatus",
+        "SigningId",
+        "TeamId",
+        "CdHash",
+        "CodeSigningFlags",
+        "IsPlatformBinary",
+    ] {
+        assert!(
+            matches!(
+                availability_for_event(&process, field),
+                Some(Availability::Always | Availability::Conditional(_))
+            ),
+            "{field}"
+        );
+        assert!(process.get_field(field).is_some(), "{field}");
+    }
 }
