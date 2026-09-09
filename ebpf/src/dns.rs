@@ -20,6 +20,38 @@ use crate::events::{event_metadata, DnsEvent};
 use crate::process::current_process_start_time;
 use crate::telemetry::{record_ring_full, record_submitted, DNS_FAMILY};
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct DnsTracepointOffsets {
+    pub sendto_fd: u32,
+    pub sendto_buf: u32,
+    pub sendto_len: u32,
+    pub sendto_addr: u32,
+    pub sendmsg_fd: u32,
+    pub sendmsg_msg: u32,
+    pub sendmmsg_fd: u32,
+    pub sendmmsg_msgvec: u32,
+    pub sendmmsg_vlen: u32,
+}
+
+#[no_mangle]
+pub static DNS_TRACEPOINT_OFFSETS: DnsTracepointOffsets = DnsTracepointOffsets {
+    sendto_fd: 0,
+    sendto_buf: 0,
+    sendto_len: 0,
+    sendto_addr: 0,
+    sendmsg_fd: 0,
+    sendmsg_msg: 0,
+    sendmmsg_fd: 0,
+    sendmmsg_msgvec: 0,
+    sendmmsg_vlen: 0,
+};
+
+#[inline(always)]
+unsafe fn tracepoint_offset(value: *const u32) -> usize {
+    core::ptr::read_volatile(value) as usize
+}
+
 const DNS_EVENT_QUERY: u32 = 1;
 const DNS_HEADER_LEN: usize = 12;
 const DNS_PORT: u16 = 53;
@@ -126,10 +158,18 @@ pub fn handle_sendmmsg(ctx: TracePointContext) -> u32 {
 unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
     let uid = bpf_get_current_uid_gid() as u32;
-    let fd = ctx.read_at::<i64>(16)? as i32;
-    let buf_ptr = ctx.read_at::<u64>(24)?;
-    let len = ctx.read_at::<u64>(32)? as usize;
-    let addr_ptr = ctx.read_at::<u64>(48)?;
+    let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendto_fd
+    )))? as i32;
+    let buf_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendto_buf
+    )))?;
+    let len = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendto_len
+    )))? as usize;
+    let addr_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendto_addr
+    )))?;
 
     if buf_ptr == 0
         || len < DNS_HEADER_LEN
@@ -162,8 +202,12 @@ unsafe fn try_handle_sendto(ctx: &TracePointContext) -> Result<u32, i64> {
 unsafe fn try_handle_sendmsg(ctx: &TracePointContext) -> Result<u32, i64> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
     let uid = bpf_get_current_uid_gid() as u32;
-    let fd = ctx.read_at::<i64>(16)? as i32;
-    let msg_ptr = ctx.read_at::<u64>(24)?;
+    let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendmsg_fd
+    )))? as i32;
+    let msg_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendmsg_msg
+    )))?;
 
     if msg_ptr == 0 {
         return Ok(0);
@@ -195,9 +239,15 @@ unsafe fn try_handle_sendmsg(ctx: &TracePointContext) -> Result<u32, i64> {
 unsafe fn try_handle_sendmmsg(ctx: &TracePointContext) -> Result<u32, i64> {
     let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
     let uid = bpf_get_current_uid_gid() as u32;
-    let fd = ctx.read_at::<i64>(16)? as i32;
-    let msgvec_ptr = ctx.read_at::<u64>(24)?;
-    let message_count = ctx.read_at::<u64>(32)? as usize;
+    let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendmmsg_fd
+    )))? as i32;
+    let msgvec_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendmmsg_msgvec
+    )))?;
+    let message_count = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        DNS_TRACEPOINT_OFFSETS.sendmmsg_vlen
+    )))? as usize;
 
     if msgvec_ptr == 0 || message_count == 0 {
         return Ok(0);

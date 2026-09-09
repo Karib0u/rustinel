@@ -152,6 +152,12 @@ three platforms, but several Sysmon-style fields are unavailable.
 
 The Linux sensor covers process, network, file, and DNS.
 
+Tracepoint layouts and hook availability are discovered from tracefs at
+startup. Kernels that omit a hook retain the other telemetry families; the
+resulting per-feature coverage is reported in `telemetry.json` and by
+`rustinel doctor`. An object whose event ABI does not match the loader is
+rejected before any program attaches.
+
 - **The raw image path is capped at 255 bytes.** `Image`
   comes from the raw `execve()` argument. When its suffix does not fit,
   `ImageTruncated` and `edr.process.image_truncated` mark the path as incomplete

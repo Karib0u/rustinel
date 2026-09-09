@@ -27,9 +27,9 @@ use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
     snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, EtwDecodeFailureSnapshot,
-    EtwDecodeSnapshot, FileAttributionSnapshot, LinuxEbpfFamilySnapshot, LinuxEbpfSnapshot,
-    ProcessCommandLineSnapshot, RegistrySnapshot, SensorEventCategorySnapshot, TelemetrySnapshot,
-    SNAPSHOT_FILE_NAME,
+    EtwDecodeSnapshot, FileAttributionSnapshot, LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot,
+    LinuxEbpfSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot, SensorEventCategorySnapshot,
+    TelemetrySnapshot, SNAPSHOT_FILE_NAME,
 };
 
 use crate::models::EventCategory;
@@ -119,6 +119,7 @@ impl LinuxEbpfFamilyCounters {
 pub struct LinuxEbpfCounters {
     active: AtomicBool,
     families: [LinuxEbpfFamilyCounters; 4],
+    features: Mutex<Vec<LinuxEbpfFeatureSnapshot>>,
 }
 
 pub static LINUX_EBPF: LinuxEbpfCounters = LinuxEbpfCounters::new();
@@ -133,11 +134,52 @@ impl LinuxEbpfCounters {
                 LinuxEbpfFamilyCounters::new(),
                 LinuxEbpfFamilyCounters::new(),
             ],
+            features: Mutex::new(Vec::new()),
         }
     }
 
     pub fn activate(&self) {
+        let mut features = self
+            .features
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for feature in &mut *features {
+            feature.active = linux_feature_is_active(feature);
+        }
         self.active.store(true, Ordering::Release);
+    }
+
+    /// Record one attempted hook so snapshots expose both active coverage and
+    /// named, family-local degradation.
+    pub fn record_hook(
+        &self,
+        feature: &str,
+        hook: &str,
+        attached: bool,
+        unavailable_reason: Option<&str>,
+    ) {
+        let mut features = self
+            .features
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let state = match features.iter_mut().find(|state| state.feature == feature) {
+            Some(state) => state,
+            None => {
+                features.push(LinuxEbpfFeatureSnapshot {
+                    feature: feature.to_string(),
+                    active: false,
+                    attached_hooks: Vec::new(),
+                    unavailable_hooks: Vec::new(),
+                });
+                features.last_mut().expect("feature was just inserted")
+            }
+        };
+        if attached {
+            state.attached_hooks.push(hook.to_string());
+        } else {
+            let reason = unavailable_reason.unwrap_or("unavailable");
+            state.unavailable_hooks.push(format!("{hook}: {reason}"));
+        }
     }
 
     pub fn set_kernel_sample(&self, family: LinuxEbpfFamily, sample: LinuxEbpfKernelSample) {
@@ -209,6 +251,12 @@ impl LinuxEbpfCounters {
         }
 
         Some(LinuxEbpfSnapshot {
+            abi_version: crate::sensor::linux::abi::LINUX_EBPF_ABI_VERSION,
+            features: self
+                .features
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
             families: LinuxEbpfFamily::ALL
                 .into_iter()
                 .map(|family| {
@@ -241,6 +289,10 @@ impl LinuxEbpfCounters {
     #[cfg(test)]
     pub fn reset(&self) {
         self.active.store(false, Ordering::Relaxed);
+        self.features
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
         for counters in &self.families {
             counters.kernel_seen.store(0, Ordering::Relaxed);
             counters.kernel_submitted.store(0, Ordering::Relaxed);
@@ -255,6 +307,34 @@ impl LinuxEbpfCounters {
             counters.userspace_dropped.store(0, Ordering::Relaxed);
             counters.unresolved_file_events.store(0, Ordering::Relaxed);
         }
+    }
+}
+
+fn linux_feature_is_active(feature: &LinuxEbpfFeatureSnapshot) -> bool {
+    let attached = |hook: &str| feature.attached_hooks.iter().any(|value| value == hook);
+    match feature.feature.as_str() {
+        "process" => attached("handle_exec"),
+        "network" => attached("handle_connect") && attached("handle_connect_exit"),
+        "dns" => ["handle_sendto", "handle_sendmsg", "handle_sendmmsg"]
+            .into_iter()
+            .any(attached),
+        "file" => [
+            ("handle_openat", "handle_openat_exit"),
+            ("handle_open", "handle_open_exit"),
+            ("handle_creat", "handle_creat_exit"),
+            ("handle_openat2", "handle_openat2_exit"),
+            ("handle_unlinkat", "handle_unlinkat_exit"),
+            ("handle_unlink", "handle_unlink_exit"),
+            ("handle_renameat", "handle_renameat_exit"),
+            ("handle_renameat2", "handle_renameat2_exit"),
+            ("handle_rename", "handle_rename_exit"),
+            ("handle_mkdir", "handle_mkdir_exit"),
+            ("handle_mkdirat", "handle_mkdirat_exit"),
+            ("handle_rmdir", "handle_rmdir_exit"),
+        ]
+        .into_iter()
+        .any(|(entry, exit)| attached(entry) && attached(exit)),
+        _ => false,
     }
 }
 
@@ -1154,6 +1234,31 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    fn linux_feature(feature: &str, hooks: &[&str]) -> LinuxEbpfFeatureSnapshot {
+        LinuxEbpfFeatureSnapshot {
+            feature: feature.to_string(),
+            active: false,
+            attached_hooks: hooks.iter().map(|hook| (*hook).to_string()).collect(),
+            unavailable_hooks: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn paired_linux_features_require_both_sides_of_a_hook() {
+        assert!(!linux_feature_is_active(&linux_feature(
+            "network",
+            &["handle_connect_exit"]
+        )));
+        assert!(linux_feature_is_active(&linux_feature(
+            "network",
+            &["handle_connect", "handle_connect_exit"]
+        )));
+        assert!(linux_feature_is_active(&linux_feature(
+            "file",
+            &["handle_unlinkat", "handle_unlinkat_exit"]
+        )));
+    }
 
     #[test]
     fn process_command_line_fidelity_counts_hits_and_misses() {

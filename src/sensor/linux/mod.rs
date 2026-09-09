@@ -1,5 +1,6 @@
 //! Linux sensor support.
 
+pub(crate) mod abi;
 pub mod ebpf;
 pub mod events;
 pub mod paths;

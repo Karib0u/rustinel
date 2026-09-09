@@ -15,7 +15,8 @@
 //! accumulating, and the next `execve` on the same thread overwrites the key
 //! before it can be misattributed.
 //!
-//! sys_enter_execve tracepoint format (x86_64, 64-bit ABI):
+//! Example sys_enter_execve tracepoint format (x86_64, 64-bit ABI). These
+//! offsets are documentation only; the loader supplies this kernel's values:
 //!   offset 16: filename            (u64  — user pointer to path string)
 //!   offset 24: argv                (u64  — user pointer to char *const[])
 //!   offset 32: envp                (u64)
@@ -57,6 +58,8 @@ pub struct ProcessTracepointOffsets {
     pub fork_child_pid: u32,
     pub clone_flags: u32,
     pub clone3_args: u32,
+    pub execve_argv: u32,
+    pub execveat_argv: u32,
 }
 
 #[no_mangle]
@@ -68,6 +71,8 @@ pub static PROCESS_TRACEPOINT_OFFSETS: ProcessTracepointOffsets = ProcessTracepo
     fork_child_pid: 0,
     clone_flags: 0,
     clone3_args: 0,
+    execve_argv: 0,
+    execveat_argv: 0,
 };
 
 /// Read a loader-patched global without letting LLVM fold its zero initializer
@@ -126,12 +131,6 @@ const ARGV_ARG_MAX: usize = 128;
 /// vectors longer than this are captured up to this point and flagged
 /// truncated.
 const ARGV_MAX_ARGS: usize = 32;
-
-/// `argv` offset in the `sys_enter_execve` tracepoint record.
-const EXECVE_ARGV_OFFSET: usize = 24;
-
-/// `argv` offset in the `sys_enter_execveat` tracepoint record.
-const EXECVEAT_ARGV_OFFSET: usize = 32;
 
 /// Kernel-side argv snapshot, staged between `execve` entry and the
 /// `sched_process_exec` that follows it.
@@ -207,13 +206,27 @@ pub fn handle_process_vfork(_ctx: TracePointContext) -> u32 {
 /// it is still mapped in the calling process.
 #[tracepoint]
 pub fn handle_execve(ctx: TracePointContext) -> u32 {
-    unsafe { try_capture_argv(&ctx, EXECVE_ARGV_OFFSET) }.unwrap_or(1)
+    unsafe {
+        try_capture_argv(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(PROCESS_TRACEPOINT_OFFSETS.execve_argv)),
+        )
+    }
+    .unwrap_or(1)
 }
 
 /// Tracepoint handler for `syscalls/sys_enter_execveat`.
 #[tracepoint]
 pub fn handle_execveat(ctx: TracePointContext) -> u32 {
-    unsafe { try_capture_argv(&ctx, EXECVEAT_ARGV_OFFSET) }.unwrap_or(1)
+    unsafe {
+        try_capture_argv(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(
+                PROCESS_TRACEPOINT_OFFSETS.execveat_argv
+            )),
+        )
+    }
+    .unwrap_or(1)
 }
 
 #[inline(always)]

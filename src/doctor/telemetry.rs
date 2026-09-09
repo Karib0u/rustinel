@@ -95,6 +95,34 @@ fn linux_ebpf_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
         return Vec::new();
     };
 
+    let mut results = ebpf
+        .features
+        .iter()
+        .map(|feature| {
+            let id = format!("linux_ebpf_{}_capability", feature.feature);
+            if feature.unavailable_hooks.is_empty() {
+                return DiagnosticResult::pass(
+                    id,
+                    format!(
+                        "Linux eBPF {} telemetry is active ({} hooks)",
+                        feature.feature,
+                        feature.attached_hooks.len()
+                    ),
+                );
+            }
+
+            let state = if feature.active { "degraded" } else { "unavailable" };
+            DiagnosticResult::warn(
+                id,
+                format!("Linux eBPF {} telemetry is {state}", feature.feature),
+                feature.unavailable_hooks.join("; "),
+            )
+            .with_fix(
+                "The named hooks are not available on this kernel. Upgrade the kernel or disable rules that require this telemetry category",
+            )
+        })
+        .collect::<Vec<_>>();
+
     let mut findings = Vec::new();
     for family in &ebpf.families {
         if family.kernel_ring_full > 0 {
@@ -181,22 +209,24 @@ fn linux_ebpf_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
     }
 
     if findings.is_empty() {
-        return vec![DiagnosticResult::pass(
+        results.push(DiagnosticResult::pass(
             "linux_ebpf",
             format!(
                 "Linux eBPF pipeline reconciles across {} submitted events ({} in flight)",
                 submitted, in_flight
             ),
-        )];
+        ));
+        return results;
     }
 
-    vec![
+    results.push(
         DiagnosticResult::warn("linux_ebpf", findings.join("; "), detail).with_fix(
             "Kernel ring or map failures are detection gaps. Reduce event volume or investigate a \
          stalled ring drain. A small non-growing reconciliation mismatch may be a snapshot taken \
          during an update; a growing mismatch should be reported",
         ),
-    ]
+    );
+    results
 }
 
 /// Registry key-path resolution, the one gap a channel counter cannot show.
@@ -389,7 +419,7 @@ mod tests {
     use crate::doctor::inspect::DiagnosticStatus;
     use crate::telemetry::{
         ChannelSnapshot, EtwDecodeFailureSnapshot, EtwDecodeSnapshot, FileAttributionSnapshot,
-        LinuxEbpfFamilySnapshot, LinuxEbpfSnapshot, RegistrySnapshot,
+        LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, RegistrySnapshot,
     };
 
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
@@ -445,6 +475,8 @@ mod tests {
         process.kernel_seen = 12;
         process.kernel_ring_full = 2;
         snap.linux_ebpf = Some(LinuxEbpfSnapshot {
+            abi_version: 1,
+            features: Vec::new(),
             families: vec![process],
         });
 
@@ -459,6 +491,8 @@ mod tests {
     fn clean_quiesced_linux_pipeline_passes() {
         let mut snap = snapshot(vec![channel("sensor_events", 10, 0)]);
         snap.linux_ebpf = Some(LinuxEbpfSnapshot {
+            abi_version: 1,
+            features: Vec::new(),
             families: vec![linux_ring("process")],
         });
 
@@ -467,6 +501,32 @@ mod tests {
         assert_eq!(results[0].status, DiagnosticStatus::Pass);
         assert!(results[0].message.contains("10 submitted events"));
         assert!(results[0].message.contains("0 in flight"));
+    }
+
+    #[test]
+    fn degraded_linux_feature_gets_a_named_warning() {
+        let mut snap = snapshot(vec![]);
+        snap.linux_ebpf = Some(LinuxEbpfSnapshot {
+            abi_version: 1,
+            features: vec![LinuxEbpfFeatureSnapshot {
+                feature: "dns".to_string(),
+                active: true,
+                attached_hooks: vec!["handle_sendto".to_string()],
+                unavailable_hooks: vec![
+                    "handle_sendmmsg: syscalls/sys_enter_sendmmsg is unavailable".to_string(),
+                ],
+            }],
+            families: vec![linux_ring("dns")],
+        });
+
+        let results = linux_ebpf_results(&snap);
+        let capability = results
+            .iter()
+            .find(|result| result.id == "linux_ebpf_dns_capability")
+            .expect("named DNS capability result");
+        assert_eq!(capability.status, DiagnosticStatus::Warn);
+        assert!(capability.message.contains("degraded"));
+        assert!(capability.detail.as_deref().unwrap().contains("sendmmsg"));
     }
 
     #[test]
