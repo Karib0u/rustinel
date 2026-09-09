@@ -31,7 +31,8 @@
 //! for the directory index, which calls [`forget_socket_type`] rather than pay
 //! a second tracepoint dispatch on paths as hot as `close`.
 //!
-//! sys_enter_connect tracepoint format (x86_64, 64-bit ABI):
+//! Example sys_enter_connect tracepoint format (x86_64, 64-bit ABI). These
+//! offsets are documentation only; the loader supplies this kernel's values:
 //!   offset  0: common_type         (u16)
 //!   offset  2: common_flags        (u8)
 //!   offset  3: common_preempt_count(u8)
@@ -65,6 +66,32 @@ use crate::events::{
 };
 use crate::process::current_process_start_time;
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, NETWORK_FAMILY};
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NetworkTracepointOffsets {
+    pub connect_fd: u32,
+    pub connect_addr: u32,
+    pub connect_ret: u32,
+    pub socket_family: u32,
+    pub socket_type: u32,
+    pub socket_ret: u32,
+}
+
+#[no_mangle]
+pub static NETWORK_TRACEPOINT_OFFSETS: NetworkTracepointOffsets = NetworkTracepointOffsets {
+    connect_fd: 0,
+    connect_addr: 0,
+    connect_ret: 0,
+    socket_family: 0,
+    socket_type: 0,
+    socket_ret: 0,
+};
+
+#[inline(always)]
+unsafe fn tracepoint_offset(value: *const u32) -> usize {
+    core::ptr::read_volatile(value) as usize
+}
 
 /// AF_INET (IPv4).
 const AF_INET: u16 = 2;
@@ -179,7 +206,9 @@ unsafe fn try_handle_socket(ctx: &TracePointContext) -> Result<u32, i64> {
 
     // Only IP sockets can reach the connect hook's address-family filter;
     // indexing AF_UNIX and AF_NETLINK would evict entries that can be used.
-    let family = ctx.read_at::<i64>(16)?;
+    let family = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.socket_family
+    )))?;
     if family != AF_INET as i64 && family != AF_INET6 as i64 {
         // Anything still pending belongs to a thread that was killed inside an
         // earlier `socket()`; drop it so this call's exit cannot claim it.
@@ -187,7 +216,9 @@ unsafe fn try_handle_socket(ctx: &TracePointContext) -> Result<u32, i64> {
         return Ok(0);
     }
 
-    let sock_type = (ctx.read_at::<i64>(24)? & SOCK_TYPE_MASK) as u8;
+    let sock_type = (ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.socket_type
+    )))? & SOCK_TYPE_MASK) as u8;
     if SOCKET_PENDING.insert(&tid, &sock_type, 0).is_err() {
         record_map_full(NETWORK_FAMILY);
     }
@@ -203,7 +234,9 @@ unsafe fn try_handle_socket_exit(ctx: &TracePointContext) -> Result<u32, i64> {
     let _ = SOCKET_PENDING.remove(&tid);
 
     // A failed socket(2) returns -errno and owns no descriptor.
-    let ret = ctx.read_at::<i64>(16)?;
+    let ret = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.socket_ret
+    )))?;
     if ret < 0 {
         return Ok(0);
     }
@@ -226,10 +259,14 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
     let _ = NETWORK_PENDING.remove(&tid);
 
     let uid = bpf_get_current_uid_gid() as u32;
-    let fd = ctx.read_at::<i64>(16)? as i32;
+    let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.connect_fd
+    )))? as i32;
 
     // Read pointer to user-space sockaddr structure.
-    let uservaddr: u64 = ctx.read_at::<u64>(24)?;
+    let uservaddr: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.connect_addr
+    )))?;
     if uservaddr == 0 {
         return Ok(0);
     }
@@ -294,7 +331,9 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
 
 #[inline(always)]
 unsafe fn try_handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
-    let ret = ctx.read_at::<i64>(16)? as i32;
+    let ret = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.connect_ret
+    )))? as i32;
     let tid = bpf_get_current_pid_tgid() as u32;
 
     let Some(pending) = NETWORK_PENDING.get(&tid) else {

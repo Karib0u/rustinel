@@ -33,12 +33,13 @@ use crate::sensor::{
 use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 use crate::utils::lookup_username_by_uid;
 
+use super::abi::validate_object_abi;
 use super::events::{
     bytes_to_string, connect_result_is_connection, parse_event, system_time_from_boot_ns, DnsEvent,
     FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
-use super::tracepoint_format::ProcessTracepointOffsets;
+use super::tracepoint_format::{tracepoint_exists, TracepointLayouts};
 
 /// Sysmon-compatible event IDs emitted for Linux events.
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
@@ -113,10 +114,14 @@ impl Sensor for EbpfSensor {
         };
         let bytes: &[u8] = override_bytes.as_deref().unwrap_or(super::EBPF_BYTES);
 
-        let process_offsets = ProcessTracepointOffsets::load()
-            .context("failed to resolve process tracepoint layouts")?;
+        validate_object_abi(bytes).context("refusing to load incompatible eBPF object")?;
+        let layouts = TracepointLayouts::probe();
         let mut loader = EbpfLoader::new();
-        loader.override_global("PROCESS_TRACEPOINT_OFFSETS", &process_offsets, true);
+        loader
+            .override_global("PROCESS_TRACEPOINT_OFFSETS", &layouts.process, true)
+            .override_global("NETWORK_TRACEPOINT_OFFSETS", &layouts.network, true)
+            .override_global("FILE_TRACEPOINT_OFFSETS", &layouts.file, true)
+            .override_global("DNS_TRACEPOINT_OFFSETS", &layouts.dns, true);
         let mut bpf = loader
             .load(bytes)
             .context("eBPF object load failed — ensure BTF is available and kernel is 5.8+")?;
@@ -870,30 +875,35 @@ fn attach_optional_tracepoint(
     category: &str,
     name: &str,
 ) -> Result<()> {
-    let available = [
-        "/sys/kernel/tracing/events",
-        "/sys/kernel/debug/tracing/events",
-    ]
-    .into_iter()
-    .map(|root| {
-        std::path::Path::new(root)
-            .join(category)
-            .join(name)
-            .join("id")
-    })
-    .any(|path| path.exists());
-    if available {
-        attach_tracepoint(bpf, program, category, name)
-    } else {
-        warn!(
-            program,
-            category, name, "optional tracepoint is unavailable"
-        );
-        Ok(())
-    }
+    attach_tracepoint(bpf, program, category, name)
 }
 
 fn attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &str) -> Result<()> {
+    if let Some(reason) = TracepointLayouts::current_unavailable_reason(program) {
+        record_unavailable_hook(program, reason);
+        warn!(program, category, name, reason, "eBPF hook is unavailable");
+        return Ok(());
+    }
+    if !tracepoint_exists(category, name) {
+        let reason = format!("tracepoint {category}/{name} is unavailable");
+        record_unavailable_hook(program, &reason);
+        warn!(program, category, name, "eBPF hook is unavailable");
+        return Ok(());
+    }
+
+    if let Err(err) = try_attach_tracepoint(bpf, program, category, name) {
+        let reason = format!("{err:#}");
+        record_unavailable_hook(program, &reason);
+        warn!(program, category, name, error = %err, "eBPF hook failed to attach");
+        return Ok(());
+    }
+    for feature in features_for_program(program) {
+        LINUX_EBPF.record_hook(feature, program, true, None);
+    }
+    Ok(())
+}
+
+fn try_attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &str) -> Result<()> {
     let prog: &mut TracePoint = bpf
         .program_mut(program)
         .with_context(|| format!("program '{}' not found in eBPF object", program))?
@@ -910,6 +920,19 @@ fn attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &str) 
 }
 
 fn attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
+    if let Err(err) = try_attach_kprobe(bpf, program, function) {
+        let reason = format!("{err:#}");
+        record_unavailable_hook(program, &reason);
+        warn!(program, function, error = %err, "eBPF hook failed to attach");
+        return Ok(());
+    }
+    for feature in features_for_program(program) {
+        LINUX_EBPF.record_hook(feature, program, true, None);
+    }
+    Ok(())
+}
+
+fn try_attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
     let prog: &mut KProbe = bpf
         .program_mut(program)
         .with_context(|| format!("program '{}' not found in eBPF object", program))?
@@ -923,6 +946,32 @@ fn attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
         .with_context(|| format!("failed to attach '{}' to {}", program, function))?;
 
     Ok(())
+}
+
+fn record_unavailable_hook(program: &str, reason: &str) {
+    for feature in features_for_program(program) {
+        LINUX_EBPF.record_hook(feature, program, false, Some(reason));
+    }
+}
+
+fn features_for_program(program: &str) -> &'static [&'static str] {
+    match program {
+        "handle_exec"
+        | "handle_fork"
+        | "handle_exit"
+        | "handle_execve"
+        | "handle_execveat"
+        | "handle_clone"
+        | "handle_clone3"
+        | "handle_process_fork"
+        | "handle_process_vfork" => &["process"],
+        "handle_connect" | "handle_connect_exit" | "handle_socket" | "handle_socket_exit" => {
+            &["network"]
+        }
+        "handle_sendto" | "handle_sendmsg" | "handle_sendmmsg" => &["dns"],
+        "handle_file_close" | "handle_file_dup2" | "handle_file_dup3" => &["file", "network"],
+        _ => &["file"],
+    }
 }
 
 #[cfg(test)]
