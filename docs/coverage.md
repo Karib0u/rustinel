@@ -75,9 +75,11 @@ The field is modelled but no sensor populates it:
 | 15 | `Signed` |
 | 11 | `CurrentDirectory` |
 
-These are the fields listed as permanently empty in
-[Limitations](limitations.md#windows-etw-and-event-log). A rule referencing any
-of them loads successfully and never matches.
+This is a historical corpus measurement. The current, source-specific truth is
+the generated [field availability contract](#field-availability-contract).
+Whether a rule is inert still depends on its condition structure: an unavailable
+field inside an alternative or a negated branch does not by itself make the
+whole rule unable to match.
 
 **`Provider_Name` and `ImagePath` have since been populated**
 ([#317](https://github.com/Karib0u/rustinel/issues/317)): event 7045 now carries
@@ -130,6 +132,23 @@ pack by what its rules reference, not by its size.
 no error. That is why the field tables above matter more than the headline
 percentage. Per-rule diagnostics are tracked by
 [#184](https://github.com/Karib0u/rustinel/issues/184).
+
+## Field availability contract
+
+<!-- BEGIN GENERATED FIELD AVAILABILITY -->
+This summary is generated from `FIELD_AVAILABILITY`. Counts describe field
+contracts, not Sigma rule inertness; alternatives and negation in a rule's
+condition must be analysed before deciding whether that rule can fire.
+
+| Platform | Always | Conditional | Never |
+| --- | ---: | ---: | ---: |
+| windows | 19 | 184 | 40 |
+| linux | 23 | 24 | 19 |
+| macos | 22 | 16 | 29 |
+
+The complete machine-readable baseline is
+[`compatibility/field-availability.json`](../compatibility/field-availability.json).
+<!-- END GENERATED FIELD AVAILABILITY -->
 
 ## Provenance
 

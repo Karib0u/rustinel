@@ -40,14 +40,12 @@ static PROCESS_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
         ("ParentProcessId", "ParentProcessID"),
         ("ParentImage", "ParentImageName"),
         ("ParentCommandLine", "ParentCommandLine"),
-        ("CurrentDirectory", "CurrentDirectory"),
         // Kernel-Process declares no `IntegrityLevel` property; the level is
         // the `MandatoryLabel` SID on the process start template, decoded by
         // `integrity_level_from_sid` (#294). `LogonID` and `LogonGUID` were
         // mapped here too and exist on no event of this provider, so they are
         // not mapped at all rather than mapped to nothing.
         ("IntegrityLevel", "MandatoryLabel"),
-        ("User", "UserName"),
     ])
 });
 
@@ -156,9 +154,6 @@ static IMAGE_LOAD_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
         ("ProcessId", "ProcessID"),
         ("Image", "ParentImageName"),
         ("OriginalFileName", "OriginalFileName"),
-        ("Signed", "Signed"),
-        ("Signature", "Signature"),
-        ("User", "UserName"),
     ])
 });
 
@@ -183,16 +178,8 @@ pub fn wmi_event_mappings() -> &'static FieldMapping {
     &WMI_EVENT_MAP
 }
 
-static TASK_CREATION_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
-    FieldMapping::new(&[
-        ("TaskName", "TaskName"),
-        ("TaskContent", "TaskContent"),
-        ("UserName", "UserContext"),
-        ("User", "User"),
-        ("ProcessId", "ProcessID"),
-        ("Image", "ImageName"),
-    ])
-});
+static TASK_CREATION_MAP: LazyLock<FieldMapping> =
+    LazyLock::new(|| FieldMapping::new(&[("TaskName", "TaskName"), ("UserName", "UserContext")]));
 
 pub fn task_creation_mappings() -> &'static FieldMapping {
     &TASK_CREATION_MAP
@@ -223,6 +210,22 @@ mod tests {
         // duplicated Image and gave TargetImage a meaning it does not have.
         assert_eq!(mappings.get_etw_field("Image"), Some("ImageName"));
         assert_eq!(mappings.get_etw_field("TargetImage"), None);
+        assert_eq!(mappings.get_etw_field("User"), None);
+        assert_eq!(mappings.get_etw_field("CurrentDirectory"), None);
+    }
+
+    #[test]
+    fn permanently_unavailable_fields_are_not_advertised() {
+        let image = image_load_mappings();
+        assert_eq!(image.get_etw_field("Signed"), None);
+        assert_eq!(image.get_etw_field("Signature"), None);
+        assert_eq!(image.get_etw_field("User"), None);
+
+        let task = task_creation_mappings();
+        assert_eq!(task.get_etw_field("TaskContent"), None);
+        assert_eq!(task.get_etw_field("User"), None);
+        assert_eq!(task.get_etw_field("ProcessId"), None);
+        assert_eq!(task.get_etw_field("Image"), None);
     }
 
     #[test]

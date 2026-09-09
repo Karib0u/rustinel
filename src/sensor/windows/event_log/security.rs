@@ -6,9 +6,9 @@
 //! scoped to the supported IDs, and each ID has an allowlist of the properties
 //! decoded from it.
 //!
-//! [`SUPPORTED_EVENTS`] is therefore the single statement of what this
-//! collector populates. Adding an event family is adding a row to it, and
-//! nothing else in the pipeline needs to change.
+//! The shared field-availability contract is therefore the single statement
+//! of what this collector populates. Adding an event family is adding a keyed
+//! row there and extending the kernel subscription below.
 //!
 //! Only 4624 is audited by default. The other five need their audit
 //! subcategory enabled, and the two object-access families additionally need a
@@ -19,6 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context, Result};
 use chrono::DateTime;
 
+use crate::field_availability::contract_for_event_id;
 use crate::models::SecurityAuditFields;
 use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
 
@@ -26,125 +27,8 @@ use super::EventLogSource;
 
 const PROVIDER: &str = "Microsoft-Windows-Security-Auditing";
 
-/// The identity block every audited event carries: who did it, and in which
-/// logon session.
-const SUBJECT_FIELDS: &[&str] = &[
-    "SubjectUserSid",
-    "SubjectUserName",
-    "SubjectDomainName",
-    "SubjectLogonId",
-];
-
-/// Supported audit events, and the properties decoded from each.
-///
-/// The lists are the event's own schema, restricted to the properties that
-/// carry detection value. A property Windows emits but that is absent here is
-/// dropped rather than passed through, which keeps the field model closed and
-/// reviewable.
-const SUPPORTED_EVENTS: &[(u16, &[&str])] = &[
-    // An account was successfully logged on.
-    (
-        4624,
-        &[
-            "TargetUserSid",
-            "TargetUserName",
-            "TargetDomainName",
-            "TargetLogonId",
-            "LogonType",
-            "LogonProcessName",
-            "AuthenticationPackageName",
-            "WorkstationName",
-            "LogonGuid",
-            "LmPackageName",
-            "KeyLength",
-            "ProcessId",
-            "ProcessName",
-            "IpAddress",
-            "IpPort",
-            "ImpersonationLevel",
-            "RestrictedAdminMode",
-            "TargetOutboundUserName",
-            "TargetOutboundDomainName",
-            "VirtualAccount",
-            "TargetLinkedLogonId",
-            "ElevatedToken",
-        ],
-    ),
-    // A handle to an object was requested.
-    (
-        4656,
-        &[
-            "ObjectServer",
-            "ObjectType",
-            "ObjectName",
-            "HandleId",
-            "AccessList",
-            "AccessMask",
-            "AccessReason",
-            "PrivilegeList",
-            "ProcessId",
-            "ProcessName",
-        ],
-    ),
-    // An attempt was made to access an object.
-    (
-        4663,
-        &[
-            "ObjectServer",
-            "ObjectType",
-            "ObjectName",
-            "HandleId",
-            "AccessList",
-            "AccessMask",
-            "ProcessId",
-            "ProcessName",
-        ],
-    ),
-    // A service was installed in the system.
-    (
-        4697,
-        &[
-            "ServiceName",
-            "ServiceFileName",
-            "ServiceType",
-            "ServiceStartType",
-            "ServiceAccount",
-        ],
-    ),
-    // A directory service object was modified.
-    (
-        5136,
-        &[
-            "DSName",
-            "DSType",
-            "ObjectDN",
-            "ObjectGUID",
-            "ObjectClass",
-            "AttributeLDAPDisplayName",
-            "AttributeSyntaxOID",
-            "AttributeValue",
-            "OperationType",
-        ],
-    ),
-    // A network share object was checked to see whether the client can be
-    // granted the desired access.
-    (
-        5145,
-        &[
-            "ObjectType",
-            "IpAddress",
-            "IpPort",
-            "ShareName",
-            "ShareLocalPath",
-            "RelativeTargetName",
-            "AccessMask",
-            "AccessList",
-            "AccessReason",
-        ],
-    ),
-];
-
-/// XPath filter scoping the subscription to [`SUPPORTED_EVENTS`].
+/// XPath filter scoping the subscription to the event IDs in the field
+/// availability table.
 ///
 /// Written out rather than built at runtime: the query is what the kernel
 /// filters on, so an event family is only reachable if it appears both here and
@@ -187,10 +71,10 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         return Err(anyhow!("unexpected Security event provider {provider:?}"));
     }
 
-    let allowed = SUPPORTED_EVENTS
-        .iter()
-        .find_map(|(id, fields)| (*id == event_id).then_some(*fields))
-        .ok_or_else(|| anyhow!("unsupported Security event ID {event_id}"))?;
+    let allowed =
+        contract_for_event_id(Platform::Windows, "security", event_id, "windows_event_log")
+            .map(|contract| contract.fields)
+            .ok_or_else(|| anyhow!("unsupported Security event ID {event_id}"))?;
 
     let mut fields = SecurityAuditFields::default();
     for node in document.descendants() {
@@ -200,7 +84,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         let Some(name) = node.attribute("Name") else {
             continue;
         };
-        if !SUBJECT_FIELDS.contains(&name) && !allowed.contains(&name) {
+        if !allowed.iter().any(|field| field.field == name) {
             continue;
         }
         fields.insert(name, node.text().unwrap_or_default());
@@ -261,7 +145,8 @@ fn parse_system_time(value: &str) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, PROVIDER, QUERY, SUPPORTED_EVENTS};
+    use super::{decode, PROVIDER, QUERY};
+    use crate::field_availability::FIELD_AVAILABILITY;
     use crate::sensor::{SensorAction, SensorPayload};
 
     fn security_event(event_id: u16, event_data: &str) -> String {
@@ -507,7 +392,16 @@ mod tests {
 
     #[test]
     fn the_subscription_query_covers_exactly_the_supported_events() {
-        for (event_id, _) in SUPPORTED_EVENTS {
+        let supported: Vec<u16> = FIELD_AVAILABILITY
+            .iter()
+            .filter(|contract| {
+                contract.platform == crate::sensor::Platform::Windows
+                    && contract.category == "security"
+                    && contract.provider == "windows_event_log"
+            })
+            .filter_map(|contract| contract.event_id)
+            .collect();
+        for event_id in &supported {
             assert!(
                 QUERY.contains(&format!("EventID={event_id}")),
                 "event {event_id} is decoded but not subscribed to"
@@ -515,7 +409,7 @@ mod tests {
         }
         assert_eq!(
             QUERY.matches("EventID=").count(),
-            SUPPORTED_EVENTS.len(),
+            supported.len(),
             "the subscription query and the decoder table must agree"
         );
     }

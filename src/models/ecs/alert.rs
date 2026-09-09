@@ -458,39 +458,6 @@ pub struct EcsAlert {
     pub edr_wmi_event_type: Option<String>,
 
     // ========================================================================
-    // Remote Thread Fields
-    // ========================================================================
-    #[serde(
-        rename = "edr.remote_thread.target_pid",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub edr_remote_thread_target_pid: Option<u64>,
-
-    #[serde(
-        rename = "edr.remote_thread.target_image",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub edr_remote_thread_target_image: Option<String>,
-
-    #[serde(
-        rename = "edr.remote_thread.start_address",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub edr_remote_thread_start_address: Option<String>,
-
-    #[serde(
-        rename = "edr.remote_thread.start_module",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub edr_remote_thread_start_module: Option<String>,
-
-    #[serde(
-        rename = "edr.remote_thread.start_function",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub edr_remote_thread_start_function: Option<String>,
-
-    // ========================================================================
     // Process Target Fields
     // ========================================================================
     #[serde(
