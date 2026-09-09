@@ -110,6 +110,8 @@ pub fn build_yara_alert(
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                cgroup_id: None,
+                parent_process_id_derived: false,
                 image: Some(path.to_string()),
                 image_source: None,
                 image_truncated: None,
@@ -195,6 +197,8 @@ pub fn build_yara_memory_alert(
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                cgroup_id: None,
+                parent_process_id_derived: false,
                 image: Some(image.to_string()),
                 image_source: None,
                 image_truncated: None,

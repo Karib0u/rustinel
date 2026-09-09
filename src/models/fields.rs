@@ -106,6 +106,10 @@ pub struct ProcessCreationFields {
     #[serde(rename = "ProcessStartTime", skip_serializing_if = "Option::is_none")]
     pub process_start_time: Option<u64>,
 
+    /// Kernel cgroup identifier measured at exec time on Linux.
+    #[serde(rename = "CgroupId", skip_serializing_if = "Option::is_none")]
+    pub cgroup_id: Option<String>,
+
     #[serde(rename = "ParentProcessId", skip_serializing_if = "Option::is_none")]
     pub parent_process_id: Option<String>,
 
@@ -123,6 +127,10 @@ pub struct ProcessCreationFields {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+
+    /// Internal fidelity marker consumed by normalization.
+    #[serde(skip)]
+    pub parent_process_id_derived: bool,
 }
 
 /// File event fields (Sigma: file_access, file_delete, file_event)

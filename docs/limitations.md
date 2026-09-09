@@ -152,19 +152,26 @@ three platforms, but several Sysmon-style fields are unavailable.
 
 The Linux sensor covers process, network, file, and DNS.
 
-- **The raw image-path fallback is capped at 255 bytes.** `Image` normally
-  comes from `/proc/<pid>/exe` and is absolute and symlink-resolved. Under a
-  burst the sensor may instead use the raw `execve()` argument; when its suffix
-  does not fit, `ImageTruncated` and `edr.process.image_truncated` mark the path
-  as incomplete ([#307](https://github.com/Karib0u/rustinel/issues/307)). The
-  raw argument may also be relative
+- **The raw image path is capped at 255 bytes.** `Image`
+  comes from the raw `execve()` argument. When its suffix does not fit,
+  `ImageTruncated` and `edr.process.image_truncated` mark the path as incomplete
+  ([#307](https://github.com/Karib0u/rustinel/issues/307)). The raw argument may
+  also be relative
   ([#308](https://github.com/Karib0u/rustinel/issues/308)).
 - **Kernel-captured argv is bounded.** Argv is snapshotted at `execve` entry, so
   a process that exits before the ring is drained still reports its command
   line. Caps are 512 bytes total, 32 arguments, and 127 bytes per argument; past
-  any of those the event is flagged truncated and the loader prefers
-  `/proc/<pid>/cmdline` while the process lives. A process that rewrites its own
+  any of those the event is flagged truncated. A process that rewrites its own
   argv (`setproctitle`) reports what it was launched with.
+- **`CLONE_PARENT` parent attribution is derived.** Stable eBPF helpers expose
+  the creating task but not its real parent. For `CLONE_PARENT`,
+  `ParentProcessId` therefore names the creator TGID and carries `Derived`
+  provenance. Ordinary fork, vfork, clone, and clone3 process creation records
+  the creator TGID at `sched_process_fork`. Thread creation is excluded.
+- **Processes that predate the sensor may have no parent identity.** The fork
+  relationship and sensor-minted execution key do not exist for tasks already
+  running at startup. Missing data stays absent instead of consulting a later,
+  potentially reparented procfs record.
 - **File paths are capped at 511 bytes, and the overflow is marked.** The event
   carries `PathTruncated` naming which side was cut. Since truncation removes
   the end of the path, `|endswith` rules and extension IOCs are what it defeats.

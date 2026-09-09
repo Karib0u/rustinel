@@ -265,15 +265,13 @@ Per-platform process notes:
 
 - **Linux:** `CommandLine` comes from argv snapshotted in eBPF at `execve` entry,
   so it survives processes that exit before enrichment; it is bounded at 512
-  bytes, 32 arguments, and 127 bytes per argument. `Image` resolves from
-  `/proc/<pid>/exe`, which is absolute and symlink-resolved, but short-lived
-  processes fall back to the raw `execve()` argument, which may be relative and
-  is capped at 255 bytes. When that fallback is cut, `ImageTruncated` is `true`
-  and ECS carries `edr.process.image_truncated`; the marker is absent when
-  `/proc` supplies the complete path. `ImageSource` distinguishes the two cases
-  with `proc` or `execve`. `ParentImage`, `ParentProcessId`,
-  `ParentCommandLine`, and `CurrentDirectory` are enriched from `/proc` and may
-  be absent.
+  bytes, 32 arguments, and 127 bytes per argument. `Image` is the raw
+  `execve()` argument, which may be relative and is capped at 255 bytes. When
+  it is cut, `ImageTruncated` is `true` and ECS carries
+  `edr.process.image_truncated`. `ImageSource` is `execve`.
+  `ParentProcessId` is captured at fork before reparenting can occur.
+  `ParentImage` and `ParentCommandLine` are bounded cache enrichment and carry
+  `Derived` provenance. `CurrentDirectory` may be absent.
 - **macOS:** ESF exec events carry `CommandLine`, `ParentImage`,
   `ParentProcessId`, and `CurrentDirectory` natively. `ParentCommandLine` is not
   provided, and `IntegrityLevel` is a Windows field with no macOS equivalent.

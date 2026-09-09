@@ -51,13 +51,24 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 pub struct ProcessEvent {
     pub event_time_ns: u64,
     pub source_seq: u64,
+    /// Cgroup v2 inode-like identifier measured by the kernel helper.
+    pub cgroup_id: u64,
+    /// Sensor-minted identity for this execution of `pid`.
+    pub process_start_time: u64,
+    /// Sensor-minted execution identity of `parent_pid`, when observed.
+    pub parent_process_start_time: u64,
     /// Event kind: 1 = exec, 2 = exit.
     pub kind: u32,
     /// Thread group ID — the POSIX "process ID".
     pub pid: u32,
     /// Effective UID of the new process.
     pub uid: u32,
-    pub _pad: u32,
+    /// Process parent captured by the fork tracepoint.
+    pub parent_pid: u32,
+    /// Task that invoked the creation syscall.
+    pub creator_tid: u32,
+    /// Thread group containing `creator_tid`.
+    pub creator_tgid: u32,
     /// Null-terminated process name (`comm`, up to 15 chars).
     pub comm: [u8; 16],
     /// Null-terminated executable path (up to 255 bytes).
@@ -72,15 +83,17 @@ pub struct ProcessEvent {
     pub args_truncated: u8,
     /// 1 when `image` did not fit its capture buffer, 0 when complete.
     pub image_truncated: u8,
-    pub _pad1: [u8; 2],
+    /// 1 when `CLONE_PARENT` made `parent_pid` a creator approximation.
+    pub parent_pid_derived: u8,
+    pub _pad1: u8,
     /// Argv captured at `execve` entry, NUL-separated (no trailing NUL
     /// guaranteed). Only the first `args_len` bytes are meaningful.
     ///
     /// Empty for exit events.
     pub args: [u8; ARGV_CAPACITY],
-    /// Sensor-minted identity for this execution of `pid`.
-    pub process_start_time: u64,
 }
+
+const _: () = assert!(core::mem::size_of::<ProcessEvent>() == 856);
 
 /// `connect(2)` succeeded — the connection is established.
 pub const CONNECT_RESULT_OK: i32 = 0;

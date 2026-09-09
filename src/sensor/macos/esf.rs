@@ -317,6 +317,8 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
         }),
         parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
+            cgroup_id: None,
+            parent_process_id_derived: false,
             image: Some(raw.image),
             image_source: None,
             image_truncated: None,
@@ -379,6 +381,8 @@ fn process_stop_event(
         process_start_key: start_time.map(|start_time| ProcessStartKey { pid, start_time }),
         parent_process_start_key: None,
         payload: SensorPayload::Process(ProcessCreationFields {
+            cgroup_id: None,
+            parent_process_id_derived: false,
             image: None,
             image_source: None,
             image_truncated: None,

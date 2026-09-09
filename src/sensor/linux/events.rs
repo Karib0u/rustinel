@@ -56,10 +56,17 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 pub struct ProcessEvent {
     pub event_time_ns: u64,
     pub source_seq: u64,
+    pub cgroup_id: u64,
+    /// Sensor-minted identity for this execution of `pid`.
+    pub process_start_time: u64,
+    /// Sensor-minted execution identity of `parent_pid`, when observed.
+    pub parent_process_start_time: u64,
     pub kind: u32,
     pub pid: u32,
     pub uid: u32,
-    pub _pad: u32,
+    pub parent_pid: u32,
+    pub creator_tid: u32,
+    pub creator_tgid: u32,
     pub comm: [u8; 16],
     pub image: [u8; PROCESS_IMAGE_CAPACITY],
     /// Valid bytes in `args`; 0 when the kernel captured no argv.
@@ -70,11 +77,11 @@ pub struct ProcessEvent {
     pub args_truncated: u8,
     /// 1 when `image` exceeded its kernel capture buffer.
     pub image_truncated: u8,
-    pub _pad1: [u8; 2],
+    /// 1 when `CLONE_PARENT` made `parent_pid` a creator approximation.
+    pub parent_pid_derived: u8,
+    pub _pad1: u8,
     /// NUL-separated argv captured at `execve` entry.
     pub args: [u8; ARGV_CAPACITY],
-    /// Sensor-minted identity for this execution of `pid`.
-    pub process_start_time: u64,
 }
 
 impl ProcessEvent {
@@ -280,17 +287,18 @@ pub struct DnsEvent {
 // These catch accidental struct layout divergence at compile time.
 
 const _: () = assert!(
-    core::mem::size_of::<ProcessEvent>() == 832,
+    core::mem::size_of::<ProcessEvent>() == 856,
     "ProcessEvent layout changed — update ebpf/src/events.rs to match"
 );
 // The argv fields were appended after `image`; pin their offsets so a
 // reordering on either side fails the build instead of decoding garbage.
 const _: () = assert!(
-    core::mem::offset_of!(ProcessEvent, args_len) == 304
-        && core::mem::offset_of!(ProcessEvent, args_count) == 306
-        && core::mem::offset_of!(ProcessEvent, args_truncated) == 308
-        && core::mem::offset_of!(ProcessEvent, image_truncated) == 309
-        && core::mem::offset_of!(ProcessEvent, args) == 312,
+    core::mem::offset_of!(ProcessEvent, args_len) == 336
+        && core::mem::offset_of!(ProcessEvent, args_count) == 338
+        && core::mem::offset_of!(ProcessEvent, args_truncated) == 340
+        && core::mem::offset_of!(ProcessEvent, image_truncated) == 341
+        && core::mem::offset_of!(ProcessEvent, parent_pid_derived) == 342
+        && core::mem::offset_of!(ProcessEvent, args) == 344,
     "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
 );
 // `ret` and `sock_type` took over slots that used to be explicit padding, so a
@@ -370,8 +378,13 @@ pub mod mapping {
             timestamp: system_time_from_boot_ns(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
-            parent_process_start_key: None,
+            parent_process_start_key: process_start_key(
+                event.parent_pid,
+                event.parent_process_start_time,
+            ),
             payload: SensorPayload::Process(ProcessCreationFields {
+                cgroup_id: (event.cgroup_id != 0).then(|| event.cgroup_id.to_string()),
+                parent_process_id_derived: event.parent_pid_derived != 0,
                 image: Some(bytes_to_string(&event.image)),
                 image_source: None,
                 image_truncated: (event.image_truncated != 0).then_some(true),
@@ -387,7 +400,7 @@ pub mod mapping {
                     .flatten(),
                 process_id: Some(event.pid.to_string()),
                 process_start_time: None,
-                parent_process_id: None,
+                parent_process_id: (event.parent_pid != 0).then(|| event.parent_pid.to_string()),
                 parent_image: None,
                 parent_command_line: None,
                 current_directory: None,
@@ -550,19 +563,24 @@ mod tests {
         let mut event = ProcessEvent {
             event_time_ns: 0,
             source_seq: 0,
+            cgroup_id: 55,
+            process_start_time: 123_456,
+            parent_process_start_time: 111_222,
             kind: 1,
             pid: 4242,
             uid: 1000,
-            _pad: 0,
+            parent_pid: 4000,
+            creator_tid: 4001,
+            creator_tgid: 4000,
             comm: [0u8; 16],
             image: [0u8; PROCESS_IMAGE_CAPACITY],
             args_len: 0,
             args_count: 0,
             args_truncated: 0,
             image_truncated: 0,
-            _pad1: [0u8; 2],
+            parent_pid_derived: 0,
+            _pad1: 0,
             args: [0u8; ARGV_CAPACITY],
-            process_start_time: 123_456,
         };
         let argv = b"/bin/true\0--quiet\0";
         event.args[..argv.len()].copy_from_slice(argv);

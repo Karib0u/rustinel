@@ -7,9 +7,12 @@
 //! | Program               | Hook                        | Purpose         |
 //! |-----------------------|-----------------------------|-----------------|
 //! | `handle_exec`         | `sched/sched_process_exec`  | Event 1         |
+//! | `handle_fork`         | `sched/sched_process_fork`  | record parent   |
 //! | `handle_exit`         | `sched/sched_process_exit`  | cache cleanup   |
 //! | `handle_execve`       | `syscalls/sys_enter_execve` | capture argv    |
 //! | `handle_execveat`     | `syscalls/sys_enter_execveat`| capture argv   |
+//! | `handle_clone*`       | `syscalls/sys_enter_clone*` | capture flags   |
+//! | `handle_process_*fork`| `syscalls/sys_enter_*fork`  | capture flags   |
 //! | `handle_connect`      | `syscalls/sys_enter_connect`| queue Event 3   |
 //! | `handle_connect_exit` | `syscalls/sys_exit_connect` | emit Event 3    |
 //! | `handle_socket`       | `syscalls/sys_enter_socket` | capture type    |
