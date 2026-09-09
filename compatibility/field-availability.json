@@ -3326,7 +3326,123 @@
       "source": "Endpoint Security exec",
       "field": "ParentImage",
       "availability": "conditional",
-      "reason": "the parent process remains queryable"
+      "reason": "derived from the process cache by an observed stable parent identity"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "ParentCommandLine",
+      "availability": "conditional",
+      "reason": "the stable parent identity resolves to a cached command line"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "RealUserId",
+      "availability": "always"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "Signed",
+      "availability": "always"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "SignatureStatus",
+      "availability": "always"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "CodeSigningFlags",
+      "availability": "always"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "IsPlatformBinary",
+      "availability": "always"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "PreExecImage",
+      "availability": "conditional",
+      "reason": "ESF supplies a non-empty acting process executable path"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "Script",
+      "availability": "conditional",
+      "reason": "message version 2+ supplies a script for direct shebang execution"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "SigningId",
+      "availability": "conditional",
+      "reason": "ESF supplies a non-empty signing identifier"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "TeamId",
+      "availability": "conditional",
+      "reason": "ESF supplies a non-empty signing team identifier"
+    },
+    {
+      "platform": "macos",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "esf",
+      "source": "Endpoint Security exec",
+      "field": "CdHash",
+      "availability": "conditional",
+      "reason": "the executable has the CS_SIGNED flag"
     },
     {
       "platform": "macos",
@@ -3371,17 +3487,6 @@
       "field": "ImageTruncated",
       "availability": "never",
       "reason": "ESF does not use the Linux raw-image buffer"
-    },
-    {
-      "platform": "macos",
-      "category": "process_creation",
-      "event_id": 1,
-      "action": "start",
-      "provider": "esf",
-      "source": "Endpoint Security exec",
-      "field": "ParentCommandLine",
-      "availability": "never",
-      "reason": "ESF exec events do not carry the parent command line"
     },
     {
       "platform": "macos",

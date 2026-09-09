@@ -808,6 +808,14 @@ mod tests {
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
         );
+        let unsigned_metadata = || ExecMetadata {
+            real_user_id: Some("0".to_string()),
+            signed: Some("false".to_string()),
+            signature_status: Some("unsigned".to_string()),
+            codesigning_flags: Some("0".to_string()),
+            is_platform_binary: Some(false),
+            ..Default::default()
+        };
         let make = |pid, image: &str, parent: Option<ProcessStartKey>, metadata| {
             process_start_event(RawExec {
                 pid,
@@ -825,14 +833,14 @@ mod tests {
             })
         };
         normalizer
-            .normalize(&make(40, "/sbin/launchd", None, ExecMetadata::default()))
+            .normalize(&make(40, "/sbin/launchd", None, unsigned_metadata()))
             .unwrap();
         let parent = Some(ProcessStartKey {
             pid: 40,
             start_time: 40,
         });
         normalizer
-            .normalize(&make(42, "/bin/bash", parent, ExecMetadata::default()))
+            .normalize(&make(42, "/bin/bash", parent, unsigned_metadata()))
             .unwrap();
         let metadata = ExecMetadata {
             signed: Some("true".to_string()),
@@ -871,7 +879,7 @@ mod tests {
             SystemTime::UNIX_EPOCH,
             None,
         ));
-        let mut orphan = make(43, "/bin/sh", parent, ExecMetadata::default());
+        let mut orphan = make(43, "/bin/sh", parent, unsigned_metadata());
         if let SensorPayload::Process(fields) = &mut orphan.payload {
             fields.parent_process_id_derived = true;
         }
