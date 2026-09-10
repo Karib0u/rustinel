@@ -31,6 +31,11 @@ pub struct EcsAlert {
         skip_serializing_if = "Provenance::is_empty"
     )]
     pub event_provenance: Provenance,
+    #[serde(
+        rename = "edr.process.windows_metadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub windows_process_metadata: Option<Box<crate::models::WindowsProcessMetadata>>,
 
     /// ECS schema version
     #[serde(rename = "ecs.version")]

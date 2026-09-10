@@ -2,6 +2,7 @@ use ipnetwork::IpNetwork;
 use regex::RegexSet;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct IocMatch {
@@ -38,8 +39,8 @@ impl IocKind {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IocMeta {
-    pub(crate) comment: Option<String>,
-    pub(crate) source: String,
+    pub(crate) comment: Option<Arc<str>>,
+    pub(crate) source: Arc<str>,
     pub(crate) line: usize,
 }
 

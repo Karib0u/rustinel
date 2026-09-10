@@ -81,12 +81,15 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
         allowlist_paths: Vec::new(),
     };
 
+    let before_enqueue = std::time::Instant::now();
     handler.handle_event(&process_start_event(Platform::Linux));
     let target = file_rx.try_recv().expect("disk job queued");
     let (path, pid) = (target.path, target.pid);
     assert_eq!(path, common::image_for(Platform::Linux));
     assert_eq!(pid, TEST_PID);
     let memory = memory_rx.try_recv().expect("memory job queued");
+    assert!(memory.enqueued_at >= before_enqueue);
+    assert!(memory.enqueued_at <= std::time::Instant::now());
     assert_eq!(memory.expected_identity.pid, TEST_PID);
     assert_eq!(
         memory.expected_identity.image,

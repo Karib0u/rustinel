@@ -108,10 +108,21 @@ pub struct RegistrySnapshot {
     pub snapshot_keys: usize,
 }
 
-/// Windows Kernel-File path attribution at a point in time.
-///
-/// Windows only, and absent from the snapshot on other platforms and before a
-/// file event has been decoded.
+/// Outcome of the bounded Windows startup file-name capture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileRundownSnapshot {
+    pub buffers_lost: u64,
+    pub seeded: usize,
+    pub records: u64,
+    pub decode_failed: u64,
+    pub events_lost: u64,
+    pub duration_ms: u64,
+    pub path_bytes: usize,
+    pub index_capacity: usize,
+    pub rejected: bool,
+}
+
+/// Windows Kernel-File attribution, including startup before live events arrive.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileAttributionSnapshot {
     /// File events that needed a target path.
@@ -126,6 +137,8 @@ pub struct FileAttributionSnapshot {
     /// Not itself a gap - the evicted handle may never be written to again -
     /// but it is the mechanism that produces one, so it is reported apart.
     pub index_capacity_evictions: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rundown: Option<FileRundownSnapshot>,
 }
 
 impl FileAttributionSnapshot {
@@ -463,6 +476,9 @@ pub struct TelemetrySnapshot {
     /// macOS kernel loss, separate from bounded-channel shedding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub macos_collectors: Option<super::MacosCollectorSnapshot>,
+    /// Classic/manifest source correlation outcomes.
+    #[serde(default)]
+    pub windows_process_correlation: super::ProcessCorrelationSnapshot,
     /// Final command-line availability for accepted Windows process starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub windows_process_command_line: Option<ProcessCommandLineSnapshot>,
@@ -495,6 +511,7 @@ impl TelemetrySnapshot {
             sensor_events_by_category: super::sensor_event_category_snapshots(),
             linux_ebpf: super::LINUX_EBPF.snapshot(),
             macos_collectors: super::macos::snapshot(),
+            windows_process_correlation: crate::telemetry::WINDOWS_PROCESS_CORRELATION.snapshot(),
             windows_process_command_line: super::WINDOWS_PROCESS_COMMAND_LINE.snapshot(),
             registry: super::REGISTRY.snapshot(),
             file_attribution: super::WINDOWS_FILE_ATTRIBUTION.snapshot(),
@@ -667,6 +684,7 @@ mod tests {
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,
             macos_collectors: None,
+            windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,
             file_attribution: None,
@@ -810,7 +828,19 @@ mod tests {
             resolved_from_index,
             unresolved,
             index_capacity_evictions: 4,
+            rundown: None,
         }
+    }
+
+    #[test]
+    fn file_snapshots_without_rundown_remain_readable() {
+        let files: FileAttributionSnapshot = serde_json::from_value(serde_json::json!({
+            "attempted":10, "resolved_from_event":1, "resolved_from_index":8,
+            "unresolved":1, "index_capacity_evictions":0,
+        }))
+        .unwrap();
+        assert!(files.rundown.is_none());
+        assert_eq!(files.resolution_rate_pct(), 90.0);
     }
 
     #[test]
@@ -834,6 +864,7 @@ mod tests {
             resolved_from_index: 0,
             unresolved: 0,
             index_capacity_evictions: 0,
+            rundown: None,
         };
 
         assert_eq!(idle.resolution_rate_pct(), 100.0);

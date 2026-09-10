@@ -224,6 +224,7 @@ impl IocEngine {
                     cgroup_id: None,
                     exec: Default::default(),
                     parent_process_id_derived: false,
+                    windows: Default::default(),
                     image: Some(path.to_string()),
                     image_source: None,
                     image_truncated: None,
@@ -265,7 +266,7 @@ mod tests {
             "example.com",
             IocMeta {
                 comment: None,
-                source: "test".to_string(),
+                source: "test".into(),
                 line: 1,
             },
         );
@@ -315,7 +316,7 @@ mod tests {
                 suffix,
                 IocMeta {
                     comment: None,
-                    source: "test".to_string(),
+                    source: "test".into(),
                     line: *line,
                 },
             );
@@ -408,7 +409,7 @@ mod tests {
             "0c2674c3a97c53082187d930efb645c2".to_string(),
             IocMeta {
                 comment: None,
-                source: "test".to_string(),
+                source: "test".into(),
                 line: 1,
             },
         );

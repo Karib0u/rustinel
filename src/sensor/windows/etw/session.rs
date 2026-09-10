@@ -220,14 +220,25 @@ pub(super) fn build_session(
             .add_callback(move |record, schema_locator| {
                 let decoded = decode_record(record, schema_locator, &state);
                 for event in decoded.replayed.into_iter().chain(decoded.primary) {
-                    // Blocking inside an ETW callback stalls the trace
-                    // session and loses events in the kernel buffer instead,
-                    // so overflow is shed. The telemetry counters record both
-                    // outcomes and emit the rate-limited cumulative warning.
-                    if let Err(TrySendError::Closed(_)) =
-                        crate::telemetry::try_send_sensor_event(&tx, event)
-                    {
-                        trace!("Sensor event channel closed; dropping ETW event");
+                    if !matches!(event.payload, crate::sensor::SensorPayload::Process(_)) {
+                        let _ = crate::telemetry::try_send_sensor_event(&tx, event);
+                        continue;
+                    }
+                    let mut correlation = state
+                        .process_correlation
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    let ready = correlation.manifest(event);
+                    for event in ready {
+                        // Blocking inside an ETW callback stalls the trace
+                        // session and loses events in the kernel buffer instead,
+                        // so overflow is shed. The telemetry counters record both
+                        // outcomes and emit the rate-limited cumulative warning.
+                        if let Err(TrySendError::Closed(_)) =
+                            crate::telemetry::try_send_sensor_event(&tx, event)
+                        {
+                            trace!("Sensor event channel closed; dropping ETW event");
+                        }
                     }
                 }
             });
@@ -285,6 +296,13 @@ impl EtwSensor {
         };
         let state = Arc::new(EtwState::with_process_identities(process_identities));
 
+        let _classic = super::classic::ClassicSession::start(
+            Arc::clone(&state),
+            tx.clone(),
+            Arc::clone(&self.loss_counters),
+            self.process_flush_interval_ms,
+        )?;
+
         let main_builder = build_session(
             TRACE_SESSION_NAME,
             session_properties(),
@@ -307,6 +325,7 @@ impl EtwSensor {
 
         request_registry_value_data();
         seed_registry_paths(&state);
+        super::file_rundown::seed(&state);
 
         // Dropping `main_trace` on this path stops the session it created, so
         // a half-started pair cannot be left behind for the next run to trip
@@ -323,6 +342,10 @@ impl EtwSensor {
 
         let loss_monitor = match super::super::loss::spawn(
             [
+                (
+                    super::classic::SESSION_NAME,
+                    super::super::loss::Session::Classic,
+                ),
                 (TRACE_SESSION_NAME, super::super::loss::Session::Main),
                 (
                     PROCESS_TRACE_SESSION_NAME,

@@ -1,5 +1,7 @@
-use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig};
+use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig, RegionReader};
 use anyhow::Result;
+use std::ops::ControlFlow;
+use std::time::Instant;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::Memory::{
@@ -37,7 +39,12 @@ fn is_executable(protect: PAGE_PROTECTION_FLAGS) -> bool {
     )
 }
 
-pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Vec<MemoryChunk>> {
+pub fn visit_process_memory_chunks(
+    pid: u32,
+    cfg: &MemoryScanConfig,
+    deadline: Option<Instant>,
+    mut visitor: impl FnMut(&MemoryChunk) -> ControlFlow<()>,
+) -> Result<()> {
     let handle = unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
@@ -54,16 +61,15 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
                 pid = pid,
                 "YARA memory: OpenProcess failed (process may have exited)"
             );
-            return Ok(Vec::new());
+            return Ok(());
         }
     };
 
-    let mut chunks = Vec::new();
+    let mut reader = RegionReader::new(cfg, deadline);
     let mut address: usize = 0;
-    let mut total_bytes: usize = 0;
 
     loop {
-        if total_bytes >= cfg.max_process_bytes {
+        if reader.is_done() {
             break;
         }
 
@@ -119,36 +125,6 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
             continue;
         }
 
-        let read_size = region_size
-            .min(cfg.max_region_bytes)
-            .min(cfg.max_process_bytes - total_bytes);
-
-        let mut buf = vec![0u8; read_size];
-        let mut bytes_read: usize = 0;
-
-        let ok = unsafe {
-            ReadProcessMemory(
-                handle,
-                region_base as *const _,
-                buf.as_mut_ptr() as *mut _,
-                read_size,
-                Some(&mut bytes_read),
-            )
-        };
-
-        if ok.is_err() || bytes_read == 0 {
-            tracing::trace!(
-                target: "scanner",
-                pid = pid,
-                base = format_args!("0x{:x}", region_base),
-                "YARA memory: ReadProcessMemory failed (normal for guard/exited process)"
-            );
-            continue;
-        }
-
-        buf.truncate(bytes_read);
-        total_bytes += bytes_read;
-
         let region = MemoryRegion {
             base: region_base as u64,
             size: region_size,
@@ -158,16 +134,43 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
             kind,
         };
 
-        chunks.push(MemoryChunk {
-            base: region_base as u64,
-            bytes: buf,
-            region,
-        });
+        if reader
+            .read_region(
+                region,
+                |buf| {
+                    let mut bytes_read = 0;
+                    let result = unsafe {
+                        ReadProcessMemory(
+                            handle,
+                            region_base as *const _,
+                            buf.as_mut_ptr() as *mut _,
+                            buf.len(),
+                            Some(&mut bytes_read),
+                        )
+                    };
+                    if result.is_err() || bytes_read == 0 {
+                        tracing::trace!(
+                            target: "scanner",
+                            pid = pid,
+                            base = format_args!("0x{:x}", region_base),
+                            "YARA memory: ReadProcessMemory failed (normal for guard/exited process)"
+                        );
+                        None
+                    } else {
+                        Some(bytes_read)
+                    }
+                },
+                &mut visitor,
+            )
+            .is_break()
+        {
+            break;
+        }
     }
 
     unsafe {
         let _ = CloseHandle(handle);
     }
 
-    Ok(chunks)
+    Ok(())
 }

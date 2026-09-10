@@ -1,7 +1,9 @@
-use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig};
+use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig, RegionReader};
 use anyhow::Result;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::ControlFlow;
+use std::time::Instant;
 
 struct MapsEntry {
     start: u64,
@@ -53,7 +55,12 @@ fn classify_region(path: Option<&str>) -> MemoryRegionKind {
     }
 }
 
-pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Vec<MemoryChunk>> {
+pub fn visit_process_memory_chunks(
+    pid: u32,
+    cfg: &MemoryScanConfig,
+    deadline: Option<Instant>,
+    mut visitor: impl FnMut(&MemoryChunk) -> ControlFlow<()>,
+) -> Result<()> {
     let maps_path = format!("/proc/{}/maps", pid);
     let mem_path = format!("/proc/{}/mem", pid);
 
@@ -66,7 +73,7 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
                 error = %err,
                 "YARA memory: cannot read /proc/<pid>/maps"
             );
-            return Ok(Vec::new());
+            return Ok(());
         }
     };
 
@@ -79,15 +86,14 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
                 error = %err,
                 "YARA memory: cannot open /proc/<pid>/mem"
             );
-            return Ok(Vec::new());
+            return Ok(());
         }
     };
 
-    let mut chunks = Vec::new();
-    let mut total_bytes: usize = 0;
+    let mut reader = RegionReader::new(cfg, deadline);
 
     for line in maps_content.lines() {
-        if total_bytes >= cfg.max_process_bytes {
+        if reader.is_done() {
             break;
         }
 
@@ -125,40 +131,6 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
         }
 
         let region_size = (entry.end - entry.start) as usize;
-        let read_size = region_size
-            .min(cfg.max_region_bytes)
-            .min(cfg.max_process_bytes - total_bytes);
-
-        if read_size == 0 {
-            break;
-        }
-
-        if mem_file.seek(SeekFrom::Start(entry.start)).is_err() {
-            continue;
-        }
-
-        let mut buf = vec![0u8; read_size];
-        let bytes_read = match mem_file.read(&mut buf) {
-            Ok(n) => n,
-            Err(err) => {
-                tracing::trace!(
-                    target: "scanner",
-                    pid = pid,
-                    base = format_args!("0x{:x}", entry.start),
-                    error = %err,
-                    "Unable to read memory region"
-                );
-                continue;
-            }
-        };
-
-        if bytes_read == 0 {
-            continue;
-        }
-
-        buf.truncate(bytes_read);
-        total_bytes += bytes_read;
-
         let region = MemoryRegion {
             base: entry.start,
             size: region_size,
@@ -168,12 +140,32 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
             kind,
         };
 
-        chunks.push(MemoryChunk {
-            base: entry.start,
-            bytes: buf,
-            region,
-        });
+        if reader
+            .read_region(
+                region,
+                |buf| {
+                    mem_file.seek(SeekFrom::Start(entry.start)).ok()?;
+                    match mem_file.read(buf) {
+                        Ok(bytes_read) => Some(bytes_read),
+                        Err(err) => {
+                            tracing::trace!(
+                                target: "scanner",
+                                pid = pid,
+                                base = format_args!("0x{:x}", entry.start),
+                                error = %err,
+                                "Unable to read memory region"
+                            );
+                            None
+                        }
+                    }
+                },
+                &mut visitor,
+            )
+            .is_break()
+        {
+            break;
+        }
     }
 
-    Ok(chunks)
+    Ok(())
 }

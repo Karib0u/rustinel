@@ -68,8 +68,8 @@ impl DocumentSources {
 
         // Preserve whether the source omitted the temporal condition before
         // the parser replaces that omission with its current default.
-        for document in serde_yaml::Deserializer::from_str(content) {
-            let value = serde_yaml::Value::deserialize(document)
+        for document in yaml_serde::Deserializer::from_str(content) {
+            let value = yaml_serde::Value::deserialize(document)
                 .context("Failed to inspect parsed Sigma document")?;
             let Some(correlation) = value.get("correlation") else {
                 continue;

@@ -49,6 +49,7 @@ pub(crate) fn telemetry_results(
     results.extend(file_attribution_results(&snapshot));
     results.extend(etw_decode_results(&snapshot));
 
+    results.extend(process_correlation_results(&snapshot));
     let dropping = snapshot.dropping_channels();
     if dropping.is_empty() {
         results.insert(
@@ -152,6 +153,35 @@ fn macos_collector_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult
                 results.push(DiagnosticResult::pass(id, detail));
             }
         }
+    }
+    results
+}
+
+fn process_correlation_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+    let correlation = &snapshot.windows_process_correlation;
+    if correlation.classic_records + correlation.unmatched + correlation.session_failures > 0 {
+        let detail = format!("matched={}, unmatched={}, conflicting={}, classic_unmatched={}, classic_command_line={}, rundown={}, decode_failed={}, session_failures={}",
+            correlation.matched, correlation.unmatched, correlation.conflicting,
+            correlation.classic_unmatched, correlation.classic_command_line, correlation.rundown,
+            correlation.decode_failed, correlation.session_failures);
+        results.push(
+            if correlation.conflicting
+                + correlation.unmatched
+                + correlation.session_failures
+                + correlation.classic_unmatched
+                + correlation.decode_failed
+                > 0
+            {
+                DiagnosticResult::warn(
+                    "windows_process_correlation",
+                    "Process metadata correlation has gaps or conflicts",
+                    detail,
+                )
+            } else {
+                DiagnosticResult::pass("windows_process_correlation", detail)
+            },
+        );
     }
     results
 }
@@ -355,10 +385,17 @@ fn file_attribution_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResul
         return Vec::new();
     };
 
-    // Writes through handles opened before the sensor started are unresolvable
-    // by construction, so a small residue is expected on any agent that has
-    // not been running long. The threshold is the registry one: below it, the
-    // gap is large enough to cost detections.
+    if let Some(rundown) = files.rundown.as_ref().filter(|r| r.rejected) {
+        return vec![DiagnosticResult::warn(
+            "file_path_attribution",
+            "File startup rundown was rejected; using live names only",
+            format!("{} records, {} events lost, {} buffers lost, {} decode failures, {} ms. {}",
+                rundown.records, rundown.events_lost, rundown.buffers_lost, rundown.decode_failed,
+                rundown.duration_ms, files.describe()),
+        ).with_fix("Check the agent log for the rundown failure and confirm administrator or SYSTEM rights")];
+    }
+
+    // A sustained gap below this target costs detections.
     const TARGET_RATE_PCT: f64 = 99.0;
 
     let rate = files.resolution_rate_pct();
@@ -374,9 +411,8 @@ fn file_attribution_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResul
          which is what a process holding many handles open looks like - see \
          docs/troubleshooting.md"
     } else {
-        "Those events reached no rule. Writes through handles opened before the agent started \
-         are expected here; a rate that stays low after a restart means naming events are being \
-         lost - see docs/troubleshooting.md"
+        "Those events reached no rule. Check the startup file rundown and ETW loss counters; \
+         a sustained gap can mean missing naming events - see docs/troubleshooting.md"
     };
 
     vec![DiagnosticResult::warn(
@@ -489,6 +525,27 @@ mod tests {
         LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, RegistrySnapshot,
     };
 
+    #[test]
+    fn doctor_reports_process_join_outcomes_separately() {
+        let mut report = snapshot(Vec::new());
+        assert!(process_correlation_results(&report).is_empty());
+        report.windows_process_correlation.classic_records = 10;
+        report.windows_process_correlation.matched = 10;
+        assert_eq!(
+            process_correlation_results(&report)[0].status,
+            DiagnosticStatus::Pass
+        );
+        report.windows_process_correlation.conflicting = 1;
+        assert_eq!(
+            process_correlation_results(&report)[0].status,
+            DiagnosticStatus::Warn
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["windows_process_correlation"]["matched"], 10);
+        assert_eq!(json["windows_process_correlation"]["conflicting"], 1);
+        assert_eq!(json["windows_process_correlation"]["unmatched"], 0);
+    }
+
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         TelemetrySnapshot {
             version: "1.3.0".to_string(),
@@ -499,6 +556,7 @@ mod tests {
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,
             macos_collectors: None,
+            windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,
             file_attribution: None,
@@ -684,6 +742,7 @@ mod tests {
             resolved_from_index: 0,
             unresolved,
             index_capacity_evictions: evictions,
+            rundown: None,
         }
     }
 
@@ -726,11 +785,28 @@ mod tests {
             .fix
             .as_deref()
             .expect("fix")
-            .contains("opened before the agent started"));
+            .contains("startup file rundown"));
     }
 
-    /// Evictions and unresolved events have different fixes, so the advice has
-    /// to name the one that is actually happening.
+    #[test]
+    fn rejected_rundown_warns_even_without_live_file_events() {
+        let mut snap = snapshot(vec![]);
+        let mut files = file_attribution(0, 0, 0);
+        files.rundown = Some(
+            serde_json::from_value(serde_json::json!({
+                "seeded":0, "records":0, "events_lost":100, "buffers_lost":0,
+                "decode_failed":0, "duration_ms":30, "path_bytes":0,
+                "index_capacity":0, "rejected":true,
+            }))
+            .unwrap(),
+        );
+        snap.file_attribution = Some(files);
+        assert_eq!(
+            file_attribution_results(&snap)[0].status,
+            DiagnosticStatus::Warn
+        );
+    }
+
     #[test]
     fn index_evictions_change_the_suggested_fix() {
         let mut snap = snapshot(vec![channel("sensor_events", 10, 0)]);

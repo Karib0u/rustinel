@@ -1,7 +1,10 @@
 //! Windows ETW sensor lifecycle and public interface.
 
+mod classic;
 mod decode;
+mod file_rundown;
 mod parser;
+mod process;
 mod providers;
 mod routing;
 mod session;
@@ -63,7 +66,7 @@ impl EtwSensor {
         self.shutdown.load(Ordering::Relaxed)
     }
 
-    /// Cumulative kernel-buffer loss across both ETW sessions.
+    /// Cumulative kernel-buffer loss across all ETW sessions.
     pub fn events_lost(&self) -> u64 {
         self.loss_counters.total()
     }

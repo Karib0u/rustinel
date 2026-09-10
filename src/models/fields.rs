@@ -117,6 +117,20 @@ pub struct LinuxProcessIdentity {
     pub kernel_start_boottime: Option<u64>,
 }
 
+/// Windows creation source evidence, retained through recording and ECS output.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WindowsProcessMetadata {
+    pub command_line_source: Option<String>,
+    pub conflicting_live_command_line: Option<String>,
+    /// Original creation-time value when detection uses the longer live value.
+    pub classic_command_line: Option<String>,
+    /// The observed Windows source limit was reached; completeness is unknown.
+    #[serde(default)]
+    pub command_line_may_be_truncated: bool,
+    pub user_sid: Option<String>,
+    pub session_id: Option<u32>,
+}
+
 /// Process creation/access event fields (Sigma: process_creation, process_access)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessCreationFields {
@@ -187,6 +201,12 @@ pub struct ProcessCreationFields {
     /// Internal fidelity marker consumed by normalization.
     #[serde(skip)]
     pub parent_process_id_derived: bool,
+    #[serde(
+        default,
+        rename = "WindowsProcessMetadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub windows: Option<Box<WindowsProcessMetadata>>,
 }
 
 /// File event fields (Sigma: file_access, file_delete, file_event)

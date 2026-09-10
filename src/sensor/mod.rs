@@ -328,6 +328,7 @@ mod tests {
             cgroup_id: None,
             exec: Default::default(),
             parent_process_id_derived: false,
+            windows: Default::default(),
             image: Some("/usr/bin/bash".to_string()),
             image_source: None,
             image_truncated: None,
