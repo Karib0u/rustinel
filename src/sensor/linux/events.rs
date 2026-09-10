@@ -544,6 +544,7 @@ pub mod mapping {
             process_start_key: process_start_key(event.pid, event.process_start_time),
             parent_process_start_key: None,
             payload: SensorPayload::Dns(DnsQueryFields {
+                user: None,
                 query_name: Some(bytes_to_string(&event.query_name)),
                 query_results: Some(bytes_to_string(&event.query_results)),
                 record_type: Some(bytes_to_string(&event.record_type)),

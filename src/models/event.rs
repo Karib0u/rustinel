@@ -308,6 +308,7 @@ impl NormalizedEvent {
                 _ => None,
             },
             EventFields::DnsQuery(f) => match key {
+                "User" => f.user.as_deref(),
                 "query" => f.query_name.as_deref(),
                 "answer" => f.query_results.as_deref(),
                 "record_type" => f.record_type.as_deref(),

@@ -239,6 +239,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 22,
                 0,
                 EventFields::DnsQuery(DnsQueryFields {
+                    user: None,
                     query_name: Some("example.test".to_string()),
                     query_results: Some("198.51.100.10 198.51.100.10".to_string()),
                     record_type: Some("A".to_string()),

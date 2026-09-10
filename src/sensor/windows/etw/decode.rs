@@ -782,6 +782,7 @@ pub(super) fn decode_network(parser: &Parser, record: &EventRecord) -> Option<De
 pub(super) fn decode_dns(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::dns_query_mappings();
     let fields = DnsQueryFields {
+        user: None,
         query_name: try_get_string(parser, mappings.get_etw_field("QueryName")?),
         query_results: try_get_string(parser, mappings.get_etw_field("QueryResults")?),
         record_type: None,

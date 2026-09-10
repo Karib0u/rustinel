@@ -629,6 +629,7 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<Sens
         process_start_key: None,
         parent_process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
+            user: None,
             query_name: Some(query_name),
             query_results: None,
             record_type: record_type_name(qtype).map(str::to_string),

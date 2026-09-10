@@ -865,7 +865,10 @@ mod tests {
         assert_eq!(normalized.get_field("ParentImage"), Some("/sbin/launchd"));
         assert_eq!(normalized.get_field("PreExecImage"), Some("/bin/bash"));
         assert_eq!(normalized.get_field("Image"), Some("/bin/sh"));
-        assert_eq!(normalized.get_field("User"), Some("0"));
+        assert_eq!(normalized.get_field("User"), Some("root"));
+        assert!(normalized.provenance.entries().iter().any(
+            |entry| entry.field == "User" && entry.fidelity == crate::models::Fidelity::Derived
+        ));
         assert_eq!(normalized.get_field("RealUserId"), Some("501"));
         assert_eq!(normalized.get_field("Script"), Some("/tmp/payload.sh"));
         assert_eq!(normalized.get_field("SignatureStatus"), Some("valid"));

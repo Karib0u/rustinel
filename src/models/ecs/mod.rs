@@ -241,6 +241,7 @@ impl From<&Alert> for EcsAlert {
                 }
             }
             EventFields::DnsQuery(f) => {
+                apply_user_fields(&mut ecs, f.user.as_deref());
                 ecs.dns_query = f.query_name.clone();
                 if let Some(results) = &f.query_results {
                     ecs.dns_answers = Some(vec![DnsAnswer {
@@ -838,6 +839,7 @@ mod tests {
                 event_id_string: "22".to_string(),
                 opcode: 0,
                 fields: EventFields::DnsQuery(DnsQueryFields {
+                    user: None,
                     query_name: Some("example.com".to_string()),
                     query_results: Some("1.1.1.1".to_string()),
                     record_type: Some("A".to_string()),

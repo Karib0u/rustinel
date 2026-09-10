@@ -293,6 +293,7 @@ mod tests {
             event_id_string: "22".to_string(),
             opcode: 0,
             fields: EventFields::DnsQuery(crate::models::DnsQueryFields {
+                user: None,
                 query_name: Some("foo.example.com".to_string()),
                 query_results: None,
                 record_type: None,
@@ -346,6 +347,7 @@ mod tests {
             event_id_string: "22".to_string(),
             opcode: 0,
             fields: EventFields::DnsQuery(crate::models::DnsQueryFields {
+                user: None,
                 query_name: Some(query_name.to_string()),
                 query_results: None,
                 record_type: None,
