@@ -15,7 +15,13 @@ on:
       - flake.lock
       - nix/**
       - .github/workflows/nix.yml
-  workflow_call:
+  # The paths filters above mean a release never triggers this workflow, so a
+  # stale release pin in nix/package.nix cannot fail a push or a PR. The
+  # scheduled run is what actually surfaces that drift; it lands on Mondays
+  # alongside the weekly dependabot run.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -41,7 +47,35 @@ jobs:
       # builds the native package, fetches + verifies the aarch64 release
       # archive's SRI hash using the local stdenv's fetchurl (no QEMU), and
       # runs a --version smoke test. A single step covers everything; no Rust
-      # change can affect the flake (paths filter scopes this workflow to
-      # flake.* / nix/** / this file).
+      # change can affect the flake (the paths filters scope the push / PR
+      # triggers to flake.* / nix/** / this file).
       - name: Check flake
         run: nix flake check
+
+  release-pin:
+    name: release pin freshness
+    runs-on: ubuntu-latest
+    # Scheduled / manual only. On a PR the pin is legitimately allowed to trail
+    # a tag that has not shipped yet, so gating merges on it would be wrong.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Compare nix/package.nix against the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pinned="$(sed -n 's/^  version = "\(.*\)";$/\1/p' nix/package.nix)"
+          if [ -z "$pinned" ]; then
+            echo "::error file=nix/package.nix::could not read the pinned version"
+            exit 1
+          fi
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          latest="${latest#v}"
+          echo "nix/package.nix pins $pinned; latest release is $latest"
+          if [ "$pinned" != "$latest" ]; then
+            echo "::error file=nix/package.nix::pins $pinned but the latest release is $latest. Bump version and both SRI hashes as described in the header comment of nix/package.nix."
+            exit 1
+          fi
