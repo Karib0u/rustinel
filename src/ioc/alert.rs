@@ -27,8 +27,8 @@ pub(crate) fn build_match(
         kind,
         indicator: indicator.to_string(),
         observed: observed.to_string(),
-        comment: meta.comment.clone(),
-        source: meta.source.clone(),
+        comment: meta.comment.as_deref().map(str::to_owned),
+        source: meta.source.to_string(),
         line: meta.line,
     }
 }

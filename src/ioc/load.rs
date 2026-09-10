@@ -2,9 +2,11 @@ use super::types::{DomainIocs, HashIocs, IocMeta, IpIocs, PathIocs};
 use crate::models::AlertSeverity;
 use ipnetwork::IpNetwork;
 use regex::{Regex, RegexSetBuilder};
+use std::collections::HashSet;
 use std::fs;
 use std::net::IpAddr;
 use std::path::Path;
+use std::sync::Arc;
 use tracing::{info, warn};
 
 pub(crate) fn parse_severity(value: &str) -> AlertSeverity {
@@ -24,14 +26,24 @@ pub(crate) fn parse_severity(value: &str) -> AlertSeverity {
     }
 }
 
-fn split_value_and_comment(line: &str) -> (String, Option<String>) {
+fn split_value_and_comment(line: &str) -> (&str, Option<&str>) {
     let mut parts = line.splitn(2, ';');
-    let value = parts.next().unwrap_or("").trim().to_string();
-    let comment = parts
-        .next()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty());
+    let value = parts.next().unwrap_or("").trim();
+    let comment = parts.next().map(str::trim).filter(|v| !v.is_empty());
     (value, comment)
+}
+
+// Scoped to one file load: the temporary index is dropped after loading, while
+// metadata retains the shared strings. Reloads do not retain obsolete comments.
+fn intern_comment(comment: Option<&str>, comments: &mut HashSet<Arc<str>>) -> Option<Arc<str>> {
+    comment.map(|text| {
+        if let Some(shared) = comments.get(text) {
+            return Arc::clone(shared);
+        }
+        let shared: Arc<str> = Arc::from(text);
+        comments.insert(Arc::clone(&shared));
+        shared
+    })
 }
 
 fn should_skip_line(line: &str) -> bool {
@@ -61,7 +73,8 @@ fn read_lines(path: &Path) -> Vec<(usize, String)> {
 
 pub(crate) fn load_hashes(path: &Path) -> HashIocs {
     let mut iocs = HashIocs::default();
-    let source = path.display().to_string();
+    let source: Arc<str> = Arc::from(path.display().to_string());
+    let mut comments = HashSet::new();
 
     for (line_no, line) in read_lines(path) {
         let line = line.trim();
@@ -77,8 +90,8 @@ pub(crate) fn load_hashes(path: &Path) -> HashIocs {
 
         let normalized = value.to_ascii_lowercase();
         let meta = IocMeta {
-            comment,
-            source: source.clone(),
+            comment: intern_comment(comment, &mut comments),
+            source: Arc::clone(&source),
             line: line_no,
         };
 
@@ -128,7 +141,8 @@ pub(crate) fn load_hashes(path: &Path) -> HashIocs {
 
 pub(crate) fn load_ips(path: &Path) -> IpIocs {
     let mut iocs = IpIocs::default();
-    let source = path.display().to_string();
+    let source: Arc<str> = Arc::from(path.display().to_string());
+    let mut comments = HashSet::new();
 
     for (line_no, line) in read_lines(path) {
         let line = line.trim();
@@ -143,8 +157,8 @@ pub(crate) fn load_ips(path: &Path) -> IpIocs {
         }
 
         let meta = IocMeta {
-            comment,
-            source: source.clone(),
+            comment: intern_comment(comment, &mut comments),
+            source: Arc::clone(&source),
             line: line_no,
         };
 
@@ -193,7 +207,8 @@ fn is_hex(value: &str) -> bool {
 
 pub(crate) fn load_domains(path: &Path) -> DomainIocs {
     let mut iocs = DomainIocs::default();
-    let source = path.display().to_string();
+    let source: Arc<str> = Arc::from(path.display().to_string());
+    let mut comments = HashSet::new();
 
     for (line_no, line) in read_lines(path) {
         let line = line.trim();
@@ -208,8 +223,8 @@ pub(crate) fn load_domains(path: &Path) -> DomainIocs {
         }
 
         let meta = IocMeta {
-            comment,
-            source: source.clone(),
+            comment: intern_comment(comment, &mut comments),
+            source: Arc::clone(&source),
             line: line_no,
         };
 
@@ -248,7 +263,8 @@ pub(crate) fn load_domains(path: &Path) -> DomainIocs {
 
 pub(crate) fn load_path_regexes(path: &Path) -> PathIocs {
     let mut iocs = PathIocs::default();
-    let source = path.display().to_string();
+    let source: Arc<str> = Arc::from(path.display().to_string());
+    let mut comments = HashSet::new();
     let mut patterns = Vec::new();
 
     for (line_no, line) in read_lines(path) {
@@ -278,8 +294,8 @@ pub(crate) fn load_path_regexes(path: &Path) -> PathIocs {
         iocs.patterns.push((
             value.to_string(),
             IocMeta {
-                comment,
-                source: source.clone(),
+                comment: intern_comment(comment, &mut comments),
+                source: Arc::clone(&source),
                 line: line_no,
             },
         ));
@@ -308,4 +324,66 @@ pub(crate) fn load_path_regexes(path: &Path) -> PathIocs {
     );
 
     iocs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_shared(first: &IocMeta, second: &IocMeta) {
+        assert!(Arc::ptr_eq(&first.source, &second.source));
+        assert!(Arc::ptr_eq(
+            first.comment.as_ref().expect("first comment"),
+            second.comment.as_ref().expect("second comment"),
+        ));
+        assert_eq!(first.comment.as_deref(), Some("repeated; detail"));
+        assert_ne!(first.line, second.line);
+    }
+
+    #[test]
+    fn loaders_share_source_and_repeated_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("feed.txt");
+        fs::write(&path, "# header\nexact.test; repeated; detail\n*.wild.test; repeated; detail\n.wild.test; other\nempty.test; \nnone.test\n").unwrap();
+        let domains = load_domains(&path);
+        let exact = &domains.exact["exact.test"];
+        let suffixes: Vec<_> = domains.suffix.lookup("wild.test").collect();
+        assert_shared(exact, suffixes[0].1);
+        assert_eq!(exact.source.as_ref(), path.display().to_string());
+        assert_eq!(exact.line, 2);
+        assert_eq!(suffixes[0].1.line, 3);
+        assert_eq!(suffixes[1].1.line, 4);
+        assert_eq!(suffixes[1].1.comment.as_deref(), Some("other"));
+        assert!(Arc::ptr_eq(&exact.source, &suffixes[1].1.source));
+        for name in ["empty.test", "none.test"] {
+            assert!(domains.exact[name].comment.is_none());
+            assert!(Arc::ptr_eq(&exact.source, &domains.exact[name].source));
+        }
+
+        fs::write(
+            &path,
+            "192.0.2.1; repeated; detail\n192.0.2.0/24; repeated; detail\n",
+        )
+        .unwrap();
+        let ips = load_ips(&path);
+        assert_shared(&ips.exact[&"192.0.2.1".parse().unwrap()], &ips.cidr[0].1);
+
+        fs::write(&path, "a{2}; repeated; detail\nb{2}; repeated; detail\n").unwrap();
+        let paths = load_path_regexes(&path);
+        assert_shared(&paths.patterns[0].1, &paths.patterns[1].1);
+
+        let md5 = "a".repeat(32);
+        let sha1 = "b".repeat(40);
+        let sha256 = "c".repeat(64);
+        fs::write(
+            &path,
+            format!(
+                "{md5}; repeated; detail\n{sha1}; repeated; detail\n{sha256}; repeated; detail\n"
+            ),
+        )
+        .unwrap();
+        let hashes = load_hashes(&path);
+        assert_shared(&hashes.md5[&md5], &hashes.sha1[&sha1]);
+        assert_shared(&hashes.md5[&md5], &hashes.sha256[&sha256]);
+    }
 }
