@@ -49,10 +49,10 @@
 }:
 
 let
-  version = "1.3.0";
+  version = "1.6.0";
   hashes = {
-    x86_64-linux = "sha256-Co3Pn9PyiFn7MDPA8wV2RttdmvvlEFjVHpCZwPBuFV0=";
-    aarch64-linux = "sha256-DhV5OkCSBnHckq2cAeEjC7PwCtJU3+uorVJtHcWPNYM=";
+    x86_64-linux = "sha256-MwzxaMGfpNFflOrSU6u1DZ1Yel+V3YdN6NUhJLdRktA=";
+    aarch64-linux = "sha256-tXawq8vTlfPaL2SBxCoicgpgUfwquYjXuKUnEKqcLXg=";
   };
   archMap = {
     x86_64-linux = "x86_64-unknown-linux-musl";
@@ -107,12 +107,11 @@ stdenv.mkDerivation {
     # future third occurrence would be swept up silently — revisit if the
     # config grows another `directory = "logs"` field.
     #
-    # The `directory = "captures"` substitution uses `--replace` (non-failing):
-    # the [capture] section was added to the repo config after the v1.3.0 tag,
-    # so the v1.3.0 release archive does not contain it. `--replace` no-ops
-    # on archives without the section and rewrites it on releases that ship
-    # it, keeping the package forward-compatible without breaking the current
-    # build.
+    # `directory = "captures"` was added to the bundled config after the v1.3.0
+    # tag and ships in every release the package has pinned since, so it is
+    # `--replace-fail` like the rest: a release that stopped shipping the
+    # [capture] section should break the build rather than silently leave
+    # captures pointing at a relative path inside the read-only store.
     install -Dm644 config.toml $out/share/rustinel/config.toml
     substituteInPlace $out/share/rustinel/config.toml \
       --replace-fail 'sigma_rules_path = "rules/sigma"' \
@@ -129,8 +128,8 @@ stdenv.mkDerivation {
                      'paths_regex_path = "'"$out"'/share/rustinel/rules/ioc/paths_regex.txt"' \
       --replace-fail 'directory = "logs"' \
                      'directory = "'${logDir}'"' \
-      --replace 'directory = "captures"' \
-                'directory = "'${captureDir}'"'
+      --replace-fail 'directory = "captures"' \
+                     'directory = "'${captureDir}'"'
 
     # Unmodified bundled config for reference / customization.
     install -Dm644 config.toml $out/share/rustinel/config.example.toml
