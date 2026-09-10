@@ -14,42 +14,29 @@ fn now_secs() -> u64 {
 #[derive(Debug, Clone)]
 pub struct ProcessMetadata {
     pub image_name: String,
-    #[allow(dead_code)]
     pub command_line: Option<String>,
-    #[allow(dead_code)]
     pub user: Option<String>,
     /// Platform-native process execution identity paired with the PID.
-    #[allow(dead_code)]
     pub creation_time: u64,
     /// Parent process ID
-    #[allow(dead_code)]
     pub parent_pid: Option<u32>,
     /// Parent process image name (enriched at creation time)
-    #[allow(dead_code)]
     pub parent_image: Option<String>,
     /// Parent process command line (enriched at creation time)
-    #[allow(dead_code)]
     pub parent_command_line: Option<String>,
     /// PE metadata: Original filename from version info
-    #[allow(dead_code)]
     pub original_filename: Option<String>,
     /// PE metadata: Product name
-    #[allow(dead_code)]
     pub product: Option<String>,
     /// PE metadata: File description
-    #[allow(dead_code)]
     pub description: Option<String>,
     /// PE metadata: Company name
-    #[allow(dead_code)]
     pub company: Option<String>,
     /// PE metadata: File version
-    #[allow(dead_code)]
     pub file_version: Option<String>,
     /// Process working directory
-    #[allow(dead_code)]
     pub current_directory: Option<String>,
     /// Process integrity level
-    #[allow(dead_code)]
     pub integrity_level: Option<String>,
 }
 
@@ -191,7 +178,6 @@ impl ProcessCache {
 
     /// Get full metadata for a given compound key (PID, CreationTime)
     /// This is the precise lookup method that avoids PID reuse issues
-    #[allow(dead_code)]
     pub fn get_metadata_by_key(&self, pid: u32, creation_time: u64) -> Option<ProcessMetadata> {
         let cache = self.cache.read().unwrap();
         if let Some(meta) = cache.get(&(pid, creation_time)) {
@@ -209,7 +195,6 @@ impl ProcessCache {
     }
 
     /// Get the current count of cached processes
-    #[allow(dead_code)]
     pub fn count(&self) -> usize {
         let cache = self.cache.read().unwrap();
         cache.len()

@@ -61,7 +61,6 @@ impl DnsCache {
     }
 
     /// Return current cache size (primarily for tests/metrics)
-    #[allow(dead_code)]
     pub fn count(&self) -> usize {
         let cache = self.cache.read().unwrap();
         cache.len()

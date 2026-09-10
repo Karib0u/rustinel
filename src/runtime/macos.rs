@@ -76,10 +76,10 @@ async fn run_macos_edr(
         _guards,
     } = RuntimeLogging::start(&cfg, "macOS ESF");
 
-    // 3. Shared state
+    // Shared state
     let state = SharedState::new(&cfg);
 
-    // 4. Active response engine
+    // Active response engine
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
 
@@ -93,7 +93,7 @@ async fn run_macos_edr(
         response_engine.clone(),
     );
 
-    // 13. macOS sensors: Endpoint Security (process/file) and bpf (network/DNS)
+    // macOS sensors: Endpoint Security (process/file) and bpf (network/DNS)
     let esf_sensor = Arc::new(EsfSensor::new());
     let bpf_sensor = Arc::new(BpfSensor::new());
 
@@ -126,7 +126,7 @@ async fn run_macos_edr(
         );
     }
 
-    // 14. Wait for Ctrl+C
+    // Wait for Ctrl+C
     match tokio::signal::ctrl_c().await {
         Ok(()) => info!(target: TARGET_CONSOLE, "Received Ctrl+C, shutting down"),
         Err(e) => error!("Failed to listen for Ctrl+C: {}", e),

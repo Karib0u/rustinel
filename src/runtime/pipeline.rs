@@ -63,7 +63,7 @@ impl LivePipeline {
             Platform::MacOS => "esf",
             Platform::Windows => "etw",
         };
-        // 5. Sigma engine
+        // Sigma engine
         let mut sigma_engine =
             Engine::new_for_platform_with_match_debug(platform, cfg.alerts.match_debug);
 
@@ -100,7 +100,7 @@ impl LivePipeline {
         }
         let sigma_engine = Arc::new(sigma_engine);
 
-        // 6. YARA scanner
+        // YARA scanner
         let yara_scanner = if cfg.scanner.yara_enabled {
             match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
                 .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
@@ -122,7 +122,7 @@ impl LivePipeline {
         let yara_allowlist_paths =
             scanner::normalize_allowlist_paths(&cfg.scanner.yara_allowlist_paths);
 
-        // 7. IOC engine
+        // IOC engine
         let ioc_engine = Arc::new(IocEngine::load(&cfg.ioc));
         if ioc_engine.is_enabled() {
             let stats = ioc_engine.stats();
@@ -142,7 +142,7 @@ impl LivePipeline {
             info!(target: TARGET_CONSOLE, "IOC detection disabled by configuration");
         }
 
-        // 8. Detector store + hot-reload
+        // Detector store + hot-reload
         let detectors = DetectorStore::new(
             Arc::clone(&sigma_engine),
             Arc::clone(&yara_scanner),
@@ -174,7 +174,7 @@ impl LivePipeline {
             reload_tx = Some(tx);
         }
 
-        // 9. YARA background worker
+        // YARA background worker
         let (yara_tx, yara_worker_handle) = if cfg.scanner.yara_enabled {
             let (tx, rx) = mpsc::channel::<crate::scanner::FileScanTarget>(1000);
             let handle = runtime_yara::spawn_yara_file_worker(
@@ -225,7 +225,7 @@ impl LivePipeline {
             None
         };
 
-        // 10. IOC hash background worker
+        // IOC hash background worker
         let (ioc_hash_tx, ioc_hash_worker_handle) = if ioc_engine.is_enabled() {
             let (hash_tx, hash_rx) = mpsc::channel::<crate::scanner::FileScanTarget>(1000);
             let handle = runtime_ioc::spawn_ioc_hash_worker(
@@ -241,14 +241,14 @@ impl LivePipeline {
             (None, None)
         };
 
-        // 11. Normalizer
+        // Normalizer
         let normalizer = Arc::new(Normalizer::new(
             Arc::clone(&state.process_cache),
             Arc::clone(&state.sid_cache),
             Arc::clone(&state.dns_cache),
         ));
 
-        // 12. Detection handlers + router
+        // Detection handlers + router
         let sigma_handler = NormalizedEventHandler::detecting(
             Arc::clone(&normalizer),
             DetectionPipeline {
