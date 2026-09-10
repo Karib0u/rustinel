@@ -149,6 +149,7 @@ fn snapshot_with(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         channels,
         sensor_events_by_category: Vec::new(),
         linux_ebpf: None,
+        macos_collectors: None,
         windows_event_log: Vec::new(),
         windows_process_correlation: Default::default(),
         windows_process_command_line: None,
@@ -188,7 +189,7 @@ fn doctor_quantifies_dropped_telemetry_without_reading_logs() {
     assert_eq!(check["status"], "warn");
     let message = check["message"].as_str().expect("message");
     assert!(
-        message.contains("12600 events were dropped"),
+        message.contains("12600 events were shed by pipeline channels"),
         "doctor should total the loss: {message}"
     );
     let detail = check["detail"].as_str().expect("detail");
@@ -223,7 +224,7 @@ fn doctor_confirms_when_no_telemetry_was_lost() {
     assert!(check["message"]
         .as_str()
         .expect("message")
-        .contains("No pipeline queue drops across 250000 events"));
+        .contains("No pipeline channel drops across 250000 events"));
 }
 
 /// An endpoint where the agent has never run must not look like a failure.

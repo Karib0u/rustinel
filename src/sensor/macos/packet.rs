@@ -7,7 +7,9 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// Link-layer header types reported by `BIOCGDLT`.
-const DLT_NULL: u32 = 0;
+pub(super) const DLT_NULL: u32 = 0;
+pub(super) const DLT_RAW: u32 = 12;
+pub(super) const DLT_LOOP: u32 = 108;
 pub(super) const DLT_EN10MB: u32 = 1;
 
 const ETHERTYPE_IPV4: u16 = 0x0800;
@@ -30,6 +32,7 @@ pub(super) enum Transport<'a> {
         payload: &'a [u8],
     },
     Udp {
+        src_port: u16,
         dst_port: u16,
         payload: &'a [u8],
     },
@@ -48,12 +51,17 @@ pub(super) fn parse(link_type: u32, frame: &[u8]) -> Option<ParsedPacket<'_>> {
     parse_ip(l3)
 }
 
+pub(super) fn supports_link_type(link_type: u32) -> bool {
+    matches!(link_type, DLT_NULL | DLT_LOOP | DLT_RAW | DLT_EN10MB)
+}
+
 /// Strip the link-layer header and return the network-layer (L3) bytes.
 fn strip_link_layer(link_type: u32, frame: &[u8]) -> Option<&[u8]> {
     match link_type {
         // Loopback/null: a 4-byte address-family prefix. The IP version nibble
         // disambiguates v4/v6, so the family value itself is not needed.
-        DLT_NULL => frame.get(4..),
+        DLT_NULL | DLT_LOOP => frame.get(4..),
+        DLT_RAW => Some(frame),
         DLT_EN10MB => {
             let ethertype = u16::from_be_bytes([*frame.get(12)?, *frame.get(13)?]);
             match ethertype {
@@ -142,6 +150,7 @@ fn parse_transport(protocol: u8, l4: &[u8]) -> Option<Transport<'_>> {
                 return None;
             }
             Some(Transport::Udp {
+                src_port: u16::from_be_bytes([l4[0], l4[1]]),
                 dst_port: u16::from_be_bytes([l4[2], l4[3]]),
                 payload: l4.get(8..).unwrap_or(&[]),
             })
@@ -231,7 +240,9 @@ mod tests {
         let frame = ethernet_ipv4_udp(53, &[0xab, 0xcd]);
         let parsed = parse(DLT_EN10MB, &frame).expect("udp frame should parse");
         match parsed.transport {
-            Transport::Udp { dst_port, payload } => {
+            Transport::Udp {
+                dst_port, payload, ..
+            } => {
                 assert_eq!(dst_port, 53);
                 assert_eq!(payload, &[0xab, 0xcd]);
             }
@@ -262,5 +273,31 @@ mod tests {
         frame[12..14].copy_from_slice(&ETHERTYPE_IPV4.to_be_bytes());
         frame.extend_from_slice(&[0x45, 0, 0]); // partial IPv4 header
         assert!(parse(DLT_EN10MB, &frame).is_none());
+    }
+    #[test]
+    fn parses_raw_and_loop_ipv4_and_ipv6() {
+        let ethernet = ethernet_ipv4_tcp([127, 0, 0, 1], [127, 0, 0, 1], 51000, 53, TCP_FLAG_SYN);
+        let ipv4 = &ethernet[14..];
+        let mut ipv6 = vec![0u8; 40];
+        ipv6[0] = 0x60;
+        ipv6[6] = IPPROTO_TCP;
+        ipv6.extend_from_slice(&ethernet[34..]);
+        for ip in [ipv4, ipv6.as_slice()] {
+            assert!(parse(DLT_RAW, ip).is_some());
+            for dlt in [DLT_NULL, DLT_LOOP] {
+                let family = if ip[0] >> 4 == 4 { 2u32 } else { 30u32 };
+                let prefix = if dlt == DLT_NULL {
+                    family.to_ne_bytes()
+                } else {
+                    family.to_be_bytes()
+                };
+                let mut frame = prefix.to_vec();
+                frame.extend_from_slice(ip);
+                assert!(parse(dlt, &frame).is_some());
+                assert!(parse(dlt, &frame[..3]).is_none());
+            }
+        }
+        assert!(parse(DLT_RAW, &[]).is_none());
+        assert!(parse(DLT_RAW, &[0xff; 64]).is_none());
     }
 }

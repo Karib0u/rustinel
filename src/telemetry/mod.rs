@@ -13,9 +13,11 @@
 //! answer to "did we lose telemetry?" is a command, not a log search.
 
 pub(crate) mod event_log;
+pub(crate) mod macos;
 pub use event_log::EventLogSnapshot;
 mod process_correlation;
 mod snapshot;
+pub use macos::{BpfInterfaceSnapshot, BpfSnapshot, EsfSnapshot, MacosCollectorSnapshot};
 pub use process_correlation::{ProcessCorrelationSnapshot, WINDOWS_PROCESS_CORRELATION};
 
 use std::collections::HashMap;
