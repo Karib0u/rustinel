@@ -708,7 +708,12 @@ fn atomic_replace_active(
     }
     if state.exists() {
         if let Err(err) = fs::rename(&state, &previous_state) {
-            restore_previous(&current, &state, &previous_current, &previous_state);
+            // State never moved, so only restore the rules directory. The backup
+            // state path may be a stale entry that caused the rename to fail.
+            if previous_current.exists() {
+                fs::rename(&previous_current, &current)
+                    .context("restore current rules after state backup failure")?;
+            }
             return Err(err).context("move current rules state");
         }
     }

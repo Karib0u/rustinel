@@ -373,8 +373,12 @@ fn state_backup_failure_restores_current_directory() {
     let blocked = temp.path().join("staging/previous-state.json");
     fs::create_dir(&blocked).unwrap();
     fs::write(blocked.join("blocker"), b"blocker").unwrap();
-    assert!(install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive).is_err());
+    let error = install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive)
+        .expect_err("state backup must fail");
+    assert!(error.to_string().contains("move current rules state"));
     assert!(temp.path().join("current/sigma/demo.yml").is_file());
+    assert!(temp.path().join("state.json").is_file());
+    assert_eq!(fs::read(blocked.join("blocker")).unwrap(), b"blocker");
     assert_eq!(
         fs::read(temp.path().join("state.json")).unwrap(),
         previous_state
