@@ -44,12 +44,14 @@ impl PropertiesBuffer {
 pub(super) enum Session {
     Main,
     Process,
+    Classic,
 }
 
 #[derive(Debug)]
 pub(super) struct LossCounters {
     main: AtomicU64,
     process: AtomicU64,
+    classic: AtomicU64,
     warnings: Mutex<LogRateLimiter>,
 }
 
@@ -58,6 +60,7 @@ impl LossCounters {
         Self {
             main: AtomicU64::new(0),
             process: AtomicU64::new(0),
+            classic: AtomicU64::new(0),
             warnings: Mutex::new(LogRateLimiter::new(LOSS_LOG_WINDOW)),
         }
     }
@@ -66,11 +69,13 @@ impl LossCounters {
         self.main
             .load(Ordering::Relaxed)
             .saturating_add(self.process.load(Ordering::Relaxed))
+            .saturating_add(self.classic.load(Ordering::Relaxed))
     }
 
     pub(super) fn reset(&self) {
         self.main.store(0, Ordering::Relaxed);
         self.process.store(0, Ordering::Relaxed);
+        self.classic.store(0, Ordering::Relaxed);
         match self.warnings.lock() {
             Ok(mut limiter) => *limiter = LogRateLimiter::new(LOSS_LOG_WINDOW),
             Err(poisoned) => {
@@ -83,6 +88,7 @@ impl LossCounters {
         let counter = match session {
             Session::Main => &self.main,
             Session::Process => &self.process,
+            Session::Classic => &self.classic,
         };
         let previous = counter.fetch_max(events_lost, Ordering::Relaxed);
         if events_lost <= previous {
@@ -105,15 +111,15 @@ impl LossCounters {
     }
 }
 
-pub(super) fn spawn(
-    sessions: [(&'static str, Session); 2],
+pub(super) fn spawn<const N: usize>(
+    sessions: [(&'static str, Session); N],
     shutdown: Arc<AtomicBool>,
     counters: Arc<LossCounters>,
 ) -> Result<JoinHandle<()>> {
     thread::Builder::new()
         .name("etw-loss".into())
         .spawn(move || {
-            let mut query_warned = [false; 2];
+            let mut query_warned = [false; N];
             while !shutdown.load(Ordering::Relaxed) {
                 thread::sleep(POLL_INTERVAL);
                 if shutdown.load(Ordering::Relaxed) {
@@ -150,6 +156,14 @@ pub(super) fn stop_and_record(
 }
 
 fn query(session_name: &str, control: EVENT_TRACE_CONTROL) -> Result<u64> {
+    query_with_buffer_loss(session_name, control).map(|(events, _)| events)
+}
+
+/// Real-time buffer loss is separate from EventsLost and can occur at STOP.
+pub(super) fn query_with_buffer_loss(
+    session_name: &str,
+    control: EVENT_TRACE_CONTROL,
+) -> Result<(u64, u64)> {
     let name: Vec<u16> = session_name
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -178,7 +192,10 @@ fn query(session_name: &str, control: EVENT_TRACE_CONTROL) -> Result<u64> {
 
     // ETW exposes a 32-bit per-session counter. Widen before combining the two
     // sessions so their cumulative total cannot overflow at the addition site.
-    Ok(unsafe { (*properties).EventsLost as u64 })
+    Ok((
+        buffer.properties.EventsLost as u64,
+        buffer.properties.RealTimeBuffersLost as u64 + buffer.properties.LogBuffersLost as u64,
+    ))
 }
 
 #[cfg(test)]
@@ -186,12 +203,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn totals_are_monotonic_and_sum_both_sessions() {
+    fn totals_are_monotonic_and_sum_all_sessions() {
         let counters = LossCounters::new();
         counters.record(Session::Main, "main", 3);
         counters.record(Session::Process, "process", 5);
         counters.record(Session::Main, "main", 2);
 
         assert_eq!(counters.total(), 8);
+        counters.record(Session::Classic, "classic", 7);
+        assert_eq!(counters.total(), 15);
+        counters.reset();
+        assert_eq!(counters.total(), 0);
     }
 }

@@ -22,7 +22,7 @@ use crate::sensor::{Platform, ProcessStartKey, SensorAction, SensorEvent, Sensor
 use crate::telemetry::{
     EtwDecodeFailure, EtwDecodeFailureKey, RegistryPathSource, ETW_DECODE, WINDOWS_FILE_ATTRIBUTION,
 };
-use crate::utils::{convert_nt_to_dos, query_process_command_line};
+use crate::utils::{convert_nt_to_dos, query_process_command_line_at_start};
 use ferrisetw::parser::Parser;
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::EventRecord;
@@ -259,10 +259,8 @@ pub(super) fn decode_process(
 ) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::process_creation_mappings();
 
-    // The PID and the command line come first, and nothing is allowed between
-    // them and the back-fill below. Everything else this function does reads
-    // data already carried by the event. PE metadata is added by the consumer
-    // after the bounded channel. See `PROCESS_TRACE_SESSION_NAME`.
+    // Capture the fallback before any enrichment or reorder buffering. The
+    // creation time is needed to verify the live handle belongs to this event.
     let process_id = try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
         .or_else(|| Some(record.process_id().to_string()));
     let pid = process_id
@@ -270,15 +268,16 @@ pub(super) fn decode_process(
         .and_then(|value| value.parse::<u32>().ok())
         .unwrap_or_else(|| record.process_id());
 
-    // No Kernel-Process event version carries `CommandLine`, so this is a read
-    // of the live process's PEB and only succeeds while it still exists.
-    let mut command_line = try_get_string(parser, mappings.get_etw_field("CommandLine")?);
-    if action == SensorAction::Start && command_line.is_none() {
-        command_line = query_process_command_line(pid);
-    }
-
     let creation_time_opt = try_get_uint_as_u64(parser, "CreateTime")
         .or_else(|| try_get_uint_as_u64(parser, "ProcessStartTime"));
+    // Capture the conservative fallback immediately, before buffering for the
+    // classic record. The handle must belong to this manifest lifetime.
+    let command_line = if action == SensorAction::Start {
+        creation_time_opt.and_then(|started| query_process_command_line_at_start(pid, started))
+    } else {
+        None
+    };
+
     let creation_time_with_fallback =
         creation_time_opt.or_else(|| try_get_uint_as_u64(parser, "TimeStamp"));
 
@@ -302,6 +301,12 @@ pub(super) fn decode_process(
         cgroup_id: None,
         exec: Default::default(),
         parent_process_id_derived: false,
+        windows: (action == SensorAction::Start).then(|| {
+            Box::new(crate::models::WindowsProcessMetadata {
+                command_line_source: command_line.as_ref().map(|_| "live_query".to_string()),
+                ..Default::default()
+            })
+        }),
         image: image.clone(),
         image_source: None,
         image_truncated: None,
@@ -387,7 +392,7 @@ pub(super) fn decode_kernel_file_record(
     // path for the writes that follow on that handle.
     if let Some(path) = named_path.as_deref() {
         let mut paths = state.paths();
-        paths.learn(file_object, file_key, path);
+        paths.learn_at(file_object, file_key, path, record.raw_timestamp());
         // Republished on the naming path only: evictions can only happen on an
         // insert, and this keeps the pathless hot path free of the extra load.
         WINDOWS_FILE_ATTRIBUTION.set_index_capacity_evictions(paths.capacity_evictions());
@@ -407,7 +412,7 @@ pub(super) fn decode_kernel_file_record(
         }
         KernelFileRoute::EvictKey => {
             if let Some(key) = file_key {
-                state.paths().forget_key(key);
+                state.paths().forget_key_at(key, record.raw_timestamp());
             }
             ETW_DECODE.record_indexed();
             return None;
@@ -446,7 +451,10 @@ pub(super) fn decode_kernel_file_record(
             WINDOWS_FILE_ATTRIBUTION.record_resolved(false);
             path
         }
-        None => match state.paths().resolve(file_object, file_key) {
+        None => match state
+            .paths()
+            .resolve_at(file_object, file_key, record.raw_timestamp())
+        {
             Some(path) => {
                 WINDOWS_FILE_ATTRIBUTION.record_resolved(true);
                 path.to_string()

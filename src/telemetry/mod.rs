@@ -12,7 +12,9 @@
 //! writes to a snapshot file. `rustinel doctor` reads that snapshot, so the
 //! answer to "did we lose telemetry?" is a command, not a log search.
 
+mod process_correlation;
 mod snapshot;
+pub use process_correlation::{ProcessCorrelationSnapshot, WINDOWS_PROCESS_CORRELATION};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -27,9 +29,9 @@ use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
     snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, EtwDecodeFailureSnapshot,
-    EtwDecodeSnapshot, FileAttributionSnapshot, LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot,
-    LinuxEbpfSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot, SensorEventCategorySnapshot,
-    TelemetrySnapshot, SNAPSHOT_FILE_NAME,
+    EtwDecodeSnapshot, FileAttributionSnapshot, FileRundownSnapshot, LinuxEbpfFamilySnapshot,
+    LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot,
+    SensorEventCategorySnapshot, TelemetrySnapshot, SNAPSHOT_FILE_NAME,
 };
 
 use crate::models::EventCategory;
@@ -662,6 +664,7 @@ pub struct FileAttributionCounters {
     resolved_from_index: AtomicU64,
     unresolved: AtomicU64,
     index_capacity_evictions: AtomicU64,
+    rundown: Mutex<Option<FileRundownSnapshot>>,
 }
 
 /// Process-wide file attribution accounting. Idle outside Windows.
@@ -674,6 +677,7 @@ impl FileAttributionCounters {
             resolved_from_index: AtomicU64::new(0),
             unresolved: AtomicU64::new(0),
             index_capacity_evictions: AtomicU64::new(0),
+            rundown: Mutex::new(None),
         }
     }
 
@@ -704,7 +708,12 @@ impl FileAttributionCounters {
             .store(evictions, Ordering::Relaxed);
     }
 
-    /// Point-in-time view, or `None` when no file event has been attributed.
+    /// Publish the complete startup result, including rejected snapshots.
+    pub fn set_rundown(&self, result: FileRundownSnapshot) {
+        *self.rundown.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+    }
+
+    /// Point-in-time view, including a startup attempt with no live events.
     pub fn snapshot(&self) -> Option<FileAttributionSnapshot> {
         let resolved_from_event = self.resolved_from_event.load(Ordering::Relaxed);
         let resolved_from_index = self.resolved_from_index.load(Ordering::Relaxed);
@@ -712,7 +721,12 @@ impl FileAttributionCounters {
         let attempted = resolved_from_event
             .saturating_add(resolved_from_index)
             .saturating_add(unresolved);
-        if attempted == 0 {
+        let rundown = self
+            .rundown
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if attempted == 0 && rundown.is_none() {
             return None;
         }
         Some(FileAttributionSnapshot {
@@ -721,6 +735,7 @@ impl FileAttributionCounters {
             resolved_from_index,
             unresolved,
             index_capacity_evictions: self.index_capacity_evictions.load(Ordering::Relaxed),
+            rundown,
         })
     }
 
@@ -732,6 +747,7 @@ impl FileAttributionCounters {
         self.resolved_from_index.store(0, Ordering::Relaxed);
         self.unresolved.store(0, Ordering::Relaxed);
         self.index_capacity_evictions.store(0, Ordering::Relaxed);
+        *self.rundown.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 

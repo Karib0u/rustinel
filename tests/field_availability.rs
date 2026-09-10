@@ -179,6 +179,7 @@ fn missing_always_fields_detect_decoder_contract_drift() {
             integrity_level: None,
             user: None,
             parent_process_id_derived: false,
+            windows: Default::default(),
             exec: None,
         }),
     );

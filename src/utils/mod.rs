@@ -20,14 +20,14 @@ pub use path::{convert_nt_to_dos, normalize_path_for_comparison};
 pub use pe::parse_metadata;
 #[cfg(target_os = "macos")]
 pub use process::process_image_path;
-#[cfg(windows)]
-pub use process::query_process_command_line_from_handle;
 #[cfg(target_os = "linux")]
 pub use process::query_process_details;
 pub use process::{
     hash_command_line, query_process_command_line, query_process_identity,
     validate_process_identity, ProcessIdentity,
 };
+#[cfg(windows)]
+pub use process::{query_process_command_line_at_start, query_process_command_line_from_handle};
 pub use time::now_timestamp_string;
 #[cfg(windows)]
 pub use user::lookup_account_sid;

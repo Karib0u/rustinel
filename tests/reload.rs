@@ -702,6 +702,7 @@ fn build_critical_process_alert(pid: u32, image: &str) -> rustinel::models::Aler
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
+                windows: Default::default(),
                 image: Some(image.to_string()),
                 image_source: None,
                 image_truncated: None,

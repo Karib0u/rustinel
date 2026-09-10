@@ -45,6 +45,7 @@ impl From<&Alert> for EcsAlert {
             event_source_seq: alert.event.source_seq,
             event_ingest_seq: alert.event.ingest_seq,
             event_provenance: alert.event.provenance.clone(),
+            windows_process_metadata: None,
             ecs_version: ECS_VERSION.to_string(),
             event_count: None,
             event_kind: "alert".to_string(),
@@ -159,6 +160,11 @@ impl From<&Alert> for EcsAlert {
         // Map internal fields to ECS based on event type
         match &alert.event.fields {
             EventFields::ProcessCreation(f) => {
+                ecs.windows_process_metadata = f.windows.clone();
+                ecs.user_id = f
+                    .windows
+                    .as_ref()
+                    .and_then(|metadata| metadata.user_sid.clone());
                 ecs.process_executable = f.image.clone();
                 ecs.edr_process_image_source = f.image_source.clone();
                 ecs.edr_process_image_truncated = f.image_truncated;
@@ -454,6 +460,7 @@ mod tests {
                     cgroup_id: Some("123456".to_string()),
                     exec: Default::default(),
                     parent_process_id_derived: false,
+                    windows: Default::default(),
                     image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
                     image_source: None,
                     image_truncated: None,
@@ -742,6 +749,39 @@ mod tests {
         // the category default still describes them.
         let ecs = EcsAlert::from(&network_alert(None));
         assert_eq!(ecs.network_direction, Some("egress".to_string()));
+    }
+
+    #[test]
+    fn windows_source_evidence_and_derived_values_survive_recording_and_ecs() {
+        let mut alert = network_alert(Some(true));
+        alert.event.category = EventCategory::Process;
+        alert.event.fields = EventFields::ProcessCreation(serde_json::from_value(serde_json::json!({
+            "CommandLine": "measured plus recovered suffix", "User": "DOMAIN\\alice",
+            "WindowsProcessMetadata": { "command_line_source": "live_query", "classic_command_line": "measured",
+                "conflicting_live_command_line": "measured plus recovered suffix", "user_sid": "S-1-5-21-42", "session_id": 1 }
+        })).unwrap());
+        alert
+            .event
+            .provenance
+            .mark_derived("WindowsProcessMetadata.conflicting_live_command_line");
+        alert.event.provenance.mark_derived("CommandLine");
+        let recorded = serde_json::to_vec(&alert.event).unwrap();
+        alert.event = serde_json::from_slice(&recorded).unwrap();
+        let json = serde_json::to_value(EcsAlert::from(&alert)).unwrap();
+        assert_eq!(
+            json["process.command_line"],
+            "measured plus recovered suffix"
+        );
+        assert_eq!(
+            json["edr.process.windows_metadata"]["classic_command_line"],
+            "measured"
+        );
+        assert_eq!(json["user.id"], "S-1-5-21-42");
+        assert_eq!(
+            json["edr.process.windows_metadata"]["conflicting_live_command_line"],
+            "measured plus recovered suffix"
+        );
+        assert_eq!(json["edr.event.provenance"][0]["fidelity"], "derived");
     }
 
     #[test]

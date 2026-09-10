@@ -415,6 +415,7 @@ pub mod mapping {
                 cgroup_id: (event.cgroup_id != 0).then(|| event.cgroup_id.to_string()),
                 exec: event.exec_metadata(),
                 parent_process_id_derived: event.parent_pid_derived != 0,
+                windows: Default::default(),
                 image: Some(bytes_to_string(&event.image)),
                 image_source: None,
                 image_truncated: (event.image_truncated != 0).then_some(true),
