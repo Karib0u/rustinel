@@ -310,7 +310,7 @@ pub struct ScannerConfig {
     pub yara_enabled: bool,
     pub yara_rules_path: PathBuf,
     pub yara_allowlist_paths: Vec<String>,
-    /// Per-scan timeout for file and memory scans. 0 disables the timeout.
+    /// Timeout per file or across one process's memory regions. 0 disables it.
     pub yara_scan_timeout_ms: u64,
     /// Maximum size of a file accepted by an on-disk scan. 0 disables the guard.
     pub yara_max_file_mb: u64,
