@@ -636,6 +636,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     user: ev.effective_uid(),
                     exec: ev.exec_metadata(),
                     parent_process_id_derived: ev.parent_pid_derived != 0,
+                    windows: Default::default(),
                 }),
             })
         }
@@ -675,6 +676,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 user: ev.effective_uid(),
                 exec: ev.exec_metadata(),
                 parent_process_id_derived: false,
+                windows: Default::default(),
             }),
         }),
         _ => None,

@@ -44,6 +44,7 @@ struct Entry {
     /// so a key can be inserted, forgotten, and inserted again; without this
     /// tag the slot left behind by the first insert would evict the second.
     seq: u64,
+    at: i64,
 }
 
 pub(super) struct BoundedIndex {
@@ -76,10 +77,15 @@ impl BoundedIndex {
     }
 
     pub(super) fn insert(&mut self, key: u64, path: &str) {
+        self.insert_at(key, path, i64::MAX);
+    }
+
+    fn insert_at(&mut self, key: u64, path: &str, at: i64) {
         if let Some(entry) = self.entries.get_mut(&key) {
             // Re-inserting a live key updates the path but keeps its queue
             // slot; pushing again would let one busy handle fill `order` with
             // duplicates of itself.
+            entry.at = at;
             entry.path.clear();
             entry.path.push_str(path);
         } else {
@@ -92,6 +98,7 @@ impl BoundedIndex {
                 Entry {
                     path: path.to_string(),
                     seq,
+                    at,
                 },
             );
             self.order.push_back((key, seq));
@@ -143,6 +150,7 @@ impl BoundedIndex {
 pub(super) struct FilePathCache {
     by_object: BoundedIndex,
     by_key: BoundedIndex,
+    seed: HashMap<u64, (String, i64)>,
 }
 
 impl FilePathCache {
@@ -154,19 +162,32 @@ impl FilePathCache {
         Self {
             by_object: BoundedIndex::with_capacity(capacity),
             by_key: BoundedIndex::with_capacity(capacity),
+            seed: HashMap::new(),
         }
     }
 
     /// Record `path` against whichever identifiers this naming event carried.
+    #[cfg(test)]
     pub(super) fn learn(&mut self, file_object: Option<u64>, file_key: Option<u64>, path: &str) {
+        self.learn_at(file_object, file_key, path, i64::MAX);
+    }
+
+    pub(super) fn learn_at(
+        &mut self,
+        file_object: Option<u64>,
+        file_key: Option<u64>,
+        path: &str,
+        at: i64,
+    ) {
         if path.is_empty() {
             return;
         }
         if let Some(object) = file_object {
-            self.by_object.insert(object, path);
+            self.by_object.insert_at(object, path, at);
         }
         if let Some(key) = file_key {
-            self.by_key.insert(key, path);
+            self.retire_seed(key, at);
+            self.by_key.insert_at(key, path, at);
         }
     }
 
@@ -175,9 +196,30 @@ impl FilePathCache {
     /// `FileObject` is tried first: it is per-handle, so it cannot outlive the
     /// handle the event belongs to. `FileKey` is per-file and shared between
     /// handles, which makes it the better fallback but the weaker first guess.
+    #[cfg(test)]
     pub(super) fn resolve(&self, file_object: Option<u64>, file_key: Option<u64>) -> Option<&str> {
-        file_object
-            .and_then(|object| self.by_object.get(object))
+        self.resolve_at(file_object, file_key, i64::MAX)
+    }
+
+    pub(super) fn resolve_at(
+        &self,
+        file_object: Option<u64>,
+        file_key: Option<u64>,
+        at: i64,
+    ) -> Option<&str> {
+        let object = file_object.and_then(|key| self.by_object.entries.get(&key));
+        let seed = file_key
+            .and_then(|key| self.seed.get(&key))
+            .filter(|(_, observed)| at >= *observed);
+        // Buffered opens can predate the snapshot. A newer observation wins
+        // even when the older path came from the per-handle object index.
+        if let Some((path, observed)) = seed {
+            if object.is_none_or(|entry| entry.at < *observed) {
+                return Some(path);
+            }
+        }
+        object
+            .map(|entry| entry.path.as_str())
             .or_else(|| file_key.and_then(|key| self.by_key.get(key)))
     }
 
@@ -187,8 +229,32 @@ impl FilePathCache {
     }
 
     /// Drop the entry for a name that has left the kernel's name cache.
+    #[cfg(test)]
     pub(super) fn forget_key(&mut self, file_key: u64) {
+        self.forget_key_at(file_key, i64::MAX);
+    }
+
+    pub(super) fn forget_key_at(&mut self, file_key: u64, at: i64) {
         self.by_key.forget(file_key);
+        self.retire_seed(file_key, at);
+    }
+
+    fn retire_seed(&mut self, key: u64, at: i64) {
+        if self
+            .seed
+            .get(&key)
+            .is_some_and(|(_, observed)| at >= *observed)
+        {
+            self.seed.remove(&key);
+        }
+    }
+
+    /// Install once, before the manifest consumer runs. The collector enforces
+    /// entry and byte limits and rejects incomplete snapshots. Classic MOF's
+    /// FileObject is a name key, matching manifest FileKey, not FileObject.
+    /// Never use a snapshot to attribute an event older than its observation.
+    pub(super) fn seed(&mut self, entries: HashMap<u64, (String, i64)>) {
+        self.seed = entries;
     }
 
     /// Entries both indexes dropped to stay under their cap.
@@ -213,6 +279,56 @@ impl FilePathCache {
 #[cfg(test)]
 mod tests {
     use super::{BoundedIndex, FilePathCache, DEFAULT_CAPACITY};
+
+    #[test]
+    fn newer_snapshot_beats_buffered_object_name_but_not_later_opens() {
+        let mut cache = FilePathCache::new();
+        cache.seed([(7, ("snapshot".into(), 100))].into());
+        cache.learn_at(Some(1), None, "old", 90);
+        assert_eq!(cache.resolve_at(Some(1), Some(7), 95), Some("old"));
+        assert_eq!(cache.resolve_at(Some(1), Some(7), 101), Some("snapshot"));
+        cache.learn_at(Some(1), None, "new", 102);
+        assert_eq!(cache.resolve_at(Some(1), Some(7), 103), Some("new"));
+    }
+
+    #[test]
+    fn seed_joins_name_keys_only_and_never_attributes_older_events() {
+        let mut cache = FilePathCache::new();
+        cache.seed([(7, ("snapshot".into(), 100))].into());
+        assert_eq!(cache.resolve_at(Some(7), None, 101), None);
+        assert_eq!(cache.resolve_at(None, Some(7), 99), None);
+        assert_eq!(cache.resolve_at(None, Some(7), 100), Some("snapshot"));
+        cache.forget_object(7);
+        assert_eq!(cache.resolve_at(None, Some(7), 101), Some("snapshot"));
+    }
+
+    #[test]
+    fn buffered_names_and_deletes_cannot_replace_a_newer_snapshot() {
+        let mut cache = FilePathCache::new();
+        cache.seed([(7, ("snapshot".into(), 100))].into());
+        cache.learn_at(None, Some(7), "old", 90);
+        assert_eq!(cache.resolve_at(None, Some(7), 95), Some("old"));
+        assert_eq!(cache.resolve_at(None, Some(7), 101), Some("snapshot"));
+        cache.forget_key_at(7, 99);
+        assert_eq!(cache.resolve_at(None, Some(7), 101), Some("snapshot"));
+        cache.learn_at(None, Some(7), "renamed", 102);
+        assert_eq!(cache.resolve_at(None, Some(7), 103), Some("renamed"));
+        assert!(cache.seed.is_empty());
+        cache.forget_key_at(7, 104);
+        assert_eq!(cache.resolve_at(None, Some(7), 105), None);
+    }
+
+    #[test]
+    fn live_capacity_pressure_cannot_evict_preexisting_names() {
+        let mut cache = FilePathCache::with_capacity(1);
+        cache.seed([(7, ("snapshot".into(), 100))].into());
+        for key in 10..20 {
+            cache.learn_at(Some(key), Some(key), "live", 101);
+        }
+        assert_eq!(cache.resolve_at(None, Some(7), 102), Some("snapshot"));
+        cache.forget_key_at(7, 103);
+        assert_eq!(cache.resolve_at(None, Some(7), 104), None);
+    }
 
     #[test]
     fn resolves_a_write_from_the_create_that_named_the_handle() {

@@ -119,7 +119,11 @@ impl Normalizer {
         }
 
         let mut fields = fields.clone();
+        let measured_user = fields.user.clone();
         self.resolve_user_field(&mut fields.user);
+        if fields.user != measured_user {
+            provenance.mark_derived("User");
+        }
         #[cfg(target_os = "linux")]
         if event.platform == Platform::Linux {
             if let Some(uid) = fields
@@ -144,13 +148,38 @@ impl Normalizer {
                 provenance.mark_derived("ProcessStartTime");
             }
         }
+        if fields
+            .windows
+            .as_ref()
+            .is_some_and(|metadata| metadata.conflicting_live_command_line.is_some())
+        {
+            provenance.mark_derived("WindowsProcessMetadata.conflicting_live_command_line");
+        }
+        if fields
+            .windows
+            .as_ref()
+            .is_some_and(|metadata| metadata.command_line_source.as_deref() == Some("live_query"))
+            && fields.command_line.is_some()
+        {
+            provenance.mark_derived("CommandLine");
+        }
         if fields.parent_process_id_derived && fields.parent_process_id.is_some() {
             provenance.mark_derived("ParentProcessId");
         }
 
-        if event.action == SensorAction::Start && fields.command_line.is_none() && pid != 0 {
+        if event.action == SensorAction::Start
+            && fields.command_line.is_none()
+            && pid != 0
+            && !(event.platform == Platform::Windows && event.provider == "etw")
+        {
             if let Some(command_line) = query_process_command_line(pid) {
                 fields.command_line = Some(command_line);
+                if event.platform == Platform::Windows {
+                    fields
+                        .windows
+                        .get_or_insert_with(Default::default)
+                        .command_line_source = Some("live_query".into());
+                }
                 provenance.mark_derived("CommandLine");
             }
         }
@@ -483,6 +512,40 @@ mod tests {
     }
 
     #[test]
+    fn windows_live_command_line_provenance_survives_recording() {
+        let normalizer = build_normalizer();
+        let mut event = process_start_event(Platform::Windows, "etw", 4242);
+        if let SensorPayload::Process(fields) = &mut event.payload {
+            fields.command_line = Some("cmd.exe /c test".into());
+            fields
+                .windows
+                .get_or_insert_with(Default::default)
+                .command_line_source = Some("live_query".into());
+        }
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert!(normalized
+            .provenance
+            .entries()
+            .iter()
+            .any(|entry| entry.field == "CommandLine" && entry.fidelity == Fidelity::Derived));
+        let json = serde_json::to_vec(&normalized).unwrap();
+        let replayed: NormalizedEvent = serde_json::from_slice(&json).unwrap();
+        assert_eq!(replayed.provenance, normalized.provenance);
+        if let SensorPayload::Process(fields) = &mut event.payload {
+            fields
+                .windows
+                .get_or_insert_with(Default::default)
+                .command_line_source = Some("classic".into());
+        }
+        let measured = normalizer.normalize(&event).unwrap();
+        assert!(!measured
+            .provenance
+            .entries()
+            .iter()
+            .any(|entry| entry.field == "CommandLine"));
+    }
+
+    #[test]
     fn canonical_events_keep_nanoseconds_and_distinct_ordering() {
         let normalizer = build_normalizer();
         #[cfg(not(windows))]
@@ -559,6 +622,7 @@ mod tests {
                     ..Default::default()
                 })),
                 parent_process_id_derived: false,
+                windows: Default::default(),
                 image: Some("/usr/bin/curl".to_string()),
                 image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
                 image_truncated: None,
@@ -608,6 +672,7 @@ mod tests {
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
+                windows: Default::default(),
                 image: None,
                 image_source: None,
                 image_truncated: None,
@@ -751,6 +816,7 @@ mod tests {
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
+                windows: Default::default(),
                 image: None,
                 image_source: None,
                 image_truncated: None,

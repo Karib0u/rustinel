@@ -149,6 +149,7 @@ fn snapshot_with(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         channels,
         sensor_events_by_category: Vec::new(),
         linux_ebpf: None,
+        windows_process_correlation: Default::default(),
         windows_process_command_line: None,
         registry: None,
         file_attribution: None,

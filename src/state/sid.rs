@@ -53,10 +53,25 @@ impl SidCache {
                             continue;
                         }
 
-                        if let Ok(resolved) = lookup_account_sid(&sid) {
-                            if let Ok(mut cache) = cache_ref.write() {
-                                cache.insert(sid.clone(), resolved);
+                        // Negative results are cached as the raw SID too. A
+                        // missing domain must not schedule a lookup per event.
+                        let resolved = lookup_account_sid(&sid).unwrap_or_else(|_| sid.clone());
+                        if let Ok(mut cache) = cache_ref.write() {
+                            if cache.len() >= 4096 {
+                                if let Some(victim) = cache
+                                    .keys()
+                                    .find(|key| {
+                                        !matches!(
+                                            key.as_str(),
+                                            "S-1-5-18" | "S-1-5-19" | "S-1-5-20"
+                                        )
+                                    })
+                                    .cloned()
+                                {
+                                    cache.remove(&victim);
+                                }
                             }
+                            cache.insert(sid.clone(), resolved);
                         }
 
                         if let Ok(mut pending) = pending_ref.write() {

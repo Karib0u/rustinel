@@ -152,6 +152,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
                 })
             },
             parent_process_id_derived: false,
+            windows: Default::default(),
             image: Some(image.to_string()),
             image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
             image_truncated: None,

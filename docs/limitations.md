@@ -125,23 +125,26 @@ three platforms, but several Sysmon-style fields are unavailable.
   observed, or the parent handle was covered by the startup key rundown below.
   Hive prefixes are never rewritten to `HKLM`/`HKCU`, so `startswith` matches on
   a hive abbreviation miss.
-- **File writes through handles opened before startup are invisible (silent
-  risk).** Kernel-File identifies targets by kernel pointer, so the sensor learns
-  each path from the open that named it. A file already open when the sensor
-  starts cannot be attributed, and those events are dropped rather than emitted
-  without a path. Long-lived holders such as database files and service logs stay
-  unobserved until the handle is closed and reopened, which for some services
-  means until reboot. The `file_attribution` section of `telemetry.json` and the
-  `file_path_attribution` check in `rustinel doctor` report the live resolution
-  rate and the handle index's capacity evictions; the agent log samples the
-  drops as `unresolved_file_events`. First measurement, on an idle Windows 11
-  lab desktop over 45 seconds: 399 of 33,029 file events resolved (1.2%), with
-  no index evictions - so on a freshly started agent the gap is wide, and it is
-  handles older than the session rather than index pressure that causes it.
-  This is scheduled rather than accepted: a classic `FileIo` rundown, which
-  enumerates the handles already open when the session starts, is lab-validated
-  as a fix costing roughly 100 ms at startup
-  ([#428](https://github.com/Karib0u/rustinel/issues/428)).
+- **Some file events still have no attributable path (silent risk).** Startup
+  now seeds pre-existing file names with a classic `FileIo` rundown. Its MOF
+  `FileObject` field is a name key: it joins manifest `FileKey`, not manifest
+  `FileObject`. The seed is separate from the 8,192-entry live indexes, so live
+  handle churn cannot evict pre-existing names. A newer naming event replaces a
+  seed and `NameDelete` retires it; closing one handle does not retire a name
+  shared by other handles. Snapshot paths never attribute events older than
+  their rundown timestamp. Events in that startup interval and later events
+  with missing names can still be dropped. The existing `convert_nt_to_dos`
+  conversion also applies to seeded paths.
+
+  The snapshot is all or nothing: session, decode, capacity, or loss failures
+  warn and retain live-only attribution. The finalized temporary ETL header and
+  stop statistics must both report zero loss before any paths are installed.
+  This temporary capture is necessary because a real-time-only probe returned
+  incomplete rundowns with zero stop loss counters. The ETL is deleted after
+  decoding, including error paths. Its size is capped at 64 MiB. The
+  `file_attribution.rundown` telemetry reports rejection, loss, duration, seeded
+  count, path bytes and index capacity; `rustinel doctor` warns on rejection
+  even before any live file events arrive. See the measurements below.
 - **A small share of registry writes is still unattributed (silent risk).**
   Registry keys open before the trace session are named from the kernel handle
   table at startup, which covered 5,908 of 6,644 open keys (88.9%) in 32 ms on a
@@ -410,3 +413,106 @@ uncommitted backlog in
 richer process telemetry (hashes, integrity level, token fields), correlation
 state preservation across reloads, real backpressure rather than only counting
 what was shed, YARA scanning of newly written files, and macOS hardening.
+
+### Windows startup file rundown measurements (#428)
+
+Measured on the Windows 11 build 26200 lab VM (6 vCPU, 8 GiB RAM). The historical
+baseline was 399 / 33,029 events resolved (1.2% over 45 seconds). The repeatable
+check in `examples/windows_file_capture.rs` opens 100 files before the sensor,
+observes an idle interval, then writes through those same handles. Resolution
+is `(resolved_from_event + resolved_from_index) / attempted` from telemetry.
+The startup acceptance target is **95% over a 30-second idle interval**, plus
+**100 / 100 pre-existing test files attributed**. The steady-state doctor
+threshold remains 99%, so a remaining gap stays visible.
+
+Buffer tuning used 64 KiB buffers with equal explicit minimum and maximum
+counts and a finalized ETL capture. There were about 27,383 names per capture.
+Smaller real-time-only runs sometimes returned 4,820 to 23,682 names and zero
+stop loss counters, which is why that validation method was rejected.
+
+| Buffers | Pool | Zero-loss runs | Events lost in failing runs |
+| --- | --- | --- | --- |
+| 40 | 2.5 MiB | 0 / 3 | 1,444 to 12,151 |
+| 48 | 3 MiB | 2 / 3 | 15,422 |
+| 56 | 3.5 MiB | 0 / 3 | 7,003 to 10,167 |
+| 64 | 4 MiB | 2 / 3 | 3,399 |
+| 80 | 5 MiB | 2 / 5 | 508 to 5,169 |
+| 96 | 6 MiB | 4 / 5 | 1,220 |
+| 112 | 7 MiB | 5 / 5 | 0 |
+| 128 | 8 MiB | 5 / 5 | 0 |
+
+After loading the test binaries, the table grew to about 30,304 names. One
+production capture at 112 buffers lost 1,794 records and was correctly rejected.
+The larger-table sweep then measured:
+
+| Buffers | Pool | Zero-loss runs | Duration including decode |
+| --- | --- | --- | --- |
+| 128 | 8 MiB | 4 / 4 | 308 to 342 ms |
+| 144 | 9 MiB | 4 / 4 | 311 to 317 ms |
+| 160 | 10 MiB | 4 / 4 | 314 to 326 ms |
+| 192 | 12 MiB | 4 / 4 | 310 to 323 ms |
+
+The chosen **128-buffer, 8 MiB pool** is the smallest tested configuration that
+passed both table sizes without loss, not a guarantee for every host. A busier
+host that exceeds the pool falls back with a warning rather than accepting a
+partial index.
+Reproduce the production collector sweep with an elevated
+`cargo test --locked --lib native_buffer_sweep -- --ignored --nocapture`.
+The separate `native_lossy_rundown_is_rejected` test deliberately uses a tiny
+pool and checks that no lossy seed is decoded.
+
+The seed is capped at 65,536 distinct names and 16 MiB of UTF-8 path bytes;
+exceeding either rejects the entire seed. It is installed by moving the map,
+without another copy. Live names keep the existing FIFO caps and eviction
+counters. Name deletion or replacement shrinks the seed; there is no timer
+that silently discards still-open long-lived names.
+
+The initial production capture stored 28,242 names, 3,291,425 UTF-8 path bytes
+and a HashMap capacity of 28,672. That is approximately 4.4 MiB for path bytes
+plus map buckets at the measured Rust layout, excluding allocator overhead.
+A later 30,673-name capture stored 3,685,416 path bytes and grew the map capacity
+to 57,344, approximately 6.1 MiB by the same estimate. Neither seed evicts paths
+under live-index pressure. Measured whole-process peak working sets were
+24.3 to 26.1 MiB for these debug capture runs; these include the other sensors
+and caches and exclude the kernel's transient ETW pool. The temporary ETL and
+its fixed 64 MiB disk cap are separate from those RAM figures.
+
+The identifier interpretation also matches Microsoft's
+[FileIONameTraceData implementation](https://github.com/microsoft/perfview/blob/main/src/TraceEvent/Parsers/KernelTraceEventParser.cs),
+which documents why the classic MOF property named `FileObject` is exposed as
+`FileKey`. The controlled writes validate that join through Rustinel's decoder,
+including conversion to `C:\...` paths. Unit tests cover pointer reuse, older
+buffered names/deletes, newer per-handle names, seed invalidation, capacity
+pressure, byte limits, and legacy telemetry snapshot decoding.
+
+Final 30-second idle comparisons using the 8 MiB pool and timestamp precedence:
+
+| Run | Resolved / attempted | Resolution | Pre-existing test files recovered |
+| --- | --- | --- | --- |
+| Live-only baseline A | 16 / 349 | 4.58% | 0 / 100 |
+| Live-only baseline B | 21 / 272 | 7.72% | 0 / 100 |
+| Seeded A | 20,418 / 20,420 | 99.99% | 100 / 100 |
+| Seeded B | 296,498 / 296,738 | 99.92% | 100 / 100 |
+| Seeded C | 450 / 452 | 99.56% | 100 / 100 |
+| Final capped capture | 572,849 / 574,904 | 99.64% | 100 / 100 |
+
+Desktop background traffic varied across runs, so these are observed coverage
+rates, not throughput comparisons. The controlled handle test is identical in
+all runs. The example restricts recovered targets to its own directory so late
+writes from an earlier run cannot inflate the count. All four final runs had
+zero session events lost, zero rundown buffer loss, zero decoder failures and
+zero live-index evictions. They seeded 29,993 to 30,386 names in 606 to 726 ms
+using the debug production binary. Whole-process peak working sets ranged from
+24.6 to 37.7 MiB with the varying background activity.
+
+A deliberately undersized pool was rejected before decoding any seed entries.
+A pre-existing logger with the rundown session name also caused a clean fallback;
+that logger remained running, and the sensor continued. Windows library tests
+passed (459, plus the explicitly invoked native loss test); local library tests
+passed (387). Clippy passed on all targets on both platforms. The buffer sweep
+and intentional-loss tests are ignored in the default suite because they need
+an elevated, otherwise idle Windows lab.
+
+With the file rundown enabled, the process regression also recovered all 20
+long command lines (20,058 characters each), retaining the classic 1,024-unit
+prefix and marking the lifetime-checked live recovery as Derived (#393).

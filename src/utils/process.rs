@@ -171,6 +171,32 @@ pub fn query_process_command_line(pid: u32) -> Option<String> {
     cmd
 }
 
+/// Read a live command line only from the expected process lifetime.
+/// Creation time and command line use the same handle, so PID reuse cannot
+/// change the process between the identity check and the query.
+#[cfg(windows)]
+pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<String> {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::GetProcessTimes;
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    let matches =
+        unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }
+            .is_ok()
+            && ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+                == start_time;
+    let command_line = if matches {
+        query_process_command_line_from_handle(handle)
+    } else {
+        None
+    };
+    let _ = unsafe { CloseHandle(handle) };
+    command_line
+}
+
 #[cfg(target_os = "linux")]
 pub fn query_process_command_line(pid: u32) -> Option<String> {
     read_proc_cmdline(pid)
@@ -482,5 +508,19 @@ mod identity_tests {
             validate_process_identity(&expected),
             Err("process no longer exists or identity could not be queried".to_string())
         );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_command_line_tests {
+    use super::*;
+
+    #[test]
+    fn fallback_requires_the_exact_lifetime_on_the_opened_handle() {
+        let pid = std::process::id();
+        let start = query_process_identity(pid).unwrap().start_time.unwrap();
+        assert!(query_process_command_line_at_start(pid, start).is_some());
+        assert!(query_process_command_line_at_start(pid, start + 1).is_none());
+        assert!(query_process_command_line_at_start(4, 1).is_none());
     }
 }

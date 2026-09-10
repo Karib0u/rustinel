@@ -286,6 +286,7 @@ impl PendingRegistryEvents {
 /// write it explains are different records, often seconds apart.
 pub(super) struct EtwState {
     pub(super) routing: EtwRouting,
+    pub(super) process_correlation: Mutex<super::process::ProcessCorrelation>,
     pub(super) file_paths: Mutex<FilePathCache>,
     pub(super) registry_paths: Mutex<RegistryPathCache>,
     pub(super) pending_registry_events: Mutex<PendingRegistryEvents>,
@@ -296,6 +297,7 @@ impl EtwState {
     pub(super) fn with_process_identities(keys: impl IntoIterator<Item = ProcessStartKey>) -> Self {
         Self {
             routing: EtwRouting::new(),
+            process_correlation: Mutex::new(Default::default()),
             file_paths: Mutex::new(FilePathCache::new()),
             registry_paths: Mutex::new(RegistryPathCache::new()),
             pending_registry_events: Mutex::new(PendingRegistryEvents::new()),

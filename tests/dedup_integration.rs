@@ -37,6 +37,7 @@ fn make_alert(rule: &str, image: &str) -> Alert {
                 cgroup_id: None,
                 exec: Default::default(),
                 parent_process_id_derived: false,
+                windows: Default::default(),
                 image: Some(image.to_string()),
                 image_source: None,
                 image_truncated: None,
