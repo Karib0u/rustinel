@@ -212,11 +212,12 @@ Exit codes are intended for automation:
 
 ### `rules`
 
-Discover and install released rules packs.
+Discover, install, and update released rules packs.
 
 ```text
 rustinel rules list [--catalog-url <URL>] [--rules-dir <PATH>]
 rustinel rules install <PACK> [--catalog-url <URL>] [--rules-dir <PATH>]
+rustinel rules update [--catalog-url <URL>] [--rules-dir <PATH>]
 ```
 
 Examples:
@@ -231,6 +232,26 @@ The default catalog is the latest released `index.json` from
 marks the active pack from `rules/state.json`. `rules install` downloads the pack
 artifact into `rules/staging`, verifies its SHA-256 checksum, rejects unsafe ZIP
 paths, validates `pack.yml`, then atomically replaces `rules/current`.
+
+`rules update` reads the active pack ID and version from `state.json` and checks
+that same pack in the catalog. It installs only a strictly newer semantic version
+compatible with this platform and Rustinel version. An equal or older catalog
+version is a no-op with no download or restart. Missing or invalid state, a missing
+catalog entry, or an incompatible newer pack produces an error without replacing
+the active pack. Updates use the same mandatory checksum, safe extraction,
+manifest validation, and staged activation as installation. Download, validation,
+and activation failures preserve the previous pack and state. Concurrent install
+and update operations on the same rules directory are rejected by a file lock.
+
+After a successful update, run `rustinel service restart` (with the privileges
+required by your service manager), or restart a foreground `rustinel run` process.
+The command prints this requirement and does not restart the service itself.
+A whole-pack replacement requires a restart even with hot reload enabled:
+directory replacement can invalidate filesystem watches, and Sigma, YARA, and
+IOC reloads happen independently. Hot reload remains suitable for individual
+file edits. For a coordinated production change, stop the service, update the
+pack, then start the service; if the update fails, start it with the previous pack.
+Updates replace local edits under `current`, so keep custom rules separately.
 
 Managed active rules layout:
 

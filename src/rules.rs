@@ -137,6 +137,23 @@ pub fn run_cli(command: crate::cli::RulesAction, config_path: Option<PathBuf>) -
             print_pack_list(&catalog, &rules_dir);
             Ok(())
         }
+        crate::cli::RulesAction::Update {
+            catalog_url,
+            rules_dir,
+        } => {
+            let rules_dir = resolve_rules_dir(config_path, rules_dir)?;
+            let state = load_update_state(&rules_dir)?;
+            let catalog_url = parse_release_url(&catalog_url)?;
+            let catalog = fetch_catalog(&catalog_url)?;
+            let outcome = update_active_pack(&catalog, &state, &rules_dir, |pack| {
+                let url = resolve_artifact_url(&catalog_url, pack)?;
+                validate_release_url(&url)?;
+                fetch_url_bytes(&url, MAX_ARTIFACT_BYTES)
+                    .with_context(|| format!("download {}", pack.artifact))
+            })?;
+            println!("{}", update_message(&state, outcome.as_ref()));
+            Ok(())
+        }
         crate::cli::RulesAction::Install {
             pack,
             catalog_url,
@@ -144,16 +161,8 @@ pub fn run_cli(command: crate::cli::RulesAction, config_path: Option<PathBuf>) -
         } => {
             let catalog_url = parse_release_url(&catalog_url)?;
             let catalog = fetch_catalog(&catalog_url)?;
-            let selected = catalog
-                .find_pack(&pack)
-                .with_context(|| format!("pack {pack} was not found in the catalog"))?;
-            validate_pack_installable(selected)?;
-            let artifact_url = resolve_artifact_url(&catalog_url, selected)?;
-            validate_release_url(&artifact_url)?;
-            let archive = fetch_url_bytes(&artifact_url, MAX_ARTIFACT_BYTES)
-                .with_context(|| format!("download {}", selected.artifact))?;
             let rules_dir = resolve_rules_dir(config_path, rules_dir)?;
-            let outcome = install_pack_archive_bytes(&catalog, &pack, &rules_dir, &archive)?;
+            let outcome = download_and_install_pack(&catalog_url, &catalog, &pack, &rules_dir)?;
             println!(
                 "Installed {} {} into {}",
                 outcome.pack_id,
@@ -166,6 +175,39 @@ pub fn run_cli(command: crate::cli::RulesAction, config_path: Option<PathBuf>) -
 }
 
 pub fn install_pack_archive_bytes(
+    catalog: &Catalog,
+    pack_id: &str,
+    rules_dir: &Path,
+    archive: &[u8],
+) -> Result<InstallOutcome> {
+    let _lock = lock_rules_dir(rules_dir)?;
+    install_pack_archive_bytes_locked(catalog, pack_id, rules_dir, archive)
+}
+
+struct RulesLock(fs::File);
+
+impl Drop for RulesLock {
+    fn drop(&mut self) {
+        // Release explicitly: a concurrently spawned child may inherit the open file.
+        let _ = self.0.unlock();
+    }
+}
+
+fn lock_rules_dir(rules_dir: &Path) -> Result<RulesLock> {
+    fs::create_dir_all(rules_dir).context("create rules directory")?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(rules_dir.join(".install.lock"))
+        .context("open rules installation lock")?;
+    file.try_lock()
+        .context("lock rules directory; another rules operation may be running")?;
+    Ok(RulesLock(file))
+}
+
+fn install_pack_archive_bytes_locked(
     catalog: &Catalog,
     pack_id: &str,
     rules_dir: &Path,
@@ -241,6 +283,55 @@ pub fn download_and_install_pack(
     let archive = fetch_url_bytes(&artifact_url, MAX_ARTIFACT_BYTES)
         .with_context(|| format!("download {}", selected.artifact))?;
     install_pack_archive_bytes(catalog, pack_id, rules_dir, &archive)
+}
+
+fn load_update_state(rules_dir: &Path) -> Result<RulesState> {
+    let bytes = fs::read(rules_dir.join("state.json")).context(
+        "read active rules state; install a pack with rustinel rules install <PACK> first",
+    )?;
+    let state = serde_json::from_slice(&bytes).context("parse active rules state")?;
+    if !rules_dir.join("current/pack.yml").is_file() {
+        bail!("active rules pack is missing; reinstall it before updating");
+    }
+    Ok(state)
+}
+
+fn update_active_pack(
+    catalog: &Catalog,
+    state: &RulesState,
+    rules_dir: &Path,
+    download: impl FnOnce(&CatalogPack) -> Result<Vec<u8>>,
+) -> Result<Option<InstallOutcome>> {
+    let _lock = lock_rules_dir(rules_dir)?;
+    if load_update_state(rules_dir)? != *state {
+        bail!("active rules state changed while checking for updates; retry the update");
+    }
+    let pack = catalog
+        .find_pack(&state.pack_id)
+        .with_context(|| format!("active pack {} was not found in the catalog", state.pack_id))?;
+    let installed = Version::parse(state.version.trim_start_matches('v'))
+        .context("parse active pack version")?;
+    let available = Version::parse(pack.version.trim_start_matches('v'))
+        .context("parse catalog pack version")?;
+    if available.cmp_precedence(&installed).is_le() {
+        return Ok(None);
+    }
+    validate_pack_installable(pack)?;
+    let archive = download(pack)?;
+    install_pack_archive_bytes_locked(catalog, &state.pack_id, rules_dir, &archive).map(Some)
+}
+
+fn update_message(state: &RulesState, outcome: Option<&InstallOutcome>) -> String {
+    match outcome {
+        Some(outcome) => format!(
+            "Updated {} from {} to {} in {}. Restart the service with rustinel service restart to load the complete pack; directory replacement requires a restart even when hot reload is enabled.",
+            outcome.pack_id, state.version, outcome.version, outcome.current_dir.display()
+        ),
+        None => format!(
+            "Rules pack {} {} is up to date; no newer version is available. No restart required.",
+            state.pack_id, state.version
+        ),
+    }
 }
 
 pub fn read_state(rules_dir: &Path) -> Option<RulesState> {
@@ -616,8 +707,15 @@ fn atomic_replace_active(
             .with_context(|| format!("move current rules {}", current.display()))?;
     }
     if state.exists() {
-        fs::rename(&state, &previous_state)
-            .with_context(|| format!("move current state {}", state.display()))?;
+        if let Err(err) = fs::rename(&state, &previous_state) {
+            // State never moved, so only restore the rules directory. The backup
+            // state path may be a stale entry that caused the rename to fail.
+            if previous_current.exists() {
+                fs::rename(&previous_current, &current)
+                    .context("restore current rules after state backup failure")?;
+            }
+            return Err(err).context("move current rules state");
+        }
     }
 
     if let Err(err) = fs::rename(next_current, &current) {
