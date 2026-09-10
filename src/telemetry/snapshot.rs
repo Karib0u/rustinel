@@ -473,6 +473,9 @@ pub struct TelemetrySnapshot {
     /// Linux eBPF kernel and userspace reconciliation counters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linux_ebpf: Option<LinuxEbpfSnapshot>,
+    /// Per-channel Event Log health, separate from ETW and queue shedding.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub windows_event_log: Vec<super::EventLogSnapshot>,
     /// Classic/manifest source correlation outcomes.
     #[serde(default)]
     pub windows_process_correlation: super::ProcessCorrelationSnapshot,
@@ -507,6 +510,10 @@ impl TelemetrySnapshot {
                 .collect(),
             sensor_events_by_category: super::sensor_event_category_snapshots(),
             linux_ebpf: super::LINUX_EBPF.snapshot(),
+            windows_event_log: super::event_log::WINDOWS_EVENT_LOG
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
             windows_process_correlation: crate::telemetry::WINDOWS_PROCESS_CORRELATION.snapshot(),
             windows_process_command_line: super::WINDOWS_PROCESS_COMMAND_LINE.snapshot(),
             registry: super::REGISTRY.snapshot(),
@@ -679,6 +686,7 @@ mod tests {
             channels,
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,
+            windows_event_log: Vec::new(),
             windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,
