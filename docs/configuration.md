@@ -145,13 +145,13 @@ directory = "C:\\Rustinel\\logs"
 | `yara_enabled` | `true` | Enable YARA scanning |
 | `yara_rules_path` | `rules/current/yara` | YARA rules directory, loaded recursively |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped by YARA queueing and scanning |
-| `yara_scan_timeout_ms` | `10000` | Per-scan timeout for file and memory scans; `0` disables |
+| `yara_scan_timeout_ms` | `10000` | Timeout per file or across memory reads and scans of one process; `0` disables |
 | `yara_max_file_mb` | `64` | Files larger than this are reported oversized instead of scanned; `0` disables |
 | `yara_memory_enabled` | `false` | Enable YARA memory scanning (requires `yara_enabled`) |
 | `yara_memory_queue_capacity` | `64` | Maximum pending memory scan jobs before new ones drop |
-| `yara_memory_delay_ms` | `750` | Delay after process start before reading memory |
+| `yara_memory_delay_ms` | `750` | Delay from enqueue to memory access; time waiting in the queue counts |
 | `yara_memory_max_process_mb` | `64` | Stop reading a process after this many MB |
-| `yara_memory_max_region_mb` | `8` | Clamp each region read to this many MB |
+| `yara_memory_max_region_mb` | `8` | Clamp each region read and the reusable payload buffer to this many MB |
 | `yara_memory_include_private` | `true` | Scan private (anonymous) regions |
 | `yara_memory_include_image` | `false` | Scan image-backed regions (loaded executables/DLLs) |
 | `yara_memory_include_mapped` | `false` | Scan file-mapped regions |

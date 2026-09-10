@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, info, warn};
 use yara_x::{Compiler, Rules, Scanner as XScanner};
@@ -42,7 +42,7 @@ pub fn is_path_allowlisted(path: &str, allowlist_paths: &[String]) -> bool {
         .is_match(path, allowlist_paths)
 }
 
-/// Default per-scan timeout applied to file and memory scans.
+/// Default timeout per file or across one process's memory reads and scans.
 pub const DEFAULT_SCAN_TIMEOUT_MS: u64 = 10_000;
 /// Default maximum size of a file accepted by [`Scanner::scan_file`].
 pub const DEFAULT_MAX_FILE_MB: u64 = 64;
@@ -52,7 +52,7 @@ pub const DEFAULT_MAX_FILE_MB: u64 = 64;
 /// A zero value disables the corresponding guard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScanLimits {
-    /// Per-scan timeout handed to `yara_x::Scanner::set_timeout`.
+    /// Timeout per file or shared across one process's memory regions.
     pub timeout: Duration,
     /// Maximum size of a file accepted by [`Scanner::scan_file`].
     pub max_file_bytes: u64,
@@ -76,6 +76,9 @@ pub enum ScanError {
     /// The scan hit the configured per-scan timeout.
     #[error("YARA scan timed out after {} ms", timeout.as_millis())]
     TimedOut { timeout: Duration },
+    /// The shared budget for all regions of a process was exhausted.
+    #[error("YARA process deadline exceeded after {} ms", timeout.as_millis())]
+    ProcessDeadline { timeout: Duration },
     /// The target was larger than the configured maximum and was not scanned.
     #[error("target of {size} bytes exceeds the maximum scan size of {limit} bytes")]
     TooLarge { size: u64, limit: u64 },
@@ -89,6 +92,7 @@ impl ScanError {
     pub fn kind(&self) -> &'static str {
         match self {
             ScanError::TimedOut { .. } => "timeout",
+            ScanError::ProcessDeadline { .. } => "process_deadline",
             ScanError::TooLarge { .. } => "oversized",
             ScanError::Failed(_) => "failed",
         }
@@ -199,6 +203,8 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 #[derive(Debug, Clone)]
 pub struct YaraMemoryJob {
     pub expected_identity: ProcessIdentity,
+    /// Monotonic enqueue time so queue waiting counts toward the scan delay.
+    pub enqueued_at: Instant,
 }
 
 /// Main Scanner struct holding compiled rules
@@ -479,15 +485,31 @@ impl Scanner {
     /// caller's job here: memory scans are already bounded by
     /// `MemoryScanConfig::max_region_bytes`.
     pub fn scan_bytes(&self, data: &[u8], match_debug: MatchDebugLevel) -> ScanResult {
+        self.scan_bytes_with_timeout(data, match_debug, self.limits.timeout)
+    }
+
+    /// Scan one region with the remaining process budget. Zero disables the timeout.
+    pub(crate) fn scan_bytes_with_timeout(
+        &self,
+        data: &[u8],
+        match_debug: MatchDebugLevel,
+        timeout: Duration,
+    ) -> ScanResult {
         if self.compiled_files == 0 {
             return Ok(Vec::new());
         }
 
         let mut scanner = XScanner::new(&self.rules);
-        self.apply_timeout(&mut scanner);
-        let scan_results = scanner
-            .scan(data)
-            .map_err(|err| self.map_scan_error(err, || "YARA memory scan failed".to_string()))?;
+        if !timeout.is_zero() {
+            scanner.set_timeout(timeout);
+        }
+        let scan_results = scanner.scan(data).map_err(|err| {
+            if matches!(err, yara_x::ScanError::Timeout) {
+                ScanError::TimedOut { timeout }
+            } else {
+                ScanError::Failed(anyhow::Error::new(err).context("YARA memory scan failed"))
+            }
+        })?;
         Ok(collect_yara_matches(scan_results, match_debug))
     }
 }
@@ -652,7 +674,10 @@ impl SensorEventHandler for YaraEventHandler {
             match crate::telemetry::try_send(
                 crate::telemetry::ChannelId::YaraMemoryScan,
                 memory_tx,
-                YaraMemoryJob { expected_identity },
+                YaraMemoryJob {
+                    expected_identity,
+                    enqueued_at: Instant::now(),
+                },
             ) {
                 Ok(_) => tracing::trace!(
                     target: "scanner",

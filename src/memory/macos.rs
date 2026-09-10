@@ -10,7 +10,7 @@
 //! returns an empty result, exactly like the Linux reader does on permission
 //! errors, so memory scanning simply yields nothing rather than failing.
 
-use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig};
+use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig, RegionReader};
 use anyhow::Result;
 use mach2::kern_return::KERN_SUCCESS;
 use mach2::mach_port::mach_port_deallocate;
@@ -20,6 +20,8 @@ use mach2::vm::{mach_vm_read_overwrite, mach_vm_region};
 use mach2::vm_prot::{VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE};
 use mach2::vm_region::{vm_region_basic_info_data_64_t, vm_region_info_t, VM_REGION_BASIC_INFO_64};
 use mach2::vm_types::{mach_vm_address_t, mach_vm_size_t};
+use std::ops::ControlFlow;
+use std::time::Instant;
 
 /// Number of 32-bit words in `vm_region_basic_info_data_64_t`, as required by
 /// `mach_vm_region`'s `info_count` argument.
@@ -36,7 +38,12 @@ fn classify(filename: Option<&str>, executable: bool) -> MemoryRegionKind {
     }
 }
 
-pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Vec<MemoryChunk>> {
+pub fn visit_process_memory_chunks(
+    pid: u32,
+    cfg: &MemoryScanConfig,
+    deadline: Option<Instant>,
+    mut visitor: impl FnMut(&MemoryChunk) -> ControlFlow<()>,
+) -> Result<()> {
     let mut task: mach_port_t = MACH_PORT_NULL;
     let kr = unsafe { task_for_pid(mach_task_self(), pid as i32, &mut task) };
     if kr != KERN_SUCCESS {
@@ -46,14 +53,13 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
             kr = kr,
             "YARA memory: task_for_pid denied (needs root and SIP/entitlement)"
         );
-        return Ok(Vec::new());
+        return Ok(());
     }
 
-    let mut chunks = Vec::new();
-    let mut total_bytes: usize = 0;
+    let mut reader = RegionReader::new(cfg, deadline);
     let mut address: mach_vm_address_t = 0;
 
-    while total_bytes < cfg.max_process_bytes {
+    while !reader.is_done() {
         let mut size: mach_vm_size_t = 0;
         let mut info = vm_region_basic_info_data_64_t::default();
         let mut info_count = basic_info_count();
@@ -104,27 +110,19 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
 
             if include {
                 let region_size = size as usize;
-                let read_size = region_size
-                    .min(cfg.max_region_bytes)
-                    .min(cfg.max_process_bytes - total_bytes);
-
-                if read_size > 0 {
-                    if let Some(bytes) = read_region(task, address, read_size) {
-                        total_bytes += bytes.len();
-                        let region = MemoryRegion {
-                            base: address,
-                            size: region_size,
-                            readable: true,
-                            writable,
-                            executable,
-                            kind,
-                        };
-                        chunks.push(MemoryChunk {
-                            base: address,
-                            bytes,
-                            region,
-                        });
-                    }
+                let region = MemoryRegion {
+                    base: address,
+                    size: region_size,
+                    readable: true,
+                    writable,
+                    executable,
+                    kind,
+                };
+                if reader
+                    .read_region(region, |buf| read_region(task, address, buf), &mut visitor)
+                    .is_break()
+                {
+                    break;
                 }
             }
         }
@@ -140,18 +138,17 @@ pub fn read_process_memory_chunks(pid: u32, cfg: &MemoryScanConfig) -> Result<Ve
         let _ = mach_port_deallocate(mach_task_self(), task);
     }
 
-    Ok(chunks)
+    Ok(())
 }
 
-/// Read up to `len` bytes at `address` from `task`. Returns `None` on failure.
-fn read_region(task: mach_port_t, address: mach_vm_address_t, len: usize) -> Option<Vec<u8>> {
-    let mut buf = vec![0u8; len];
+/// Read into the region buffer at `address`. Returns `None` on failure.
+fn read_region(task: mach_port_t, address: mach_vm_address_t, buf: &mut [u8]) -> Option<usize> {
     let mut out_size: mach_vm_size_t = 0;
     let kr = unsafe {
         mach_vm_read_overwrite(
             task,
             address,
-            len as mach_vm_size_t,
+            buf.len() as mach_vm_size_t,
             buf.as_mut_ptr() as mach_vm_address_t,
             &mut out_size,
         )
@@ -159,8 +156,7 @@ fn read_region(task: mach_port_t, address: mach_vm_address_t, len: usize) -> Opt
     if kr != KERN_SUCCESS || out_size == 0 {
         return None;
     }
-    buf.truncate(out_size as usize);
-    Some(buf)
+    Some(out_size as usize)
 }
 
 #[cfg(test)]
@@ -191,7 +187,7 @@ mod tests {
             include_mapped: true,
             delay_ms: 0,
         };
-        let result = read_process_memory_chunks(99_999_999, &cfg);
+        let result = super::super::read_process_memory_chunks(99_999_999, &cfg);
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }

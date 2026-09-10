@@ -8,7 +8,7 @@ pub struct MemoryScanConfig {
     pub include_private: bool,
     pub include_image: bool,
     pub include_mapped: bool,
-    /// Milliseconds to wait before scanning (gives packers time to unpack).
+    /// Milliseconds from enqueue before scanning (gives packers time to unpack).
     pub delay_ms: u64,
 }
 
@@ -32,7 +32,7 @@ pub struct MemoryRegion {
     pub kind: MemoryRegionKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryChunk {
     pub base: u64,
     pub bytes: Vec<u8>,

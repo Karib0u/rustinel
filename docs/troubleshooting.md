@@ -456,7 +456,12 @@ could not be rebuilt safely, so those events reached no rule.
 
 A backed-up YARA queue is usually event volume rather than one stuck scan:
 `scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold
-its worker.
+its worker. Memory reads and scans share one process budget after the enqueue
+delay and identity validation. Regions are scanned one at a time using a buffer
+bounded by `yara_memory_max_region_mb`. A `process_deadline` outcome means the
+budget expired; earlier detections are still emitted. OS reads cannot be
+interrupted and YARA-X checks timeouts periodically, so the active region can
+overrun the budget, but no further region starts after expiry.
 
 ### A registry rule did not fire on Windows
 
