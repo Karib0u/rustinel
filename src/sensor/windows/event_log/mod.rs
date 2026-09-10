@@ -218,10 +218,12 @@ fn run_subscription_inner(
         update(source.channel, |health| health.checkpoint_errors += 1);
         anyhow!("invalid {} Event Log bookmark: {err}", source.channel)
     })?;
+    let mut saved_record_id = None;
     if let Some(xml) = &saved {
         let record_id = bookmark_record_id(xml, source.channel).inspect_err(|_| {
             update(source.channel, |health| health.checkpoint_errors += 1);
         })?;
+        saved_record_id = Some(record_id);
         let oldest = oldest_record(source.channel).inspect_err(|_| {
             update(source.channel, |health| health.subscription_errors += 1);
         })?;
@@ -237,8 +239,8 @@ fn run_subscription_inner(
     }
     // Establish a baseline even when no matching record has been delivered yet.
     // Reading the newest unfiltered record does not infer loss from record gaps.
-    let resume = if saved.is_some() {
-        true
+    let resume = if let Some(record_id) = saved_record_id {
+        record_id != 0
     } else {
         seed_bookmark(source.channel, bookmark.0, checkpoint).inspect_err(|_| {
             update(source.channel, |health| health.checkpoint_errors += 1);
@@ -276,7 +278,7 @@ fn run_subscription_inner(
     let origin = if resume {
         EvtSubscribeStartAfterBookmark.0
     } else {
-        EvtSubscribeToFutureEvents.0
+        EvtSubscribeStartAtOldestRecord.0
     };
     let subscription = match subscribe(origin) {
         Ok(handle) => OwnedEvtHandle(handle),
@@ -442,6 +444,7 @@ fn write_checkpoint(path: &Path, xml: &str) -> Result<()> {
 }
 
 fn seed_bookmark(channel: &str, bookmark: EVT_HANDLE, path: &Path) -> Result<bool> {
+    let channel_name = channel;
     let channel = wide_string(channel);
     let query = wide_string("*");
     let result = OwnedEvtHandle(unsafe {
@@ -455,7 +458,21 @@ fn seed_bookmark(channel: &str, bookmark: EVT_HANDLE, path: &Path) -> Result<boo
     let mut events = [0isize; 1];
     let mut returned = 0;
     match unsafe { EvtNext(result.0, &mut events, 0, 0, &mut returned) } {
-        Err(err) if err.code() == ERROR_NO_MORE_ITEMS.to_hresult() => return Ok(false),
+        Err(err) if err.code() == ERROR_NO_MORE_ITEMS.to_hresult() => {
+            // Zero means the channel was empty, not a missing processed record.
+            // Resume it from the oldest record so downtime events are replayed.
+            let escaped = channel_name
+                .replace('&', "&amp;")
+                .replace('"', "&quot;")
+                .replace('<', "&lt;");
+            write_checkpoint(
+                path,
+                &format!(
+                    r#"<BookmarkList><Bookmark Channel="{escaped}" RecordId="0" IsCurrent="true"/></BookmarkList>"#
+                ),
+            )?;
+            return Ok(false);
+        }
         other => other?,
     }
     let event = OwnedEvtHandle(EVT_HANDLE(events[0]));

@@ -13,7 +13,7 @@ fn retention_only_counts_unavailable_records_after_checkpoint() {
 fn checkpoint_replaces_atomically_and_survives_reopen() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("System.xml");
-    for id in [100, 105, 10_000] {
+    for id in [0, 100, 105, 10_000] {
         let xml = format!(
             r#"<BookmarkList><Bookmark Channel="System" RecordId="{id}" IsCurrent="true"/></BookmarkList>"#
         );
@@ -178,7 +178,6 @@ fn native_filtered_subscription_resume_and_retention() {
         }
     }
     let _cleanup = Cleanup;
-    powershell("Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 430 -EntryType Information -Message baseline");
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("checkpoint.xml");
     let source = EventLogSource::new(
@@ -191,7 +190,18 @@ fn native_filtered_subscription_resume_and_retention() {
     let shutdown = Arc::new(AtomicBool::new(false));
     let worker =
         EventLogSubscription::start(source, tx.clone(), shutdown.clone(), path.clone()).unwrap();
-    powershell("Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message first; 1..20 | ForEach-Object { Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 430 -EntryType Information -Message excluded }; Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message second");
+    assert_eq!(
+        bookmark_record_id(&std::fs::read_to_string(&path).unwrap(), channel).unwrap(),
+        0
+    );
+    shutdown.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    // Even a previously empty channel must replay its first downtime event.
+    powershell("Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message first");
+    shutdown.store(false, Ordering::Relaxed);
+    let worker =
+        EventLogSubscription::start(source, tx.clone(), shutdown.clone(), path.clone()).unwrap();
+    powershell("1..200 | ForEach-Object { Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 430 -EntryType Information -Message excluded }; Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message second");
     let first = receive(&mut rx).source_seq.unwrap();
     let second = receive(&mut rx).source_seq.unwrap();
     assert!(second > first + 1);
