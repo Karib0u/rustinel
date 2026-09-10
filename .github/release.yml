@@ -1,5 +1,15 @@
 changelog:
+  exclude:
+    labels:
+      - skip-changelog
   categories:
+    - title: Breaking Changes
+      labels:
+        - breaking-change
+    - title: Performance
+      labels:
+        - performance
+        - perf
     - title: Features
       labels:
         - feature
@@ -10,24 +20,20 @@ changelog:
         - bug
         - fix
         - bugfix
-    - title: Refactoring
-      labels:
-        - refactor
-        - refactoring
     - title: Documentation
       labels:
         - documentation
         - docs
-    - title: CI and release
-      labels:
-        - ci
-        - ci-cd
-        - workflow
     - title: Dependencies
       labels:
         - dependencies
     - title: Maintenance
       labels:
+        - refactor
+        - refactoring
+        - ci
+        - ci-cd
+        - workflow
         - chore
         - maintenance
     - title: Other Changes

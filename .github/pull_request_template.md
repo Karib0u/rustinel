@@ -4,11 +4,15 @@
 ## Type of change
 <!-- Add the matching label to this PR before merging -->
 - [ ] `feat` / `enhancement` - new feature
+- [ ] `performance` - performance improvement
 - [ ] `bug` - bug fix
 - [ ] `refactor` - refactoring, no behaviour change
 - [ ] `documentation` - docs only
 - [ ] `ci` - CI and release changes
 - [ ] `dependencies` - dependency update
+- [ ] `chore` - other maintenance
+- [ ] `breaking-change` - breaking change (takes priority over other categories)
+- [ ] `skip-changelog` - release preparation or changes with no release-note value
 
 ## Test plan
 - [ ] Tested on Windows
@@ -19,3 +23,4 @@
 ## Checklist
 - [ ] Label added to this PR
 - [ ] Docs updated (if behaviour changed)
+- [ ] Release highlights and upgrade notes added (release preparation only)

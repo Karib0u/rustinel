@@ -47,6 +47,7 @@ pub(crate) fn telemetry_results(
     results.extend(registry_results(&snapshot));
     results.extend(file_attribution_results(&snapshot));
     results.extend(etw_decode_results(&snapshot));
+    results.extend(event_log_results(&snapshot));
 
     results.extend(process_correlation_results(&snapshot));
     let dropping = snapshot.dropping_channels();
@@ -56,7 +57,7 @@ pub(crate) fn telemetry_results(
             DiagnosticResult::pass(
                 "pipeline_telemetry",
                 format!(
-                    "No telemetry dropped across {} events (snapshot from {})",
+                    "No pipeline queue drops across {} events (snapshot from {})",
                     snapshot.total_accepted(),
                     snapshot.captured_at
                 ),
@@ -88,6 +89,55 @@ pub(crate) fn telemetry_results(
 
     results.insert(0, result);
     (results, Some(snapshot))
+}
+
+fn event_log_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+    for channel in &snapshot.windows_event_log {
+        let id = format!("windows_event_log_{}", channel.channel);
+        let detail =
+            format!(
+            "active={}, delivered={}, subscription_errors={}, live_stale={}, resume_failures={}, \
+             checkpoint_errors={}, decode_errors={}, last_error={}",
+            channel.active, channel.delivered, channel.subscription_errors, channel.live_stale,
+            channel.resume_failures, channel.checkpoint_errors, channel.decode_errors,
+            channel.last_error.as_deref().unwrap_or("none"),
+        );
+        let degraded = !channel.active
+            || channel.subscription_errors > 0
+            || channel.resume_failures > 0
+            || channel.checkpoint_errors > 0
+            || channel.decode_errors > 0;
+        results.push(if degraded {
+            DiagnosticResult::warn(
+                &id,
+                format!(
+                    "{} Event Log subscription is stopped or degraded",
+                    channel.channel
+                ),
+                detail,
+            )
+        } else {
+            DiagnosticResult::pass(&id, detail)
+        });
+        let retention_id = format!("{id}_retention");
+        results.push(if channel.retention_wraps > 0 {
+            DiagnosticResult::warn(
+                retention_id,
+                format!(
+                    "{} Event Log retention passed the saved bookmark",
+                    channel.channel
+                ),
+                format!(
+                    "{} downtime retention incidents; matching records lost is unknown",
+                    channel.retention_wraps
+                ),
+            )
+        } else {
+            DiagnosticResult::pass(retention_id, "No downtime retention wrap detected")
+        });
+    }
+    results
 }
 
 fn process_correlation_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
@@ -459,6 +509,45 @@ mod tests {
     };
 
     #[test]
+    fn event_log_health_and_retention_are_separate_from_shedding() {
+        let mut report = snapshot(Vec::new());
+        assert!(event_log_results(&report).is_empty());
+        report
+            .windows_event_log
+            .push(crate::telemetry::event_log::EventLogSnapshot {
+                channel: "Security".into(),
+                active: true,
+                delivered: 2,
+                last_record_id: Some(100_000),
+                ..Default::default()
+            });
+        assert!(event_log_results(&report)
+            .iter()
+            .all(|r| r.status == DiagnosticStatus::Pass));
+        report.windows_event_log[0].subscription_errors = 1;
+        report.windows_event_log[0].live_stale = 1;
+        report.windows_event_log[0].last_error = Some("ERROR_EVT_QUERY_RESULT_STALE".into());
+        let results = event_log_results(&report);
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].id.contains("Security"));
+        assert!(results[0]
+            .detail
+            .as_ref()
+            .unwrap()
+            .contains("ERROR_EVT_QUERY_RESULT_STALE"));
+        assert_eq!(results[1].status, DiagnosticStatus::Pass);
+        report.windows_event_log[0].retention_wraps = 1;
+        assert_eq!(event_log_results(&report)[1].status, DiagnosticStatus::Warn);
+        assert_eq!(report.total_dropped(), 0);
+        assert!(report.dropping_channels().is_empty());
+        let json = serde_json::to_string(&report).unwrap();
+        assert_eq!(
+            serde_json::from_str::<TelemetrySnapshot>(&json).unwrap(),
+            report
+        );
+    }
+
+    #[test]
     fn doctor_reports_process_join_outcomes_separately() {
         let mut report = snapshot(Vec::new());
         assert!(process_correlation_results(&report).is_empty());
@@ -488,6 +577,7 @@ mod tests {
             channels,
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,
+            windows_event_log: Vec::new(),
             windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,

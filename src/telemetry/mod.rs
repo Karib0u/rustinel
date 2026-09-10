@@ -12,6 +12,8 @@
 //! writes to a snapshot file. `rustinel doctor` reads that snapshot, so the
 //! answer to "did we lose telemetry?" is a command, not a log search.
 
+pub(crate) mod event_log;
+pub use event_log::EventLogSnapshot;
 mod process_correlation;
 mod snapshot;
 pub use process_correlation::{ProcessCorrelationSnapshot, WINDOWS_PROCESS_CORRELATION};

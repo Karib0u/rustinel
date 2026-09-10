@@ -418,6 +418,15 @@ impl EtwSensor {
         });
         let flushers = [main_flusher, process_flusher];
 
+        // An Event Log callback can fail while these sessions are starting.
+        // Its stop-by-name may precede session creation, so honor shutdown
+        // again before entering the blocking processor.
+        if self.shutdown.load(Ordering::Relaxed) {
+            for session in [TRACE_SESSION_NAME, PROCESS_TRACE_SESSION_NAME] {
+                let _ = ferrisetw::trace::stop_trace_by_name(session);
+            }
+        }
+
         let main_result = interpret_process_result(
             TRACE_SESSION_NAME,
             main_trace.process(),
