@@ -24,6 +24,14 @@ fn domain_ioc_matches_exact_and_suffix_dns_events() {
         .expect("dns event should normalize");
     let matches = engine.check_event(&event);
     assert_eq!(matches.len(), 2);
+    for (m, comment, line) in [(&matches[0], "exact", 1), (&matches[1], "suffix", 2)] {
+        assert_eq!(m.comment.as_deref(), Some(comment));
+        assert_eq!(
+            m.source,
+            fixture.config().domains_path.display().to_string()
+        );
+        assert_eq!(m.line, line);
+    }
 
     let alert = engine.build_alert_for_match(&matches[0], &event);
     let json = ecs_json(&alert);
@@ -86,6 +94,11 @@ fn ip_ioc_matches_network_and_dns_response_ips() {
         .expect("dns event should normalize");
     let matches = engine.check_event(&dns);
     assert_eq!(matches.len(), 2);
+    for (m, comment, line) in [(&matches[0], "exact", 1), (&matches[1], "cidr", 2)] {
+        assert_eq!(m.comment.as_deref(), Some(comment));
+        assert_eq!(m.source, fixture.config().ips_path.display().to_string());
+        assert_eq!(m.line, line);
+    }
 
     let alert = engine.build_alert_for_match(&matches[0], &dns);
     let json = ecs_json(&alert);
@@ -131,6 +144,15 @@ fn path_regex_ioc_matches_process_and_file_paths() {
         .expect("process event should normalize");
     let process_matches = engine.check_event(&process);
     assert_eq!(process_matches.len(), 1);
+    assert_eq!(
+        process_matches[0].comment.as_deref(),
+        Some("suspicious path")
+    );
+    assert_eq!(
+        process_matches[0].source,
+        fixture.config().paths_regex_path.display().to_string()
+    );
+    assert_eq!(process_matches[0].line, 1);
     let alert = engine.build_alert_for_match(&process_matches[0], &process);
     assert!(alert
         .rule_description
@@ -187,6 +209,15 @@ fn hash_ioc_pipeline_detects_required_hashes_and_respects_limits_and_allowlist()
 
     let matches = engine.match_hashes(&hashes);
     assert_eq!(matches.len(), 3);
+    for (m, comment, line) in [
+        (&matches[0], "md5", 1),
+        (&matches[1], "sha1", 2),
+        (&matches[2], "sha256", 3),
+    ] {
+        assert_eq!(m.comment.as_deref(), Some(comment));
+        assert_eq!(m.source, fixture.config().hashes_path.display().to_string());
+        assert_eq!(m.line, line);
+    }
     let alert = engine.build_alert_for_hash_match(
         &matches[0],
         sample.to_str().unwrap(),
@@ -195,4 +226,35 @@ fn hash_ioc_pipeline_detects_required_hashes_and_respects_limits_and_allowlist()
         "ebpf",
     );
     assert_ecs_field_eq(&ecs_json(&alert), "edr.rule.engine", "Ioc");
+}
+
+#[test]
+fn domain_metadata_preserves_duplicate_lines_and_optional_comments() {
+    let fixture = IocFixture::new();
+    fixture.write_domains(&format!(
+        "# header\n{TEST_DOMAIN}; repeated; detail\n*.example.test; repeated; detail\n.example.test; \n*.example.test\n"
+    ));
+    let engine = IocEngine::load(&fixture.config());
+    let harness = TestNormalizer::new();
+    let event = harness
+        .normalizer
+        .normalize(&dns_query_event(Platform::Linux))
+        .expect("DNS event");
+    let matches = engine.check_event(&event);
+    assert_eq!(matches.len(), 4);
+    for (index, m) in matches.iter().enumerate() {
+        assert_eq!(
+            m.source,
+            fixture.config().domains_path.display().to_string()
+        );
+        assert_eq!(m.line, index + 2);
+        assert_eq!(
+            m.comment.as_deref(),
+            if index < 2 {
+                Some("repeated; detail")
+            } else {
+                None
+            }
+        );
+    }
 }

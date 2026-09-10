@@ -265,7 +265,7 @@ mod tests {
             "example.com",
             IocMeta {
                 comment: None,
-                source: "test".to_string(),
+                source: "test".into(),
                 line: 1,
             },
         );
@@ -315,7 +315,7 @@ mod tests {
                 suffix,
                 IocMeta {
                     comment: None,
-                    source: "test".to_string(),
+                    source: "test".into(),
                     line: *line,
                 },
             );
@@ -408,7 +408,7 @@ mod tests {
             "0c2674c3a97c53082187d930efb645c2".to_string(),
             IocMeta {
                 comment: None,
-                source: "test".to_string(),
+                source: "test".into(),
                 line: 1,
             },
         );
