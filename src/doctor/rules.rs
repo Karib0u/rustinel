@@ -107,7 +107,7 @@ fn validate_pack_manifest(
         }
     };
 
-    let manifest: DoctorPackManifest = match serde_yaml::from_slice(&bytes) {
+    let manifest: DoctorPackManifest = match yaml_serde::from_slice(&bytes) {
         Ok(manifest) => manifest,
         Err(err) => {
             results.push(

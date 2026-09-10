@@ -502,7 +502,7 @@ fn validate_extracted_pack(extracted_dir: &Path, pack: &CatalogPack) -> Result<(
     let manifest_bytes = fs::read(&manifest_path)
         .with_context(|| format!("read manifest {}", manifest_path.display()))?;
     let manifest: PackManifest =
-        serde_yaml::from_slice(&manifest_bytes).context("parse pack manifest")?;
+        yaml_serde::from_slice(&manifest_bytes).context("parse pack manifest")?;
     validate_manifest(&manifest, pack)?;
 
     let rules_root = locate_pack_rules_root(extracted_dir)?;
