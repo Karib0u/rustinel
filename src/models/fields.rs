@@ -321,6 +321,9 @@ pub struct NetworkConnectionFields {
 /// DNS query event fields (Sigma: dns_query)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DnsQueryFields {
+    #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+
     #[serde(rename = "QueryName", skip_serializing_if = "Option::is_none")]
     pub query_name: Option<String>,
 

@@ -281,7 +281,10 @@ Per-platform process notes:
   mark `ParentProcessId` as `Derived` and leave parent enrichment absent when
   the cache cannot resolve an unambiguous identity. No late parent path lookup
   occurs. `CommandLine` and `CurrentDirectory` are native ESF fields.
-  `User` uses the effective UID; `RealUserId` preserves the numeric real UID.
+  `User` resolves the effective UID to an account name in the normalizer, marked
+  `Derived`, and retains the numeric UID when lookup fails, as on Linux.
+  `RealUserId` preserves the numeric real UID. Packet-captured macOS network
+  and DNS events have no user identity to resolve.
   `Script` is the native interpreter script path for direct shebang execution
   (message version 2+), absent for scripts passed as interpreter arguments.
   `Signed` is `true` or `false`. `SignatureStatus` is `unsigned`, `valid`, or

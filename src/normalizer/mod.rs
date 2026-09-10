@@ -119,26 +119,12 @@ impl Normalizer {
         }
 
         let mut fields = fields.clone();
-        let measured_user = fields.user.clone();
-        self.resolve_user_field(&mut fields.user);
-        if fields.user != measured_user {
-            provenance.mark_derived("User");
-        }
-        #[cfg(target_os = "linux")]
-        if event.platform == Platform::Linux {
-            if let Some(uid) = fields
-                .linux_identity
-                .effective_user_id
-                .as_deref()
-                .and_then(|id| id.parse::<u32>().ok())
-            {
-                // Account lookup belongs downstream, outside the ring drain.
-                if let Some(name) = crate::utils::lookup_username_by_uid(uid) {
-                    fields.user = Some(name);
-                    provenance.mark_derived("User");
-                }
-            }
-        }
+        self.resolve_actor_user(
+            event.platform,
+            &mut fields.user,
+            fields.linux_identity.effective_user_id.as_deref(),
+            provenance,
+        );
         if fields.process_start_time.is_none() {
             fields.process_start_time = event.process_start_key.map(|key| key.start_time);
             if fields.process_start_time.is_some()
@@ -239,7 +225,7 @@ impl Normalizer {
         mut fields: FileEventFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::FileEvent(fields))
@@ -263,7 +249,7 @@ impl Normalizer {
         mut fields: NetworkConnectionFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         self.enrich_image(event, &mut fields.image, provenance);
 
         if fields.destination_hostname.is_none() {
@@ -285,6 +271,7 @@ impl Normalizer {
         mut fields: DnsQueryFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         self.enrich_image(event, &mut fields.image, provenance);
 
         if let (Some(query_name), Some(query_results)) = (
@@ -367,6 +354,34 @@ impl Normalizer {
         let key = event.process_start_key?;
         self.process_cache
             .get_metadata_by_key(key.pid, key.start_time)
+    }
+
+    fn resolve_actor_user(
+        &self,
+        platform: Platform,
+        user: &mut Option<String>,
+        effective_uid: Option<&str>,
+        provenance: &mut Provenance,
+    ) {
+        let measured_user = user.clone();
+        self.resolve_user_field(user);
+        if *user != measured_user {
+            provenance.mark_derived("User");
+        }
+
+        // Account lookup stays downstream of the sensor callbacks and ring drain.
+        #[cfg(unix)]
+        if matches!(platform, Platform::Linux | Platform::MacOS) {
+            let uid = effective_uid
+                .or(user.as_deref())
+                .and_then(|value| value.parse::<u32>().ok());
+            if let Some(name) = uid.and_then(crate::utils::lookup_username_by_uid) {
+                *user = Some(name);
+                provenance.mark_derived("User");
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = (platform, effective_uid);
     }
 
     fn resolve_user_field(&self, user: &mut Option<String>) {
@@ -509,6 +524,95 @@ mod tests {
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
         )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_actor_users_resolve_consistently_and_match_rules() {
+        for platform in [Platform::Linux, Platform::MacOS] {
+            // Synthetic inputs exercise optional identities independently of
+            // each live collector's required-field contract.
+            let provider = "test";
+            let mut dns = file_event(platform, provider, 4242);
+            dns.payload = SensorPayload::Dns(DnsQueryFields {
+                user: None,
+                query_name: Some("example.test".into()),
+                query_results: None,
+                record_type: Some("A".into()),
+                query_status: None,
+                process_id: None,
+                image: None,
+            });
+            dns.normalization.event_id = 22;
+            for (mut event, category) in [
+                (
+                    process_start_event(platform, provider, 4242),
+                    "process_creation",
+                ),
+                (file_event(platform, provider, 4242), "file_event"),
+                (
+                    network_event(platform, provider, 4242),
+                    "network_connection",
+                ),
+                (dns, "dns_query"),
+            ] {
+                let rules = tempfile::tempdir().unwrap();
+                std::fs::write(rules.path().join("root.yml"), format!(
+                    "title: Root actor\nlogsource:\n  category: {category}\ndetection:\n  selection:\n    User: 'root'\n  condition: selection\n"
+                )).unwrap();
+                let mut engine = crate::engine::Engine::new_for_platform(platform);
+                engine.load_rules(rules.path()).unwrap();
+                for user in [Some("0"), Some("4294967295"), Some("alice"), None] {
+                    match &mut event.payload {
+                        SensorPayload::Process(fields) => {
+                            fields.user = user.map(str::to_string);
+                            fields.linux_identity.effective_user_id = (platform == Platform::Linux)
+                                .then(|| user.map(str::to_string))
+                                .flatten();
+                        }
+                        SensorPayload::File(fields) => fields.user = user.map(str::to_string),
+                        SensorPayload::Network(fields) => fields.user = user.map(str::to_string),
+                        SensorPayload::Dns(fields) => fields.user = user.map(str::to_string),
+                        _ => unreachable!(),
+                    }
+                    let normalized = build_normalizer().normalize(&event).unwrap();
+                    let resolved = user == Some("0");
+                    assert_eq!(
+                        normalized.get_field("User"),
+                        if resolved { Some("root") } else { user }
+                    );
+                    assert_eq!(
+                        normalized
+                            .provenance
+                            .entries()
+                            .iter()
+                            .any(|entry| entry.field == "User"
+                                && entry.fidelity == Fidelity::Derived),
+                        resolved
+                    );
+                    let alerts = engine.evaluate_event(&normalized);
+                    assert_eq!(!alerts.is_empty(), resolved, "{platform:?} {category}");
+                    if resolved {
+                        let ecs = crate::models::ecs::EcsAlert::from(&alerts[0]);
+                        assert_eq!(ecs.user_name.as_deref(), Some("root"));
+                    }
+                    let recorded = serde_json::to_vec(&normalized).unwrap();
+                    let replayed: NormalizedEvent = serde_json::from_slice(&recorded).unwrap();
+                    assert_eq!(replayed.get_field("User"), normalized.get_field("User"));
+                    assert_eq!(replayed.provenance, normalized.provenance);
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn windows_numeric_user_is_not_resolved_as_unix_uid() {
+        let mut user = Some("0".to_string());
+        let mut provenance = Provenance::default();
+        build_normalizer().resolve_actor_user(Platform::Windows, &mut user, None, &mut provenance);
+        assert_eq!(user.as_deref(), Some("0"));
+        assert!(provenance.is_empty());
     }
 
     #[test]

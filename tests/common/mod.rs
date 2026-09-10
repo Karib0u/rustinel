@@ -293,6 +293,7 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
         }),
         parent_process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
+            user: None,
             query_name: Some(TEST_DOMAIN.to_string()),
             query_results: Some(TEST_DESTINATION_IP.to_string()),
             record_type: Some("A".to_string()),

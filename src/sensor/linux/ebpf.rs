@@ -857,6 +857,7 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
+            user: None,
             query_name,
             query_results,
             record_type: Some(record_type),
