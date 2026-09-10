@@ -126,6 +126,15 @@ pub enum RulesAction {
         #[arg(long, value_name = "PATH")]
         rules_dir: Option<std::path::PathBuf>,
     },
+    /// Update the active pack; restart the service after a successful update
+    Update {
+        /// Rules catalog index URL
+        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        catalog_url: String,
+        /// Rules root directory, containing current, staging, and state.json
+        #[arg(long, value_name = "PATH")]
+        rules_dir: Option<std::path::PathBuf>,
+    },
     /// Install a rules pack and make it active
     Install {
         /// Pack ID from `rustinel rules list`
@@ -143,6 +152,33 @@ pub enum RulesAction {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn rules_update_parses_options() {
+        let cli = Cli::try_parse_from([
+            "rustinel",
+            "rules",
+            "update",
+            "--rules-dir",
+            "custom-rules",
+            "--catalog-url",
+            "https://github.com/example/rules/releases/download/v1/index.json",
+        ])
+        .expect("rules update should parse");
+        match cli.command {
+            Some(Commands::Rules {
+                action:
+                    RulesAction::Update {
+                        rules_dir,
+                        catalog_url,
+                    },
+            }) => {
+                assert_eq!(rules_dir, Some(std::path::PathBuf::from("custom-rules")));
+                assert!(catalog_url.ends_with("/v1/index.json"));
+            }
+            _ => panic!("expected rules update command"),
+        }
+    }
 
     #[test]
     fn run_defaults_to_console_output() {

@@ -96,7 +96,11 @@ empty `logs/` directory.
 
 Install a released pack with `rustinel rules install <PACK>`; packs activate
 atomically under the managed rules directory. Local edits to active Sigma, YARA,
-and IOC files are picked up by hot reload. See
+and IOC files are picked up by hot reload. Use `rustinel rules update` to update
+the active pack, then `rustinel service restart` to load the complete replacement.
+For a coordinated change, stop the service before updating and start it afterward,
+even if the update fails and the previous pack is retained. Whole-pack directory
+replacement requires a restart even when hot reload is enabled. See
 [Configuration](configuration.md#reload) for what reloads and what does not.
 
 After editing a rule, check the operational log for a successful reload and
