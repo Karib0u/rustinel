@@ -11,6 +11,7 @@ use crate::runtime::macos as platform_runtime;
 /// any platform dispatch so they behave identically everywhere.
 fn run_portable_command(cli: &Cli) -> Option<anyhow::Result<()>> {
     match &cli.command {
+        Some(Commands::Update) => Some(crate::update::run_cli()),
         Some(Commands::Replay { recording, output }) => {
             Some(crate::replay::run_cli(ReplayOptions {
                 recording: recording.clone(),
@@ -46,6 +47,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     match cli.command {
+        Some(Commands::Update) => unreachable!("update is handled before platform dispatch"),
         Some(Commands::Run { no_console, .. }) => {
             crate::runtime::windows::run_console(!no_console, cli.log_level, cli.config)
         }
@@ -88,6 +90,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     match cli.command {
+        Some(Commands::Update) => unreachable!("update is handled before platform dispatch"),
         Some(Commands::Replay { .. }) => unreachable!("replay is handled before platform dispatch"),
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
         Some(Commands::Doctor { json }) => {

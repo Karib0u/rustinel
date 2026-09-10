@@ -353,3 +353,24 @@ in [Development](development.md).
 | `1` | Error |
 
 Check the operational log if startup or runtime initialization fails.
+
+## Binary update
+
+```sh
+rustinel update
+```
+
+Queries the latest GitHub Release and updates the executable being run when a
+newer version is available. The command selects the current OS and architecture,
+downloads its archive, and verifies the release SHA-256 checksum before replacing
+the binary. An equal or newer installed version exits successfully without changes.
+On macOS, the signed app bundle is replaced together with its metadata and
+notarization ticket; installation inside a Rustinel.app bundle is required.
+Configuration, rules, state, logs, and captures are preserved. Rules packs remain
+managed separately through `rustinel rules`.
+
+Run with permission to write to the installed executable's directory. Restart
+Rustinel after updating; for a managed service, use `rustinel service restart`.
+If a running service blocks replacement, run `rustinel service stop`, then
+`rustinel update`, then `rustinel service start`. No service is restarted
+automatically.

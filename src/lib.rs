@@ -25,4 +25,5 @@ pub mod service;
 pub mod setup;
 pub mod state;
 pub mod telemetry;
+pub mod update;
 pub mod utils;

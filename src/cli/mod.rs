@@ -21,6 +21,8 @@ impl Cli {
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
+    /// Update the binary from the latest GitHub Release
+    Update,
     /// Install Rustinel into the managed platform layout
     Setup {
         /// Rules pack level to install
