@@ -436,6 +436,27 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Read release highlights
+        id: highlights
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          NOTES=".github/release-notes/${VERSION}.md"
+          if [[ ! -s "$NOTES" ]] || ! grep -q '[^[:space:]]' "$NOTES"; then
+            echo "::error::Add release highlights to $NOTES in the release preparation PR."
+            exit 1
+          fi
+          DELIMITER="release_notes_$(openssl rand -hex 16)"
+          {
+            echo "body<<$DELIMITER"
+            cat "$NOTES"
+            printf '\n%s\n' "$DELIMITER"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Download Linux x86_64 binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -465,10 +486,6 @@ jobs:
         with:
           name: rustinel-macos-x86_64
           path: dist/macos-x86_64/
-
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
       - name: Package Linux x86_64
         run: |
@@ -566,6 +583,8 @@ jobs:
           make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           name: Rustinel ${{ github.ref_name }}
           body: |
+            ${{ steps.highlights.outputs.body }}
+
             ## Downloads
 
             | Platform | Architecture | Package |
