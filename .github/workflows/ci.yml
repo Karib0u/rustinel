@@ -17,7 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Update this commit deliberately when the rules repository's atomic suite changes.
-  RUSTINEL_RULES_REF: c1d78b4dec00eef42b5ccb741da6f7e7521dd854
+  RUSTINEL_RULES_REF: 5b8f00181114c6be1d7dbb0b37c6df7101f2c78b
 
 permissions:
   contents: read
@@ -281,6 +281,11 @@ jobs:
         if: matrix.platform == 'windows'
         working-directory: rustinel-rules
         run: |
+          # Keep fixture executables inside the workspace's Defender exclusion.
+          $atomicTemp = Join-Path $env:GITHUB_WORKSPACE "atomic-temp"
+          New-Item -ItemType Directory -Path $atomicTemp -Force | Out-Null
+          $env:TEMP = $atomicTemp
+          $env:TMP = $atomicTemp
           python tests\atomic\run_atomics.py `
             --platform windows `
             --engine-bin "$env:GITHUB_WORKSPACE\target\release\rustinel.exe" `

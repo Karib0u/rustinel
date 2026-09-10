@@ -33,6 +33,36 @@ Before changing config or rules, check these first:
 | Logs mention dropped events or full queues | sensor backpressure, YARA/IOC/response queues saturated |
 | Not sure whether events were lost at all | run `rustinel doctor` and read the `pipeline_telemetry` check |
 
+## Windows Event Log subscription health
+
+`doctor` reports `windows_event_log_System` and `windows_event_log_Security`
+separately from ETW diagnostics and `pipeline_telemetry` queue shedding. The
+`windows_event_log` section in `doctor --json` includes per-channel activity,
+decoded records, the last record ID, subscription errors, live stale signals,
+resume failures, checkpoint errors, and decode failures. These counters cover
+one agent process; use the snapshot timestamp and PID when reading a stopped
+agent's report. A quiet active subscription is healthy, without a silence timeout.
+
+`live_stale` counts `ERROR_EVT_QUERY_RESULT_STALE` notifications. These are
+incidents with an unknown number of missing matching records, not event counts.
+Any callback error stops the sensor and appears in the final telemetry snapshot.
+Check channel access and the named error, then restart the agent.
+
+Bookmarks are saved atomically under `logging.directory/event-log`, separately
+for System and Security, and reused after restart or service recycle. Keep this
+directory when rotating logs. Capture uses `event-log-capture` to keep its cursor
+independent of detection. Checkpoints are flushed every 250 ms and on graceful
+shutdown. An abrupt exit can replay records since the last flush; checkpointing
+marks sensor handling, not durable completion by every downstream detector.
+Unreadable or invalid checkpoints fail startup rather than silently resetting.
+
+The separate `windows_event_log_<channel>_retention` check reports when the
+oldest retained record has passed unprocessed records after the saved bookmark.
+Strict resume also reports a missing bookmark (for example after a channel clear)
+and recovers from the oldest available record. The number of matching records
+lost during downtime is unknown. Live differences between record IDs are never
+counted as loss: System and Security queries intentionally exclude other events.
+
 ## Startup Failures
 
 ### Windows exits without printing output

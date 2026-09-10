@@ -38,6 +38,7 @@ pub(super) const PROCESS_TRACE_SESSION_NAME: &str = "rustinel-etw-process";
 /// Windows ETW sensor implementation.
 pub struct EtwSensor {
     shutdown: Arc<AtomicBool>,
+    event_log_directory: std::path::PathBuf,
     loss_counters: Arc<super::loss::LossCounters>,
     flush_interval_ms: u64,
     process_flush_interval_ms: u64,
@@ -56,10 +57,20 @@ impl EtwSensor {
     pub fn with_flush_intervals(flush_interval_ms: u64, process_flush_interval_ms: u64) -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
+            event_log_directory: crate::config::InstallLayout::managed(
+                crate::config::InstallPlatform::Windows,
+            )
+            .logs_dir
+            .join("event-log"),
             loss_counters: Arc::new(super::loss::LossCounters::new()),
             flush_interval_ms,
             process_flush_interval_ms,
         }
+    }
+
+    pub fn with_event_log_directory(mut self, directory: std::path::PathBuf) -> Self {
+        self.event_log_directory = directory;
+        self
     }
 
     pub fn is_shutdown(&self) -> bool {
@@ -84,7 +95,11 @@ impl Sensor for EtwSensor {
 
         self.shutdown.store(false, Ordering::Relaxed);
         self.loss_counters.reset();
-        let event_logs = EventLogSubscriptions::start(tx.clone(), Arc::clone(&self.shutdown))?;
+        let event_logs = EventLogSubscriptions::start(
+            tx.clone(),
+            Arc::clone(&self.shutdown),
+            &self.event_log_directory,
+        )?;
 
         // A session left running by a previous process keeps its old buffer
         // sizing and its old providers, and `start` would then bind to it.
