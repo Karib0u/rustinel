@@ -873,11 +873,6 @@ mod tests {
     }
 
     #[test]
-    fn test_normalizer_creation() {
-        let _normalizer = build_normalizer();
-    }
-
-    #[test]
     fn process_stop_events_only_maintain_cache() {
         let normalizer = build_normalizer();
 

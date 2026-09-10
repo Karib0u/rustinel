@@ -61,10 +61,10 @@ async fn run_linux_edr(
         _guards,
     } = RuntimeLogging::start(&cfg, "Linux eBPF");
 
-    // 3. Shared state
+    // Shared state
     let state = SharedState::new(&cfg);
 
-    // 4. Active response engine
+    // Active response engine
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
 
@@ -79,7 +79,7 @@ async fn run_linux_edr(
         response_engine.clone(),
     );
 
-    // 13. eBPF sensor
+    // eBPF sensor
     let sensor = Arc::new(EbpfSensor::with_process_cache(process_cache));
 
     info!(
@@ -101,7 +101,7 @@ async fn run_linux_edr(
         return Err(e);
     }
 
-    // 14. Wait for Ctrl+C
+    // Wait for Ctrl+C
     match tokio::signal::ctrl_c().await {
         Ok(()) => info!(target: TARGET_CONSOLE, "Received Ctrl+C, shutting down"),
         Err(e) => error!("Failed to listen for Ctrl+C: {}", e),

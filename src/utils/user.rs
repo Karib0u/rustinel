@@ -98,7 +98,6 @@ pub fn lookup_account_sid(sid_str: &str) -> Result<String> {
 }
 
 #[cfg(not(windows))]
-#[allow(dead_code)]
 pub fn lookup_account_sid(_sid_str: &str) -> Result<String> {
     Err(anyhow!("SID resolution is only supported on Windows"))
 }
