@@ -22,6 +22,24 @@ This test only parses, compiles, and routes rules. Live atomic firing tests and
 curated detection packs belong in `rustinel-rules` and are not run by this
 gate.
 
+## YAML parser
+
+Rule document inspection and pack manifest loading use `yaml_serde`, the
+[YAML organization's maintained fork](https://github.com/yaml/yaml-serde),
+under MIT OR Apache-2.0. RSigma already uses this crate, so sharing it avoids
+adding a second parser implementation. Its `Value`, `from_slice`, and streaming
+`Deserializer` APIs preserve the existing loading code, including inspection
+of every document for omitted temporal correlation conditions.
+
+Other alternatives include `serde-saphyr` (a different deserialization API)
+and `yaml-rust2` (a lower-level parser requiring a Serde integration). Neither
+provides a benefit here over reusing RSigma's existing dependency.
+
+When changing parsers, run `cargo test --locked` for detection, document,
+manifest, and pipeline coverage, then run the pinned corpus gate above without
+changing its baseline. Run `cargo deny --locked check` to verify advisory,
+license, dependency, and source policies.
+
 ## Build Matrix
 
 | Target | Tooling |
