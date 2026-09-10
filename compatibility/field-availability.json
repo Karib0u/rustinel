@@ -4143,8 +4143,8 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "ProcessId",
-      "availability": "never",
-      "reason": "BPF DNS packets are not attributed to processes"
+      "availability": "conditional",
+      "reason": "bounded socket-inventory attribution finds the owner"
     },
     {
       "platform": "macos",
@@ -4154,8 +4154,8 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "Image",
-      "availability": "never",
-      "reason": "BPF DNS packets are not attributed to processes"
+      "availability": "conditional",
+      "reason": "bounded socket-inventory attribution finds the owner and executable path"
     }
   ]
 }

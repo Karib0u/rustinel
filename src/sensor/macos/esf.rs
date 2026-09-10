@@ -180,8 +180,20 @@ fn run_client(
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
 ) {
     let identities = Mutex::new(ExecIdentities::default());
+    let sequences = Mutex::new(crate::telemetry::macos::EsfSequences::default());
     let handler =
         move |_client: &mut Client<'_>, msg: Message| match catch_unwind(AssertUnwindSafe(|| {
+            sequences.lock().unwrap().observe(
+                crate::telemetry::macos::MACOS_COLLECTORS
+                    .lock()
+                    .unwrap()
+                    .esf
+                    .as_mut()
+                    .unwrap(),
+                format!("{:?}", msg.event_type()),
+                msg.seq_num(),
+                msg.global_seq_num(),
+            );
             build_sensor_event(
                 &msg,
                 &mut identities.lock().expect("ESF identity mutex poisoned"),
@@ -208,7 +220,16 @@ fn run_client(
         }
     };
 
+    crate::telemetry::macos::MACOS_COLLECTORS
+        .lock()
+        .unwrap()
+        .esf = Some(Default::default());
+
     if let Err(e) = client.subscribe(SUBSCRIPTIONS) {
+        crate::telemetry::macos::MACOS_COLLECTORS
+            .lock()
+            .unwrap()
+            .esf = None;
         let _ = ready_tx.send(Err(format!("es_subscribe failed: {e:?}")));
         return;
     }

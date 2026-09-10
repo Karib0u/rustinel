@@ -460,6 +460,9 @@ pub struct TelemetrySnapshot {
     /// Linux eBPF kernel and userspace reconciliation counters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linux_ebpf: Option<LinuxEbpfSnapshot>,
+    /// macOS kernel loss, separate from bounded-channel shedding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub macos_collectors: Option<super::MacosCollectorSnapshot>,
     /// Final command-line availability for accepted Windows process starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub windows_process_command_line: Option<ProcessCommandLineSnapshot>,
@@ -491,6 +494,7 @@ impl TelemetrySnapshot {
                 .collect(),
             sensor_events_by_category: super::sensor_event_category_snapshots(),
             linux_ebpf: super::LINUX_EBPF.snapshot(),
+            macos_collectors: super::macos::snapshot(),
             windows_process_command_line: super::WINDOWS_PROCESS_COMMAND_LINE.snapshot(),
             registry: super::REGISTRY.snapshot(),
             file_attribution: super::WINDOWS_FILE_ATTRIBUTION.snapshot(),
@@ -662,6 +666,7 @@ mod tests {
             channels,
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,
+            macos_collectors: None,
             windows_process_command_line: None,
             registry: None,
             file_attribution: None,

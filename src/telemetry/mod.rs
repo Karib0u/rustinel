@@ -12,7 +12,9 @@
 //! writes to a snapshot file. `rustinel doctor` reads that snapshot, so the
 //! answer to "did we lose telemetry?" is a command, not a log search.
 
+pub(crate) mod macos;
 mod snapshot;
+pub use macos::{BpfInterfaceSnapshot, BpfSnapshot, EsfSnapshot, MacosCollectorSnapshot};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};

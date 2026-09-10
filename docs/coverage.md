@@ -144,7 +144,7 @@ condition must be analysed before deciding whether that rule can fire.
 | --- | ---: | ---: | ---: |
 | windows | 19 | 184 | 40 |
 | linux | 19 | 40 | 17 |
-| macos | 27 | 22 | 28 |
+| macos | 27 | 24 | 26 |
 
 The complete machine-readable baseline is
 [`compatibility/field-availability.json`](../compatibility/field-availability.json).

@@ -2,21 +2,22 @@
 //!
 //! Endpoint Security does not surface network connections or DNS, so the macOS
 //! sensor pairs ESF with a BPF capture device. [`BpfSensor`] opens a `/dev/bpf`
-//! device, binds it to an interface, and reads link-layer frames on a
-//! dedicated thread. Captured frames are parsed into [`SensorEvent`] values
+//! device for each active interface and reads link-layer frames on dedicated
+//! capture threads. Captured frames are parsed into [`SensorEvent`] values
 //! (network connections and DNS queries) for the shared pipeline.
 //!
 //! Requirements: root (or access to the bpf device nodes). PID attribution for
 //! captured flows is best-effort via libproc; see the socket helper.
 
-use std::ffi::CString;
+use std::collections::BTreeSet;
+use std::ffi::{CStr, CString};
 use std::io;
 use std::os::unix::io::RawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, Result};
 use tokio::sync::mpsc::Sender;
@@ -36,9 +37,9 @@ const EVENT_ID_DNS_QUERY: u16 = 22;
 /// Destination port that identifies DNS query traffic.
 const DNS_PORT: u16 = 53;
 
-/// Environment variable overriding the capture interface (default `en0`).
+/// Optional comma-separated capture interface override. Defaults to every
+/// interface marked UP and RUNNING at startup.
 const INTERFACE_ENV: &str = "RUSTINEL_BPF_INTERFACE";
-const DEFAULT_INTERFACE: &str = "en0";
 
 /// Requested BPF read-buffer size, set via `BIOCSBLEN` before binding. The
 /// kernel may cap this; the effective size is read back and used for reads.
@@ -59,6 +60,7 @@ const BIOCSETF: libc::c_ulong = 0x8010_4267; // _IOW('B', 103, struct bpf_progra
 const BIOCGDLT: libc::c_ulong = 0x4004_426a; // _IOR('B', 106, u_int)
 const BIOCSETIF: libc::c_ulong = 0x8020_426c; // _IOW('B', 108, struct ifreq)
 const BIOCSRTIMEOUT: libc::c_ulong = 0x8010_426d; // _IOW('B', 109, struct timeval)
+const BIOCGSTATS: libc::c_ulong = 0x4008_426f; // _IOR('B', 111, struct bpf_stat)
 const BIOCIMMEDIATE: libc::c_ulong = 0x8004_4270; // _IOW('B', 112, u_int)
 
 // struct bpf_hdr field offsets on 64-bit macOS (sizeof == 20; bh_tstamp is a
@@ -156,14 +158,14 @@ const BPF_FILTER_EN10MB: [BpfInsn; 37] = [
 /// macOS `/dev/bpf` network/DNS sensor. Implements [`Sensor`].
 pub struct BpfSensor {
     shutdown: Arc<AtomicBool>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    threads: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl BpfSensor {
     pub fn new() -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
-            thread: Mutex::new(None),
+            threads: Mutex::new(Vec::new()),
         }
     }
 }
@@ -175,46 +177,148 @@ impl Default for BpfSensor {
 }
 
 impl Sensor for BpfSensor {
-    /// Open and configure the bpf device synchronously so failures (no device
-    /// nodes, no privileges, unknown interface) surface to the caller, then
-    /// spawn the capture loop on a dedicated thread.
+    /// Each interface has its own device and capture thread. A failed open
+    /// does not prevent the remaining interfaces from starting.
     fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
-        let interface =
-            std::env::var(INTERFACE_ENV).unwrap_or_else(|_| DEFAULT_INTERFACE.to_string());
-        let device = BpfDevice::open(&interface)?;
-        let link_type = device.link_type;
-        info!(
-            interface = %interface,
-            link_type,
-            buffer_len = device.buffer_len,
-            "bpf capture device ready"
-        );
+        let interfaces = capture_interfaces()?;
+        let mut threads = self.threads.lock().expect("bpf thread mutex poisoned");
+        let (attribution_tx, attribution_rx) = std::sync::mpsc::sync_channel(ATTRIBUTION_QUEUE_CAP);
+        let worker_tx = tx.clone();
+        let attribution_worker = std::thread::Builder::new()
+            .name("rustinel-bpf-attr".to_string())
+            .spawn(move || run_attribution_worker(attribution_rx, worker_tx))
+            .map_err(|e| warn!("failed to spawn bpf attribution worker: {e}"))
+            .ok();
 
-        let shutdown = Arc::clone(&self.shutdown);
-        let handle = std::thread::Builder::new()
-            .name("rustinel-bpf".to_string())
-            .spawn(move || run_capture(device, tx, shutdown))
-            .map_err(|e| anyhow!("failed to spawn bpf capture thread: {e}"))?;
-        *self.thread.lock().expect("bpf thread mutex poisoned") = Some(handle);
-
+        for interface in interfaces {
+            let result = BpfDevice::open(&interface).and_then(|device| {
+                set_interface_status(&interface, true, Some(device.link_type), None);
+                info!(interface = %interface, link_type = device.link_type,
+                    buffer_len = device.buffer_len, "bpf capture device ready");
+                let shutdown = Arc::clone(&self.shutdown);
+                let tx = tx.clone();
+                let attribution_tx = attribution_tx.clone();
+                std::thread::Builder::new()
+                    .name(format!("rustinel-bpf-{interface}"))
+                    .spawn(move || run_capture(device, tx, shutdown, attribution_tx))
+                    .map_err(|e| anyhow!("failed to spawn bpf capture thread: {e}"))
+            });
+            match result {
+                Ok(handle) => threads.push(handle),
+                Err(error) => {
+                    warn!(interface = %interface, %error, "bpf interface unavailable");
+                    set_interface_status(&interface, false, None, Some(error.to_string()));
+                }
+            }
+        }
+        let started = !threads.is_empty();
+        drop(attribution_tx);
+        if let Some(worker) = attribution_worker {
+            // Join captures first, then the shared worker after every sender closes.
+            threads.push(worker);
+        }
+        if !started {
+            return Err(anyhow!("no capture interfaces available"));
+        }
         Ok(())
     }
 
     fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
-        if let Some(handle) = self
-            .thread
+        for handle in self
+            .threads
             .lock()
             .expect("bpf thread mutex poisoned")
-            .take()
+            .drain(..)
         {
             let _ = handle.join();
         }
     }
 }
 
+fn capture_interfaces() -> Result<BTreeSet<String>> {
+    if let Ok(value) = std::env::var(INTERFACE_ENV) {
+        let names: BTreeSet<_> = value
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect();
+        if names.is_empty() {
+            return Err(anyhow!("{INTERFACE_ENV} contains no interface names"));
+        }
+        return Ok(names);
+    }
+    active_interfaces()
+}
+
+/// getifaddrs can return multiple addresses per interface; collect unique names.
+fn active_interfaces() -> Result<BTreeSet<String>> {
+    let mut first = std::ptr::null_mut();
+    if unsafe { libc::getifaddrs(&mut first) } != 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    let mut names = BTreeSet::new();
+    let mut current = first;
+    while !current.is_null() {
+        // SAFETY: getifaddrs owns this null-terminated list until freeifaddrs.
+        let entry = unsafe { &*current };
+        let active = (libc::IFF_UP | libc::IFF_RUNNING) as u32;
+        if entry.ifa_flags & active == active && !entry.ifa_name.is_null() {
+            let name = unsafe { CStr::from_ptr(entry.ifa_name) }
+                .to_string_lossy()
+                .into_owned();
+            names.insert(name);
+        }
+        current = entry.ifa_next;
+    }
+    unsafe { libc::freeifaddrs(first) };
+    Ok(names)
+}
+
+fn set_interface_status(
+    interface: &str,
+    active: bool,
+    link_type: Option<u32>,
+    error: Option<String>,
+) {
+    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    let bpf = collectors.bpf.get_or_insert_with(Default::default);
+    let entry = bpf.interfaces.entry(interface.to_string()).or_default();
+    entry.active = active;
+    if link_type.is_some() {
+        entry.link_type = link_type;
+    }
+    entry.error = error;
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct BpfStats {
+    bs_recv: u32,
+    bs_drop: u32,
+}
+
+fn poll_stats(device: &BpfDevice, tracker: &mut crate::telemetry::macos::BpfStatsTracker) {
+    let mut stats = BpfStats::default();
+    let rc = unsafe { libc::ioctl(device.fd, BIOCGSTATS, &mut stats as *mut BpfStats) };
+    let mut counters = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    let counters = counters.bpf.get_or_insert_with(Default::default);
+    if rc < 0 {
+        counters.stats_errors += 1;
+        counters
+            .interfaces
+            .entry(device.interface.clone())
+            .or_default()
+            .stats_errors += 1;
+    } else {
+        tracker.observe_interface(counters, &device.interface, stats.bs_recv, stats.bs_drop);
+    }
+}
+
 /// An open, configured bpf capture device. Closes its fd on drop.
 struct BpfDevice {
+    interface: String,
     fd: RawFd,
     link_type: u32,
     buffer_len: u32,
@@ -235,6 +339,12 @@ impl BpfDevice {
         let configure = || -> io::Result<u32> {
             bind_interface(fd, interface)?;
             let link_type = get_u32(fd, BIOCGDLT)?;
+            if !packet::supports_link_type(link_type) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    format!("unsupported BPF link type {link_type}"),
+                ));
+            }
             // Install a coarse kernel filter right after binding so the kernel
             // drops everything but SYNs and port-53 traffic before it reaches
             // userspace. The program uses Ethernet offsets, so it is only
@@ -249,6 +359,7 @@ impl BpfDevice {
         };
         match configure() {
             Ok(link_type) => Ok(Self {
+                interface: interface.to_string(),
                 fd,
                 link_type,
                 buffer_len,
@@ -364,11 +475,10 @@ fn close_fd(fd: RawFd) {
     }
 }
 
-/// A network-connection event awaiting best-effort process attribution.
+/// A network or DNS event awaiting best-effort process attribution.
 struct AttributionJob {
     event: SensorEvent,
-    local_port: u16,
-    remote_port: u16,
+    flow: socket::Flow,
 }
 
 /// Capture loop: read batches of bpf records and dispatch each packet.
@@ -376,17 +486,51 @@ struct AttributionJob {
 /// Socket-to-process attribution is offloaded to a dedicated worker so the
 /// `O(processes x descriptors)` scan never blocks draining the bpf device,
 /// which is exactly when the kernel would otherwise drop packets.
-fn run_capture(device: BpfDevice, tx: Sender<SensorEvent>, shutdown: Arc<AtomicBool>) {
-    let (attribution_tx, attribution_rx) = std::sync::mpsc::sync_channel(ATTRIBUTION_QUEUE_CAP);
-    let worker_tx = tx.clone();
-    let attribution_worker = std::thread::Builder::new()
-        .name("rustinel-bpf-attr".to_string())
-        .spawn(move || run_attribution_worker(attribution_rx, worker_tx))
-        .map_err(|e| warn!("failed to spawn bpf attribution worker: {e}"))
-        .ok();
-
+fn run_capture(
+    device: BpfDevice,
+    tx: Sender<SensorEvent>,
+    shutdown: Arc<AtomicBool>,
+    attribution_tx: SyncSender<AttributionJob>,
+) {
+    let mut stats = crate::telemetry::macos::BpfStatsTracker::default();
+    poll_stats(&device, &mut stats);
+    let mut last_poll = Instant::now();
     let mut buf = vec![0u8; device.buffer_len as usize];
     while !shutdown.load(Ordering::Relaxed) {
+        if last_poll.elapsed() >= Duration::from_secs(1) {
+            poll_stats(&device, &mut stats);
+            last_poll = Instant::now();
+        }
+        // A BPF read timeout may not start until traffic arrives. Poll first
+        // so quiet interfaces still publish statistics and observe shutdown.
+        let mut ready = libc::pollfd {
+            fd: device.fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let rc = unsafe { libc::poll(&mut ready, 1, READ_TIMEOUT.as_millis() as i32) };
+        if rc == 0 {
+            continue;
+        }
+        if rc < 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() != Some(libc::EINTR) {
+                warn!(interface = %device.interface, "bpf poll error: {err}");
+                set_interface_status(&device.interface, false, None, Some(err.to_string()));
+                break;
+            }
+            continue;
+        }
+        if ready.revents & libc::POLLIN == 0 {
+            warn!(interface = %device.interface, revents = ready.revents, "bpf device stopped being readable");
+            set_interface_status(
+                &device.interface,
+                false,
+                None,
+                Some(format!("capture device poll returned {}", ready.revents)),
+            );
+            break;
+        }
         let n = unsafe { libc::read(device.fd, buf.as_mut_ptr().cast(), buf.len()) };
         if n < 0 {
             let err = io::Error::last_os_error();
@@ -396,10 +540,10 @@ fn run_capture(device: BpfDevice, tx: Sender<SensorEvent>, shutdown: Arc<AtomicB
                 Some(libc::EINTR) | Some(libc::EAGAIN) => continue,
                 _ => {
                     if !shutdown.load(Ordering::Relaxed) {
-                        warn!("bpf read error: {err}");
-                        std::thread::sleep(READ_TIMEOUT);
+                        warn!(interface = %device.interface, "bpf read error: {err}");
+                        set_interface_status(&device.interface, false, None, Some(err.to_string()));
                     }
-                    continue;
+                    break;
                 }
             }
         }
@@ -412,13 +556,17 @@ fn run_capture(device: BpfDevice, tx: Sender<SensorEvent>, shutdown: Arc<AtomicB
         });
     }
 
-    // Drop our sender so the worker observes the channel closing and exits,
-    // then wait for it to finish any in-flight lookup.
-    drop(attribution_tx);
-    if let Some(handle) = attribution_worker {
-        let _ = handle.join();
+    poll_stats(&device, &mut stats);
+
+    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    if let Some(entry) = collectors
+        .bpf
+        .as_mut()
+        .and_then(|bpf| bpf.interfaces.get_mut(&device.interface))
+    {
+        entry.active = false;
     }
-    info!("bpf sensor shutting down");
+    info!(interface = %device.interface, "bpf sensor shutting down");
 }
 
 /// Attribution worker: receive connection events that still need an owning
@@ -433,7 +581,7 @@ fn run_attribution_worker(rx: Receiver<AttributionJob>, tx: Sender<SensorEvent>)
     let mut cache = socket::SocketOwnerCache::new(socket::INVENTORY_TTL);
     while let Ok(job) = rx.recv() {
         for mut job in std::iter::once(job).chain(rx.try_iter()) {
-            apply_socket_owner(&mut cache, &mut job.event, job.local_port, job.remote_port);
+            apply_socket_owner(&mut cache, &mut job.event, job.flow);
             try_send(&tx, job.event);
         }
     }
@@ -468,8 +616,7 @@ fn for_each_packet(buf: &[u8], mut handle: impl FnMut(SystemTime, &[u8])) {
 
 /// Parse a captured frame and emit any resulting [`SensorEvent`].
 ///
-/// Network-connection events are queued for off-thread attribution; DNS events
-/// need no PID lookup and go straight to the pipeline.
+/// Network and DNS events share the off-thread socket attribution path.
 fn handle_packet(
     link_type: u32,
     event_time: SystemTime,
@@ -480,16 +627,12 @@ fn handle_packet(
     let Some(parsed) = packet::parse(link_type, frame) else {
         return;
     };
+    let flow = packet_flow(&parsed);
     if let Some(event) = build_network_event(&parsed, event_time) {
-        match connection_ports(&parsed) {
-            Some((local_port, remote_port)) => {
-                enqueue_attribution(attribution_tx, tx, event, local_port, remote_port)
-            }
-            None => try_send(tx, event),
-        }
+        enqueue_attribution(attribution_tx, tx, event, flow);
     }
     if let Some(event) = build_dns_event(&parsed, event_time) {
-        try_send(tx, event);
+        enqueue_attribution(attribution_tx, tx, event, flow);
     }
 }
 
@@ -500,14 +643,9 @@ fn enqueue_attribution(
     attribution_tx: &SyncSender<AttributionJob>,
     tx: &Sender<SensorEvent>,
     event: SensorEvent,
-    local_port: u16,
-    remote_port: u16,
+    flow: socket::Flow,
 ) {
-    let job = AttributionJob {
-        event,
-        local_port,
-        remote_port,
-    };
+    let job = AttributionJob { event, flow };
     match attribution_tx.try_send(job) {
         Ok(()) => {}
         Err(TrySendError::Full(job)) | Err(TrySendError::Disconnected(job)) => {
@@ -523,26 +661,40 @@ fn enqueue_attribution(
 fn apply_socket_owner(
     cache: &mut socket::SocketOwnerCache,
     event: &mut SensorEvent,
-    local_port: u16,
-    remote_port: u16,
+    flow: socket::Flow,
 ) {
-    let Some(owner) = cache.find_tcp_socket_owner(local_port, remote_port) else {
+    let Some(owner) = cache.find_socket_owner(flow) else {
         return;
     };
     event.pid = Some(owner.pid);
-    if let SensorPayload::Network(fields) = &mut event.payload {
-        fields.process_id = Some(owner.pid.to_string());
-        fields.image = owner.image;
+    match &mut event.payload {
+        SensorPayload::Network(fields) => {
+            fields.process_id = Some(owner.pid.to_string());
+            fields.image = owner.image;
+        }
+        SensorPayload::Dns(fields) => {
+            fields.process_id = Some(owner.pid.to_string());
+            fields.image = owner.image;
+        }
+        _ => {}
     }
 }
 
-/// The local and remote ports of a TCP packet, used to key socket attribution.
-fn connection_ports(packet: &ParsedPacket) -> Option<(u16, u16)> {
-    match &packet.transport {
+fn packet_flow(packet: &ParsedPacket) -> socket::Flow {
+    let (protocol, local_port, remote_port) = match &packet.transport {
         Transport::Tcp {
             src_port, dst_port, ..
-        } => Some((*src_port, *dst_port)),
-        Transport::Udp { .. } => None,
+        } => (socket::Protocol::Tcp, *src_port, *dst_port),
+        Transport::Udp {
+            src_port, dst_port, ..
+        } => (socket::Protocol::Udp, *src_port, *dst_port),
+    };
+    socket::Flow {
+        protocol,
+        local_port,
+        remote_port,
+        local_ip: packet.src_ip,
+        remote_ip: packet.dst_ip,
     }
 }
 
@@ -604,7 +756,9 @@ fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<
 /// prefix. Responses are rejected by the shared parser (QR bit).
 fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<SensorEvent> {
     let (dst_port, dns_payload) = match &packet.transport {
-        Transport::Udp { dst_port, payload } => (*dst_port, *payload),
+        Transport::Udp {
+            dst_port, payload, ..
+        } => (*dst_port, *payload),
         Transport::Tcp {
             dst_port, payload, ..
         } => (*dst_port, payload.get(2..)?),
@@ -818,7 +972,12 @@ mod tests {
 
         let event = build_network_event(&tcp_packet(TCP_FLAG_SYN), SystemTime::UNIX_EPOCH)
             .expect("syn should emit");
-        enqueue_attribution(&attribution_tx, &tx, event, 51324, 443);
+        enqueue_attribution(
+            &attribution_tx,
+            &tx,
+            event,
+            packet_flow(&tcp_packet(TCP_FLAG_SYN)),
+        );
 
         let received = rx
             .try_recv()
@@ -831,12 +990,13 @@ mod tests {
     }
 
     #[test]
-    fn connection_ports_reads_tcp_only() {
-        assert_eq!(
-            connection_ports(&tcp_packet(TCP_FLAG_SYN)),
-            Some((51324, 443))
-        );
-        assert_eq!(connection_ports(&udp_packet(DNS_PORT, vec![])), None);
+    fn packet_flow_distinguishes_tcp_and_udp() {
+        let tcp = packet_flow(&tcp_packet(TCP_FLAG_SYN));
+        assert_eq!(tcp.protocol, socket::Protocol::Tcp);
+        assert_eq!((tcp.local_port, tcp.remote_port), (51324, 443));
+        let udp = packet_flow(&udp_packet(DNS_PORT, vec![]));
+        assert_eq!(udp.protocol, socket::Protocol::Udp);
+        assert_eq!((udp.local_port, udp.remote_port), (51324, DNS_PORT));
     }
 
     /// Minimal single-question DNS query payload for `name` with the given qtype.
@@ -858,6 +1018,7 @@ mod tests {
             src_ip: "10.0.0.5".parse().unwrap(),
             dst_ip: "1.1.1.1".parse().unwrap(),
             transport: Transport::Udp {
+                src_port: 51324,
                 dst_port,
                 payload: Box::leak(payload.into_boxed_slice()),
             },
@@ -950,5 +1111,147 @@ level: high
             .next()
             .expect("macOS dns Sigma rule should match parsed QueryName");
         assert_eq!(alert.rule_name, "macOS DNS QueryName");
+    }
+    #[test]
+    fn interface_inventory_includes_loopback_once() {
+        let interfaces = active_interfaces().expect("getifaddrs");
+        assert!(interfaces.contains("lo0"));
+    }
+
+    #[test]
+    fn framed_dns_records_receive_the_udp_socket_pid_through_the_worker() {
+        // Exercise the BPF record reader, link parser, attribution worker, and
+        // normalizer without requiring a physical Ethernet adapter.
+        for address in ["127.0.0.1", "::1"] {
+            let udp = std::net::UdpSocket::bind((address, 0)).unwrap();
+            let local = udp.local_addr().unwrap();
+            let dns = dns_query("collector.example.test", 1);
+            let udp_len = (dns.len() + 8) as u16;
+            let (mut ip, ethertype, family) = match local.ip() {
+                std::net::IpAddr::V4(address) => {
+                    let mut ip = vec![0u8; 20];
+                    ip[0] = 0x45;
+                    ip[2..4].copy_from_slice(&(20 + udp_len).to_be_bytes());
+                    ip[8] = 64;
+                    ip[9] = 17;
+                    ip[12..16].copy_from_slice(&address.octets());
+                    ip[16..20].copy_from_slice(&address.octets());
+                    (ip, 0x0800u16, 2u32)
+                }
+                std::net::IpAddr::V6(address) => {
+                    let mut ip = vec![0u8; 40];
+                    ip[0] = 0x60;
+                    ip[4..6].copy_from_slice(&udp_len.to_be_bytes());
+                    ip[6] = 17;
+                    ip[7] = 64;
+                    ip[8..24].copy_from_slice(&address.octets());
+                    ip[24..40].copy_from_slice(&address.octets());
+                    (ip, 0x86ddu16, 30u32)
+                }
+            };
+            ip.extend_from_slice(&local.port().to_be_bytes());
+            ip.extend_from_slice(&53u16.to_be_bytes());
+            ip.extend_from_slice(&udp_len.to_be_bytes());
+            // Checksums are intentionally omitted: this tests decoding a
+            // captured buffer, not injecting packets onto a network.
+            ip.extend_from_slice(&[0, 0]);
+            ip.extend_from_slice(&dns);
+            let mut ethernet = vec![0u8; 12];
+            ethernet.extend_from_slice(&ethertype.to_be_bytes());
+            ethernet.extend_from_slice(&ip);
+            let mut vlan = vec![0u8; 12];
+            vlan.extend_from_slice(&0x8100u16.to_be_bytes());
+            vlan.extend_from_slice(&7u16.to_be_bytes());
+            vlan.extend_from_slice(&ethertype.to_be_bytes());
+            vlan.extend_from_slice(&ip);
+            let mut null = family.to_ne_bytes().to_vec();
+            null.extend_from_slice(&ip);
+            let mut loop_frame = family.to_be_bytes().to_vec();
+            loop_frame.extend_from_slice(&ip);
+            for (dlt, frame) in [
+                (packet::DLT_RAW, ip),
+                (packet::DLT_EN10MB, ethernet),
+                (packet::DLT_EN10MB, vlan),
+                (packet::DLT_NULL, null),
+                (packet::DLT_LOOP, loop_frame),
+            ] {
+                let mut record = vec![0u8; 20];
+                record[BH_CAPLEN_OFFSET..BH_CAPLEN_OFFSET + 4]
+                    .copy_from_slice(&(frame.len() as u32).to_ne_bytes());
+                record[BH_HDRLEN_OFFSET..BH_HDRLEN_OFFSET + 2]
+                    .copy_from_slice(&20u16.to_ne_bytes());
+                record.extend_from_slice(&frame);
+                let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+                let (attribution_tx, attribution_rx) = std::sync::mpsc::sync_channel(8);
+                for_each_packet(&record, |time, packet| {
+                    handle_packet(dlt, time, packet, &tx, &attribution_tx)
+                });
+                drop(attribution_tx);
+                run_attribution_worker(attribution_rx, tx);
+                let event = rx.try_recv().expect("DNS event forwarded");
+                assert_eq!(event.pid, Some(std::process::id()), "{address}, DLT {dlt}");
+                let normalized = test_normalizer().normalize(&event).expect("DNS normalizes");
+                assert_eq!(
+                    normalized.get_field("QueryName"),
+                    Some("collector.example.test")
+                );
+                let pid = std::process::id().to_string();
+                assert_eq!(normalized.get_field("ProcessId"), Some(pid.as_str()));
+                assert!(
+                    normalized.get_field("Image").is_some(),
+                    "socket owner image is exposed"
+                );
+                assert!(rx.try_recv().is_err(), "one event per captured record");
+            }
+        }
+    }
+
+    /// Run alone as root. The override can include a nonexistent interface to
+    /// verify that its failure does not stop loopback capture.
+    #[test]
+    #[ignore = "requires root, BPF access, and an available loopback UDP port 53"]
+    fn live_bpf_capture_attributes_dns() {
+        let _server =
+            std::net::UdpSocket::bind("127.0.0.1:53").expect("reserve local DNS test port");
+        let client = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
+        let sensor = BpfSensor::new();
+        if let Err(error) = sensor.start(tx) {
+            sensor.shutdown();
+            panic!("could not start BPF capture: {error}");
+        }
+        let query_name = format!("collector-{}.invalid", std::process::id());
+        let query = dns_query(&query_name, 1);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut found = false;
+        while Instant::now() < deadline && !found {
+            if client.send_to(&query, "127.0.0.1:53").is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            while let Ok(event) = rx.try_recv() {
+                if let SensorPayload::Dns(fields) = event.payload {
+                    found |= fields.query_name.as_deref() == Some(query_name.as_str())
+                        && event.pid == Some(std::process::id())
+                        && fields.process_id == Some(std::process::id().to_string());
+                }
+            }
+        }
+        let snapshot = crate::telemetry::TelemetrySnapshot::capture();
+        sensor.shutdown();
+        let bpf = snapshot.macos_collectors.unwrap().bpf.unwrap();
+        println!("BPF live interfaces: {:?}", bpf.interfaces);
+        assert!(bpf.interfaces["lo0"].active);
+        assert_eq!(
+            bpf.kernel_dropped,
+            bpf.interfaces
+                .values()
+                .map(|i| i.kernel_dropped)
+                .sum::<u64>()
+        );
+        assert!(
+            found,
+            "the captured DNS query should carry this process's PID"
+        );
     }
 }

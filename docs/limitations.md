@@ -27,8 +27,6 @@ table and run `cargo run --bin generate-field-availability`, not this section.
 | linux | `process_creation` | `1 / start` | `execve tracepoints` | `OriginalFileName` | PE version resources are Windows-only |
 | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Product` | PE version resources are Windows-only |
 | linux | `process_creation` | `1 / start` | `execve tracepoints` | `TargetImage` | a process-creation event has no target process |
-| macos | `dns_query` | `22 / query` | `/dev/bpf` | `Image` | BPF DNS packets are not attributed to processes |
-| macos | `dns_query` | `22 / query` | `/dev/bpf` | `ProcessId` | BPF DNS packets are not attributed to processes |
 | macos | `dns_query` | `22 / query` | `/dev/bpf` | `QueryResults` | the BPF DNS path emits queries, not responses |
 | macos | `dns_query` | `22 / query` | `/dev/bpf` | `QueryStatus` | the BPF DNS path emits queries, not responses |
 | macos | `file_event` | `create, delete, modify, rename` | `Endpoint Security file notifications` | `CreationUtcTime` | ESF file notifications do not carry file timestamps |

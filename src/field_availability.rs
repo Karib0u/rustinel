@@ -762,11 +762,14 @@ const MACOS_DNS: &[FieldContract] = &[
         "QueryStatus",
         "the BPF DNS path emits queries, not responses",
     ),
-    never(
+    conditional(
         "ProcessId",
-        "BPF DNS packets are not attributed to processes",
+        "bounded socket-inventory attribution finds the owner",
     ),
-    never("Image", "BPF DNS packets are not attributed to processes"),
+    conditional(
+        "Image",
+        "bounded socket-inventory attribution finds the owner and executable path",
+    ),
 ];
 
 const PIPE_CREATED: &[FieldContract] = &[never(

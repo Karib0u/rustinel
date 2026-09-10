@@ -44,6 +44,7 @@ pub(crate) fn telemetry_results(
     };
 
     let mut results = linux_ebpf_results(&snapshot);
+    results.extend(macos_collector_results(&snapshot));
     results.extend(registry_results(&snapshot));
     results.extend(file_attribution_results(&snapshot));
     results.extend(etw_decode_results(&snapshot));
@@ -55,7 +56,7 @@ pub(crate) fn telemetry_results(
             DiagnosticResult::pass(
                 "pipeline_telemetry",
                 format!(
-                    "No telemetry dropped across {} events (snapshot from {})",
+                    "No pipeline channel drops across {} events (snapshot from {})",
                     snapshot.total_accepted(),
                     snapshot.captured_at
                 ),
@@ -73,7 +74,7 @@ pub(crate) fn telemetry_results(
     let result = DiagnosticResult::warn(
         "pipeline_telemetry",
         format!(
-            "{} events were dropped under load (snapshot from {})",
+            "{} events were shed by pipeline channels (snapshot from {})",
             snapshot.total_dropped(),
             snapshot.captured_at
         ),
@@ -87,6 +88,72 @@ pub(crate) fn telemetry_results(
 
     results.insert(0, result);
     (results, Some(snapshot))
+}
+
+/// Keep kernel loss distinct from ingress and detector queue shedding.
+fn macos_collector_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let Some(macos) = &snapshot.macos_collectors else {
+        return Vec::new();
+    };
+    let mut results = Vec::new();
+    if let Some(esf) = &macos.esf {
+        let detail = format!(
+            "ESF: {} received; per-event-type kernel gaps: {:?}",
+            esf.received, esf.kernel_dropped_by_event_type
+        );
+        if esf.kernel_dropped > 0 || esf.kernel_dropped_by_event_type.values().any(|n| *n > 0) {
+            results.push(DiagnosticResult::warn(
+                "macos_esf_kernel_loss",
+                format!(
+                    "ESF kernel loss: {} global sequence gaps",
+                    esf.kernel_dropped
+                ),
+                detail,
+            ));
+        } else {
+            results.push(DiagnosticResult::pass("macos_esf_kernel_loss", detail));
+        }
+    }
+    if let Some(bpf) = &macos.bpf {
+        let detail = format!(
+            "BPF: {} kernel packets received, {} kernel drops, {} stats polls, {} stats errors",
+            bpf.kernel_received, bpf.kernel_dropped, bpf.stats_polls, bpf.stats_errors
+        );
+        if bpf.kernel_dropped > 0 || bpf.stats_errors > 0 || bpf.stats_polls == 0 {
+            results.push(DiagnosticResult::warn(
+                "macos_bpf_kernel_loss",
+                "BPF kernel loss or unavailable capture statistics",
+                detail,
+            ));
+        } else {
+            results.push(DiagnosticResult::pass("macos_bpf_kernel_loss", detail));
+        }
+        for (name, interface) in &bpf.interfaces {
+            let detail =
+                format!(
+                "{}: active={}, DLT={:?}, {} kernel packets, {} kernel drops, {} stats errors{}",
+                name, interface.active, interface.link_type,
+                interface.kernel_received, interface.kernel_dropped, interface.stats_errors,
+                interface.error.as_ref().map_or(String::new(), |error| format!(", {error}"))
+            );
+            let id = format!("macos_bpf_interface_{name}");
+            if !interface.active
+                || interface.stats_polls == 0
+                || interface.error.is_some()
+                || interface.kernel_dropped > 0
+                || interface.stats_errors > 0
+            {
+                results.push(DiagnosticResult::warn(
+                    id,
+                    format!("BPF interface {name} is degraded"),
+                    detail,
+                ));
+            } else {
+                results.push(DiagnosticResult::pass(id, detail));
+            }
+        }
+    }
+    results
 }
 
 /// Linux eBPF loss and reconciliation across every ring family.
@@ -431,6 +498,7 @@ mod tests {
             channels,
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,
+            macos_collectors: None,
             windows_process_command_line: None,
             registry: None,
             file_attribution: None,
@@ -572,7 +640,9 @@ mod tests {
         let (results, _) = telemetry_results(&AppConfig::default(), temp.path());
 
         assert_eq!(results[0].status, DiagnosticStatus::Warn);
-        assert!(results[0].message.contains("1025 events were dropped"));
+        assert!(results[0]
+            .message
+            .contains("1025 events were shed by pipeline channels"));
 
         let detail = results[0].detail.as_deref().expect("detail");
         // Worst channel first, so the summary leads with the real gap.
@@ -808,5 +878,92 @@ mod tests {
 
         assert_eq!(results[0].status, DiagnosticStatus::Warn);
         assert!(results[0].message.contains("rundown found no open keys"));
+    }
+    #[test]
+    fn macos_kernel_loss_does_not_inflate_channel_shedding() {
+        let mut snap = snapshot(vec![channel("sensor_events", 10, 0)]);
+        snap.macos_collectors = Some(crate::telemetry::MacosCollectorSnapshot {
+            esf: Some(crate::telemetry::EsfSnapshot {
+                kernel_dropped: 3,
+                ..Default::default()
+            }),
+            bpf: Some(crate::telemetry::BpfSnapshot {
+                kernel_dropped: 7,
+                stats_polls: 1,
+                ..Default::default()
+            }),
+        });
+        let results = macos_collector_results(&snap);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.status == DiagnosticStatus::Warn));
+        assert_eq!(snap.total_dropped(), 0);
+        let encoded = serde_json::to_string(&snap).unwrap();
+        assert_eq!(
+            serde_json::from_str::<TelemetrySnapshot>(&encoded).unwrap(),
+            snap
+        );
+    }
+
+    #[test]
+    fn macos_stats_errors_are_visible_and_old_snapshots_remain_readable() {
+        let mut snap = snapshot(vec![]);
+        assert!(macos_collector_results(&snap).is_empty());
+        let encoded = serde_json::to_string(&snap).unwrap();
+        assert!(!encoded.contains("macos_collectors"));
+        assert_eq!(
+            serde_json::from_str::<TelemetrySnapshot>(&encoded).unwrap(),
+            snap
+        );
+        snap.macos_collectors = Some(crate::telemetry::MacosCollectorSnapshot {
+            bpf: Some(crate::telemetry::BpfSnapshot {
+                stats_errors: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert_eq!(
+            macos_collector_results(&snap)[0].status,
+            DiagnosticStatus::Warn
+        );
+    }
+    #[test]
+    fn failed_bpf_interface_does_not_hide_a_healthy_interface() {
+        let mut snap = snapshot(vec![]);
+        let mut bpf = crate::telemetry::BpfSnapshot {
+            stats_polls: 1,
+            ..Default::default()
+        };
+        bpf.interfaces.insert(
+            "en0".into(),
+            crate::telemetry::macos::BpfInterfaceSnapshot {
+                active: true,
+                stats_polls: 1,
+                link_type: Some(1),
+                ..Default::default()
+            },
+        );
+        bpf.interfaces.insert(
+            "utun0".into(),
+            crate::telemetry::macos::BpfInterfaceSnapshot {
+                error: Some("device unavailable".into()),
+                ..Default::default()
+            },
+        );
+        snap.macos_collectors = Some(crate::telemetry::MacosCollectorSnapshot {
+            bpf: Some(bpf),
+            ..Default::default()
+        });
+        let results = macos_collector_results(&snap);
+        let wifi = results
+            .iter()
+            .find(|r| r.id == "macos_bpf_interface_en0")
+            .unwrap();
+        let vpn = results
+            .iter()
+            .find(|r| r.id == "macos_bpf_interface_utun0")
+            .unwrap();
+        assert_eq!(wifi.status, DiagnosticStatus::Pass);
+        assert_eq!(vpn.status, DiagnosticStatus::Warn);
+        assert!(vpn.detail.as_ref().unwrap().contains("device unavailable"));
     }
 }
