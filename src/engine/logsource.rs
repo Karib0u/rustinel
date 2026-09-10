@@ -124,7 +124,6 @@ pub(crate) enum RuleLoadDecision {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)] // Used by companion binaries outside the library crate.
 pub enum LogSourceStatus {
     Supported,
     ProductMismatch,
@@ -133,7 +132,6 @@ pub enum LogSourceStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(dead_code)] // Used by companion binaries outside the library crate.
 pub struct LogSourceClassification {
     pub status: LogSourceStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -415,7 +413,6 @@ impl Engine {
             .unwrap_or(false)
     }
 
-    #[allow(dead_code)] // Used by companion binaries outside the library crate.
     pub fn classify_logsource_key(&self, logsource: &LogSourceKey) -> LogSourceClassification {
         let decision = self.rule_load_decision(logsource);
         let status = match decision {
@@ -435,7 +432,6 @@ impl Engine {
         }
     }
 
-    #[allow(dead_code)] // Used by companion binaries outside the library crate.
     pub fn classify_logsource(&self, logsource: &LogSource) -> LogSourceClassification {
         self.classify_logsource_key(&LogSourceKey::from_logsource(logsource))
     }

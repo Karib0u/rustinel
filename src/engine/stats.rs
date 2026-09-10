@@ -87,14 +87,10 @@ impl Engine {
 pub struct EngineStats {
     pub total_rules: usize,
     pub rule_files_found: usize,
-    #[allow(dead_code)] // Used by companion binaries outside the library crate.
     pub rules_by_category: HashMap<String, usize>,
     pub rules_by_logsource: HashMap<String, usize>,
-    #[allow(dead_code)] // Used by companion binaries outside the library crate.
     pub deferred_logsource_rules: HashMap<String, usize>,
-    #[allow(dead_code)] // Used by companion binaries outside the library crate.
     pub unknown_logsource_rules: HashMap<String, usize>,
-    #[allow(dead_code)] // Used by validation binaries outside this crate.
     pub failed_rules: Vec<(String, String)>,
     /// Parsed documents dropped because their references do not resolve.
     pub unsupported_rules: Vec<UnsupportedRule>,
@@ -105,7 +101,6 @@ pub struct EngineStats {
     /// Inert rule counts grouped by the telemetry category no collector feeds.
     pub inactive_collector_categories: BTreeMap<String, usize>,
     /// Inert rule counts by full logsource, for detailed diagnostics.
-    #[allow(dead_code)] // Used by companion binaries outside the library crate.
     pub inactive_collector_logsources: BTreeMap<String, usize>,
 }
 

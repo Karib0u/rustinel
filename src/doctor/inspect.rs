@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, ConfigLoadOptions, ConfigSource, InstallLayout, InstallPlatform};
+use crate::config::{AppConfig, ConfigLoadOptions, ConfigSource, InstallPlatform};
 use serde::Serialize;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -603,12 +603,6 @@ impl ResolvedPaths {
             logs_dir: cfg.logging.directory.clone(),
             alerts_dir: cfg.alerts.directory.clone(),
         }
-    }
-
-    #[allow(dead_code)]
-    fn from_layout(layout: &InstallLayout) -> Self {
-        let cfg = layout.managed_config();
-        Self::from_config(&cfg, Some(layout.config_file.clone()))
     }
 }
 

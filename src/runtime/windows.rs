@@ -278,7 +278,7 @@ async fn run_edr(
         _guards,
     } = RuntimeLogging::start(&cfg, "Windows ETW");
 
-    // 2.1 Initialize Active Response Engine (optional)
+    // Initialize Active Response Engine (optional)
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
     info!(
@@ -316,11 +316,6 @@ async fn run_edr(
                 );
             }
         }
-    }
-
-    #[cfg(not(windows))]
-    {
-        info!("Process snapshot not available on non-Windows platforms");
     }
 
     let sensor = Arc::new(

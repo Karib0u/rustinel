@@ -1,6 +1,7 @@
 //! Utility modules for Rustinel
 //!
-//! Provides helper functions for path normalization and PE parsing.
+//! Path handling, process and user lookup, PE parsing, caching, and
+//! filesystem helpers shared across the sensor, engine, and runtime layers.
 
 pub(crate) mod cache;
 pub(crate) mod file_identity;

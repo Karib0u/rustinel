@@ -13,7 +13,6 @@ pub struct MemoryScanConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum MemoryRegionKind {
     Private,
     Image,
@@ -22,7 +21,6 @@ pub enum MemoryRegionKind {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct MemoryRegion {
     pub base: u64,
     pub size: usize,
