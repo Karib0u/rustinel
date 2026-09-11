@@ -206,13 +206,17 @@ fn parse_metadata_impl(path: &Path, file: &File) -> Option<PeMetadata> {
 
     // Try to parse as 64-bit PE first
     let metadata = if let Ok(pe) = PeFile::from_bytes(&mmap) {
-        pe.resources().ok().and_then(extract_version_info)
+        pe.resources()
+            .ok()
+            .and_then(|resources| extract_version_info(resources, path))
     } else {
         // If 64-bit parsing fails, try 32-bit
         match pelite::pe32::PeFile::from_bytes(&mmap) {
             Ok(pe) => {
                 use pelite::pe32::Pe as Pe32;
-                pe.resources().ok().and_then(extract_version_info)
+                pe.resources()
+                    .ok()
+                    .and_then(|resources| extract_version_info(resources, path))
             }
             Err(e) => {
                 // Not a valid PE file or corrupted
@@ -233,7 +237,23 @@ fn parse_metadata_impl(path: &Path, file: &File) -> Option<PeMetadata> {
 ///
 /// The resource directory type is shared between 32-bit and 64-bit images, so
 /// both widths run through this single extraction.
-fn extract_version_info(resources: Resources<'_>) -> Option<PeMetadata> {
+fn extract_version_info(resources: Resources<'_>, path: &Path) -> Option<PeMetadata> {
+    // pelite 0.10 can panic on malformed version-resource padding, including
+    // during translation/string traversal. Keep optional metadata failures local
+    // to this image, outside the cache mutex.
+    match std::panic::catch_unwind(|| extract_version_info_inner(resources)) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            debug!(
+                "PE version resource parsing panicked; skipping metadata: {}",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+fn extract_version_info_inner(resources: Resources<'_>) -> Option<PeMetadata> {
     let version_info = resources.version_info().ok()?;
 
     // Extract common version fields using callback-based API
@@ -298,6 +318,46 @@ pub fn clear_cache() {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn test_truncated_version_resource_does_not_panic() {
+        // Three resource-directory levels: RT_VERSION / 1 / English (US).
+        // Use four-byte alignment as required by pelite's resource parser.
+        #[repr(align(4))]
+        struct ResourceSection([u8; 104]);
+        let mut section = ResourceSection([0; 104]);
+        for (offset, value) in [
+            (12, 1u32 << 16),
+            (16, 16),
+            (20, 0x8000_0018),
+            (36, 1 << 16),
+            (40, 1),
+            (44, 0x8000_0030),
+            (60, 1 << 16),
+            (64, 0x0409),
+            (68, 72),
+            (72, 88),
+            (76, 14),
+        ] {
+            section.0[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        // The key ends at the node boundary, leaving no alignment padding.
+        // pelite tries to slice at word 8 even though this node has 7 words.
+        for (index, word) in [14u16, 0, 1, 65, 66, 67, 0].iter().enumerate() {
+            let offset = 88 + index * 2;
+            section.0[offset..offset + 2].copy_from_slice(&word.to_le_bytes());
+        }
+        let directory = pelite::image::IMAGE_DATA_DIRECTORY {
+            VirtualAddress: 0,
+            Size: section.0.len() as u32,
+        };
+        let resources = Resources::new(&section.0, &directory);
+        assert!(
+            resources.version_info().is_ok(),
+            "fixture must reach version parsing"
+        );
+        assert!(extract_version_info(resources, Path::new("malformed.exe")).is_none());
+    }
 
     #[test]
     #[cfg(windows)]
