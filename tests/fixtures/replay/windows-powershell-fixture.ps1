@@ -11,7 +11,7 @@
 #   powershell -ExecutionPolicy Bypass -File .\windows-powershell-fixture.ps1
 #   # Ctrl-C the capture
 #
-# Regenerating the checked-in recording is described in docs/detection.md.
+# Regenerating the checked-in recording is described in docs/development.md (Replay fixture).
 
 $ErrorActionPreference = 'Stop'
 

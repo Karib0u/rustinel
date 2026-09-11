@@ -349,7 +349,7 @@ pub(crate) fn inert_rules_diagnostic(stats: &EngineStats) -> DiagnosticResult {
             format!("missing telemetry: {categories}"),
         )
         .with_fix(
-            "Drop the rules for these categories, or see docs/limitations.md for why the telemetry is unavailable",
+            "Drop the rules for these categories, or see https://docs.rustinel.io/coverage/ for what each platform collects",
         ),
     }
 }

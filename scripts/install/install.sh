@@ -14,7 +14,7 @@ Install a published Rustinel release archive for this host.
 This script only installs release binaries. It does not install Rust, Cargo, or
 build Rustinel from source. If no release asset exists for this OS/architecture,
 follow the source build guide:
-  https://docs.rustinel.io/getting-started/#compile-from-source
+  https://docs.rustinel.io/development/
 
 Usage:
   install.sh [--dir PATH] [--version VERSION] [--run] [--force]
@@ -125,10 +125,9 @@ EOF
   if [ "$os" = "Darwin" ]; then
     cat <<EOF
 macOS note:
-  Grant Full Disk Access to $install_dir/Rustinel.app before the first
-  successful Endpoint Security run. If the first run exits with NotPermitted,
-  grant access in System Settings > Privacy & Security > Full Disk Access and
-  run the command again.
+  Endpoint Security needs Full Disk Access before the first run.
+  For a sudo run from a terminal, grant it to your terminal app in System Settings > Privacy & Security > Full Disk Access, then quit and reopen the terminal.
+  Guide: https://docs.rustinel.io/macos-permissions/
 
 EOF
   fi
@@ -187,7 +186,7 @@ echo "Downloading $asset"
 if ! curl -fsIL "$base_url/$asset" >/dev/null 2>&1; then
   echo "No published release asset found for this host: $asset" >&2
   echo "Release page: https://github.com/$repo/releases/tag/v$version" >&2
-  echo "Source build guide: https://docs.rustinel.io/getting-started/#compile-from-source" >&2
+  echo "Source build guide: https://docs.rustinel.io/development/" >&2
   exit 1
 fi
 curl -fL "$base_url/$asset" -o "$tmp_dir/$asset"
@@ -228,9 +227,8 @@ print_portable_evaluation
 if [ "$run_after_install" -eq 1 ]; then
   cd "$install_dir"
   if [ "$os" = "Darwin" ]; then
-    echo "Starting Rustinel. On macOS the first run needs Full Disk Access for" >&2
-    echo "$install_dir/Rustinel.app; if it exits with NotPermitted, grant access" >&2
-    echo "in System Settings > Privacy & Security > Full Disk Access, then re-run." >&2
+    echo "Starting Rustinel. If it exits with NotPermitted, grant Full Disk Access to your terminal app, reopen it, and run again." >&2
+    echo "Guide: https://docs.rustinel.io/macos-permissions/" >&2
   fi
   echo ""
   echo "Starting portable evaluation. Trigger detection with: whoami"

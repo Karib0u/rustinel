@@ -11,11 +11,13 @@
 //! EDR__LOGGING__LEVEL=debug
 //! EDR__SCANNER__SIGMA_RULES_PATH=custom/path
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::models::MatchDebugLevel;
 use crate::scanner::{self, ScanLimits};
+
+pub mod reference;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 const CONFIG_PATH_ENV: &str = "RUSTINEL_CONFIG";
@@ -286,7 +288,7 @@ fn default_allowlist_paths() -> Vec<String> {
 }
 
 /// Main application configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
     pub scanner: ScannerConfig,
     pub logging: LogConfig,
@@ -303,7 +305,7 @@ pub struct AppConfig {
 }
 
 /// Scanner configuration (Sigma and YARA rules)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ScannerConfig {
     pub sigma_enabled: bool,
     pub sigma_rules_path: PathBuf,
@@ -335,14 +337,14 @@ impl ScannerConfig {
 }
 
 /// Global allowlist configuration shared across modules
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AllowlistConfig {
     /// Trusted directory prefixes, applied to response/IOC hash/YARA scan
     pub paths: Vec<String>,
 }
 
 /// Operational logging configuration (application debug logs)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LogConfig {
     pub level: String,
     /// Optional tracing filter expression. If set, overrides `level`.
@@ -353,7 +355,7 @@ pub struct LogConfig {
 }
 
 /// Security alerts configuration (JSON output for SIEM)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AlertConfig {
     pub directory: PathBuf,
     pub filename: String,
@@ -361,7 +363,7 @@ pub struct AlertConfig {
 }
 
 /// Active response configuration (optional prevention/termination)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ResponseConfig {
     pub enabled: bool,
     pub prevention_enabled: bool,
@@ -372,14 +374,14 @@ pub struct ResponseConfig {
 }
 
 /// Process metadata cache configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProcessConfig {
     /// Maximum number of process metadata entries retained
     pub max_entries: usize,
 }
 
 /// Atomic IOC detection configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IocConfig {
     pub enabled: bool,
     pub hashes_path: PathBuf,
@@ -392,7 +394,7 @@ pub struct IocConfig {
 }
 
 /// Rule hot-reload configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReloadConfig {
     pub enabled: bool,
     pub debounce_ms: u64,
@@ -400,7 +402,7 @@ pub struct ReloadConfig {
 }
 
 /// Alert deduplication / aggregation configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DedupConfig {
     /// Enable fixed-window alert deduplication anchored to first occurrence
     pub enabled: bool,
@@ -411,7 +413,7 @@ pub struct DedupConfig {
 }
 
 /// Behavioral recording configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CaptureConfig {
     /// Directory holding behavioral recordings written by `rustinel capture`.
     /// Kept apart from alert and operational log output, and restricted to the
@@ -420,7 +422,7 @@ pub struct CaptureConfig {
 }
 
 /// Pipeline telemetry accounting configuration
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TelemetryConfig {
     /// Write the pipeline drop-counter snapshot that `rustinel doctor` reads.
     /// The in-memory counters and their rate-limited warnings are always on;
@@ -433,7 +435,7 @@ pub struct TelemetryConfig {
 
 /// Windows telemetry configuration. It is present on every platform so one
 /// managed configuration can be distributed to a mixed fleet.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WindowsConfig {
     /// Periodically hand partially filled ETW buffers to the consumer on the
     /// main session. Zero disables forced flushing there and restores ETW's

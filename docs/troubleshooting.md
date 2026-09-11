@@ -1,674 +1,154 @@
 # Troubleshooting
 
-Use this page when Rustinel starts but does not behave the way you expect, or when it fails before first telemetry.
+## Start here
 
-## Start Here
+Commands on this page use `rustinel`, which [setup](operations.md#the-rustinel-command) puts on your `PATH`.
+From a release folder, use `./rustinel` or `.\rustinel.exe` instead.
 
-Before changing config or rules, check these first:
+1. Run `rustinel doctor` (with `sudo` or as Administrator) and fix `FAIL` results first.
+   Each check is explained in [Doctor checks](doctor.md).
+2. Read the operational log, `logs/rustinel.log.<date>`.
+3. Run in the foreground with more detail: `rustinel run --log-level debug`.
+4. Trigger the demo rule with `whoami` to confirm the pipeline works.
 
-- Run `rustinel doctor` (use `sudo rustinel doctor` when validating privileged
-  platform prerequisites). Address `fail` results first; warnings return exit
-  code `1` and failures return exit code `2`. Use `rustinel doctor --json` for
-  automation.
-- Read the current operational log: `logs/rustinel.log.<date>`
-- Run in the foreground with a higher log level:
-  - Windows: `.\rustinel.exe run --log-level debug`
-  - Linux: `sudo ./rustinel run --log-level debug`
-  - macOS: `sudo ./rustinel run --log-level debug`
-- Trigger a known bundled demo rule:
-  - Windows: `whoami`
-  - Linux: `whoami`
-  - macOS: `whoami`
-- Confirm you are using the expected working directory and rule paths
+## Rustinel does not start
 
-## Quick Symptom Guide
+### Windows exits with no output
 
-| Symptom | Common causes |
-| --- | --- |
-| Startup fails immediately | bad config, wrong working directory, missing privileges, unsupported Linux eBPF environment |
-| Agent runs but no alerts appear | detector disabled, rules not loaded, testing unsupported telemetry, allowlists |
-| Rule edits are ignored | hot reload disabled, wrong rule path, YARA file placed in a subdirectory, reload rejected |
-| Active response does not kill | dry-run mode, severity below threshold, allowlist hit, missing PID or image |
-| Alerts are missing details | `alerts.match_debug = "off"` |
-| Logs mention dropped events or full queues | sensor backpressure, YARA/IOC/response queues saturated |
-| Not sure whether events were lost at all | run `rustinel doctor` and read the `pipeline_telemetry` check |
-
-## Windows Event Log subscription health
-
-`doctor` reports `windows_event_log_System` and `windows_event_log_Security`
-separately from ETW diagnostics and `pipeline_telemetry` queue shedding. The
-`windows_event_log` section in `doctor --json` includes per-channel activity,
-decoded records, the last record ID, subscription errors, live stale signals,
-resume failures, checkpoint errors, and decode failures. These counters cover
-one agent process; use the snapshot timestamp and PID when reading a stopped
-agent's report. A quiet active subscription is healthy, without a silence timeout.
-
-`live_stale` counts `ERROR_EVT_QUERY_RESULT_STALE` notifications. These are
-incidents with an unknown number of missing matching records, not event counts.
-Any callback error stops the sensor and appears in the final telemetry snapshot.
-Check channel access and the named error, then restart the agent.
-
-Bookmarks are saved atomically under `logging.directory/event-log`, separately
-for System and Security, and reused after restart or service recycle. Keep this
-directory when rotating logs. Capture uses `event-log-capture` to keep its cursor
-independent of detection. Checkpoints are flushed every 250 ms and on graceful
-shutdown. An abrupt exit can replay records since the last flush; checkpointing
-marks sensor handling, not durable completion by every downstream detector.
-Unreadable or invalid checkpoints fail startup rather than silently resetting.
-
-The separate `windows_event_log_<channel>_retention` check reports when the
-oldest retained record has passed unprocessed records after the saved bookmark.
-Strict resume also reports a missing bookmark (for example after a channel clear)
-and recovers from the oldest available record. The number of matching records
-lost during downtime is unknown. Live differences between record IDs are never
-counted as loss: System and Security queries intentionally exclude other events.
-
-## Startup Failures
-
-### Windows exits without printing output
-
-Official Windows binaries require the x64 Microsoft Visual C++ Redistributable.
-If PowerShell reports `$LASTEXITCODE` as `-1073741515` (`0xC0000135`), install
-the runtime and retry:
+`$LASTEXITCODE` is `-1073741515`: the Visual C++ runtime is missing.
+Install it and retry:
 
 ```powershell
 Invoke-WebRequest https://aka.ms/vc14/vc_redist.x64.exe -OutFile "$env:TEMP\vc_redist.x64.exe"
 Start-Process "$env:TEMP\vc_redist.x64.exe" -ArgumentList "/install", "/quiet", "/norestart" -Wait -Verb RunAs
 ```
 
-### `Failed to load configuration`
+### "requires Administrator privileges"
 
-This usually means one of these:
+Start PowerShell with *Run as administrator*.
 
-- no configuration exists in the explicit, managed, executable, or working-directory locations
-- the TOML syntax is invalid
-- an `EDR__...` environment override has the wrong shape or type
-- a relative path is wrong for the directory containing the selected configuration
+### "Failed to load configuration"
 
-What to do:
+- No config file was found, see [Which file is used](configuration.md#which-file-is-used).
+- The TOML is invalid, or an `EDR__` variable has the wrong type.
+  Unset recent variables and retry.
 
-- run `rustinel doctor` to see the selected configuration and resolved paths
-- prefer absolute paths for production deployments
-- remove recent environment overrides and retry
+`rustinel doctor` shows which file it tried and where paths resolved.
 
-See [Configuration](configuration.md).
+### Linux: "eBPF sensor failed to start"
 
-### Windows says Administrator privileges are required
+- Check the kernel is 5.8 or later and that you run as root.
+- If the error mentions `tracefs`, mount it:
 
-Windows ETW collection requires an elevated process.
+    ```bash
+    sudo mount -t tracefs tracefs /sys/kernel/tracing
+    ```
 
-What to do:
+- If you set `RUSTINEL_EBPF_OBJECT`, unset it.
+- If the error mentions an ABI mismatch, the eBPF object and the binary come from different builds.
+  Rebuild both, see [Development](development.md).
 
-- start Rustinel from an elevated PowerShell
-- if running as a service, confirm the service account has the required privileges
+### macOS: "Endpoint Security client init failed"
 
-Typical symptom in logs:
+The error ends with `NotPrivileged`, `NotPermitted`, or `NotEntitled`.
+See [macOS permissions](macos-permissions.md#start-up-errors).
 
-```text
-This application requires Administrator privileges
-Please run as Administrator to access ETW providers
-```
+## No alerts
 
-### Linux `eBPF sensor failed to start`
+1. Trigger `whoami`.
+   If the demo rule does not fire, the problem is the pipeline, not your rule.
+2. Check the log says rules loaded, and `doctor` shows no parse errors.
+3. Check the engine is on: `scanner.sigma_enabled`, `scanner.yara_enabled`, `ioc.enabled`.
+4. Check the rule folders are the ones you edited: `doctor` prints them.
+5. Check the platform collects what the rule needs, see below.
 
-The most common causes are:
+## A rule never matches
 
-- kernel older than 5.8
-- BTF is not available
-- missing root or required eBPF capabilities
-- `tracefs` or `debugfs` is not mounted
-- invalid `RUSTINEL_EBPF_OBJECT` override path
-- incompatible or stale eBPF object
+- **The platform does not collect the logsource or field.**
+  Check [Sigma support](sigma.md) and [Field availability](field-availability.md).
+  `doctor` counts rules with no collector as `sigma_rules_inert`.
+- **The host does not produce the event.**
+  Security audit events and PowerShell module logging need host policy, see [Windows host logging](windows-logging.md).
+- **A trusted path skipped it.**
+  YARA, hashing, and response ignore `allowlist.paths`.
+- **Registry rules use `HKLM` or `HKCU`.**
+  Rustinel reports `\REGISTRY\MACHINE\...` paths.
+- **DNS rules match answers.**
+  Only Windows fills `QueryResults`.
+  Linux and macOS see plain DNS queries on port 53, not DNS over HTTPS or TLS, and not lookups answered from a local cache.
+- **The event was dropped.**
+  Check `pipeline_telemetry`, and on Windows `registry_path_resolution` and `file_path_attribution`.
 
-What to do:
+## YARA did not scan a file
 
-- confirm the host meets the Linux requirements from [Getting Started](getting-started.md)
-- if the error contains `tracefs not found`, mount the tracing filesystems and retry:
+- YARA scans executables when they start.
+  A file that never runs is not scanned.
+- The path is under a trusted prefix (`scanner.yara_allowlist_paths`).
+- The file is larger than `scanner.yara_max_file_mb`, or the scan hit `scanner.yara_scan_timeout_ms`.
+- The queue was full: the log says `YARA queue full; dropping scan job`.
 
-```bash
-mount -t tracefs tracefs /sys/kernel/tracing
-mount -t debugfs debugfs /sys/kernel/debug
-```
+For memory scans, also check that `scanner.yara_memory_enabled` is `true` and that the process did not exit before `yara_memory_delay_ms`.
+Reading another process's memory can be refused: protected processes on Windows, missing `CAP_SYS_PTRACE` or a strict `ptrace_scope` on Linux, and most processes on macOS.
+Refusals are logged at `trace` level.
 
-- some minimal Linux environments, including some WSL 2 distros, may start without these filesystems mounted
-- retry without `RUSTINEL_EBPF_OBJECT` if you were using an override
-- if the error names an ABI mismatch, rebuild the eBPF object and userspace
-  binary together; the loader refuses to decode an object with a different
-  ring-buffer schema
-- if you are iterating on the eBPF program, rebuild the object and retry
-- check the operational log for the exact Aya or loader error
+## A hash indicator did not fire
 
-Typical symptom in logs:
+Hashes are checked only when at least one hash is loaded, for executables of new processes, outside trusted paths, and below `ioc.max_file_size_mb`.
 
-```text
-eBPF object load failed - ensure BTF is available and kernel is 5.8+
-```
+## Rule edits are ignored
 
-### Linux source build fails on the first build
+- `reload.enabled` must be `true`, and the file must be under the configured rule folder.
+- A rule that fails to compile rejects the whole reload.
+  The log says `Rejected Sigma reload` or `Rejected YARA reload`, and the previous rules stay active.
+- An empty IOC set is rejected on purpose.
+- Replacing a whole pack needs a restart, see [Manage rule packs](rule-packs.md#why-a-restart-is-needed).
 
-If `ebpf/rustinel-ebpf.o` is missing, the build falls back to compiling the eBPF crate. That first build needs:
+## Active response did not kill
 
-- nightly Rust
-- `rust-src`
-- `bpf-linker`
+All of these must hold: `response.enabled` and `response.prevention_enabled` are `true`, the alert severity is at least `response.min_severity`, the PID and executable path are known, and the process is not allowlisted, a low system PID, or Rustinel itself.
+`Active response skipped` log lines give the reason.
+See [Use active response](active-response.md).
 
-See [Getting Started](getting-started.md) and [Development](development.md).
+## "queue full" or "dropping" in the log
 
-### macOS `Endpoint Security client init failed`
-
-Creating the Endpoint Security client failed at startup. The result code at the
-end of the error tells you exactly which requirement is missing:
-
-| Result code | Cause | Fix |
-| --- | --- | --- |
-| `NotPrivileged` | Not running as root. | Re-run with `sudo`. |
-| `NotPermitted` | Running as root with the entitlement, but macOS has not granted the client Endpoint Security access (TCC). | For an interactive `sudo` run from a terminal, grant **Full Disk Access to that terminal app** (Terminal, iTerm, Ghostty, or similar) and reopen it. macOS attributes the permission to the terminal, so Rustinel itself will not appear in the list. For a background LaunchDaemon, grant `Rustinel.app` directly, or use an MDM PPPC profile. |
-| `NotEntitled` | The binary is not signed with `com.apple.developer.endpoint-security.client`, or its provisioning profile does not authorize the entitlement. | Run a signed `Rustinel.app` from a release, or repackage with `scripts/macos/package-app.sh` (see [Development](development.md)). |
-
-On a fresh machine the first run typically reports `NotPermitted`: signing and
-notarization are correct, and the only thing left is the one-time Full Disk
-Access approval that macOS requires for every Endpoint Security client.
-
-To inspect the bundle:
-
-- check the signature and entitlements: `codesign --display --entitlements - Rustinel.app`
-- decode the embedded profile: `security cms -D -i Rustinel.app/Contents/embedded.provisionprofile`
-
-Typical symptom in logs:
+Rustinel is shedding events under load.
+Each queue logs its running total at most once a minute:
 
 ```text
-macOS Endpoint Security sensor failed to start: Endpoint Security client init failed: es_new_client failed: NotPermitted: macOS has not granted Endpoint Security access. Grant Rustinel.app Full Disk Access ...
+Pipeline channel full; shedding telemetry channel="sensor_events" capacity=32768 dropped_total=1204
 ```
 
-### macOS network or DNS events are missing
+See [Telemetry loss](telemetry-loss.md) for what each queue costs and how to reduce load.
 
-Network and DNS telemetry on macOS comes from `/dev/bpf` capture, which is a
-separate, best-effort source. If it cannot start, the agent logs a warning and
-continues with Endpoint Security (process and file) only.
+## The Windows agent exited after an ETW error
 
-Check these first:
-
-- access to the `/dev/bpf*` device nodes requires root
-- capture binds to one interface (default `en0`); set `RUSTINEL_BPF_INTERFACE` to match your active interface
-- DNS visibility requires plaintext DNS on port 53; DNS-over-HTTPS and DNS-over-TLS are not visible
-- network connection events are attributed to a process on a best-effort basis and may be unattributed
-
-Typical symptom in logs:
-
-```text
-macOS network/DNS sensor unavailable: ...; continuing with Endpoint Security only
-```
-
-## Agent Runs But No Alerts
-
-### The process starts cleanly, but `alerts.json` stays empty
-
-Check these in order:
-
-1. Trigger the bundled `whoami` Sigma rule first.
-2. Confirm the operational log shows rules loaded successfully.
-3. Confirm the relevant detector is enabled:
-   - `scanner.sigma_enabled`
-   - `scanner.yara_enabled`
-   - `ioc.enabled`
-4. Confirm the rule paths point to the directories and files you expect.
-5. Confirm you are testing telemetry that exists on the current platform.
-
-See [Detection](detection.md).
-
-### The detector is enabled, but my test never matches
-
-The most common reasons are:
-
-- the rule depends on fields that the platform does not emit
-- the event family does not exist on that platform yet
-- the event was skipped by an allowlist
-
-Examples:
-
-- registry, image load, PowerShell, WMI, service, and task detections are Windows-only today
-- Linux DNS events populate `QueryName` for outbound plaintext DNS queries, but not `QueryResults`
-
-### Linux DNS or IOC domain rules do not match
-
-Linux DNS query-name extraction is available, but it has narrower coverage than Windows DNS ETW.
-
-Linux eBPF DNS events can populate:
-
-- `QueryName`
-- `RecordType`
-- `Image`
-- `ProcessId`
-
-Linux eBPF DNS events do not currently populate:
-
-- `QueryResults`
-- `QueryStatus`
-
-If a DNS or domain IOC rule does not match, check these first:
-
-- the lookup must send plaintext DNS on port 53; DNS-over-HTTPS and DNS-over-TLS are not visible to the DNS parser
-- cached resolver answers may not send a DNS packet
-- the rule should match `QueryName` or the generic `query` alias, not `QueryResults`
-- DNS answer IP IOC matching requires `QueryResults`, so it is effectively Windows-only today
-
-Sigma DNS rules that depend on queried domain names and IOC domain matching can work on Linux when the query is visible to the eBPF `sendto` path.
-
-See [Detection](detection.md).
-
-### PowerShell script rules do not match on Windows
-
-Rustinel collects Windows PowerShell 5.1 event 4104. Windows emits suspicious
-script blocks automatically, but ordinary script blocks require Script Block
-Logging to be enabled by policy. Without that policy, a normal
-`powershell.exe -Command` test may produce no `ScriptBlockText` telemetry.
-
-Check the effective policy from an elevated PowerShell:
-
-```powershell
-Get-ItemProperty `
-  HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging `
-  -Name EnableScriptBlockLogging
-```
-
-Enable **Turn on PowerShell Script Block Logging** under **Windows Components >
-Windows PowerShell** in Group Policy when full script-block coverage is needed.
-PowerShell 7 uses a different provider and is not currently collected.
-
-### PowerShell module rules do not match on Windows
-
-`ps_module` rules read event 4103, which PowerShell emits **only** when Module
-Logging is enabled. There is no automatic path for it the way there is for
-suspicious script blocks: with the policy off, the event is never written, so
-no session setting can recover it.
-
-Check the effective policy from an elevated PowerShell:
-
-```powershell
-Get-ItemProperty `
-  HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ModuleLogging `
-  -Name EnableModuleLogging
-Get-Item HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames
-```
-
-`EnableModuleLogging` must be `1` **and** `ModuleNames` must list the modules to
-log — set the value name and data both to `*` to cover everything. Enabling the
-policy alone, with an empty `ModuleNames`, logs nothing.
-
-If the policy is on and rules still do not match, check the rule against the
-host language: `ContextInfo` and `Payload` are written in the host's display
-language, so a rule matching an English label (`Host Application =`) does not
-fire on a localized host. See [Detection](detection.md#powershell-logsources).
-
-### YARA did not scan the process I expected
-
-Check these first:
-
-- YARA only runs on process-start events, so a file written but never executed is
-  never scanned
-- the executable path may be under an allowlisted prefix
-- YARA may be disabled
-- the YARA rule file may be outside `scanner.yara_rules_path`
-- the file may exceed `scanner.yara_max_file_mb`, or the scan may have hit
-  `scanner.yara_scan_timeout_ms`
-- the queue may have been full and the job dropped
-
-Typical symptom in logs:
-
-```text
-YARA queue full; dropping scan job
-```
-
-### YARA memory scan produces no alerts
-
-Check these first:
-
-- `scanner.yara_memory_enabled` must be `true` and `scanner.yara_enabled` must also be `true`
-- the process path may be allowlisted via `scanner.yara_allowlist_paths`
-- the memory scan queue may have been full and the job dropped (look for `YARA memory queue full; dropping scan job`)
-- the process may have exited before the scan ran (the worker waits `yara_memory_delay_ms` first)
-- per-region or per-process byte caps may have prevented reading the region containing the match
-- insufficient privileges may prevent reading process memory (see below)
-
-#### Windows memory scanning privileges
-
-On Windows, `OpenProcess` with `PROCESS_VM_READ` may fail for:
-
-- protected processes (`PROTECTED_PROCESS_LIGHT` or `PROTECTED_PROCESS`)
-- system processes with elevated integrity levels
-- some anti-tamper or security software
-
-These failures are logged at `trace` and do not affect other detection paths.
-
-#### Linux memory scanning privileges
-
-On Linux, reading `/proc/<pid>/mem` typically requires root or the `CAP_SYS_PTRACE` capability. You may also need to set a permissive ptrace scope:
-
-```bash
-echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-```
-
-Without adequate privileges, region reads will fail silently (logged at `trace`).
-
-#### macOS memory scanning privileges
-
-On macOS, reading another process's memory uses `task_for_pid`, which is
-heavily restricted. It generally requires root and SIP/AMFI relaxation or a
-specific entitlement, and is denied for many system and protected processes.
-When access is denied the scan returns nothing, logged at `trace`.
-
-### IOC hash matching did not fire
-
-Hash matching is more selective than inline IOC checks.
-
-It only runs when:
-
-- at least one hash IOC is loaded
-- a process-start event queued the executable path
-- the file path is not allowlisted
-- the file size is below `ioc.max_file_size_mb`
-
-## Hot Reload Problems
-
-### My rule edits are ignored
-
-Check these first:
-
-- `reload.enabled` must be `true`
-- the file must be under the configured detector path (Sigma and YARA
-  directories are both watched recursively)
-- a failed reload keeps the previous detector set live
-
-Typical reload failure messages:
-
-```text
-Sigma reload failed; keeping previous engine
-YARA reload failed; keeping previous scanner
-Rejected IOC reload: indicator set is empty
-Rejected Sigma reload: one or more rules failed to compile
-Rejected YARA reload: one or more rules failed to compile
-```
-
-### I changed a file but nothing reloaded
-
-Remember:
-
-- reload watching is local filesystem event-based (falling back to a 60-second poll cadence on setup failure)
-- changes are debounced using `reload.debounce_ms` (defaults to 2000ms) to coalesce multiple rapid writes
-- empty IOC rebuild results are rejected on purpose (keeping the last known good IOCs active)
-- empty Sigma/YARA rulesets are allowed (clearing the active rules) ONLY if no rule files were found. If any rule files are found but they are broken (syntax/compile errors), the reload is rejected entirely, keeping the previous valid configuration active.
-
-If in doubt, make a tiny valid change to a known-good file and watch the operational log.
-
-## Active Response Problems
-
-### I see alerts, but no process is killed
-
-Active response only executes when all of the following are true:
-
-- `response.enabled = true`
-- `response.prevention_enabled = true`
-- alert severity is at or above `response.min_severity`
-- the target has a valid PID
-- the target image is known
-- the PID is not protected
-- the target is not Rustinel itself
-- the image or path is not allowlisted
-
-If `prevention_enabled = false`, the response engine logs what it would have done instead of killing the process.
-
-See [Active Response](active-response.md).
-
-### Active response says the target was skipped
-
-That is usually expected and safety-related.
-
-The response engine skips:
-
-- protected low system PIDs
-- Rustinel itself
-- allowlisted images and paths
-- alerts without a usable PID or image path
-
-## Dropped Events And Full Queues
-
-### Did this endpoint lose telemetry, and how much?
-
-Start with `rustinel doctor` rather than the logs:
-
-```bash
-rustinel doctor
-```
-
-The `pipeline_telemetry` check answers directly:
-
-```text
-  [WARN] pipeline_telemetry: 12600 events were dropped under load (snapshot from 2026-08-24T09:30:00Z)
-      detail: sensor_events: 12500 dropped of 412500 offered (3.03%), peak depth 8192/8192; ioc_hash: 100 dropped of 1000 offered (10.00%), peak depth 8192/8192
-```
-
-A `PASS` here means nothing was shed. The counters are cumulative for the agent
-run, so a pass is a real answer, not an absence of evidence. If the check says
-the snapshot is missing, either the agent has not run yet or
-`telemetry.enabled` is `false`; doctor says which.
-
-Interpreting the numbers: a peak depth equal to capacity means the channel
-actually saturated, while a peak well below capacity with drops recorded means
-the saturation was brief and bursty. For what a drop on each channel costs, see
-[Pipeline Telemetry](configuration.md#pipeline-telemetry). `sensor_events` is
-always the widest gap.
-
-On Linux, also inspect the `linux_ebpf` check. It covers loss before the shared
-`sensor_events` channel and names the affected ring:
-
-```text
-  [WARN] linux_ebpf: process ring was full 42 times
-      detail: process ring: 10042 seen, 10000 submitted, 0 in flight, 42 ring full, 0 map full, 10000 received, 10000 decoded, 10000 emitted, 0 internal, 0 dropped
-```
-
-The same section reports kernel-dependent coverage by feature. A missing hook
-does not stop the other Linux telemetry families; it produces a named check
-such as `linux_ebpf_dns_capability` instead:
-
-```text
-  [WARN] linux_ebpf_dns_capability: Linux eBPF dns telemetry is degraded
-      detail: handle_sendmmsg: syscalls/sys_enter_sendmmsg: tracepoint is unavailable
-```
-
-The `linux_ebpf.abi_version` and `linux_ebpf.features` fields in
-`telemetry.json` carry the same active/degraded feature set for automated
-inventory.
-
-`in flight` is queue occupancy at snapshot time, not loss. A growing
-`ring full`, `map full`, `short reads`, or userspace drop count is a detection
-gap. `unresolved_file_events` is the subset of file events whose relative path
-could not be rebuilt safely, so those events reached no rule.
-
-A backed-up YARA queue is usually event volume rather than one stuck scan:
-`scanner.yara_scan_timeout_ms` already bounds how long a single scan can hold
-its worker. Memory reads and scans share one process budget after the enqueue
-delay and identity validation. Regions are scanned one at a time using a buffer
-bounded by `yara_memory_max_region_mb`. A `process_deadline` outcome means the
-budget expired; earlier detections are still emitted. OS reads cannot be
-interrupted and YARA-X checks timeouts periodically, so the active region can
-overrun the budget, but no further region starts after expiry.
-
-### A registry rule did not fire on Windows
-
-Registry writes are the one kind of event that can be lost before any channel
-counts it: `SetValueKey` carries no key path, so a write whose key the sensor
-cannot name is discarded rather than emitted without a target. `rustinel doctor`
-reports that separately:
-
-```text
-  [WARN] registry_path_resolution: 118 registry writes had no recoverable key path (94.10% resolved)
-      detail: registry: 1882 of 2000 events resolved (94.10%), 213 rescued by the startup snapshot of 5879 keys
-```
-
-Keys opened after the agent starts are named by their own `OpenKey` event. Keys
-already open when it starts are named from the kernel handle table at startup;
-that is what `resolved_from_snapshot` counts. Keys already closed by the time
-their write is decoded are what `resolved_after_close` counts. The grace entry
-is accepted only when the write timestamp precedes that close by at most two
-seconds, preventing a recycled key pointer from inheriting an old path. What
-is left is writes by protected processes, whose handles the rundown cannot
-read, and short-lived keys whose
-naming event has not arrived at all; the agent log names the writing PID at
-`debug` level for the first twenty:
-
-```text
-Dropping registry event whose key path could not be resolved unresolved_registry_events=1 pid=3536
-```
-
-The measured rate on a mixed workload is 98.7%. A rate well below that, or PIDs
-that are neither protected system processes nor short-lived key users, means the
-rundown missed keys it should have covered and is worth reporting.
-
-### A file rule did not fire on Windows
-
-File events have the same blind spot as registry writes, for the same reason:
-`Write` and `SetInformation` carry no name, only a `FileObject`/`FileKey` pair
-the sensor has to join to an earlier naming event. A handle that was already
-open when the agent started was never named, so its writes cannot be attributed
-and are dropped rather than emitted without a target:
-
-```text
-  [WARN] file_path_attribution: 412 file events had no recoverable path (96.10% resolved)
-      detail: file paths: 10141 of 10553 events resolved (96.10%), 9004 from the handle index, 0 index entries evicted at capacity
-```
-
-Long-lived holders - database files, service logs, the browser - stay unobserved
-until the handle is closed and reopened, so a freshly started agent starts blind
-on most of the machine's write traffic. On an idle Windows 11 lab desktop, a
-45-second run resolved 399 of 33,029 file events (1.2%): the residue is
-dominated by handles that predate the trace session, and the counters above are
-the first measurement of it. Treat the number as a trend on one host rather than
-a target - what matters is whether it improves as the agent runs and whether it
-falls after a Windows update.
-
-`index entries evicted at capacity` above zero is a different problem: the
-handle index holds 8192 entries per identifier, and it only fills when processes
-hold handles open without closing them. Evictions are not themselves a gap - the
-evicted handle may never be written to again - but sustained evictions alongside
-a falling resolution rate are the pair worth reporting.
-
-### Detections stopped firing but nothing was dropped
-
-A record that fails to decode never reaches a channel, so every drop counter
-stays at zero while the detections that needed those events quietly stop.
-`rustinel doctor` reports that stage on its own:
-
-```text
-  [WARN] etw_decode: 118 ETW records failed to decode (0.0042% of 2812004 received)
-      detail: Microsoft-Windows-Kernel-Registry event 5 v2: schema x118
-```
-
-The detail names the provider, event ID, and event *version*. A version this
-build has no template for is the usual cause after a Windows feature update, and
-that pair is what to include in a report. `unsupported_layout` means the record
-was described but a property the payload requires was absent; `fieldless` means
-a payload was built with nothing a rule could select on.
-
-Records the router declined on purpose - reads, queries, opens that created
-nothing - are counted as `records_filtered` and are deliberately not part of
-this rate. They are the bulk of ETW traffic and their volume is the design
-working.
-
-An `etw_decode_reconciliation` warning means records reached no outcome at all.
-A small, non-growing difference is the snapshot catching a record mid-decode; a
-growing one is a bug worth reporting.
-
-### I see “dropping event” or “queue full” in logs
-
-These messages mean the agent is under backpressure somewhere in the pipeline.
-Each bounded channel logs a cumulative line at most once a minute:
-
-```text
-Pipeline channel full; shedding telemetry channel="sensor_events" capacity=32768 dropped_total=1204 accepted_total=1841204 suppressed_warnings=1202
-YARA queue full; dropping scan job
-IOC hash queue full; dropping job
-Active response queue full, dropping task
-```
-
-`dropped_total` is cumulative for the agent run, so the last such line for a
-channel is its running total - there is no need to add the lines up.
-
-What to do:
-
-- reduce event volume during testing
-- narrow overly broad rules
-- widen trusted-path exclusions where appropriate
-- avoid scanning large trusted software trees unnecessarily
-- watch system load while reproducing the issue
-
-Re-run `rustinel doctor` after tuning to confirm the drop count stopped growing.
-
-If the problem is persistent, capture the relevant log excerpt before tuning.
-
-## Logging And Output Problems
-
-### I have no operational logs
-
-Check these first:
-
-- `logging.directory` points to a writable location
-- relative log paths resolve correctly from the selected configuration directory
-- the service or supervisor account can write there
-
-Rustinel may fall back to a temp directory if file logging cannot be initialized. If that also fails, it falls back to a sink writer and you may lose file-based operational logs.
-
-### Alerts are missing match details
-
-That is controlled by `alerts.match_debug`.
-
-Use:
-
-- `off` for no match metadata
-- `summary` for compact details
-- `full` for more verbose match information
-
-See [Detection](detection.md) and [Output Format](output.md).
-
-### I see operational logs but alert writes fail
-
-Check:
-
-- `alerts.directory` is writable
-- the filesystem is not full
-- the process has permission to create or rotate files there
-
-Typical symptom in logs:
-
-```text
-Failed to write ECS alert
-```
-
-## Windows ETW Restart Behavior
-
-### Why did the Windows agent exit after the ETW sensor failed?
-
-That is intentional.
-
-If the ETW sensor thread dies unexpectedly, Rustinel forces the process to exit so the Windows Service Manager or another supervisor can restart it. This avoids leaving a process that appears healthy but is no longer collecting telemetry.
-
-Typical symptom in logs:
+This is on purpose.
+If the ETW sensor thread dies, Rustinel exits so the service manager restarts it, instead of running without telemetry:
 
 ```text
 CRITICAL: ETW sensor thread died unexpectedly
-Forcing process exit to trigger restart
 ```
 
-## Before Opening An Issue
+## No operational log, or alerts fail to write
 
-Collect these first:
+- `logging.directory` and `alerts.directory` must be writable by the account running Rustinel, and the disk must not be full.
+- If the log folder cannot be used, Rustinel falls back to a temporary folder, or to no file log at all.
 
-- platform and version
-- Rustinel version or commit
-- exact start command
-- relevant config snippets
-- relevant operational log excerpt
-- whether the bundled `whoami` demo rule works
-- on Linux: kernel version, BTF availability, and whether an eBPF override object was used
-- on macOS: macOS version, whether running as root, and whether the build is signed/notarized or SIP/AMFI is relaxed
+## macOS: no network or DNS events
 
-If the problem is rule-related, include the minimal rule and the event type you expected it to match.
+Packet capture needs root.
+If it cannot start, the log says `macOS network/DNS sensor unavailable` and process and file events continue.
+Check the `macos_bpf_interface_<name>` results in `doctor`.
+
+## Reporting a bug
+
+Include:
+
+- OS and version, and the Rustinel version (`rustinel --version`)
+- the exact command, and relevant parts of `config.toml`
+- the output of `rustinel doctor --json`
+- the relevant log lines
+- whether the `whoami` demo rule fires
+- for a rule problem, the smallest rule that shows it and the event you expected it to match
+
+[Open an issue](https://github.com/Karib0u/rustinel/issues).

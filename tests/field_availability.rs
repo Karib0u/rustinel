@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use rustinel::field_availability::{
-    availability_for_event, compatibility_json, coverage_markdown, limitations_markdown,
-    missing_always_fields, Availability, FIELD_AVAILABILITY,
+    availability_for_event, compatibility_json, coverage_markdown, missing_always_fields,
+    unavailable_fields_markdown, Availability, FIELD_AVAILABILITY,
 };
 use rustinel::models::{
     EventCategory, EventFields, ImageLoadFields, NormalizedEvent, ProcessCreationFields,
@@ -50,8 +50,8 @@ fn generated_artifacts_match_the_contract() {
         compatibility_json()
     );
     assert_eq!(
-        generated_region(include_str!("../docs/limitations.md")),
-        limitations_markdown().trim_end()
+        generated_region(include_str!("../docs/field-availability.md")),
+        unavailable_fields_markdown().trim_end()
     );
     assert_eq!(
         generated_region(include_str!("../docs/coverage.md")),

@@ -1,533 +1,225 @@
 # Configuration
 
-This is the reference for every configuration option, where configuration is
-read from, and how paths resolve.
+Rustinel reads one TOML file.
+Every option has a default, so the file only needs what you change.
 
-## Where Configuration Comes From
+```toml
+[scanner]
+sigma_rules_path = "/opt/rules/sigma"
 
-Values are resolved highest priority first:
+[logging]
+level = "debug"
 
-1. CLI flags, where supported
-2. `EDR__` environment variables
-3. The selected configuration file
-4. Built-in defaults
+[response]
+enabled = true
+```
 
-The configuration **file** is selected highest priority first:
+## Which file is used
+
+The first match wins:
 
 1. `--config <PATH>`
 2. `RUSTINEL_CONFIG`
-3. The managed platform path
-4. `config.toml` beside the executable
-5. `config.toml` in the current working directory
+3. The managed config written by `rustinel setup`, see [managed paths](operations.md#managed-paths)
+4. `config.toml` next to the binary
+5. `config.toml` in the working directory
 
-`rustinel doctor` prints which file was selected and where its paths resolved.
+Relative paths in the file resolve from the file's folder, not from the working directory.
+`rustinel doctor` shows which file was used and where each path resolved.
 
-### Path resolution
+## Environment variables
 
-**Relative paths resolve from the directory containing the selected
-configuration file**, not from the working directory. A portable archive in
-`/opt/rustinel` can therefore write `rules/current/sigma` and have it resolve to
-`/opt/rustinel/rules/current/sigma` regardless of where the binary was launched.
-
-This is the single most common source of "Rustinel is looking in the wrong
-place". Windows services start in `C:\Windows\System32` and Linux service
-managers may start anywhere, so **use absolute paths in production**.
-
-### Managed layouts
-
-| Platform | Config | Rules | Logs and alerts | Recordings |
-| --- | --- | --- | --- | --- |
-| Windows | `C:\ProgramData\Rustinel\config.toml` | `C:\ProgramData\Rustinel\rules` | `C:\ProgramData\Rustinel\logs` | `C:\ProgramData\Rustinel\captures` |
-| Linux | `/etc/rustinel/config.toml` | `/var/lib/rustinel/rules` | `/var/log/rustinel` | `/var/lib/rustinel/captures` |
-| macOS | `/Library/Application Support/Rustinel/config.toml` | `/Library/Application Support/Rustinel/rules` | `/Library/Logs/Rustinel` | `/Library/Application Support/Rustinel/captures` |
-
-On Unix, Rustinel restricts configured log, alert, and recording directories to
-mode `0700` and their files to `0600`, so other local users cannot read
-operational context, alert details, or recorded behavior. Windows uses the
-owning account's configured ACLs.
-
-## Example `config.toml`
-
-```toml
-[scanner]
-sigma_enabled = true
-sigma_rules_path = "rules/current/sigma"
-yara_enabled = true
-yara_rules_path = "rules/current/yara"
-
-# Per-scan guards. 0 disables the guard.
-# yara_scan_timeout_ms = 10000
-# yara_max_file_mb = 64
-
-# Memory scanning is off by default.
-# yara_memory_enabled = false
-# yara_memory_delay_ms = 750
-# yara_memory_max_process_mb = 64
-# yara_memory_max_region_mb = 8
-
-[reload]
-enabled = true
-debounce_ms = 2000
-
-[logging]
-level = "info"
-# Interactive commands use a compact console view at info; the operational
-# file keeps the configured detail. Use --log-level debug for console details.
-# Path-resolution drops are counted by the sensors; detailed notices are
-# debug-level and hidden by the default info level.
-directory = "logs"
-filename = "rustinel.log"
-console_output = false
-
-[alerts]
-directory = "logs"
-filename = "alerts.json"
-match_debug = "off"
-
-[dedup]
-enabled = true
-window_secs = 60
-max_entries = 10000
-
-[capture]
-directory = "captures"
-
-[telemetry]
-enabled = true
-snapshot_interval_secs = 30
-
-[windows]
-etw_flush_interval_ms = 20
-
-[response]
-enabled = false
-prevention_enabled = false
-min_severity = "critical"
-channel_capacity = 128
-allowlist_images = []
-
-[process]
-max_entries = 65536
-
-[ioc]
-enabled = true
-hashes_path = "rules/current/ioc/hashes.txt"
-ips_path = "rules/current/ioc/ips.txt"
-domains_path = "rules/current/ioc/domains.txt"
-paths_regex_path = "rules/current/ioc/paths_regex.txt"
-default_severity = "high"
-max_file_size_mb = 50
-```
-
-Use Windows path prefixes on Windows and Unix prefixes elsewhere. For a
-service-owned deployment, replace every relative path with an absolute one:
-
-```toml
-[scanner]
-sigma_rules_path = "C:\\Rustinel\\rules\\sigma"
-yara_rules_path = "C:\\Rustinel\\rules\\yara"
-
-[logging]
-directory = "C:\\Rustinel\\logs"
-
-[alerts]
-directory = "C:\\Rustinel\\logs"
-```
-
-## Options
-
-### Scanner
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `sigma_enabled` | `true` | Enable Sigma rule evaluation |
-| `sigma_rules_path` | `rules/current/sigma` | Sigma rules directory, loaded recursively |
-| `yara_enabled` | `true` | Enable YARA scanning |
-| `yara_rules_path` | `rules/current/yara` | YARA rules directory, loaded recursively |
-| `yara_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped by YARA queueing and scanning |
-| `yara_scan_timeout_ms` | `10000` | Timeout per file or across memory reads and scans of one process; `0` disables |
-| `yara_max_file_mb` | `64` | Files larger than this are reported oversized instead of scanned; `0` disables |
-| `yara_memory_enabled` | `false` | Enable YARA memory scanning (requires `yara_enabled`) |
-| `yara_memory_queue_capacity` | `64` | Maximum pending memory scan jobs before new ones drop |
-| `yara_memory_delay_ms` | `750` | Delay from enqueue to memory access; time waiting in the queue counts |
-| `yara_memory_max_process_mb` | `64` | Stop reading a process after this many MB |
-| `yara_memory_max_region_mb` | `8` | Clamp each region read and the reusable payload buffer to this many MB |
-| `yara_memory_include_private` | `true` | Scan private (anonymous) regions |
-| `yara_memory_include_image` | `false` | Scan image-backed regions (loaded executables/DLLs) |
-| `yara_memory_include_mapped` | `false` | Scan file-mapped regions |
-
-### Reload
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `enabled` | `true` | Watch Sigma, YARA, and IOC files, plus the active config file, and reload on change |
-| `debounce_ms` | `2000` | Coalescing window used to group rapid writes into one reload |
-| `fallback_poll_interval_ms` | `60000` | Polling interval used only when the filesystem watcher cannot start |
-
-What reloads and what does not:
-
-- **Sigma, YARA, and IOC files reload live.** Both rule directories are watched
-  recursively, matching how they are loaded.
-- **Only the `[response]` section of the config file hot-swaps**: enablement,
-  prevention mode, minimum severity, and allowlists. Every other section,
-  including `response.channel_capacity`, takes effect at startup only.
-- **A rejected reload keeps the previous set live.** Empty Sigma and YARA
-  rulesets are accepted (effectively disabling those detections) when no rule
-  files exist at all, but a ruleset whose files fail to compile is rejected
-  wholesale. Empty IOC sets are always rejected.
-- If the filesystem watcher cannot start, the agent falls back to a 60-second
-  polling cycle and logs a warning.
-
-### Global allowlist
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `paths` | platform-specific | Shared trusted path prefixes |
-
-`response.allowlist_paths`, `ioc.hash_allowlist_paths`, and
-`scanner.yara_allowlist_paths` each inherit this list while they are empty, and
-override it entirely once set. Matching follows the existing
-[module-specific path policies](architecture.md#path-allowlists), including IOC
-raw prefixes and case-insensitive response exclusions on Unix.
-
-#### Default trusted paths
-
-=== "Windows"
-
-    `C:\Windows\` · `C:\Program Files\` · `C:\Program Files (x86)\`
-
-=== "Linux"
-
-    `/usr/bin/` · `/usr/sbin/` · `/usr/lib/` · `/usr/lib64/` · `/usr/libexec/` ·
-    `/bin/` · `/sbin/` · `/lib/` · `/lib64/`
-
-=== "macOS"
-
-    `/usr/bin/` · `/usr/sbin/` · `/usr/libexec/` · `/bin/` · `/sbin/` ·
-    `/System/`
-
-`/Applications` is deliberately **not** allowlisted: it holds user-installed
-software and is a common location for macOS malware.
-
-### Logging
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `level` | `info` | `trace`, `debug`, `info`, `warn`, or `error` |
-| `filter` | `null` | Optional `tracing_subscriber` filter expression; overrides `level` when valid for both file and console. Path-resolution drops are counted by the sensors; detailed notices are debug-level |
-| `directory` | `logs` | Operational log directory |
-| `filename` | `rustinel.log` | Operational log filename, rotated daily |
-| `console_output` | `false` | Console mirroring when the runtime does not override it. Interactive `rustinel run` enables console output regardless; at info it uses a compact view, while the operational file keeps configured detail. Use `--no-console` to suppress. On Windows, colored output needs [Windows Terminal](https://aka.ms/terminal) |
-
-### Alerts
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `directory` | `logs` | Alert directory |
-| `filename` | `alerts.json` | ECS NDJSON filename, rotated daily |
-| `match_debug` | `off` | `off`, `summary`, or `full` match metadata, see [Detection](detection.md#match-debug) |
-
-### Deduplication
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `enabled` | `true` | Enable alert deduplication |
-| `window_secs` | `60` | Fixed window length, measured from the first occurrence; repeats do not extend it |
-| `max_entries` | `10000` | Maximum distinct alert keys tracked at once |
-
-Identical repeated alerts are collapsed into one rollup per window. The **first
-occurrence always emits immediately**, so novel alerts carry no added latency,
-and the rollup is written at window close carrying `event.count`, the number of
-*suppressed repeats*. A burst of 5 identical alerts therefore produces 2 lines:
-the live alert (no `event.count`, implicitly 1) and a rollup with
-`event.count = 4`. Summing `event.count` across lines, counting a missing field
-as 1, yields the true volume.
-
-The dedup key is
-`(engine, rule_name, process.executable, process.parent.executable, user.name)`.
-Set `enabled = false` where every individual alert matters. Dedup metrics are
-logged every 5 minutes while dedup is active and once at shutdown:
-
-```text
-dedup: suppressed_total=1420 aggregated_rollup_alerts=38 pending_keys=0
-```
-
-### Capture
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `directory` | `captures` | Parent directory for recordings, unless `capture --output` overrides it |
-
-Recordings are written only by `rustinel capture`; an ordinary `run` never
-touches this directory. They are more revealing than alerts and should be
-handled accordingly. See
-[Behavioral Recordings](output.md#behavioral-recordings).
-
-### Pipeline telemetry
-
-Every channel between a sensor and the detectors is bounded and sheds load
-rather than blocking, so a burst produces a **detection gap rather than a
-slowdown**. Rustinel therefore counts, per channel: events accepted, events
-dropped because the channel was full, events dropped because the consumer had
-already stopped, and the deepest queue depth reached. The counters are always
-on; this section controls only whether they are published outside the process.
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `enabled` | `true` | Write the counter snapshot that `rustinel doctor` reads |
-| `snapshot_interval_secs` | `30` | Refresh interval; a snapshot is also written at shutdown |
-
-The snapshot is `telemetry.json` inside `logging.directory`, rewritten in place
-and holding only counts, never endpoint detail. The counted channels:
-
-| Channel | What a drop costs |
-| --- | --- |
-| `sensor_events` | Raw events never reached the detectors, the widest gap |
-| `yara_file_scan` | Files were never YARA scanned |
-| `yara_memory_scan` | Processes were never memory scanned |
-| `ioc_hash` | Process images were never hashed for IOC matching |
-| `active_response` | Response actions were never executed |
-| `capture_writer` | Events never reached a `rustinel capture` recording |
-
-Read them with `rustinel doctor`, whose `pipeline_telemetry` check passes when
-nothing was dropped and warns with per-channel totals when something was;
-`--json` carries the raw numbers under `telemetry`. Setting `enabled = false`
-leaves drop totals visible only in the operational log, and `doctor` reports
-that reduced visibility as a warning.
-
-`sensor_events_by_category` splits accepted and dropped ingress events into
-process, network, file, registry, DNS, image-load, scripting, PowerShell
-module, WMI, service, task, and security categories. On Windows,
-`windows_process_command_line` reports attempted, captured, and missed command
-lines after the normalizer has tried its final live-process fallback.
-
-On Linux, `linux_ebpf.families` reconciles each process, network, file, and DNS
-ring from its kernel hook through userspace decoding. Kernel values are summed
-from per-CPU counters once per second.
-
-| Field | Meaning |
-| --- | --- |
-| `kernel_seen` | Events that passed the kernel filter and reached the emit path |
-| `kernel_submitted` | Events committed to the ring |
-| `kernel_ring_full` | Events lost because a ring had no space |
-| `kernel_oversized` | Events rejected because their payload did not fit |
-| `kernel_map_full` | Pending event inserts rejected by a full kernel map |
-| `in_flight` | Submitted records still waiting for userspace at snapshot time |
-| `userspace_received` | Ring records observed by the poller |
-| `userspace_decoded` | Records with a valid family-specific layout |
-| `short_reads` | Records too short for that layout |
-| `userspace_internal` | Valid file-index control records consumed inside the poller |
-| `canonical_emitted` | Decoded events offered to the shared sensor channel |
-| `userspace_dropped` | Decoded records that produced no usable event |
-| `unresolved_file_events` | File events dropped because their path could not be rebuilt |
-
-The derived queue occupancy is `kernel_submitted - userspace_received`. It is
-reported separately from loss because a snapshot may catch records that are
-still waiting to be drained. `rustinel doctor` reports this section as
-`linux_ebpf` and names any ring that filled.
-
-The counters reconcile as `kernel_seen = kernel_submitted + kernel_ring_full +
-kernel_oversized`, `userspace_received = userspace_decoded + short_reads`, and
-`userspace_decoded = canonical_emitted + userspace_internal +
-userspace_dropped`. Across all four rings, `canonical_emitted` also equals the
-accepted plus dropped totals for the shared `sensor_events` channel once an
-update is quiescent.
-
-On Windows the snapshot also carries a `registry` section, because a registry
-write can be lost *before* any channel sees it: `SetValueKey` carries no key
-path, so a write whose key cannot be named is discarded inside the sensor and
-appears in no channel count.
-
-| Field | Meaning |
-| --- | --- |
-| `rundown_attempted` | Whether the Windows sensor attempted its startup key snapshot |
-| `events_received` | Registry write events the sensor decoded |
-| `events_resolved` | Those that reached the detectors with a key path |
-| `events_unresolved` | Those discarded for want of one, which is the detection gap |
-| `resolved_from_snapshot` | Resolved only by the startup key rundown, i.e. writes through a handle older than the trace session |
-| `resolved_after_close` | Resolved only because the key's `CloseKey` was decoded before the write itself |
-| `naming_create` / `naming_open` | Events that contributed a key path |
-| `naming_failed` | Naming events that named nothing because the open failed |
-| `snapshot_keys` | Keys the startup rundown covered |
-
-`rustinel doctor` reports these as `registry_path_resolution`, which warns below
-a 99.9% resolution rate. Writes by protected processes are the expected residue;
-see [Limitations](limitations.md).
-
-The `file_attribution` section is the file-side equivalent, for the same reason:
-`Write` and `SetInformation` name their target only by kernel pointer, so an
-event whose pointer the handle index cannot answer is discarded inside the
-sensor and appears in no channel count.
-
-| Field | Meaning |
-| --- | --- |
-| `attempted` | File events that needed a target path |
-| `resolved_from_event` | Those the event named itself |
-| `resolved_from_index` | Those the `FileObject`/`FileKey` index resolved |
-| `unresolved` | Those discarded for want of a path, which is the detection gap |
-| `index_capacity_evictions` | Index entries dropped at the per-index cap of 8192 |
-
-Evictions are the mechanism rather than the gap: a handle whose entry was
-evicted may never be written to again. They are reported apart so "raise the
-cap" and "the provider stopped naming its handles" can be told apart. `rustinel
-doctor` reports this as `file_path_attribution`, which warns below a 99%
-resolution rate.
-
-The `etw_decode` section covers the stage before either of those: a schema
-lookup that fails, a payload template that no longer matches the record, or a
-payload with no field a rule can select on all leave the channel counters
-looking perfectly healthy while detections quietly stop firing.
-
-| Field | Meaning |
-| --- | --- |
-| `records_received` | Records delivered to the ETW callback |
-| `records_filtered` | Records the router intentionally declined - not loss |
-| `records_indexed` | Records that fed a path index or were held for a late naming event |
-| `records_decoded` | Records that produced at least one event |
-| `records_unattributed` | Records dropped for want of a resolvable path |
-| `schema_errors` | Records whose provider schema could not be located |
-| `unsupported_layouts` | Records missing a property their payload requires |
-| `fieldless_payloads` | Payloads with nothing a rule could select on |
-| `events_emitted` | Events offered to the queue; exceeds `records_decoded` when a naming event replays held writes |
-| `failures` | The failure counts by provider, event ID, event version, and kind |
-| `unkeyed_failures` | Failures past the 32-key attribution cap, counted but not attributed |
-
-The first seven outcome counters partition `records_received`, so `rustinel
-doctor` can report a record that reached no outcome at all as
-`etw_decode_reconciliation`. `failures` is keyed on provider *names* from the
-subscription table rather than rendered GUIDs, and capped at 32 distinct keys,
-so a provider that starts failing across a wide spread of event IDs cannot grow
-the snapshot without bound. `rustinel doctor` reports the totals as
-`etw_decode`.
-
-These three sections stay separate from each other and from the two losses
-either side of them: ETW's own `EventsLost`, which counts records the kernel
-discarded before the callback ran and is reported in the agent log, and the
-channel counters above, which count events shed after it. The causes and the
-fixes differ, so nothing folds them together.
-
-### Windows ETW delivery
-
-ETW's real-time session timer hands partially filled buffers to consumers once
-per second. Rustinel requests an earlier handoff without changing either
-session's buffer size or pool limits.
-
-Rustinel runs two ETW sessions and each has its own interval, because they are
-flushed for different reasons.
-
-| Option | Default | Session | Description |
-| --- | --- | --- | --- |
-| `etw_flush_interval_ms` | `20` | `rustinel-etw-trace` | Partial-buffer handoff interval in milliseconds; `0` disables it. Values below 20 ms are clamped to 20 ms |
-| `etw_process_flush_interval_ms` | `5` | `rustinel-etw-process` | The same for the process session; `0` disables it. Values below 1 ms are clamped to 1 ms |
-
-On the main session the interval trades alert latency against one periodic
-syscall, and `0` is a reasonable choice. Forced main-session flushes pause when
-the shared sensor queue is at least half full.
-
-**On the process session it is not a latency preference - it decides whether
-`CommandLine` is collected at all.** No ETW process event carries the field; it
-is read back out of the live process, so the event has to reach Rustinel before
-that process exits. Over 2,000 `cmd /c echo` runs on the lab VM, 5 ms captured
-99.9% of their command lines and 20 ms only 61.5%. **Setting
-`etw_process_flush_interval_ms = 0` captured 16.6% - it gives up about 83% of
-short-lived command lines, and with them every Sigma `process_creation` rule
-that matches on `CommandLine`, 78% of them.** Zero is worse than a slow interval
-because the session then falls all the way back to ETW's one-second timer. The
-two options are deliberately independent so that turning the main session's
-handoff off does not silently do this - measured with
-`etw_flush_interval_ms = 0` and the process option left at 5 ms, command-line
-capture stayed at 100%. Process-session flushes continue under shared queue
-pressure so the live lookup is not delayed until after process exit. See
-[Windows ETW session buffers](operations.md#windows-etw-session-buffers) for the
-full sweep.
-
-Rustinel pauses requests while the `sensor_events` queue is at least half full,
-when downstream queueing controls latency. ETW continues its normal full-buffer
-and timer-based delivery. Override the settings with
-`EDR__WINDOWS__ETW_FLUSH_INTERVAL_MS` and
-`EDR__WINDOWS__ETW_PROCESS_FLUSH_INTERVAL_MS`.
-
-### Active response
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `enabled` | `false` | Enable the response engine |
-| `prevention_enabled` | `false` | If `false`, actions are logged but not executed |
-| `min_severity` | `critical` | Minimum severity to act on |
-| `channel_capacity` | `128` | Queue size for response work |
-| `allowlist_images` | `[]` | Image basenames or full paths to skip |
-| `allowlist_paths` | inherits `allowlist.paths` | Module-specific trusted prefixes |
-
-See [Active Response](active-response.md) for platform behavior and safe testing.
-
-### Process cache
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `max_entries` | `65536` | Maximum process metadata records retained; oldest are evicted when exit events are missed |
-
-### Network
-
-Removed in v1.6.0. The `[network]` section configured a connection aggregator
-that tracked per-destination counts and inter-connection intervals. Nothing in
-the agent ever read them: no detector, alert field, or telemetry counter
-consumed the aggregate, so the state cost memory and a write lock per connection
-without changing any output. At the former `aggregation_max_entries = 20000`
-default the map held 12.0 MB once full and 20.7 MB with every 50-slot interval
-buffer populated (628 B and 1,086 B per tracked connection, measured on
-macOS/aarch64 in a release build). That is now zero. The aggregator and the
-section are gone.
-
-Nothing has to change to upgrade. A `config.toml` that still carries
-`[network]` keeps loading — the keys are simply ignored, as are the matching
-`EDR__NETWORK__*` environment variables — so the section can be deleted whenever
-it is convenient. Network event and alert behaviour is identical either way:
-every normalized network event was always forwarded to Sigma and IOC evaluation,
-and still is.
-
-### IOC
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `enabled` | `true` | Enable IOC detection |
-| `hashes_path` | `rules/current/ioc/hashes.txt` | Hash IOC file |
-| `ips_path` | `rules/current/ioc/ips.txt` | IP and CIDR IOC file |
-| `domains_path` | `rules/current/ioc/domains.txt` | Domain IOC file |
-| `paths_regex_path` | `rules/current/ioc/paths_regex.txt` | Path regex IOC file |
-| `default_severity` | `high` | Severity assigned to IOC alerts |
-| `max_file_size_mb` | `50` | Skip hashing files larger than this |
-| `hash_allowlist_paths` | inherits `allowlist.paths` | Prefix paths skipped during hashing |
-
-## Environment Variables
-
-The prefix is `EDR__`; nested keys use double underscores. Values are parsed as
-TOML, so lists are JSON-style arrays.
+Any option can be overridden with `EDR__<SECTION>__<KEY>`.
+Values are parsed as TOML, so lists use brackets:
 
 === "Bash"
 
     ```bash
     export EDR__LOGGING__LEVEL=debug
-    export EDR__SCANNER__SIGMA_RULES_PATH=/opt/rustinel/rules/current/sigma
     export EDR__ALLOWLIST__PATHS='["/usr/bin/","/usr/sbin/"]'
-    sudo /opt/rustinel/rustinel run
     ```
 
 === "PowerShell"
 
     ```powershell
-    $env:EDR__LOGGING__LEVEL="debug"
-    $env:EDR__SCANNER__SIGMA_RULES_PATH="C:\\Rustinel\\rules\\sigma"
-    $env:EDR__ALLOWLIST__PATHS='["C:\\Windows\\","C:\\Program Files\\"]'
-    .\rustinel.exe run
+    $env:EDR__LOGGING__LEVEL = "debug"
+    $env:EDR__ALLOWLIST__PATHS = '["C:\\Windows\\","C:\\Program Files\\"]'
     ```
 
-At the default info level, the console shows one summary for each emitted
-Sigma, YARA, or IOC alert, including severity, rule name, and available process,
-PID, and file context. Full event details remain in the ECS NDJSON alert file.
-When deduplication is enabled, the first occurrence appears immediately and
-suppressed repeats appear as an aggregate summary when the window is flushed.
-Detection summaries use the `engine` logging target at info level; `--log-level warn` or a custom filter can hide them without disabling JSON alert output.
+Priority, highest first: CLI flags, `EDR__` variables, the config file, defaults.
 
-Interactive `run` also accepts `--log-level` and `--no-console` as one-off
-overrides. For repeatable deployments, prefer `config.toml` and `EDR__`
-variables. See the [CLI Reference](cli.md) for every flag.
+## What reloads
+
+- Sigma, YARA, and IOC files reload when they change.
+- In the config file, only `[response]` reloads, except `channel_capacity`.
+  Every other change needs a restart.
+- A reload with a rule that fails to compile, or an empty IOC set, is rejected and the previous rules stay active.
+
+## Options
+
+<!-- BEGIN GENERATED CONFIG REFERENCE -->
+This section is generated from `src/config/reference.rs`. Edit that file and run `cargo run --bin generate-docs`.
+
+### `[scanner]`
+
+Sigma and YARA rules, YARA scan limits, and optional memory scanning.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `sigma_enabled` | `true` | Evaluate Sigma rules. |
+| `sigma_rules_path` | `"rules/current/sigma"` | Sigma rules directory, loaded recursively. |
+| `yara_enabled` | `true` | Scan executables with YARA when they start. |
+| `yara_rules_path` | `"rules/current/yara"` | Directory of `.yar` and `.yara` files, loaded recursively. |
+| `yara_allowlist_paths` | inherits `allowlist.paths` | Path prefixes YARA never scans. Replaces `allowlist.paths` for YARA once set. |
+| `yara_scan_timeout_ms` | `10000` | Time limit for one file scan, or for all memory reads of one process. `0` disables it. |
+| `yara_max_file_mb` | `64` | Larger files are reported as oversized instead of scanned. `0` disables the limit. |
+| `yara_memory_enabled` | `false` | Also scan the memory of new processes. Needs `yara_enabled`. |
+| `yara_memory_queue_capacity` | `64` | Pending memory scans. New scans are dropped when it is full. |
+| `yara_memory_delay_ms` | `750` | Wait after process start before reading memory, so packed code can unpack. |
+| `yara_memory_max_process_mb` | `64` | Stop reading a process after this many MB. |
+| `yara_memory_max_region_mb` | `8` | Most memory read from one region at a time, in MB. |
+| `yara_memory_include_private` | `true` | Scan private (anonymous) memory. |
+| `yara_memory_include_image` | `false` | Scan memory backed by executables and libraries. |
+| `yara_memory_include_mapped` | `false` | Scan memory-mapped files. |
+
+### `[allowlist]`
+
+Trusted path prefixes shared by YARA, IOC hashing, and active response.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `paths` | OS directories, see below | Trusted path prefixes. Each module uses this list until its own allowlist is set. |
+
+### `[reload]`
+
+Hot reload of rules, indicators, and the `[response]` section.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Reload rules, indicators, and the `[response]` section when their files change. |
+| `debounce_ms` | `2000` | Wait this long after the last change before reloading. |
+| `fallback_poll_interval_ms` | `60000` | Poll interval, used only when the file watcher cannot start. |
+
+### `[logging]`
+
+The operational log.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `level` | `"info"` | `trace`, `debug`, `info`, `warn`, or `error`. |
+| `filter` | unset | A `tracing` filter expression. Overrides `level` when valid. |
+| `directory` | `"logs"` | Operational log directory. |
+| `filename` | `"rustinel.log"` | Operational log file name. Rotated daily with a date suffix. |
+| `console_output` | `false` | Mirror the log to the console. `rustinel run` enables the console anyway; pass `--no-console` to turn it off. |
+
+### `[alerts]`
+
+The ECS NDJSON alert file.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `directory` | `"logs"` | Alert directory. |
+| `filename` | `"alerts.json"` | Alert file name. Rotated daily with a date suffix. |
+| `match_debug` | `"off"` | Match detail added to alerts: `off`, `summary` (what matched), or `full` (also the matched values). |
+
+### `[dedup]`
+
+Collapsing of repeated identical alerts.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Collapse identical alerts within a window. |
+| `window_secs` | `60` | Window length, counted from the first alert. Repeats do not extend it. |
+| `max_entries` | `10000` | Distinct alerts tracked at once. |
+
+### `[response]`
+
+Optional process termination. Off by default.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Turn on the response engine. |
+| `prevention_enabled` | `false` | Kill processes. When `false`, actions are only logged. |
+| `min_severity` | `"critical"` | Lowest alert severity that triggers a response: `low`, `medium`, `high`, or `critical`. |
+| `channel_capacity` | `128` | Pending response actions. New ones are dropped when it is full. Read at startup only. |
+| `allowlist_images` | `[]` | Executable names or full paths that are never killed. |
+| `allowlist_paths` | inherits `allowlist.paths` | Path prefixes that are never killed. Replaces `allowlist.paths` for response once set. |
+
+### `[ioc]`
+
+Indicator files for hashes, IPs, domains, and path patterns.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Match indicator files. |
+| `hashes_path` | `"rules/current/ioc/hashes.txt"` | MD5, SHA1, or SHA256 hashes, one per line. |
+| `ips_path` | `"rules/current/ioc/ips.txt"` | IP addresses and CIDR ranges. |
+| `domains_path` | `"rules/current/ioc/domains.txt"` | Domains. A leading `.` or `*.` also matches subdomains. |
+| `paths_regex_path` | `"rules/current/ioc/paths_regex.txt"` | Path regular expressions, matched case-insensitively. |
+| `default_severity` | `"high"` | Severity of IOC alerts: `low`, `medium`, `high`, or `critical`. |
+| `max_file_size_mb` | `50` | Larger executables are not hashed. |
+| `hash_allowlist_paths` | inherits `allowlist.paths` | Path prefixes that are never hashed. Replaces `allowlist.paths` for hashing once set. |
+
+### `[process]`
+
+The process cache used for parent and context enrichment.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `max_entries` | `65536` | Process records kept. The oldest are evicted first. |
+
+### `[capture]`
+
+Recordings written by `rustinel capture`.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `directory` | `"captures"` | Where `rustinel capture` writes recordings when `--output` is not given. |
+
+### `[telemetry]`
+
+The `telemetry.json` loss counters that `rustinel doctor` reads.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Write `telemetry.json` to the log directory. |
+| `snapshot_interval_secs` | `30` | How often `telemetry.json` is rewritten. It is also written at shutdown. |
+
+### `[windows]`
+
+ETW delivery. Read on every platform so one file can serve a mixed fleet, used only on Windows.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `etw_flush_interval_ms` | `20` | How often the main ETW session hands over partly filled buffers. Lower is faster alerting. `0` falls back to the 1 second ETW timer. Values below 20 are raised to 20. |
+| `etw_process_flush_interval_ms` | `5` | The same for the process session. Keep it at 10 or below: the command line is read from the live process, so slower values lose it for short-lived processes, and `0` loses most of them. |
+<!-- END GENERATED CONFIG REFERENCE -->
+
+## Default trusted paths
+
+`allowlist.paths` defaults to the OS folders:
+
+=== "Windows"
+
+    `C:\Windows\`, `C:\Program Files\`, `C:\Program Files (x86)\`
+
+=== "Linux"
+
+    `/usr/bin/`, `/usr/sbin/`, `/usr/lib/`, `/usr/lib64/`, `/usr/libexec/`, `/bin/`, `/sbin/`, `/lib/`, `/lib64/`
+
+=== "macOS"
+
+    `/usr/bin/`, `/usr/sbin/`, `/usr/libexec/`, `/bin/`, `/sbin/`, `/System/`
+
+    `/Applications` is not trusted: it holds user-installed software.
+
+Paths are prefixes and are not resolved, so symlinks are not followed.
+Matching ignores case on Windows, and for active response on every platform.
+
+## File permissions
+
+On Linux and macOS, Rustinel makes its log, alert, and recording folders readable by their owner only (`0700`) and their files `0600`.
+
+## Unknown options
+
+Unknown sections and keys are ignored, so a config file written for an older release keeps loading.

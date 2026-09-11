@@ -1,3 +1,5 @@
+pub mod reference;
+
 #[derive(clap::Parser)]
 #[command(name = "rustinel")]
 #[command(version)]
@@ -5,10 +7,10 @@
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
-    /// Configuration file path
+    /// Configuration file to load. Overrides RUSTINEL_CONFIG and every discovered config.toml
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<std::path::PathBuf>,
-    /// Override logging level (e.g., error, warn, info, debug, trace)
+    /// Log level for this run: error, warn, info, debug, or trace
     #[arg(long, global = true, value_name = "LEVEL")]
     pub log_level: Option<String>,
 }
@@ -22,10 +24,21 @@ impl Cli {
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// Update the binary from the latest GitHub Release
+    ///
+    /// Downloads the archive for this OS and architecture, verifies its SHA-256
+    /// checksum, and replaces the running executable. Configuration, rules,
+    /// logs, and captures are kept. Restart Rustinel afterwards: a running
+    /// service is not restarted for you.
     Update,
     /// Install Rustinel into the managed platform layout
+    ///
+    /// Writes the managed configuration, installs a rules pack, copies this
+    /// executable (the whole signed Rustinel.app on macOS), makes it available
+    /// as the `rustinel` command, registers the native service, starts it, and
+    /// runs the doctor checks. An existing configuration is kept unless
+    /// `--force` is given.
     Setup {
-        /// Rules pack level to install
+        /// Rules pack to install. Interactive runs prompt when omitted; other runs use essential
         #[arg(long, value_enum, value_name = "PACK")]
         pack: Option<SetupPack>,
         /// Accept defaults and do not prompt
@@ -38,7 +51,7 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
         /// Rules catalog index URL
-        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        #[arg(long, value_name = "URL", default_value = crate::rules::DEFAULT_CATALOG_URL)]
         catalog_url: String,
     },
     /// Run in the foreground with console output
@@ -75,17 +88,20 @@ pub enum Commands {
         output: Option<std::path::PathBuf>,
     },
     /// Check configuration, paths, and runtime prerequisites
+    ///
+    /// Read-only; it does not start the agent. Exits 0 when every check
+    /// passes, 1 when at least one check warns, and 2 when at least one fails.
     Doctor {
         /// Emit structured JSON output
         #[arg(long)]
         json: bool,
     },
-    /// Service management commands
+    /// Manage the native service (SCM on Windows, systemd on Linux, launchd on macOS)
     Service {
         #[command(subcommand)]
         action: ServiceAction,
     },
-    /// Rules catalog and active pack management
+    /// Discover, install, and update released rules packs
     Rules {
         #[command(subcommand)]
         action: RulesAction,
@@ -109,11 +125,17 @@ impl SetupPack {
 
 #[derive(clap::Subcommand, Copy, Clone)]
 pub enum ServiceAction {
+    /// Register the native service. The managed binary and configuration must already exist
     Install,
+    /// Unregister the native service. Configuration, rules, and logs are kept
     Uninstall,
+    /// Start the service
     Start,
+    /// Stop the service
     Stop,
+    /// Stop and start the service
     Restart,
+    /// Print not-installed, stopped, starting, running, failed, or unknown
     Status,
 }
 
@@ -122,27 +144,34 @@ pub enum RulesAction {
     /// List rules packs available for this platform
     List {
         /// Rules catalog index URL
-        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        #[arg(long, value_name = "URL", default_value = crate::rules::DEFAULT_CATALOG_URL)]
         catalog_url: String,
         /// Rules root directory, containing current, staging, and state.json
         #[arg(long, value_name = "PATH")]
         rules_dir: Option<std::path::PathBuf>,
     },
-    /// Update the active pack; restart the service after a successful update
+    /// Update the active pack to the newest compatible release
+    ///
+    /// Installs only a strictly newer version compatible with this platform and
+    /// Rustinel version. Restart Rustinel afterwards: a whole-pack replacement
+    /// is not hot reloaded. Local edits under `rules/current` are replaced.
     Update {
         /// Rules catalog index URL
-        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        #[arg(long, value_name = "URL", default_value = crate::rules::DEFAULT_CATALOG_URL)]
         catalog_url: String,
         /// Rules root directory, containing current, staging, and state.json
         #[arg(long, value_name = "PATH")]
         rules_dir: Option<std::path::PathBuf>,
     },
     /// Install a rules pack and make it active
+    ///
+    /// Downloads the pack, verifies its SHA-256 checksum, validates it, then
+    /// atomically replaces `rules/current`. A failure keeps the previous pack.
     Install {
         /// Pack ID from `rustinel rules list`
         pack: String,
         /// Rules catalog index URL
-        #[arg(long, default_value = crate::rules::DEFAULT_CATALOG_URL)]
+        #[arg(long, value_name = "URL", default_value = crate::rules::DEFAULT_CATALOG_URL)]
         catalog_url: String,
         /// Rules root directory, containing current, staging, and state.json
         #[arg(long, value_name = "PATH")]

@@ -12,7 +12,7 @@
 //!
 //! Only 4624 is audited by default. The other five need their audit
 //! subcategory enabled, and the two object-access families additionally need a
-//! SACL on the object; the required policy is in `docs/operations.md`.
+//! SACL on the object; the required policy is in `docs/windows-logging.md`.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

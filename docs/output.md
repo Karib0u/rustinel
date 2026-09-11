@@ -1,111 +1,21 @@
-# Output Format
+# Alert and recording format
 
-Rustinel emits four outputs:
+| Output | Default location | Written by |
+| --- | --- | --- |
+| Alerts (ECS NDJSON) | `logs/alerts.json.<date>` | `run` |
+| Operational log | `logs/rustinel.log.<date>` | every command |
+| Recordings | `captures/rustinel-capture-<timestamp>.ndjson` | `capture` |
+| Replay results | console, or `--output` | `replay` |
 
-- Operational logs for runtime state and troubleshooting
-- ECS NDJSON alerts for detections
-- Behavioral recordings, written only by `rustinel capture`
-- Replay results, written only by `rustinel replay`
+On Linux and macOS these files are readable by their owner only.
 
-## Operational Logs
+## Alerts
 
-Location:
-
-- Default: `logs/rustinel.log.<date>`
-
-Content includes:
-
-- Startup and shutdown lifecycle
-- Sensor initialization
-- Rule and IOC reload activity
-- Detection hits
-- Active response actions
-- Warnings and errors
-
-Example:
-
-Field rendering varies by logger, but the message text is representative:
-
-```text
-9:00 PM INFO  rustinel: Rustinel (Linux eBPF)
-9:00 PM INFO  rustinel: Loading Sigma rules
-9:00:01 PM INFO  rustinel: YARA scanner initialized
-9:00:05 PM INFO  engine: Detection triggered engine=Sigma severity=High rule="Encoded PowerShell Command" process="/tmp/test-process" pid=4242
-9:00:05 PM INFO  response: Active response would terminate process pid=4242 image="/tmp/test-process" dry_run=true
-```
-
-## Security Alerts
-
-Location:
-
-- Default: `logs/alerts.json.<date>`
-
-Format:
-
-- One ECS JSON document per line
-- ECS version `9.4.0`
-
-### Important Fields
-
-| Field               | Meaning                                                                                                                                                                                               |
-|---------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `@timestamp`        | Event time in UTC                                                                                                                                                                                     |
-| `ecs.version`       | Always `9.4.0`                                                                                                                                                                                        |
-| `event.kind`        | Always `alert`                                                                                                                                                                                        |
-| `event.category`    | ECS category array                                                                                                                                                                                    |
-| `event.type`        | ECS type array                                                                                                                                                                                        |
-| `event.action`      | Normalized action keyword                                                                                                                                                                             |
-| `event.code`        | Sysmon-style or native event ID string                                                                                                                                                                |
-| `event.module`      | Always `edr`                                                                                                                                                                                          |
-| `event.dataset`     | `edr.<category>`                                                                                                                                                                                      |
-| `event.provider`    | Sensor that collected the event: `etw` or `windows_event_log` (Windows), `ebpf` (Linux), `esf` / `bpf` (macOS), or `yara-memory` for memory-scan hits. Not the Windows provider that wrote the record — see `edr.event_log.provider_name`. |
-| `event.sequence`    | Native source sequence when the sensor exposes one. Present for Windows Event Log, Linux eBPF, and macOS Endpoint Security events; absent for ETW and macOS BPF events. |
-| `edr.event.ingest_seq` | Strictly increasing order assigned when Rustinel normalizes the event. |
-| `edr.event.provenance` | Sparse field-level fidelity markers. A field marked `derived` was reconstructed from process metadata rather than measured on the event itself. Absent when no fields were derived. |
-| `rule.name`         | Detection rule title                                                                                                                                                                                  |
-| `rule.id`           | Optional detection rule identifier, unique amongs the rustinel rules. Formatted as: `sigma::<uuid>` for Sigma, `yara::<id>` for YARA (if metadata ID is defined), or `ioc::<type>::<value>` for IOCs. |
-| `edr.rule.severity` | Low, Medium, High, or Critical                                                                                                                                                                        |
-| `edr.rule.engine`   | `Sigma`, `Yara`, or `Ioc`                                                                                                                                                                             |
-| `edr.process.image_source` | Linux process image provenance. Process exec events use `execve` for the raw invocation string captured by the kernel. |
-| `edr.process.image_truncated` | *(Linux process alerts only)* `true` when `process.executable` is a kernel-captured prefix whose suffix did not fit the 256-byte buffer. Absent when the path is complete. |
-| `edr.process.cgroup_id` | Kernel cgroup identifier measured at Linux process exec. Container and runtime resolution is handled separately. |
-| `edr.process.real_user_id`, `edr.process.real_group_id` | Linux real credentials, distinct from effective credentials. |
-| `edr.process.effective_user_id`, `edr.process.effective_group_id` | Linux effective credentials measured at exec. `User` resolves the effective UID to an account name. |
-| `edr.process.mount_namespace`, `edr.process.pid_namespace`, `edr.process.network_namespace` | Namespace inode numbers. PID namespace is the active namespace, as in `/proc/PID/ns/pid`. |
-| `edr.process.session_id`, `edr.process.controlling_tty` | Host session ID and controlling terminal device as `major:minor`. No terminal leaves the TTY absent. |
-| `edr.process.kernel_start_boottime` | Kernel process birth time in nanoseconds since boot, separate from the sensor's execution identity. |
-| `event.count`       | *(rollup only)* Number of suppressed repeats this rollup represents, i.e. occurrences within the dedup window excluding the first. Absent on the live first emission, which represents a single event. Summing `event.count` across lines (absent = 1) gives the true event volume. |
-
-### Windows Process Alert Example
+One JSON object per line, following ECS 9.4.0.
 
 ```json
 {
-  "@timestamp": "<date>T21:00:05Z",
-  "ecs.version": "9.4.0",
-  "event.kind": "alert",
-  "event.category": ["process"],
-  "event.type": ["start"],
-  "event.action": "process-start",
-  "event.code": "1",
-  "event.module": "edr",
-  "event.dataset": "edr.process",
-  "event.provider": "etw",
-  "rule.name": "Example - Whoami Execution (CommandLine + Image)",
-  "rule.id": "sigma::9b92f7e7-ee12-4fb3-b4d2-f674514a3821",
-  "edr.rule.severity": "Low",
-  "edr.rule.engine": "Sigma",
-  "host.os.type": "windows",
-  "host.os.family": "windows",
-  "process.executable": "C:\\Windows\\System32\\whoami.exe",
-  "process.command_line": "whoami"
-}
-```
-
-### Linux Process Alert Example
-
-```json
-{
-  "@timestamp": "<date>T21:00:05Z",
+  "@timestamp": "2026-08-16T21:00:05Z",
   "ecs.version": "9.4.0",
   "event.kind": "alert",
   "event.category": ["process"],
@@ -120,92 +30,85 @@ Format:
   "edr.rule.severity": "Low",
   "edr.rule.engine": "Sigma",
   "host.os.type": "linux",
-  "host.os.family": "linux",
   "process.executable": "/usr/bin/whoami",
-  "edr.process.image_source": "execve",
   "process.name": "whoami",
   "user.name": "root"
 }
 ```
 
-## Event Families
+### Common fields
 
-| Internal category | ECS dataset |
+| Field | Value |
 | --- | --- |
-| Process | `edr.process` |
-| Network | `edr.network` |
-| File | `edr.file` |
-| Registry | `edr.registry` |
-| DNS | `edr.dns` |
-| Image load | `edr.library` |
-| Scripting | `edr.scripting` |
-| PowerShell module | `edr.powershell_module` |
-| WMI | `edr.wmi` |
-| Service | `edr.service` |
-| Task | `edr.task` |
-| Security channel | `edr.security` |
+| `@timestamp` | Event time, UTC |
+| `event.kind` | Always `alert` |
+| `event.code` | Sysmon-style or native event ID |
+| `event.dataset` | `edr.<family>`, see below |
+| `event.provider` | The Rustinel sensor: `etw`, `windows_event_log`, `ebpf`, `esf`, `bpf`, or `yara-memory` |
+| `event.sequence` | Native sequence number, when the source has one |
+| `event.count` | Rollup alerts only: repeats suppressed by [deduplication](detection.md#deduplication) |
+| `rule.name` | Rule title |
+| `rule.id` | `sigma::<id>`, `yara::<id>`, or `ioc::<type>::<value>` |
+| `edr.rule.severity` | `Low`, `Medium`, `High`, or `Critical` |
+| `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
+| `edr.event.ingest_seq` | Order in which Rustinel processed the event |
+| `edr.event.provenance` | Fields Rustinel reconstructed rather than measured, marked `derived` |
+| `edr.match` | Why the rule matched, when `alerts.match_debug` is on |
 
-The full field set depends on event type and platform. Windows alerts can include PE metadata, registry details, PowerShell content, and service or task context. Linux and macOS alerts currently focus on process, network, file, and DNS fields.
+### Event families
 
-Alerts on events read from the Windows Event Log carry
-`edr.event_log.provider_name`, the provider that wrote the record
-(`Service Control Manager` for service installations). It is a different thing
-from `event.provider`, which names the Rustinel sensor, and it is what Sigma
-sees as `Provider_Name`.
+| Dataset | Events |
+| --- | --- |
+| `edr.process` | Process start and exit |
+| `edr.network` | Network connections |
+| `edr.file` | File activity |
+| `edr.dns` | DNS queries |
+| `edr.registry` | Registry (Windows) |
+| `edr.library` | Image load (Windows) |
+| `edr.scripting` | PowerShell script blocks (Windows) |
+| `edr.powershell_module` | PowerShell module logging (Windows) |
+| `edr.wmi` | WMI activity (Windows) |
+| `edr.service` | Service installs (Windows) |
+| `edr.task` | Scheduled tasks (Windows) |
+| `edr.security` | Security audit events (Windows) |
 
-Windows Security channel alerts additionally carry `edr.security`, a nested
-object holding the decoded audit record under its own Windows field names
-(`ObjectName`, `ShareName`, `AttributeValue`, ...). The fields that map onto ECS
-— identity, source address, process, service — are also lifted into the standard
-ECS fields, so `edr.security` is the lossless copy rather than the only one. It
-is nested rather than flattened so a Windows field name can never collide with
-an ECS one.
+### Platform-specific fields
 
-## Behavioral Recordings
+| Field | Platform | Value |
+| --- | --- | --- |
+| `edr.event_log.provider_name` | Windows | The provider that wrote an Event Log record. Sigma sees it as `Provider_Name` |
+| `edr.security` | Windows | The full decoded Security event, with Windows field names. Identity, address, process, and service values are also copied to ECS fields |
+| `edr.process.windows_metadata` | Windows | Where the command line came from, the raw SID, and the session ID |
+| `edr.process.image_source` | Linux | `execve`: the path as passed to `execve()` |
+| `edr.process.image_truncated` | Linux | `true` when the executable path was cut |
+| `edr.file.path_truncated` | Linux | Which side of a file path was cut |
+| `edr.process.real_user_id`, `edr.process.real_group_id` | Linux | Real credentials |
+| `edr.process.effective_user_id`, `edr.process.effective_group_id` | Linux | Effective credentials. `user.name` resolves the effective UID |
+| `edr.process.cgroup_id` | Linux | Kernel cgroup ID at exec |
+| `edr.process.mount_namespace`, `edr.process.pid_namespace`, `edr.process.network_namespace` | Linux | Namespace inode numbers |
+| `edr.process.session_id`, `edr.process.controlling_tty` | Linux | Session ID and terminal as `major:minor` |
+| `edr.process.kernel_start_boottime` | Linux | Process start time in nanoseconds since boot |
 
-A recording is the endpoint-behavior analogue of a packet capture: the normalized
-events Rustinel's detectors consume, saved so the same activity can be evaluated
-again later without re-running the sample that produced it. Recordings are
-produced only by `rustinel capture`; an ordinary `run` never writes one.
+## Recordings
 
-Location:
-
-- Default: `captures/rustinel-capture-<UTC timestamp>.ndjson`, configurable with
-  `capture.directory`
-
-A recording is two files:
+`rustinel capture` writes two files:
 
 | File | Content |
 | --- | --- |
-| `<name>.ndjson` | The payload: one normalized event per line, in `ingest_seq` order |
-| `<name>.manifest.json` | The sidecar describing the payload and whether it is complete |
-
-The payload holds canonical normalized events, recorded immediately after
-normalization. It is not alert output: no rule ever ran against these events,
-and they carry no alert-only process-context enrichment. Repeated events are
-kept as-is, because capture does not deduplicate.
-
-When normalization reconstructs a missing field from process metadata, the
-event includes a sparse `provenance` array. Each entry names the field and marks
-its fidelity as `derived`. Sensor-supplied fields remain unchanged and need no
-provenance entry.
+| `<name>.ndjson` | One normalized event per line, in processing order |
+| `<name>.manifest.json` | What the recording contains and whether it is complete |
 
 ```json
-{"event_time":"2026-08-16T09:12:44.123456789Z","ingest_seq":42,"platform":"windows","provider":"etw","category":"Process","event_id":1,"opcode":1,"fields":{"Image":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","CommandLine":"powershell.exe -EncodedCommand ...","ProcessId":"6132","ParentImage":"C:\\Windows\\explorer.exe"}}
+{"event_time":"2026-08-16T09:12:44.123456789Z","ingest_seq":42,"platform":"windows","provider":"etw","category":"Process","event_id":1,"opcode":1,"fields":{"Image":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","CommandLine":"powershell.exe -EncodedCommand ...","ProcessId":"6132"}}
 ```
 
-`event_time` is the native event timestamp, rendered as UTC RFC 3339 with
-nanosecond precision. `source_seq` is included only when the source provides a
-native ordering token. `ingest_seq` is always present and records Rustinel's
-strict processing order. Replay validates and preserves that order.
-
-The manifest records what the payload contains and whether it can be trusted:
+Events are recorded before any rule runs, so they carry no alert fields and are not deduplicated.
 
 ```json
 {
   "schema_version": 2,
   "payload": "rustinel-capture-20260816T091240Z.ndjson",
-  "rustinel_version": "1.3.0",
+  "rustinel_version": "1.6.0",
   "platform": "windows",
   "started_at": "2026-08-16T09:12:40Z",
   "ended_at": "2026-08-16T09:14:02Z",
@@ -216,36 +119,18 @@ The manifest records what the payload contains and whether it can be trusted:
 }
 ```
 
-`status` is the field that matters. The manifest is written as `incomplete` when
-the session starts and is only rewritten as `complete` at clean shutdown with
-every received event accounted for. A recording is therefore `incomplete`
-whenever the process was killed before it could finalize, events were lost
-because the writer could not keep up, or the source reported loss before the
-events reached the sensor. `received` always equals `written + lost`;
-`source_lost` is separate because those events were never received. On Windows,
-`source_lost` is the cumulative `EventsLost` count across both ETW sessions.
+`status` is `complete` only when capture stopped cleanly with no lost events.
+It stays `incomplete` when capture was killed, the writer fell behind (`lost`), or the OS dropped events first (`source_lost`).
+Replay rejects incomplete recordings, and any payload whose checksum does not match.
+Never edit a recording by hand.
 
-Recordings are as sensitive as alerts, and often more so: they contain full
-command lines, file paths, network destinations, and user names for *all*
-observed activity, not only what a rule matched. They are written owner-only
-(`0600`, in a `0700` directory on Unix) and are kept separate from alert and
-operational log output. Treat sharing a recording the way you would treat
-sharing a memory dump from the same host.
+## Replay results
 
-## Replay Results
-
-`rustinel replay` evaluates a recording against the detectors and reports what
-matched. Its results are not a record of what happened on the endpoint running
-the replay, so they are kept away from the live alert output: replay never writes
-to `logs/alerts.json.<date>`, and refuses an `--output` path inside the
-configured alert directory.
-
-By default the results go to stdout as a human-readable list, headed by the
-recording and the effective detector configuration:
+By default `rustinel replay` prints a summary and one block per alert:
 
 ```text
 Replay of /tmp/lab/run-42.ndjson
-  recorded   1841 events on windows at 2026-08-16T09:12:40Z by Rustinel v1.3.0
+  recorded   1841 events on windows at 2026-08-16T09:12:40Z by Rustinel v1.6.0
   sigma      412 rules for windows from /opt/rustinel/rules/current/sigma
   ioc        37 inline indicators (IP, domain, and path)
   skipped    YARA and hash IOC checks; a recording holds events, not file artifacts
@@ -257,31 +142,16 @@ Replay of /tmp/lab/run-42.ndjson
     time                 2026-08-16T09:12:44Z
     event                Process EventID 1 (windows/etw)
     Image                C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
-    ProcessId            6132
-    CommandLine          powershell.exe -EncodedCommand ...
 
 1841 events replayed, 1 alerts (1 sigma, 0 ioc)
-Replay results: not live detections, and not written to the alert log.
 ```
 
-`--output <PATH>` writes the same alerts as ECS NDJSON instead, in the same
-format as live alerts plus one extra object:
+With `--output <PATH>`, alerts are written as ECS NDJSON, like live alerts plus an `edr.replay` object:
 
-| Field | Meaning |
+| Field | Value |
 | --- | --- |
-| `edr.replay.recording` | File name of the recording payload that was replayed |
-| `edr.replay.platform` | Platform whose sensors produced the recorded events |
-| `edr.replay.recorded_at` | When the recording was started |
+| `edr.replay.recording` | Recording file name |
+| `edr.replay.platform` | Platform the recording was made on |
+| `edr.replay.recorded_at` | When the recording started |
 
-`edr.replay` is present on replayed alerts and absent on live ones, which is what
-tells the two apart once a SIEM has ingested both. Replay output files are
-written owner-only (`0600`), like alerts and recordings.
-
-Every value in the report comes from the recording or the loaded rules, and
-nothing reads the clock, so replaying one recording twice against one
-configuration produces byte-identical output.
-
-## SIEM Shipping
-
-Any log shipper that can tail NDJSON works. For runnable Filebeat, Elastic, and
-Splunk configurations, see [SIEM Demos](siem-demos.md).
+Replay refuses to write inside the configured alert directory, so replayed alerts never mix with live ones.

@@ -54,31 +54,46 @@ Copyright &copy; 2026 The Rustinel Authors
 nav = [
     { "Home" = "index.md" },
 
-    { "Start Here" = [
-        { "Getting Started" = "getting-started.md" },
-        { "SIEM Demos" = "siem-demos.md" },
+    { "Get started" = [
+        { "Installation" = "installation.md" },
+        { "Quickstart" = "getting-started.md" },
+        { "Run as a service" = "operations.md" },
+    ] },
+
+    { "Guides" = [
+        { "Write and test rules" = "rule-development.md" },
+        { "Manage rule packs" = "rule-packs.md" },
+        { "Send alerts to a SIEM" = "siem-demos.md" },
+        { "Use active response" = "active-response.md" },
+        { "Upgrade" = "upgrade.md" },
+        { "Windows host logging" = "windows-logging.md" },
+        { "macOS permissions" = "macos-permissions.md" },
+    ] },
+
+    { "Concepts" = [
+        { "How it works" = "how-it-works.md" },
+        { "Detection" = "detection.md" },
+        { "Telemetry loss" = "telemetry-loss.md" },
+        { "Platform coverage" = "coverage.md" },
+    ] },
+
+    { "Reference" = [
+        { "CLI" = "cli.md" },
+        { "Configuration" = "configuration.md" },
+        { "Alert and recording format" = "output.md" },
+        { "Sigma support" = "sigma.md" },
+        { "Field availability" = "field-availability.md" },
+        { "Doctor checks" = "doctor.md" },
+        { "telemetry.json" = "telemetry.md" },
+        { "Limitations" = "limitations.md" },
         { "Troubleshooting" = "troubleshooting.md" },
         { "FAQ" = "faq.md" },
     ] },
 
-    { "Using Rustinel" = [
-        { "Configuration" = "configuration.md" },
-        { "CLI" = "cli.md" },
-        { "Operations" = "operations.md" },
-        { "Active Response" = "active-response.md" },
-        { "Output" = "output.md" },
-    ] },
-
-    { "How It Works" = [
-        { "Architecture" = "architecture.md" },
-        { "Detection" = "detection.md" },
-        { "Sigma Coverage" = "coverage.md" },
-        { "Benchmarking" = "benchmarking.md" },
-        { "Limitations" = "limitations.md" },
-    ] },
-
-    { "Project" = [
+    { "Contributing" = [
         { "Development" = "development.md" },
+        { "Internals" = "architecture.md" },
+        { "Benchmarking" = "benchmarking.md" },
     ] },
 ]
 

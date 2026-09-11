@@ -1,58 +1,25 @@
-# SIEM Demos
+# Send alerts to a SIEM
 
-Rustinel writes alerts as ECS NDJSON in `logs/alerts.json.<date>`. That makes
-the first SIEM trial a file shipping problem: run the agent, trigger the bundled
-demo rule, then tail or import the alert file.
+Rustinel writes one JSON alert per line to `alerts.json.<date>` in the alert directory.
+Any shipper that tails NDJSON files can forward them.
+The [alert format](output.md) follows ECS 9.4.0.
 
-## Generate A Test Alert
-
-Start Rustinel from an extracted release package:
-
-=== "Linux"
-
-    ```bash
-    sudo ./rustinel run
-    whoami
-    cat logs/alerts.json.*
-    ```
-
-=== "Windows"
-
-    ```powershell
-    .\rustinel.exe run
-    whoami
-    Get-Content .\logs\alerts.json.*
-    ```
-
-=== "macOS"
-
-    ```bash
-    sudo ./rustinel run
-    whoami
-    cat logs/alerts.json.*
-    ```
+The repository has runnable demos for Elastic and Splunk.
+Generate a test alert first with the [Quickstart](getting-started.md).
 
 ## Elastic
 
-The demo in `examples/siem/elastic` starts Elasticsearch, Kibana, and Filebeat.
-Filebeat tails Rustinel alert files and writes them into `rustinel-alerts-*`.
+`examples/siem/elastic` starts Elasticsearch, Kibana, and Filebeat:
 
 ```bash
 cd examples/siem/elastic
 docker compose up -d elasticsearch kibana
-
-export RUSTINEL_ALERTS_DIR=/path/to/rustinel/logs
-docker compose up filebeat
+RUSTINEL_ALERTS_DIR=/path/to/rustinel/logs docker compose up filebeat
 ```
 
-Open Kibana at <http://localhost:5601>, create a data view for
-`rustinel-alerts-*`, then search:
+Open Kibana at <http://localhost:5601>, create a data view for `rustinel-alerts-*`, and search `event.kind : "alert"`.
 
-```text
-event.kind : "alert"
-```
-
-Filebeat config used by the demo:
+The Filebeat input it uses:
 
 ```yaml
 filebeat.inputs:
@@ -67,9 +34,7 @@ filebeat.inputs:
 
 ## Splunk
 
-The demo in `examples/siem/splunk` starts a local Splunk Enterprise container
-with HTTP Event Collector enabled, then sends each Rustinel alert line as one
-HEC event.
+`examples/siem/splunk` starts Splunk with the HTTP Event Collector enabled and sends each alert as one event:
 
 ```bash
 cd examples/siem/splunk
@@ -77,33 +42,19 @@ docker compose up -d
 python3 send-alerts.py /path/to/rustinel/logs/alerts.json.$(date +%Y-%m-%d)
 ```
 
-Open Splunk Web at <http://localhost:8000> with:
-
-```text
-admin / ChangeMe123!
-```
-
-Search:
+Open <http://localhost:8000> (user `admin`, password `ChangeMe123!`) and search:
 
 ```text
 index=main source=rustinel sourcetype=_json event.kind=alert
 ```
 
-Default HEC endpoint and token:
+The demo HEC token is `rustinel-demo-token`.
+In production, create your own index and token and keep the token in a secret manager.
 
-```text
-http://localhost:8088/services/collector/event
-rustinel-demo-token
-```
+## Production tips
 
-For a real deployment, create a dedicated index and HEC token, keep the token in
-your secret manager, and run the sender or your log forwarder under your normal
-host telemetry pipeline.
-
-## Production Notes
-
-- Keep `alerts.directory` on persistent storage.
-- Use absolute paths in `config.toml` when Rustinel runs as a service.
-- Keep operational logs and alert output separate in your SIEM.
-- Start with the bundled `whoami` rule, then add your own Sigma, YARA, and IOC
-  content once ingestion is confirmed.
+- Keep the alert directory on persistent storage.
+- Ship the operational log (`rustinel.log.<date>`) to a separate index from alerts.
+- Repeated identical alerts are collapsed, see [Deduplication](detection.md#deduplication).
+  Sum `event.count` to get true volumes.
+- On Linux and macOS the log directory is readable by root only, so the shipper must run as root.

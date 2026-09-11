@@ -1,218 +1,69 @@
 # Benchmarking
 
-Rustinel ships benchmark scripts that measure agent overhead, workload timing,
-alert latency, and drop counters on Windows and Linux. They compare baseline
-host behavior against Rustinel on the **same machine** with a fixed rule corpus.
+## Agent overhead
 
-Do not use a single run as a product claim. Run each mode at least three times,
-report medians, and hold the rule corpus, allowlists, cargo profile, and machine
-fixed across baseline and with-agent runs.
+`scripts/bench` measures CPU, memory, workload slowdown, alert latency, and drops on Windows and Linux, comparing the same machine with and without Rustinel.
+Details are in [`scripts/bench/README.md`](https://github.com/Karib0u/rustinel/blob/main/scripts/bench/README.md).
 
-Script internals, isolated-workload forensics, and corpus-fetch options are
-documented in [`scripts/bench/README.md`](https://github.com/Karib0u/rustinel/blob/main/scripts/bench/README.md).
-
-## Running A Matrix
-
-Build the release binary first:
-
-```bash
-cargo build --locked --release
-```
-
-Fetch a realistic rule corpus (the bundled demo rules are only a smoke test):
-
-```bash
-python scripts/rules/fetch_corpus.py --output rules-bench --force
-```
-
-That pulls SigmaHQ community rules, YARA Forge `core`, and the Feodo Tracker C2
-blocklist, and writes provenance to `rules-bench/sources/metadata.json`.
-
-Then run each mode three times:
-
-=== "Linux"
+1. Build a release binary and fetch a realistic rule corpus (SigmaHQ, YARA Forge `core`, and the Feodo Tracker blocklist):
 
     ```bash
-    bash scripts/bench/linux.sh \
-      --mode baseline \
-      --sigma-rules-path ./rules-bench/sigma \
-      --yara-rules-path ./rules-bench/yara \
-      --ioc-rules-path ./rules-bench/ioc
+    cargo build --locked --release
+    python scripts/rules/fetch_corpus.py --output rules-bench --force
     ```
 
-    Swap `--mode with-agent` for the second set. Run as the normal user, since the
-    script elevates only the agent through sudo, so cargo keeps using your
-    toolchain.
+2. Run each mode three times, `baseline` then `with-agent`:
 
-=== "Windows"
+    === "Linux"
 
-    ```powershell
-    powershell -ExecutionPolicy Bypass -File .\scripts\bench\windows.ps1 `
-      -Mode baseline `
-      -SigmaRulesPath .\rules-bench\sigma `
-      -YaraRulesPath .\rules-bench\yara `
-      -IocRulesPath .\rules-bench\ioc
-    ```
+        As your normal user; the script uses `sudo` for the agent only.
 
-    Swap `-Mode with-agent` for the second set. Run from an Administrator shell
-    so ETW providers can be collected.
+        ```bash
+        bash scripts/bench/linux.sh --mode baseline \
+          --sigma-rules-path ./rules-bench/sigma \
+          --yara-rules-path ./rules-bench/yara \
+          --ioc-rules-path ./rules-bench/ioc
+        ```
 
-If Rustinel is already running, the script reuses it, so restart the agent with
-the same corpus first, or your measurements describe a different configuration
-than you think.
+    === "Windows"
 
-## Reading The Output
+        From an elevated PowerShell:
 
-Each run writes a timestamped directory under `target/rustinel-bench/`:
+        ```powershell
+        powershell -ExecutionPolicy Bypass -File .\scripts\bench\windows.ps1 `
+          -Mode baseline `
+          -SigmaRulesPath .\rules-bench\sigma `
+          -YaraRulesPath .\rules-bench\yara `
+          -IocRulesPath .\rules-bench\ioc
+        ```
 
-| File | Contents |
-| --- | --- |
-| `summary.json` | Machine info, rule inventory, parameters, resource summaries, workload steps, alert latency, `valid`, `validation_errors` |
-| `resource-samples.csv` | Per-second CPU, memory, process count, thread samples |
-| `workload-steps.jsonl` | Raw workload timings and statuses |
-| `agent.stdout.log` | Linux-only agent output, when the script started it |
+    If Rustinel is already running, the script reuses it.
+    Restart it with the same corpus first.
 
-Slowdown is:
+3. Read `target/rustinel-bench/<timestamp>/summary.json`.
+   A run with `valid: false` must not back any claim; `validation_errors` says why.
 
-```text
-((rustinel_duration_ms - baseline_duration_ms) / baseline_duration_ms) * 100
-```
+Report medians, and keep the corpus, allowlists, build profile, and machine fixed across modes.
+Include the commit, `rules-bench/sources/metadata.json`, machine details, idle CPU and memory, workload slowdown, alert latency, and drop counters.
 
-### Run validity
+### Targets
 
-With-agent runs record `valid` and `validation_errors`. A run is **invalid**
-when the agent process is not observable after startup, idle samples never see
-`pid_count > 0`, alert latency is null, any workload step fails, or (on Windows)
-ETW drops are observed. Invalid runs are useful for investigation but must not
-back slowdown or readiness claims.
-
-### What to report
-
-Report the git commit, the corpus metadata from
-`rules-bench/sources/metadata.json`, platform and machine info, idle CPU average
-and p95, idle memory average and max, workload durations and slowdown, detection
-latency, drop counters, `valid` / `validation_errors`, and any warnings in the
-operational logs.
-
-Drop counters are the ones to watch closely. See
-[Pipeline Telemetry](configuration.md#pipeline-telemetry). Windows summaries
-additionally carry `etw_drops`, whose `final_counter` is the last observed
-`dropped_events=N`; anything nonzero marks the run invalid.
-
-## Acceptance Targets
-
-=== "Linux"
-
-    - Idle CPU median below 3%, p95 below 8%
-    - Alert latency non-null across three consecutive with-agent runs
-    - Median alert latency below 1,000 ms
-    - Every workload status `ok`
-
-=== "Windows"
-
-    - Zero ETW drops in the default workload, or a documented bounded drop
-      policy for low-value event classes only
-    - Median alert latency below 500 ms
-    - Process and file IO slowdown within 5% of the current with-agent baseline
-    - Every workload status `ok`
-
-## Published Results
-
-The last full published matrix is from **2026-05-16**, and its Linux figures
-still stand: median idle CPU average `0.847%`, p95 `0.875%`, median alert
-latency `155 ms`, run valid.
-
-**The Windows figures from that run are obsolete.** They were collected before
-[#312](https://github.com/Karib0u/rustinel/pull/312) replaced the inherited ETW
-buffer sizing, which was the source of the drops that invalidated those runs.
-The shipped configuration has not yet been re-measured through this harness, so
-there is currently no valid published Windows matrix. See
-[Windows ETW session buffers](operations.md#windows-etw-session-buffers) for
-what the fix was measured against directly.
-
-## Sigma Engine Micro-Benchmark
-
-The `sigma_engine` Criterion benchmark measures `Engine::evaluate_event` in
-isolation, and is distinct from the agent-overhead scripts above.
-
-```sh
-cargo bench --bench sigma_engine
-```
-
-Each iteration runs one pass over five normalized events against two rulesets:
-`mixed` (four matching rules, nothing to prune) and `large` (~2,000 rules, where
-per-rule scanning cost dominates). Both use the synchronized RSigma engine.
-
-Indicative figures from a single macOS development machine. Re-run locally
-before quoting them:
-
-| Scenario | Ruleset | Per iteration |
+| | Linux | Windows |
 | --- | --- | --- |
-| `mixed` | 4 rules | 11.6 µs |
-| `large` | ~2,000 rules | 204 µs |
+| Idle CPU | median below 3%, p95 below 8% | |
+| Median alert latency | below 1,000 ms | below 500 ms |
+| Drops | | zero ETW drops in the default workload |
+| Slowdown | | process and file I/O within 5% of the previous with-agent run |
+| Workload | every step `ok` | every step `ok` |
 
-Cost grows far slower than rule count: the engine's inverted rule index skips
-rules whose literals cannot be present in the event, rather than scanning each
-candidate bucket linearly.
+## Micro-benchmarks
 
-This isolates matching throughput only: it excludes normalization, alert
-serialization, IOC and YARA, and the sensor pipeline. Source:
-[benches/sigma_engine.rs](https://github.com/Karib0u/rustinel/blob/main/benches/sigma_engine.rs).
+Criterion benchmarks for hot paths, run on one machine:
 
-## Wildcard Domain IOC Micro-Benchmark
-
-The `ioc_domains` Criterion benchmark measures `IocEngine::check_event` against
-a wildcard domain feed (`*.example.com` indicators), which is the IOC path whose
-cost used to scale with feed size.
-
-```sh
-cargo bench --bench ioc_domains
-```
-
-Each iteration matches one DNS event against a feed of 100 or 100,000 wildcard
-indicators, once for a hostname no indicator covers (`miss`, the common case)
-and once for a hostname one indicator covers (`hit`).
-
-Indicative figures from a single macOS development machine. Re-run locally
-before quoting them:
-
-| Scenario | 100 indicators | 100,000 indicators |
-| --- | --- | --- |
-| `miss` | 112 ns | 102 ns |
-| `hit` | 669 ns | 682 ns |
-
-Cost tracks the hostname's DNS label count, not the size of the feed: wildcard
-suffixes are indexed, so a hostname only looks up its own suffixes. Before that
-index, the same two scenarios cost 6.3 µs and 8.1 ms respectively, because every
-eligible event scanned the whole feed.
-
-Source:
-[benches/ioc_domains.rs](https://github.com/Karib0u/rustinel/blob/main/benches/ioc_domains.rs).
-
-## Cache Eviction Micro-Benchmark
-
-The `cache_eviction` Criterion benchmark measures insertion cost into a bounded
-timestamp-ordered cache at its capacity, using `DnsCache` as the representative
-implementation. The same eviction policy backs the file-hash, YARA verdict, and
-connection-state caches.
-
-```sh
-cargo bench --bench cache_eviction
-```
-
-Each iteration performs 1,000 inserts that all land in the same second, once
-into a cache already at its 10,000-entry cap and once into a cache with spare
-capacity. Cache timestamps have second precision, so a burst of events normally
-shares a single timestamp; the at-capacity case is what a burst actually costs.
-
-Indicative figures from a single macOS development machine, for 1,000 inserts.
-Re-run locally before quoting them:
-
-| Scenario | Per iteration |
+| Benchmark | Measures |
 | --- | --- |
-| At capacity, same second | 233 µs |
-| Spare capacity | 74 µs |
+| `cargo bench --bench sigma_engine` | Sigma evaluation of five events against 4 and about 2,000 rules |
+| `cargo bench --bench ioc_domains` | Wildcard domain matching against 100 and 100,000 indicators |
+| `cargo bench --bench cache_eviction` | Inserts into a full bounded cache |
 
-Eviction frees a quarter of the cap in one pass, so a trim is amortized over
-many subsequent inserts instead of running on each one. Source:
-[benches/cache_eviction.rs](https://github.com/Karib0u/rustinel/blob/main/benches/cache_eviction.rs).
+Compare results against the base branch on the same machine, not against numbers from elsewhere.

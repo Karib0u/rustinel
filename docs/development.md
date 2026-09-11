@@ -1,71 +1,44 @@
 # Development
 
-## SigmaHQ compatibility gate
+## Toolchain
 
-Engine compatibility is checked against the active rule trees from the
-SigmaHQ commit pinned in `compatibility/sigmahq-baseline.json`. The gate loads
-the corpus through the RSigma parser for Windows, Linux, and macOS routing,
-then compares verdict and reason counts with the baseline. Parser or compiler
-failures, panics, unaccounted skip reasons, unknown unsupported-document
-reasons, and count drift fail the test. The emitted
-`sigma-compatibility.json` file is uploaded by CI for machine consumption.
-
-To reproduce the gate locally, check out the pinned SigmaHQ commit and run:
-
-```sh
-RUSTINEL_EBPF_STUB=1 \
-RUSTINEL_SIGMA_CORPUS_DIR=/path/to/sigma \
-cargo test --locked --test sigma_corpus_compatibility -- --include-ignored
-```
-
-This test only parses, compiles, and routes rules. Live atomic firing tests and
-curated detection packs belong in `rustinel-rules` and are not run by this
-gate.
-
-## YAML parser
-
-Rule document inspection and pack manifest loading use `yaml_serde`, the
-[YAML organization's maintained fork](https://github.com/yaml/yaml-serde),
-under MIT OR Apache-2.0. RSigma already uses this crate, so sharing it avoids
-adding a second parser implementation. Its `Value`, `from_slice`, and streaming
-`Deserializer` APIs preserve the existing loading code, including inspection
-of every document for omitted temporal correlation conditions.
-
-Other alternatives include `serde-saphyr` (a different deserialization API)
-and `yaml-rust2` (a lower-level parser requiring a Serde integration). Neither
-provides a benefit here over reusing RSigma's existing dependency.
-
-When changing parsers, run `cargo test --locked` for detection, document,
-manifest, and pipeline coverage, then run the pinned corpus gate above without
-changing its baseline. Run `cargo deny --locked check` to verify advisory,
-license, dependency, and source policies.
-
-## Build Matrix
-
-| Target | Tooling |
+| Target | Needs |
 | --- | --- |
-| Windows userspace build | Rust 1.92+, Visual Studio Build Tools |
-| Linux userspace build | Rust 1.92+ |
-| Linux eBPF object build | nightly Rust, `rust-src`, `bpf-linker` |
-| macOS userspace build | Rust 1.92+, Xcode Command Line Tools |
+| All platforms | Rust 1.92 or later (the repository pins stable) |
+| Windows | Visual Studio Build Tools |
+| macOS | Xcode Command Line Tools |
+| Linux eBPF object | nightly Rust, `rust-src`, and `bpf-linker` |
 
-## Fastest Local Build Paths
-
-### Userspace
+## Build and run
 
 ```bash
-cargo check --workspace
 cargo build
 cargo build --release
 ```
 
-On Windows, run the final binary from an elevated PowerShell. On Linux, run it as root or with the required eBPF capabilities.
+Run the agent with the privileges it needs:
 
-### Linux eBPF Build
+=== "Linux and macOS"
 
-If `ebpf/rustinel-ebpf.o` already exists, a normal root `cargo build` embeds it and no nightly eBPF rebuild is needed.
+    ```bash
+    sudo cargo run -- run
+    ```
 
-If you need to rebuild the eBPF object from source:
+=== "Windows"
+
+    From an elevated PowerShell:
+
+    ```powershell
+    cargo run -- run
+    ```
+
+On macOS, live Endpoint Security events also need a signed bundle, see [macOS](#macos).
+Building and testing do not.
+
+## Linux eBPF object
+
+A Linux build embeds `ebpf/rustinel-ebpf.o` when it exists, and compiles it with nightly otherwise.
+The file is ignored by Git, so a stale copy silently embeds old programs: rebuild it whenever `ebpf/src` changes.
 
 ```bash
 rustup toolchain install nightly
@@ -75,102 +48,24 @@ cargo install bpf-linker
 cd ebpf
 cargo +nightly build --release --bin rustinel-ebpf
 cp target/bpfel-unknown-none/release/rustinel-ebpf rustinel-ebpf.o
-cd ..
 ```
 
-`build.rs` watches `ebpf/src`, `ebpf/Cargo.toml`, and `ebpf/rustinel-ebpf.o`. On Linux builds it embeds either the prebuilt object or a freshly compiled one.
-
-### Linux task identity validation
-
-Build the eBPF object first, then run the ignored live comparison as root on an
-isolated Linux test host with tracefs mounted:
-
-```sh
-RUSTINEL_EBPF_OBJECT=/absolute/path/to/rustinel-ebpf.o \
-  cargo test --test linux_task_identity live_task_identity_matches_proc -- --ignored --nocapture
-```
-
-This exercises real versus effective credentials, active PID namespace versus
-child PID namespace, mount and network namespaces, session/TTY, kernel birth
-time, and startup inventory reconciliation. It also execs from a non-leader
-thread to check that kernel birth time remains separate from execution identity.
-Run the same object on 5.10, 5.15, 6.1, and 6.8 before changing the read plans.
-In a disposable VM, hide `/sys/kernel/btf` and run
-`live_without_btf_keeps_base_telemetry` to check graceful degradation. Never hide
-host BTF on a shared machine.
-
-### Linux socket tuple validation
-
-Build the object above, then run on an isolated Linux host with eBPF privileges,
-tracefs, kernel BTF, and a non-loopback IPv4 interface:
-
-```sh
-cargo test --test linux_socket_tuple running_kernel_socket_layout -- --ignored --nocapture
-sudo env RUSTINEL_EBPF_OBJECT=/absolute/path/to/rustinel-ebpf.o \
-  cargo test --test linux_socket_tuple live_tuple_and_connection_churn -- --ignored --nocapture
-```
-
-The live test checks TCP connect and accept direction, UDP sockets created before
-attachment, kernel loopback filtering, and 2,000 connections while the ring drain
-runs. It prints received event counts and maximum delivery delay. Run the same
-object on a kernel with the four-argument accept prototype and one with the
-two-argument prototype. Run `live_without_socket_btf_uses_syscall_fallback` with an empty file bind-mounted
-over `/sys/kernel/btf/vmlinux` inside a private mount namespace to verify the
-syscall fallback. Never hide BTF in the host mount namespace. Fixture tests also
-cover layout rejection and capability state. The sensor's minimum remains Linux 5.8 due
-to ring buffers; a kernel version alone is never used to select the tuple tier.
-
-## Recommended Dev Runs
-
-### Windows
-
-```powershell
-cargo run -- run
-```
-
-### Linux
-
-```bash
-sudo cargo run -- run
-```
-
-### Linux With eBPF Override
-
-Useful when iterating on `ebpf/` without rebuilding the full userspace binary:
+To try a new object without rebuilding the agent:
 
 ```bash
 sudo env RUSTINEL_EBPF_OBJECT=$PWD/ebpf/rustinel-ebpf.o ./target/release/rustinel run
 ```
 
-### macOS
+For `cargo check`, `clippy`, or unit tests without the nightly toolchain, set `RUSTINEL_EBPF_STUB=1`.
+The resulting binary cannot collect telemetry.
 
-For normal contributor work, start with `cargo check`, `cargo build`, and the
-regular test suite. The signed app-bundle path below is only required when you
-need live Endpoint Security telemetry on macOS or when preparing a release.
+## macOS
 
-macOS telemetry uses Apple's Endpoint Security framework. Creating an ES client
-(`es_new_client`) requires three things, and each missing piece surfaces a
-distinct startup error: running as root (`NotPrivileged` if not), the
-`com.apple.developer.endpoint-security.client` entitlement (`NotEntitled` if
-missing), and user approval via Full Disk Access / TCC (`NotPermitted` if not
-granted).
-
-Maintainer release builds require Apple to approve the managed Endpoint Security
-capability. After approval, enable Endpoint Security on the explicit App ID used
-for the request and download a matching macOS provisioning profile. Install the
-profile's signing certificate and private key in the login keychain. Confirm
-that macOS can see the identity:
-
-```bash
-security find-identity -v -p codesigning
-```
-
-Build the binary, then create the app-like daemon bundle required for a
-restricted entitlement:
+Endpoint Security needs a bundle signed with the `com.apple.developer.endpoint-security.client` entitlement.
+Build one with your Developer ID and an Endpoint Security provisioning profile:
 
 ```bash
 cargo build --release
-
 scripts/macos/package-app.sh \
   --binary target/release/rustinel \
   --output target/release/Rustinel.app \
@@ -178,159 +73,91 @@ scripts/macos/package-app.sh \
   --identity "Developer ID Application: Example (TEAMID)"
 ```
 
-The script derives the bundle identifier from the profile, validates that the
-profile authorizes Endpoint Security, embeds it at
-`Contents/embedded.provisionprofile`, adds the profile App ID and Team ID to the
-signed entitlements, enables the hardened runtime, and verifies the bundle.
-On macOS, YARA-X uses Wasmtime's Pulley interpreter because Endpoint Security
-clients cannot use hardened runtime relaxation entitlements for JIT executable
-memory.
+Grant the bundle Full Disk Access, then run `sudo ./target/release/Rustinel.app/Contents/MacOS/rustinel run`.
 
-Grant `Rustinel.app` Full Disk Access in System Settings, then run:
+On a SIP-disabled test Mac, `--adhoc` replaces `--profile` and `--identity`.
+Never use it on a normal Mac.
 
-```bash
-sudo ./target/release/Rustinel.app/Contents/MacOS/rustinel run
-```
+Release signing in CI reads `MACOS_SIGN_IDENTITY`, `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `MACOS_PROVISIONING_PROFILE_BASE64`, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, and `MACOS_NOTARY_PASSWORD`.
 
-In another terminal, trigger and inspect the bundled demo:
-
-```bash
-whoami
-cat logs/alerts.json.*
-```
-
-For a SIP-disabled VM or dedicated test Mac, an ad-hoc bundle can still be
-created without a profile:
-
-```bash
-scripts/macos/package-app.sh \
-  --binary target/release/rustinel \
-  --output target/release/Rustinel.app \
-  --adhoc
-```
-
-Do not use the ad-hoc path on a normal SIP-enabled Mac. Release builds require
-the Developer ID identity, the Endpoint Security provisioning profile, and a
-successful notarization. CI expects `MACOS_SIGN_IDENTITY`,
-`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`,
-`MACOS_PROVISIONING_PROFILE_BASE64`, `MACOS_NOTARY_APPLE_ID`,
-`MACOS_NOTARY_TEAM_ID`, and `MACOS_NOTARY_PASSWORD`.
-
-## Testing
-
-### Unit and Integration Tests
+## Tests
 
 ```bash
 cargo test --locked
-cargo test --locked --test pipeline_sigma
-cargo test --locked --test yara_disk
-cargo test --locked --test yara_memory
+cargo fmt --all
+cargo clippy --locked --all-targets -- -D warnings
 ```
 
-Cargo auto-discovers the integration tests in `tests/*.rs`. The normal suite uses synthetic events and temporary Sigma, YARA, and IOC fixtures, so it does not require administrator/root privileges.
+The normal suite uses synthetic events and needs no privileges.
 
-Ignored live tests cover process memory scanning and active-response termination. Build the test target first, then opt in explicitly:
+### Live tests
+
+Ignored by default.
+Run them on a disposable machine:
+
+| Test | Command | Needs |
+| --- | --- | --- |
+| Memory scanning | `cargo build --locked --example memory_target && cargo test --locked --test yara_memory -- --include-ignored` | Administrator, or root with process-memory access |
+| Active response | `cargo test --locked --test active_response -- --include-ignored` | Same |
+| Linux process identity | `cargo test --test linux_task_identity live_task_identity_matches_proc -- --ignored` | root, `RUSTINEL_EBPF_OBJECT` set |
+| Linux socket fields | `cargo test --test linux_socket_tuple live_tuple_and_connection_churn -- --ignored` | root, `RUSTINEL_EBPF_OBJECT` set, a non-loopback interface |
+| macOS collector loss | `sudo python3 scripts/macos/test-collector-loss.py <agent pid> <telemetry.json>` | A signed agent running as root. Suspends it for 10 seconds |
+
+Linux kernel-dependent changes should be checked on several kernels, for example 5.10, 5.15, 6.1, and 6.8.
+Tests that hide BTF must run in a VM or a private mount namespace, never on a shared host.
+
+### SigmaHQ compatibility gate
+
+CI loads every rule from the SigmaHQ commit pinned in `compatibility/sigmahq-baseline.json` and fails on parser errors or when the per-platform load counts drift from the baseline.
+To run it locally, check out that commit and run:
 
 ```bash
-cargo build --locked --example memory_target
-cargo test --locked --test yara_memory -- --include-ignored
-cargo test --locked --test active_response -- --include-ignored
+RUSTINEL_EBPF_STUB=1 RUSTINEL_SIGMA_CORPUS_DIR=/path/to/sigma \
+  cargo test --locked --test sigma_corpus_compatibility -- --include-ignored
 ```
 
-Those ignored tests may require administrator rights on Windows or a controlled Linux host with permissive process-memory access.
+### Replay fixture
 
-### Atomic Detection Gates
+`tests/fixtures/replay/` holds a Windows recording and the rules it must trigger.
+`tests/replay_fixture.rs` replays it on every platform.
+To regenerate it on a Windows lab machine:
 
-Pull requests run the rules repository's atomic detection suite against fresh
-Linux and Windows engine builds. The suite starts each binary with the required
-privileges, performs safe platform-specific actions, and checks for the alert
-that each action should produce. The rules checkout is pinned in both CI
-workflows so changes to detection content are introduced deliberately.
-
-The pull request checks are currently visible but non-blocking while the
-short-lived process race is stabilized. The same checks run as blocking jobs
-after a push to the default branch. Once the suite is reliable, remove the
-conditional `continue-on-error` setting and require both matrix checks in branch
-protection.
-
-Release tags run the same suite against the Linux x86_64, Linux arm64, Windows,
-and signed macOS artifacts before `publish` can run. The Intel macOS leg is
-optional because it uses the legacy hosted runner.
-
-### Replay Regression Fixture
-
-A golden recording guards against a change to normalization, serialization, or
-matching quietly stopping a rule from firing:
-
-```text
-tests/fixtures/replay/
-├── windows-powershell-fixture.ps1     benign behavior generator
-├── windows-powershell.ndjson          the recording
-├── windows-powershell.manifest.json   its manifest
-└── sigma/                             the rules it must fire
-```
-
-`tests/replay_fixture.rs` replays it against those rules on every platform in
-ordinary CI (no sensors, no privileges) and asserts both rules fire in the
-recorded order. Because it is a Windows capture, it also proves a recording
-replays away from the platform that produced it.
-
-To regenerate it:
-
-1. On a Windows lab endpoint, run `rustinel capture --output windows-powershell.ndjson`.
-2. Run `windows-powershell-fixture.ps1`, then stop the capture with Ctrl-C.
-3. Confirm the manifest reads `"status": "complete"`.
-4. Copy both files into `tests/fixtures/replay/`, replacing the previous pair.
-   Never edit a recording by hand: the manifest checksum is verified on every
-   replay and an edited payload is rejected.
+1. `rustinel capture --output windows-powershell.ndjson`
+2. Run `windows-powershell-fixture.ps1`, then press Ctrl-C.
+3. Check the manifest says `"status": "complete"`.
+4. Copy both files into `tests/fixtures/replay/`.
+   Never edit a recording by hand: its checksum is verified.
 5. Run `cargo test --test replay_fixture`.
 
-## Development Environment Variables
+### Detection gates
 
-| Variable | Purpose |
-| --- | --- |
-| `RUSTINEL_EBPF_OBJECT` | Absolute path to a compiled `.o`, used instead of the embedded Linux object |
-| `RUSTINEL_BPF_INTERFACE` | macOS capture interface, when the default `en0` is not the active one |
+CI runs the [rustinel-rules](https://github.com/Karib0u/rustinel-rules) atomic suite against Linux and Windows builds: it performs safe actions and checks each produces its alert.
+Release tags run it against every release artifact.
 
-## Code Quality
+## Documentation
+
+The docs use [Zensical](https://zensical.org/):
 
 ```bash
-cargo fmt
-cargo clippy
+pip install zensical
+zensical serve
 ```
 
-## Project Structure
+Parts of the reference are generated from code.
+After changing CLI flags, config options, or `FIELD_AVAILABILITY`, run:
 
-```text
-src/
-├── main.rs             # CLI entry point and platform bootstrapping
-├── config.rs           # Config loading and defaults
-├── alerts.rs           # ECS NDJSON alert sink
-├── engine/             # Sigma rule parsing, classification, and evaluation
-├── ioc/                # Atomic IOC loading and matching
-├── models/             # Event, alert, and ECS data models
-├── normalizer/         # Shared event normalization and enrichment
-├── reload/             # Hot reload poller and worker
-├── response/           # Optional process termination logic
-├── scanner/            # YARA compilation and scanning
-├── sensor/
-│   ├── windows/        # ETW sensor implementation
-│   ├── linux/          # eBPF userspace loader and event decoding
-│   └── macos/          # Endpoint Security sensor
-├── state/              # Process, DNS, and SID state
-└── utils/              # Platform-specific helpers
-
-ebpf/
-└── src/                # Linux eBPF programs and event ABI definitions
+```bash
+cargo run --bin generate-docs
 ```
 
-## Logging Guidance
+Tests fail when a generated section is out of date.
+Writing rules are in [CONTRIBUTING.md](https://github.com/Karib0u/rustinel/blob/main/CONTRIBUTING.md#writing-documentation).
 
-Use the existing logging contract when adding runtime logs:
+## Logging levels
 
-- `trace`: high-volume internals
-- `debug`: troubleshooting detail
-- `info`: lifecycle and positive detections
-- `warn` and `error`: degraded behavior or failures
-
-If a line can fire on most normal events, it does not belong at `debug`.
+| Level | For |
+| --- | --- |
+| `trace` | High-volume internals |
+| `debug` | Troubleshooting detail. Nothing that fires on most events |
+| `info` | Lifecycle and detections |
+| `warn`, `error` | Degraded behavior and failures |
