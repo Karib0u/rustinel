@@ -8,7 +8,7 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Update this commit deliberately when the rules repository's atomic suite changes.
-  RUSTINEL_RULES_REF: c1d78b4dec00eef42b5ccb741da6f7e7521dd854
+  RUSTINEL_RULES_REF: be877b7e23bcffcfeeccbb4d0f078987e9253c82
 
 permissions:
   contents: read
