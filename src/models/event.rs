@@ -64,7 +64,8 @@ pub struct NormalizedEvent {
     pub provider: String,
     /// Event category (Process, Network, File, Registry, DNS, ImageLoad)
     pub category: EventCategory,
-    /// Sensor-supplied compatibility event ID used by downstream detectors/output.
+    /// Sensor-supplied event ID used by downstream detectors and output.
+    /// Provider-native IDs are retained when rules select them directly.
     pub event_id: u16,
     /// Cached string representation of event_id for zero-copy flatten()
     #[serde(skip)]

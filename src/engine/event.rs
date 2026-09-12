@@ -53,10 +53,33 @@ impl<'a> RsigmaEvent<'a> {
             _ => serde_json::Map::new(),
         }
     }
+
+    /// Event IDs exposed to Sigma for this normalized event.
+    ///
+    /// Windows DNS Client rules use the provider-native IDs (3006/3008),
+    /// while category-based `dns_query` rules conventionally use Sysmon 22.
+    /// Keeping the native ID on the recorded event and presenting 22 as an
+    /// additional match value makes both rule families satisfiable without
+    /// discarding source fidelity.
+    fn event_id_value(&self) -> EventValue<'_> {
+        let native = EventValue::Str(Cow::Borrowed(self.event.event_id_string.as_str()));
+        if self.event.platform == crate::sensor::Platform::Windows
+            && self.event.category == crate::models::EventCategory::Dns
+            && self.event.event_id != 22
+        {
+            EventValue::Array(vec![native, EventValue::Str(Cow::Borrowed("22"))])
+        } else {
+            native
+        }
+    }
 }
 
 impl Event for RsigmaEvent<'_> {
     fn get_field(&self, path: &str) -> Option<EventValue<'_>> {
+        if path == "EventID" {
+            return Some(self.event_id_value());
+        }
+
         if let Some(value) = self.event.get_field(path) {
             return Some(EventValue::Str(Cow::Borrowed(value)));
         }
@@ -85,6 +108,13 @@ impl Event for RsigmaEvent<'_> {
         if !self.event.event_id_string.is_empty() && pred(&self.event.event_id_string) {
             return true;
         }
+        if self.event.platform == crate::sensor::Platform::Windows
+            && self.event.category == crate::models::EventCategory::Dns
+            && self.event.event_id != 22
+            && pred("22")
+        {
+            return true;
+        }
         self.field_map()
             .values()
             .filter_map(Value::as_str)
@@ -98,6 +128,12 @@ impl Event for RsigmaEvent<'_> {
         }
         if !self.event.event_id_string.is_empty() {
             values.push(Cow::Borrowed(self.event.event_id_string.as_str()));
+        }
+        if self.event.platform == crate::sensor::Platform::Windows
+            && self.event.category == crate::models::EventCategory::Dns
+            && self.event.event_id != 22
+        {
+            values.push(Cow::Borrowed("22"));
         }
         for (_key, value) in self.field_map() {
             if let Value::String(text) = value {

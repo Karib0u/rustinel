@@ -313,3 +313,112 @@ jobs:
             rustinel-rules/tests/atomic/.engine/logs/
           include-hidden-files: true
           if-no-files-found: warn
+
+  atomic-macos:
+    name: Atomic (macOS)
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.skip_atomics }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Build main binary
+        run: cargo build --locked --release
+
+      - name: Import signing identity
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          : "${SIGN_IDENTITY:?MACOS_SIGN_IDENTITY is required}"
+          : "${CERT_P12_BASE64:?MACOS_CERT_P12_BASE64 is required}"
+          : "${CERT_PASSWORD:?MACOS_CERT_PASSWORD is required}"
+          KEYCHAIN="$RUNNER_TEMP/rustinel-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Build signed app bundle
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          PROVISION_PROFILE_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          : "${PROVISION_PROFILE_BASE64:?MACOS_PROVISIONING_PROFILE_BASE64 is required}"
+          echo "$PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/rustinel.provisionprofile"
+          scripts/macos/package-app.sh \
+            --binary target/release/rustinel \
+            --output "$RUNNER_TEMP/Rustinel.app" \
+            --profile "$RUNNER_TEMP/rustinel.provisionprofile" \
+            --identity "$SIGN_IDENTITY"
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/rustinel.provisionprofile"
+          security delete-keychain "$RUNNER_TEMP/rustinel-signing.keychain-db" 2>/dev/null || true
+
+      - name: Check out pinned rules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Karib0u/rustinel-rules
+          ref: ${{ env.RUSTINEL_RULES_REF }}
+          path: rustinel-rules
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: false
+
+      - name: Build pinned rules pack
+        working-directory: rustinel-rules
+        run: |
+          uv sync --frozen
+          uv run python tools/validate.py
+          uv run python tools/build_packs.py
+
+      - name: Check atomic coverage metadata
+        working-directory: rustinel-rules
+        run: python tests/atomic/run_atomics.py --check-coverage --strict-essential
+
+      - name: Run atomic tests
+        working-directory: rustinel-rules
+        run: |
+          sudo -E python3 tests/atomic/run_atomics.py \
+            --platform macos \
+            --engine-bin "$RUNNER_TEMP/Rustinel.app/Contents/MacOS/rustinel" \
+            --engine-dir "$GITHUB_WORKSPACE/rustinel-rules/tests/atomic/.engine" \
+            --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
+            --pack auto
+
+      - name: Prepare atomic logs for upload
+        if: always()
+        run: |
+          if [ -d rustinel-rules/tests/atomic/.engine/logs ]; then
+            sudo chown -R "$(id -u):$(id -g)" rustinel-rules/tests/atomic/.engine/logs
+          fi
+
+      - name: Upload atomic report and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: atomic-macos
+          path: |
+            rustinel-rules/tests/atomic/report-*.json
+            rustinel-rules/tests/atomic/.engine/engine.stdout.log
+            rustinel-rules/tests/atomic/.engine/logs/
+          include-hidden-files: true
+          if-no-files-found: warn
