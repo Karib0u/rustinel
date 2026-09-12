@@ -17,7 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Update this commit deliberately when the rules repository's atomic suite changes.
-  RUSTINEL_RULES_REF: be877b7e23bcffcfeeccbb4d0f078987e9253c82
+  RUSTINEL_RULES_REF: 8732a0f02e88a1a67d011543cd25ed8c464d7d33
 
 permissions:
   contents: read
@@ -253,7 +253,8 @@ jobs:
         working-directory: rustinel-rules
         run: |
           uv sync --frozen
-          uv run python tools/validate.py
+          # Validate a rules commit, not the enclosing engine release tag.
+          uv run python -c "import os, subprocess, sys; os.environ.pop('GITHUB_REF_TYPE', None); sys.exit(subprocess.call([sys.executable, 'tools/validate.py']))"
           uv run python tools/build_packs.py
 
       - name: Check atomic coverage metadata
@@ -387,7 +388,8 @@ jobs:
         working-directory: rustinel-rules
         run: |
           uv sync --frozen
-          uv run python tools/validate.py
+          # Validate a rules commit, not the enclosing engine release tag.
+          uv run python -c "import os, subprocess, sys; os.environ.pop('GITHUB_REF_TYPE', None); sys.exit(subprocess.call([sys.executable, 'tools/validate.py']))"
           uv run python tools/build_packs.py
 
       - name: Check atomic coverage metadata
