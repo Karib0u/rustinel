@@ -900,7 +900,16 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "dns_query",
-        Some(22),
+        Some(3006),
+        Query,
+        "etw",
+        "Microsoft-Windows-DNS-Client",
+        WINDOWS_DNS
+    ),
+    contract!(
+        Windows,
+        "dns_query",
+        Some(3008),
         Query,
         "etw",
         "Microsoft-Windows-DNS-Client",
