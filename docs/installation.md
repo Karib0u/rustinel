@@ -21,12 +21,6 @@ They never build from source or change system settings.
     curl -fsSL https://rustinel.io/install.sh | sh
     ```
 
-    Pass options after `sh -s --`:
-
-    ```bash
-    curl -fsSL https://rustinel.io/install.sh | sh -s -- --dir /opt/rustinel
-    ```
-
     | Option | Default | Effect |
     | --- | --- | --- |
     | `--dir PATH` | `./rustinel` | Install folder |
@@ -42,18 +36,10 @@ They never build from source or change system settings.
     irm https://rustinel.io/install.ps1 | iex
     ```
 
-    Set options with environment variables before running it:
-
-    ```powershell
-    $env:RUSTINEL_INSTALL_DIR = "C:\Rustinel"
-    irm https://rustinel.io/install.ps1 | iex
-    ```
-
-    Or download it and pass parameters: `.\install.ps1 -InstallDir C:\Rustinel [-Run] [-Force]`.
-
-To pin a release, pass `--version VERSION` on Linux or macOS, or `-Version VERSION` when running the downloaded PowerShell script.
-For the piped PowerShell installer, set `$env:RUSTINEL_VERSION` before running it and remove it afterward with `Remove-Item Env:\RUSTINEL_VERSION`.
-Replace `VERSION` with the desired release tag from [GitHub Releases](https://github.com/Karib0u/rustinel/releases).
+    | Environment variable | Default | Effect |
+    | --- | --- | --- |
+    | `RUSTINEL_INSTALL_DIR` | `./rustinel` | Install folder |
+    | `RUSTINEL_VERSION` | latest | Release to install |
 
 The folder contains the binary, a default `config.toml`, demo rules, and an empty `logs/` folder.
 On macOS the binary is inside a signed `Rustinel.app` with a `rustinel` symlink next to it.
