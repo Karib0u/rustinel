@@ -12,19 +12,13 @@ macOS support is experimental.
 
 ## Install script
 
-The scripts download a published release into a folder.
+The scripts download the latest published release into a folder by default.
 They never build from source or change system settings.
 
 === "Linux and macOS"
 
     ```bash
     curl -fsSL https://rustinel.io/install.sh | sh
-    ```
-
-    Pass options after `sh -s --`:
-
-    ```bash
-    curl -fsSL https://rustinel.io/install.sh | sh -s -- --dir /opt/rustinel --version 1.6.0
     ```
 
     | Option | Default | Effect |
@@ -42,15 +36,10 @@ They never build from source or change system settings.
     irm https://rustinel.io/install.ps1 | iex
     ```
 
-    Set options with environment variables before running it:
-
-    ```powershell
-    $env:RUSTINEL_VERSION = "1.6.0"
-    $env:RUSTINEL_INSTALL_DIR = "C:\Rustinel"
-    irm https://rustinel.io/install.ps1 | iex
-    ```
-
-    Or download it and pass parameters: `.\install.ps1 -InstallDir C:\Rustinel -Version 1.6.0 [-Run] [-Force]`.
+    | Environment variable | Default | Effect |
+    | --- | --- | --- |
+    | `RUSTINEL_INSTALL_DIR` | `./rustinel` | Install folder |
+    | `RUSTINEL_VERSION` | latest | Release to install |
 
 The folder contains the binary, a default `config.toml`, demo rules, and an empty `logs/` folder.
 On macOS the binary is inside a signed `Rustinel.app` with a `rustinel` symlink next to it.
