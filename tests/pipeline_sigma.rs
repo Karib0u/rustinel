@@ -2,12 +2,13 @@
 mod common;
 
 use common::{
-    assert_ecs_field_eq, assert_ecs_field_present, assert_normalized_field_eq, ecs_json,
-    file_create_event, file_delete_event, file_rename_event, image_for, network_connect_event,
-    powershell_module_event, process_start_event, provider_for, renamed_test_file_path,
-    service_installation_event, test_file_path, SigmaFixture, TestNormalizer, TEST_DESTINATION_IP,
-    TEST_DESTINATION_PORT, TEST_PID, TEST_PS_MODULE_CONTEXT, TEST_PS_MODULE_PAYLOAD,
-    TEST_SERVICE_IMAGE_PATH, TEST_SERVICE_NAME, TEST_SERVICE_PROVIDER, TEST_SOURCE_IP, TEST_USER,
+    assert_ecs_field_eq, assert_ecs_field_present, assert_normalized_field_eq, dns_query_event,
+    ecs_json, file_create_event, file_delete_event, file_rename_event, image_for,
+    network_connect_event, powershell_module_event, process_start_event, provider_for,
+    renamed_test_file_path, service_installation_event, test_file_path, SigmaFixture,
+    TestNormalizer, TEST_DESTINATION_IP, TEST_DESTINATION_PORT, TEST_PID, TEST_PS_MODULE_CONTEXT,
+    TEST_PS_MODULE_PAYLOAD, TEST_SERVICE_IMAGE_PATH, TEST_SERVICE_NAME, TEST_SERVICE_PROVIDER,
+    TEST_SOURCE_IP, TEST_USER,
 };
 use rustinel::{
     engine::Engine,
@@ -200,6 +201,83 @@ level: medium
     let ecs = ecs_json(&alert);
     assert_ecs_field_eq(&ecs, "event.dataset", "edr.scripting");
     assert_ecs_field_eq(&ecs, "event.action", "powershell-script");
+}
+
+#[test]
+fn sigma_dns_client_rule_matches_native_event_3008_and_sysmon_alias_22() {
+    // Regression fixture from SigmaHQ's
+    // rules/windows/builtin/dns_client/win_dns_client_mal_cobaltstrike.yml.
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "win_dns_client_mal_cobaltstrike.yml",
+        r#"title: Suspicious Cobalt Strike DNS Beaconing - DNS Client
+id: 0d18728b-f5bf-4381-9dcf-915539fff6c2
+logsource:
+  product: windows
+  service: dns-client
+detection:
+  selection_eid:
+    EventID: 3008
+  selection_query_1:
+    QueryName|startswith:
+      - 'aaa.stage.'
+      - 'post.1'
+  selection_query_2:
+    QueryName|contains: '.stage.123456.'
+  condition: selection_eid and 1 of selection_query_*
+level: critical
+"#,
+    );
+    let native_engine = load_engine(Platform::Windows, &fixture);
+    let harness = TestNormalizer::new();
+    let mut event = dns_query_event(Platform::Windows);
+    event.normalization.event_id = 3008;
+    match &mut event.payload {
+        SensorPayload::Dns(fields) => {
+            fields.query_name = Some("aaa.stage.example.test".to_string());
+        }
+        other => panic!("unexpected payload: {other:?}"),
+    }
+
+    let normalized = harness
+        .normalizer
+        .normalize(&event)
+        .expect("DNS Client query should normalize");
+    assert_eq!(normalized.event_id, 3008);
+    assert_eq!(normalized.get_field("EventID"), Some("3008"));
+    assert_sigma_alert(
+        &native_engine
+            .check_event(&normalized)
+            .into_iter()
+            .next()
+            .expect("SigmaHQ DNS Client rule should match native event 3008"),
+        "Suspicious Cobalt Strike DNS Beaconing - DNS Client",
+    );
+
+    let sysmon_fixture = SigmaFixture::new();
+    sysmon_fixture.write_rule(
+        "dns_query_sysmon.yml",
+        r#"title: Sysmon DNS Query Compatibility
+logsource:
+  product: windows
+  category: dns_query
+detection:
+  selection:
+    EventID: 22
+    QueryName|startswith: 'aaa.stage.'
+  condition: selection
+level: high
+"#,
+    );
+    let sysmon_engine = load_engine(Platform::Windows, &sysmon_fixture);
+    assert_sigma_alert(
+        &sysmon_engine
+            .check_event(&normalized)
+            .into_iter()
+            .next()
+            .expect("category dns_query rule should still match Sysmon event 22"),
+        "Sysmon DNS Query Compatibility",
+    );
 }
 
 #[test]

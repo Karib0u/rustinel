@@ -94,6 +94,11 @@ fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &Ev
 }
 
 /// Maps Windows ETW opcodes/event IDs to the existing Sysmon-compatible IDs.
+///
+/// Provider-native event IDs are preserved when the Sigma logsource is keyed
+/// by a Windows service rather than a Sysmon category. In particular, DNS
+/// Client rules select events 3006 and 3008 directly; the engine supplies the
+/// Sysmon 22 compatibility alias when evaluating `dns_query` rules.
 pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: u16) -> u16 {
     match category {
         EventCategory::Process => match action_code {
@@ -123,8 +128,8 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
             12 | 15 => 3,
             _ => raw_event_id,
         },
-        EventCategory::Dns => 22,
-        EventCategory::Wmi
+        EventCategory::Dns
+        | EventCategory::Wmi
         | EventCategory::Scripting
         | EventCategory::PowerShellModule
         | EventCategory::Service
@@ -238,6 +243,7 @@ mod tests {
     #[test]
     fn native_provider_event_ids_are_not_relabelled() {
         for (category, raw_event_id) in [
+            (EventCategory::Dns, 3008),
             (EventCategory::Scripting, 4104),
             (EventCategory::PowerShellModule, 4103),
             (EventCategory::Wmi, 23),

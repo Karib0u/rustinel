@@ -1028,7 +1028,7 @@
     {
       "platform": "windows",
       "category": "dns_query",
-      "event_id": 22,
+      "event_id": 3006,
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
@@ -1039,7 +1039,7 @@
     {
       "platform": "windows",
       "category": "dns_query",
-      "event_id": 22,
+      "event_id": 3006,
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
@@ -1050,7 +1050,7 @@
     {
       "platform": "windows",
       "category": "dns_query",
-      "event_id": 22,
+      "event_id": 3006,
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
@@ -1061,7 +1061,7 @@
     {
       "platform": "windows",
       "category": "dns_query",
-      "event_id": 22,
+      "event_id": 3006,
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
@@ -1072,7 +1072,7 @@
     {
       "platform": "windows",
       "category": "dns_query",
-      "event_id": 22,
+      "event_id": 3006,
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
@@ -1083,7 +1083,73 @@
     {
       "platform": "windows",
       "category": "dns_query",
-      "event_id": 22,
+      "event_id": 3006,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "RecordType",
+      "availability": "never",
+      "reason": "the subscribed DNS Client events do not expose the query record type"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryName",
+      "availability": "conditional",
+      "reason": "the DNS Client event template carries a query name"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryResults",
+      "availability": "conditional",
+      "reason": "the event is a response carrying decoded answers"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryStatus",
+      "availability": "conditional",
+      "reason": "the DNS Client event template carries a status"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "ProcessId",
+      "availability": "conditional",
+      "reason": "the DNS Client event template carries process identity"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "Image",
+      "availability": "conditional",
+      "reason": "present in the event or derived from the process cache"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
