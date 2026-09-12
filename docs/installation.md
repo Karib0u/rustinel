@@ -12,7 +12,7 @@ macOS support is experimental.
 
 ## Install script
 
-The scripts download a published release into a folder.
+The scripts download the latest published release into a folder by default.
 They never build from source or change system settings.
 
 === "Linux and macOS"
@@ -24,7 +24,7 @@ They never build from source or change system settings.
     Pass options after `sh -s --`:
 
     ```bash
-    curl -fsSL https://rustinel.io/install.sh | sh -s -- --dir /opt/rustinel --version 1.7.0
+    curl -fsSL https://rustinel.io/install.sh | sh -s -- --dir /opt/rustinel
     ```
 
     | Option | Default | Effect |
@@ -45,12 +45,15 @@ They never build from source or change system settings.
     Set options with environment variables before running it:
 
     ```powershell
-    $env:RUSTINEL_VERSION = "1.7.0"
     $env:RUSTINEL_INSTALL_DIR = "C:\Rustinel"
     irm https://rustinel.io/install.ps1 | iex
     ```
 
-    Or download it and pass parameters: `.\install.ps1 -InstallDir C:\Rustinel -Version 1.7.0 [-Run] [-Force]`.
+    Or download it and pass parameters: `.\install.ps1 -InstallDir C:\Rustinel [-Run] [-Force]`.
+
+To pin a release, pass `--version VERSION` on Linux or macOS, or `-Version VERSION` when running the downloaded PowerShell script.
+For the piped PowerShell installer, set `$env:RUSTINEL_VERSION` before running it and remove it afterward with `Remove-Item Env:\RUSTINEL_VERSION`.
+Replace `VERSION` with the desired release tag from [GitHub Releases](https://github.com/Karib0u/rustinel/releases).
 
 The folder contains the binary, a default `config.toml`, demo rules, and an empty `logs/` folder.
 On macOS the binary is inside a signed `Rustinel.app` with a `rustinel` symlink next to it.
