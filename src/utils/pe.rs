@@ -3,9 +3,8 @@
 //! Extracts version information from PE files to detect masquerading attacks.
 //! Uses memory-mapped I/O for zero-copy parsing.
 
+use goblin::pe::{resource::StringFileInfo, PE};
 use memmap2::Mmap;
-use pelite::pe64::{Pe, PeFile};
-use pelite::resources::Resources;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
@@ -204,27 +203,15 @@ fn parse_metadata_impl(path: &Path, file: &File) -> Option<PeMetadata> {
         }
     };
 
-    // Try to parse as 64-bit PE first
-    let metadata = if let Ok(pe) = PeFile::from_bytes(&mmap) {
-        pe.resources()
-            .ok()
-            .and_then(|resources| extract_version_info(resources, path))
-    } else {
-        // If 64-bit parsing fails, try 32-bit
-        match pelite::pe32::PeFile::from_bytes(&mmap) {
-            Ok(pe) => {
-                use pelite::pe32::Pe as Pe32;
-                pe.resources()
-                    .ok()
-                    .and_then(|resources| extract_version_info(resources, path))
-            }
-            Err(e) => {
-                // Not a valid PE file or corrupted
-                debug!("Failed to parse PE file: {} - {:?}", path.display(), e);
-                return None;
-            }
+    let pe = match PE::parse(&mmap) {
+        Ok(pe) => pe,
+        Err(error) => {
+            // Not a valid PE file or corrupted
+            debug!("Failed to parse PE file: {} - {:?}", path.display(), error);
+            return None;
         }
     };
+    let metadata = extract_version_info(&pe);
 
     if metadata.is_some() {
         debug!("Successfully parsed PE metadata: {}", path.display());
@@ -233,58 +220,20 @@ fn parse_metadata_impl(path: &Path, file: &File) -> Option<PeMetadata> {
     metadata
 }
 
-/// Extract version info from a PE resource directory
-///
-/// The resource directory type is shared between 32-bit and 64-bit images, so
-/// both widths run through this single extraction.
-fn extract_version_info(resources: Resources<'_>, path: &Path) -> Option<PeMetadata> {
-    // pelite 0.10 can panic on malformed version-resource padding, including
-    // during translation/string traversal. Keep optional metadata failures local
-    // to this image, outside the cache mutex.
-    match std::panic::catch_unwind(|| extract_version_info_inner(resources)) {
-        Ok(metadata) => metadata,
-        Err(_) => {
-            debug!(
-                "PE version resource parsing panicked; skipping metadata: {}",
-                path.display()
-            );
-            None
-        }
-    }
+/// Extract version info from Goblin's unified PE32/PE32+ representation.
+fn extract_version_info(pe: &PE<'_>) -> Option<PeMetadata> {
+    let string_info = &pe.resource_data?.version_info?.string_info;
+    metadata_from_strings(string_info)
 }
 
-fn extract_version_info_inner(resources: Resources<'_>) -> Option<PeMetadata> {
-    let version_info = resources.version_info().ok()?;
-
-    // Extract common version fields using callback-based API
-    let mut original_filename = None;
-    let mut product = None;
-    let mut description = None;
-    let mut company = None;
-    let mut file_version = None;
-
-    // Iterate over all available languages (Windows exes often use 0x0409 US English, not default)
-    for lang in version_info.translation() {
-        version_info.strings(*lang, |key: &str, value: &str| match key {
-            "OriginalFilename" if original_filename.is_none() => {
-                original_filename = Some(value.to_string())
-            }
-            "ProductName" if product.is_none() => product = Some(value.to_string()),
-            "FileDescription" if description.is_none() => description = Some(value.to_string()),
-            "CompanyName" if company.is_none() => company = Some(value.to_string()),
-            "FileVersion" if file_version.is_none() => file_version = Some(value.to_string()),
-            _ => {}
-        });
-        // Early exit if we found all fields
-        if original_filename.is_some()
-            && product.is_some()
-            && description.is_some()
-            && company.is_some()
-            && file_version.is_some()
-        {
-            break;
-        }
-    }
+fn metadata_from_strings(string_info: &StringFileInfo<'_>) -> Option<PeMetadata> {
+    let original_filename = string_info.original_filename();
+    let product = string_info.product_name();
+    let description = string_info.file_description();
+    let company = string_info.company_name();
+    // Keep the FileVersion string. Goblin 0.10's fixed-info helper reads the
+    // fixed file-date fields instead of the fixed file-version fields.
+    let file_version = string_info.file_version();
 
     // Only return Some if we found at least one field
     if original_filename.is_some()
@@ -317,15 +266,68 @@ pub fn clear_cache() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     use std::fs;
+    use std::io::Write;
 
-    #[test]
-    fn test_truncated_version_resource_does_not_panic() {
-        // Three resource-directory levels: RT_VERSION / 1 / English (US).
-        // Use four-byte alignment as required by pelite's resource parser.
-        #[repr(align(4))]
-        struct ResourceSection([u8; 104]);
-        let mut section = ResourceSection([0; 104]);
+    const RESOURCE_RVA: u32 = 0x1000;
+    const RESOURCE_OFFSET: usize = 0x200;
+    const VERSION_INFO_OFFSET: usize = 88;
+
+    fn write_u16(bytes: &mut [u8], offset: usize, value: u16) {
+        bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn write_u64(bytes: &mut [u8], offset: usize, value: u64) {
+        bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn build_pe_with_version_info(version_info: &[u8]) -> Vec<u8> {
+        let resource_size = VERSION_INFO_OFFSET + version_info.len();
+        let raw_size = resource_size.div_ceil(0x200) * 0x200;
+        let mut image = vec![0; RESOURCE_OFFSET + raw_size];
+
+        image[0..2].copy_from_slice(b"MZ");
+        write_u32(&mut image, 0x3c, 0x80);
+        image[0x80..0x84].copy_from_slice(b"PE\0\0");
+
+        let coff = 0x84;
+        write_u16(&mut image, coff, 0x014c);
+        write_u16(&mut image, coff + 2, 1);
+        write_u16(&mut image, coff + 16, 0x00e0);
+        write_u16(&mut image, coff + 18, 0x0102);
+
+        let optional = coff + 20;
+        write_u16(&mut image, optional, 0x010b);
+        write_u32(&mut image, optional + 28, 0x0040_0000);
+        write_u32(&mut image, optional + 32, 0x1000);
+        write_u32(&mut image, optional + 36, 0x200);
+        write_u16(&mut image, optional + 40, 6);
+        write_u16(&mut image, optional + 48, 6);
+        write_u32(&mut image, optional + 56, 0x2000);
+        write_u32(&mut image, optional + 60, RESOURCE_OFFSET as u32);
+        write_u16(&mut image, optional + 68, 3);
+        write_u32(&mut image, optional + 72, 0x10_0000);
+        write_u32(&mut image, optional + 76, 0x1000);
+        write_u32(&mut image, optional + 80, 0x10_0000);
+        write_u32(&mut image, optional + 84, 0x1000);
+        write_u32(&mut image, optional + 92, 16);
+        write_u32(&mut image, optional + 112, RESOURCE_RVA);
+        write_u32(&mut image, optional + 116, resource_size as u32);
+
+        let section = optional + 0x00e0;
+        image[section..section + 5].copy_from_slice(b".rsrc");
+        write_u32(&mut image, section + 8, resource_size as u32);
+        write_u32(&mut image, section + 12, RESOURCE_RVA);
+        write_u32(&mut image, section + 16, raw_size as u32);
+        write_u32(&mut image, section + 20, RESOURCE_OFFSET as u32);
+        write_u32(&mut image, section + 36, 0x4000_0040);
+
+        let resource = &mut image[RESOURCE_OFFSET..];
         for (offset, value) in [
             (12, 1u32 << 16),
             (16, 16),
@@ -336,27 +338,161 @@ mod tests {
             (60, 1 << 16),
             (64, 0x0409),
             (68, 72),
-            (72, 88),
-            (76, 14),
+            (72, RESOURCE_RVA + VERSION_INFO_OFFSET as u32),
+            (76, version_info.len() as u32),
         ] {
-            section.0[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            write_u32(resource, offset, value);
         }
-        // The key ends at the node boundary, leaving no alignment padding.
-        // pelite tries to slice at word 8 even though this node has 7 words.
-        for (index, word) in [14u16, 0, 1, 65, 66, 67, 0].iter().enumerate() {
-            let offset = 88 + index * 2;
-            section.0[offset..offset + 2].copy_from_slice(&word.to_le_bytes());
+        resource[VERSION_INFO_OFFSET..VERSION_INFO_OFFSET + version_info.len()]
+            .copy_from_slice(version_info);
+
+        image
+    }
+
+    fn resource_string(key: &str, value: &[u8], text: bool) -> Vec<u8> {
+        let value_len = if text { value.len() / 2 } else { value.len() };
+        let mut entry = vec![0; 6];
+        for word in key.encode_utf16().chain(std::iter::once(0)) {
+            entry.extend_from_slice(&word.to_le_bytes());
         }
-        let directory = pelite::image::IMAGE_DATA_DIRECTORY {
-            VirtualAddress: 0,
-            Size: section.0.len() as u32,
-        };
-        let resources = Resources::new(&section.0, &directory);
-        assert!(
-            resources.version_info().is_ok(),
-            "fixture must reach version parsing"
+        entry.resize(entry.len().next_multiple_of(4), 0);
+        entry.extend_from_slice(value);
+        entry.resize(entry.len().next_multiple_of(4), 0);
+        let entry_len = entry.len() as u16;
+        write_u16(&mut entry, 0, entry_len);
+        write_u16(&mut entry, 2, value_len as u16);
+        write_u16(&mut entry, 4, u16::from(text));
+        entry
+    }
+
+    fn text_resource_string(key: &str, value: &str) -> Vec<u8> {
+        let value = value
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        resource_string(key, &value, true)
+    }
+
+    fn valid_version_info() -> Vec<u8> {
+        let mut fixed_info = [0; 52];
+        write_u32(&mut fixed_info, 0, 0xfeef_04bd);
+        write_u32(&mut fixed_info, 4, 0x0001_0000);
+        write_u32(&mut fixed_info, 8, 0x0001_0002);
+        write_u32(&mut fixed_info, 12, 0x0003_0004);
+        // Goblin 0.10's fixed-info helper reads these file-date fields. Keep
+        // them distinct from the FileVersion string to catch accidental use.
+        write_u32(&mut fixed_info, 44, 0x0063_0062);
+        write_u32(&mut fixed_info, 48, 0x0061_0060);
+
+        let mut version_info = resource_string("VS_VERSION_INFO", &fixed_info, false);
+        let string_file_info = version_info.len();
+        version_info.extend(resource_string("StringFileInfo", &[], true));
+        let string_table = version_info.len();
+        version_info.extend(resource_string("040904E4", &[], true));
+        for (key, value) in [
+            ("OriginalFilename", "fixture.exe"),
+            ("ProductName", "Fixture Product"),
+            ("FileDescription", "Fixture Description"),
+            ("CompanyName", "Fixture Company"),
+            ("FileVersion", "9.8.7.6-string"),
+        ] {
+            version_info.extend(text_resource_string(key, value));
+        }
+        let total_len = version_info.len();
+        write_u16(
+            &mut version_info,
+            string_table,
+            (total_len - string_table) as u16,
         );
-        assert!(extract_version_info(resources, Path::new("malformed.exe")).is_none());
+        write_u16(
+            &mut version_info,
+            string_file_info,
+            (total_len - string_file_info) as u16,
+        );
+        write_u16(&mut version_info, 0, total_len as u16);
+        version_info
+    }
+
+    #[test]
+    fn test_truncated_version_resource_does_not_panic() {
+        // The key ends at the node boundary, leaving no alignment padding.
+        let malformed = [14u16, 0, 1, 65, 66, 67, 0]
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        let image = build_pe_with_version_info(&malformed);
+        let mut file = tempfile::NamedTempFile::new().expect("create fixture");
+        file.write_all(&image).expect("write fixture");
+        file.flush().expect("flush fixture");
+
+        assert!(parse_metadata_impl(file.path(), file.as_file()).is_none());
+    }
+
+    #[test]
+    fn test_extracts_expected_version_strings() {
+        let image = build_pe_with_version_info(&valid_version_info());
+        let mut file = tempfile::NamedTempFile::new().expect("create fixture");
+        file.write_all(&image).expect("write fixture");
+        file.flush().expect("flush fixture");
+
+        let metadata = parse_metadata_impl(file.path(), file.as_file()).expect("parse metadata");
+        assert_eq!(metadata.original_filename.as_deref(), Some("fixture.exe"));
+        assert_eq!(metadata.product.as_deref(), Some("Fixture Product"));
+        assert_eq!(metadata.description.as_deref(), Some("Fixture Description"));
+        assert_eq!(metadata.company.as_deref(), Some("Fixture Company"));
+        assert_eq!(metadata.file_version.as_deref(), Some("9.8.7.6-string"));
+    }
+
+    #[test]
+    fn test_truncated_pe_does_not_panic() {
+        let mut file = tempfile::NamedTempFile::new().expect("create fixture");
+        file.write_all(b"MZ").expect("write fixture");
+        file.flush().expect("flush fixture");
+
+        assert!(parse_metadata_impl(file.path(), file.as_file()).is_none());
+    }
+
+    #[test]
+    fn test_valid_fixture_is_pe32() {
+        let image = build_pe_with_version_info(&valid_version_info());
+        let pe = PE::parse(&image).expect("parse fixture");
+        assert!(!pe.is_64);
+    }
+
+    #[test]
+    fn test_goblin_handles_pe32_plus() {
+        let mut image = build_pe_with_version_info(&valid_version_info());
+        let coff = 0x84;
+        let optional = 0x84 + 20;
+        let pe32_section = optional + 0x00e0;
+        image.copy_within(pe32_section..pe32_section + 40, pe32_section + 16);
+        image[pe32_section..pe32_section + 16].fill(0);
+        write_u16(&mut image, coff + 16, 0x00f0);
+        write_u16(&mut image, optional, 0x020b);
+        write_u64(&mut image, optional + 24, 0x0040_0000);
+        write_u64(&mut image, optional + 72, 0x10_0000);
+        write_u64(&mut image, optional + 80, 0x1000);
+        write_u64(&mut image, optional + 88, 0x10_0000);
+        write_u64(&mut image, optional + 96, 0x1000);
+        write_u32(&mut image, optional + 104, 0);
+        write_u32(&mut image, optional + 108, 16);
+        image[optional + 112..optional + 240].fill(0);
+        write_u32(&mut image, optional + 128, RESOURCE_RVA);
+        write_u32(
+            &mut image,
+            optional + 132,
+            (VERSION_INFO_OFFSET + valid_version_info().len()) as u32,
+        );
+
+        let pe = PE::parse(&image).expect("parse PE32+ fixture");
+        assert!(pe.is_64);
+        assert_eq!(
+            extract_version_info(&pe)
+                .and_then(|metadata| metadata.original_filename)
+                .as_deref(),
+            Some("fixture.exe")
+        );
     }
 
     #[test]

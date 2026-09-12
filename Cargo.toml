@@ -94,7 +94,7 @@ mach2 = "0.7"
 # Windows-specific
 [target.'cfg(windows)'.dependencies]
 # PE parsing and memory-mapped I/O (Windows-only; PE metadata is not used on Linux)
-pelite = "0.10"
+goblin = { version = "0.10", default-features = false, features = ["std", "pe32", "pe64"] }
 memmap2 = "0.9"
 ferrisetw = "1.2"
 roxmltree = "0.21"
