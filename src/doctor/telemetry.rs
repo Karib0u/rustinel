@@ -85,7 +85,7 @@ pub(crate) fn telemetry_results(
     .with_fix(
         "Detection gaps are proportional to these counts. Reduce event volume - narrow broad \
          rules, widen trusted-path allowlists - and re-run to confirm the totals stop growing; \
-         see docs/troubleshooting.md",
+         see https://docs.rustinel.io/telemetry-loss/",
     );
 
     results.insert(0, result);
@@ -421,7 +421,7 @@ fn registry_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
     .with_fix(
         "Those writes reached no rule. Writes by protected processes are expected here; a \
          sustained rate below 99.9% otherwise means the key rundown missed keys - see \
-         docs/troubleshooting.md",
+         https://docs.rustinel.io/telemetry-loss/",
     )]
 }
 
@@ -459,10 +459,10 @@ fn file_attribution_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResul
     let fix = if files.index_capacity_evictions > 0 {
         "Those events reached no rule. The handle index also evicted entries at its capacity, \
          which is what a process holding many handles open looks like - see \
-         docs/troubleshooting.md"
+         https://docs.rustinel.io/telemetry-loss/"
     } else {
         "Those events reached no rule. Check the startup file rundown and ETW loss counters; \
-         a sustained gap can mean missing naming events - see docs/troubleshooting.md"
+         a sustained gap can mean missing naming events - see https://docs.rustinel.io/telemetry-loss/"
     };
 
     vec![DiagnosticResult::warn(
@@ -525,7 +525,7 @@ fn etw_decode_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
             .with_fix(
                 "Those records produced no event, so their rules could not fire. A provider and \
                  event version that appear here changed under this build - report them with the \
-                 Windows build number; see docs/troubleshooting.md",
+                 Windows build number; see https://docs.rustinel.io/telemetry-loss/",
             ),
         );
     } else {

@@ -1,77 +1,48 @@
 # FAQ
 
-Short answers to recurring questions. Anything that needs more than a paragraph
-lives on the page it belongs to.
+### Does Rustinel send data anywhere?
+
+No.
+The agent collects and evaluates locally and needs no account.
+Network access happens only when you ask for it: the install scripts, `rustinel update`, and `rustinel setup` or `rustinel rules` downloading packs.
 
 ### Do I need Administrator or root?
 
-Yes, on every platform. Windows ETW needs Administrator; Linux eBPF needs root
-or `CAP_BPF` + `CAP_PERFMON` + `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`); macOS needs
-root, Full Disk Access, and a signed bundle carrying the Endpoint Security
-entitlement. See [Getting Started](getting-started.md#minimum-requirements).
+Yes, to collect telemetry.
+`rustinel replay` needs no privileges.
+See [Requirements](installation.md#requirements).
 
-### Why is Rustinel looking in the wrong directory for rules or logs?
+### Why can't I read the alert file?
 
-Relative paths in `config.toml` resolve from the directory containing the
-**selected** configuration file, not the working directory. Run `rustinel doctor`
-to see which file was selected and where its paths resolved to. For production,
-use absolute paths. See [Configuration](configuration.md).
+On Linux and macOS, the log folder is readable by root only.
+Use `sudo`, or run your log shipper as root.
 
-### Where do logs and alerts go?
+### Why is Rustinel looking in the wrong folder?
 
-By default `logs/rustinel.log.<date>` and `logs/alerts.json.<date>`. Both are
-configurable. See [Output Format](output.md).
+Relative paths in `config.toml` resolve from the folder containing that file, and a managed config from `rustinel setup` takes priority over a local one.
+`rustinel doctor` shows which file was used.
+See [Which file is used](configuration.md#which-file-is-used).
 
-### Can I disable Sigma, YARA, or IOC independently?
+### Can I turn off Sigma, YARA, or IOC separately?
 
 Yes: `scanner.sigma_enabled`, `scanner.yara_enabled`, and `ioc.enabled`.
 
-### Does hot reload require a restart, and what exactly reloads?
+### What changes apply without a restart?
 
-No restart. With `reload.enabled = true` (the default), Sigma, YARA, and IOC
-files reload automatically when they change. Both directories are watched
-recursively. The configuration file is watched too, but only the `[response]`
-section is hot-swapped; every other section needs a restart, as does changing
-the binary, privileges, or deployment layout.
+Rule and indicator files, and the `[response]` section of the config.
+See [What reloads](configuration.md#what-reloads).
 
-An invalid reload is rejected and the last valid detector set stays live. See
-[Configuration](configuration.md#reload).
+### Why do I see fewer alerts than events?
 
-### How are severities assigned?
+Identical alerts are collapsed for 60 seconds.
+Sum `event.count` for the real volume, see [Deduplication](detection.md#deduplication).
 
-Sigma uses the rule `level`, YARA is always `critical`, and IOC uses
-`ioc.default_severity`. `response.min_severity` is applied after that mapping.
-See [Detection](detection.md#overall-severity-mapping).
+### Does Rustinel send alerts to my SIEM?
 
-### What does `alerts.match_debug` do?
+It writes files.
+A shipper such as Filebeat forwards them, see [Send alerts to a SIEM](siem-demos.md).
 
-It controls how much match metadata is attached to alerts: `off` for none,
-`summary` for structured match information without values, `full` to include the
-matched values and YARA string details. See
-[Detection](detection.md#match-debug).
+### Can I use SigmaHQ rules?
 
-### Are allowlists shared across modules?
-
-Yes, by default. `allowlist.paths` is the shared trusted-prefix list, and
-`response.allowlist_paths`, `scanner.yara_allowlist_paths`, and
-`ioc.hash_allowlist_paths` each inherit from it while they are empty. See
-[Configuration](configuration.md#global-allowlist).
-
-### Can I test active response safely?
-
-Yes. Start in dry-run (`enabled = true`, `prevention_enabled = false`) and
-trigger the bundled `whoami` rule. Because the system `whoami` is allowlisted by
-default, the expected result is an `Active response skipped: allowlisted` log,
-which confirms detection and the safety path at once. To validate actual
-termination, use the YARA demo in
-[Active Response](active-response.md#safe-test-flow).
-
-### Does Rustinel ship alerts directly to a SIEM?
-
-Not by itself. It writes ECS NDJSON files; a shipper such as Filebeat forwards
-them. See [SIEM Demos](siem-demos.md).
-
-### Something is not working and this page did not cover it
-
-Start with `rustinel doctor`, then
-[Troubleshooting](troubleshooting.md), which is organized by symptom.
+Yes, but many are written for Windows telemetry.
+See [Platform coverage](coverage.md) before loading a large set on Linux or macOS.

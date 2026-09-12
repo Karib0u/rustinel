@@ -437,3 +437,26 @@ fn test_module_specific_allowlist_not_overwritten() {
         vec!["C:\\Shared\\".to_string()]
     );
 }
+
+#[test]
+fn loader_defaults_match_the_documented_defaults() {
+    // docs/configuration.md reads its defaults from AppConfig::default(), so
+    // the builder defaults used at load time must agree with it.
+    let temp = tempfile::tempdir().expect("tempdir");
+    let loaded = AppConfig::from_options_with_environment(
+        ConfigLoadOptions {
+            explicit_config: None,
+            env_config: None,
+            managed_config: temp.path().join("missing-managed.toml"),
+            exe_config: Some(temp.path().join("missing-exe.toml")),
+            cwd_config: temp.path().join("missing-cwd.toml"),
+        },
+        Some(config::Map::new()),
+    )
+    .expect("defaults load without a file");
+
+    assert_eq!(
+        serde_json::to_value(&loaded).expect("serialize loaded config"),
+        serde_json::to_value(AppConfig::default()).expect("serialize default config")
+    );
+}

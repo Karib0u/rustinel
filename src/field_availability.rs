@@ -1321,14 +1321,14 @@ fn key_label(contract: &EventFieldContract) -> String {
     selector.to_ascii_lowercase()
 }
 
-/// Generated permanent-gap table embedded in `docs/limitations.md`.
-pub fn limitations_markdown() -> String {
+/// Generated permanent-gap table embedded in `docs/field-availability.md`.
+pub fn unavailable_fields_markdown() -> String {
     use std::collections::BTreeMap;
 
     let mut output = String::from(
         "<!-- BEGIN GENERATED FIELD AVAILABILITY -->\n\
-The per-field list below is generated from `FIELD_AVAILABILITY`; edit the Rust\n\
-table and run `cargo run --bin generate-field-availability`, not this section.\n\n\
+This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.\n\
+Edit that table and run `cargo run --bin generate-docs`.\n\n\
 | Platform | Category | Event / action | Source | Unavailable field | Reason |\n\
 | --- | --- | --- | --- | --- | --- |\n",
     );
@@ -1370,9 +1370,8 @@ table and run `cargo run --bin generate-field-availability`, not this section.\n
 pub fn coverage_markdown() -> String {
     let mut output = String::from(
         "<!-- BEGIN GENERATED FIELD AVAILABILITY -->\n\
-This summary is generated from `FIELD_AVAILABILITY`. Counts describe field\n\
-contracts, not Sigma rule inertness; alternatives and negation in a rule's\n\
-condition must be analysed before deciding whether that rule can fire.\n\n\
+Generated from `FIELD_AVAILABILITY`.\n\
+These count fields, not rules: a rule that references a `Never` field inside an `or` branch can still fire.\n\n\
 | Platform | Always | Conditional | Never |\n\
 | --- | ---: | ---: | ---: |\n",
     );
@@ -1398,8 +1397,8 @@ condition must be analysed before deciding whether that rule can fire.\n\n\
         ));
     }
     output.push_str(
-        "\nThe complete machine-readable baseline is\n\
-[`compatibility/field-availability.json`](../compatibility/field-availability.json).\n\
+        "\nThe complete machine-readable baseline is \
+[`compatibility/field-availability.json`](https://github.com/Karib0u/rustinel/blob/main/compatibility/field-availability.json).\n\
 <!-- END GENERATED FIELD AVAILABILITY -->\n",
     );
     output

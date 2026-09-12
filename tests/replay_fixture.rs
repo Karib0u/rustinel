@@ -6,7 +6,7 @@
 //! is the whole point of replay: the recording carries the behavior, so the host
 //! evaluating it does not have to be able to produce it.
 //!
-//! See `docs/detection.md` for how to regenerate the recording.
+//! See `docs/development.md` (Replay fixture) for how to regenerate the recording.
 
 use std::path::{Path, PathBuf};
 

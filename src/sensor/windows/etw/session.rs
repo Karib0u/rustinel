@@ -24,7 +24,7 @@ use tracing::{info, trace, warn};
 /// ceiling cannot absorb a burst. On a Windows 11 lab VM (6 vCPU, 8 GB), a
 /// 4,000-process fork tree lost 12-60% of process starts on the defaults across
 /// four runs, and none at all on the values here; the workload and the full
-/// table are in `docs/operations.md`.
+/// table are in PR #312.
 ///
 /// The loss is kernel-side, so no per-field fix reaches it - it degrades
 /// `CommandLine`, `ParentImage` and every other process field at once, and a

@@ -10,6 +10,8 @@ use crate::doctor::{self, DiagnosticStatus};
 use crate::rules::{self, Catalog, CatalogPack, InstallOutcome};
 use crate::service::{ManagedServicePaths, ServiceCommandResult, ServiceStatus};
 
+mod command_path;
+
 pub struct SetupOptions {
     pub pack: Option<SetupPack>,
     pub yes: bool,
@@ -33,6 +35,7 @@ pub fn run_cli(options: SetupOptions) -> Result<()> {
         install_rules_with_recovery(&catalog_url, &catalog, &layout.rules_dir, pack)?;
 
     install_binary(&service_paths.binary_path)?;
+    let command = command_path::expose(&service_paths.binary_path);
     install_service(&layout, &service_paths)?;
 
     let service_status = if options.no_start {
@@ -45,6 +48,7 @@ pub fn run_cli(options: SetupOptions) -> Result<()> {
     print_summary(
         &layout,
         &service_paths,
+        &command,
         rules_outcome.as_ref(),
         service_status,
     );
@@ -484,6 +488,7 @@ fn recovery_command(platform: InstallPlatform, binary: &Path, args: &str) -> Str
 fn print_summary(
     layout: &InstallLayout,
     service_paths: &ManagedServicePaths,
+    command: &command_path::CommandExposure,
     rules_outcome: Option<&InstallOutcome>,
     service_status: ServiceStatus,
 ) {
@@ -498,6 +503,7 @@ fn print_summary(
     println!("  logs: {}", layout.logs_dir.display());
     println!("  alerts: {}", layout.alerts_dir.display());
     println!("  service binary: {}", service_paths.binary_path.display());
+    println!("  command: {}", command.describe());
     println!("  service status: {service_status}");
 }
 

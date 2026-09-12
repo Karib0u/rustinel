@@ -1,297 +1,90 @@
-# Architecture
+# Internals
 
-## Overview
+A map of the code for contributors.
+For the user-level picture, see [How it works](how-it-works.md).
 
-### Data Plane
-
-```text
-                      ┌───────────────────────────────┐
-                      │ Platform Sensor               │
-                      │ ETW / eBPF / ESF + bpf        │
-                      └─────────────────┬─────────────┘
-                                        ▼
-                            ┌──────────────────────┐
-                            │ SensorEventRouter    │
-                            └─────────┬─────┬──────┘
-                                      │     │
-                       ┌──────────────┘     └──────────────┐
-                       ▼                                   ▼
-        ┌───────────────────────────┐         ┌──────────────────────┐
-        │ SigmaDetectionHandler     │         │ YaraEventHandler     │
-        │ normalize + Sigma + IOC   │         │ process start only   │
-        │ queue IOC hash jobs       │         └─────────┬────────────┘
-        └──────────┬────────────────┘                   ▼
-                   ▼                        ┌──────────────────────┐
-        ┌───────────────────────────┐       │ YARA worker          │
-        │ Normalizer + shared state │       │ cached file scans    │
-        │ process / SID / DNS / net │       └─────────┬────────────┘
-        └──────┬──────────┬─────────┘                 │
-               ▼          ▼                           │
-      ┌─────────────┐ ┌─────────────┐                 │
-      │ Sigma       │ │ IOC engine  │                 │
-      │ engine      │ │ + hash work │                 │
-      └──────┬──────┘ └──────┬──────┘                 │
-             └─────────┬─────┴───────────────┬────────┘
-                       ▼                     ▼
-                  ┌────────────────────────────┐
-                  │ Detection hit / alert      │
-                  └──────────┬─────────┬───────┘
-                             │         │
-                             ▼         ▼
-                  ┌──────────────┐ ┌──────────────────┐
-                  │ AlertSink    │ │ ResponseEngine   │
-                  │ ECS NDJSON   │ │ optional kill    │
-                  └──────────────┘ └──────────────────┘
-```
-
-### Control Plane
+## Layout
 
 ```text
-              ┌────────────────────────────────────────┐
-              │ AppConfig                              │
-              │ defaults + config.toml + EDR__* env   │
-              └───────────────┬────────────────────────┘
-                              │
-               ┌──────────────┴──────────────┐
-               ▼                             ▼
-     ┌──────────────────────┐      ┌──────────────────────┐
-     │ Logging setup        │      │ DetectorStore        │
-     │ operational logs +   │      │ Sigma / YARA / IOC   │
-     │ alert output sink    │      │ live detector set    │
-     └──────────────────────┘      └──────────┬───────────┘
-                                               ▲
-                                               │ atomic swap
-                                  ┌────────────┴────────────┐
-                                  │ Reload poller + worker  │
-                                  │ rules/current/{sigma,yara} │
-                                  │ rules/current/ioc/*        │
-                                  └─────────────────────────┘
+src/
+├── main.rs          CLI entry point
+├── cli/             clap definitions and the generated CLI reference
+├── config.rs        loading, discovery, defaults; config/reference.rs documents every option
+├── runtime/         startup, shared pipeline construction, shutdown ordering
+├── sensor/
+│   ├── windows/     ETW sessions and Event Log subscriptions
+│   ├── linux/       eBPF loader, ring readers, decoders
+│   └── macos/       Endpoint Security and /dev/bpf capture
+├── models/          NormalizedEvent, alert, and ECS models
+├── normalizer/      builds NormalizedEvent, enrichment from caches
+├── state/           process, SID, and DNS caches
+├── engine/          Sigma loading, logsource routing, evaluation (RSigma)
+├── scanner/         YARA compilation and scanning
+├── memory/          per-platform process memory reads for YARA
+├── ioc/             indicator loading and matching
+├── alerts/          ECS NDJSON sink and deduplication
+├── response/        active response
+├── reload/          file watching, debounce, atomic detector swap
+├── telemetry/       loss counters and telemetry.json
+├── doctor/          `rustinel doctor` checks
+├── capture/, replay/  recordings
+├── rules.rs, rules/ rule pack catalog and installation
+├── setup.rs, service.rs, platform/  managed install and native services
+├── update.rs        `rustinel update`
+├── utils/           path allowlists, file identity, PE parsing, helpers
+└── field_availability.rs  per-platform field contract, source of generated docs
+ebpf/src/            Linux eBPF programs and the event ABI
 ```
 
-The key split in the codebase is between the hot event path and the control plane. Raw sensor events stay on a small shared pipeline, while rule loading, reloads, logging setup, and detector replacement happen off to the side.
+## Event path
 
-## Sensor Layer
+1. A platform sensor emits a `SensorEvent` into the bounded `sensor_events` channel.
+2. `SensorEventRouter` hands each event to `SigmaDetectionHandler` and `YaraEventHandler`.
+3. `SigmaDetectionHandler` normalizes the event, evaluates Sigma and inline IOC checks, and queues hash jobs for process starts.
+4. `YaraEventHandler` queues process-start executables for the YARA worker.
+5. Hits go to `AlertSink` (ECS NDJSON) and, when enabled, `ResponseEngine`.
 
-### Windows
+Every hop is a bounded channel that drops instead of blocking, with counters in `src/telemetry`.
+Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
 
-`src/sensor/windows/etw.rs` exposes the ETW sensor lifecycle. Its sibling
-`etw/` directory separates provider definitions, session setup and processing,
-routing, pending registry/path state, record decoding, and parser helpers.
-Responsibility-specific tests live beside the code they exercise.
+`runtime/pipeline.rs` builds this pipeline for all three platforms.
+Platform runtimes keep privilege checks, sensor startup, and platform enrichment.
+`runtime/shutdown.rs` drains sensors, then workers, then flushes deduplication and the final telemetry snapshot.
 
-The Windows sensor uses ETW for realtime providers and filtered Windows Event
-Log subscriptions for the System and Security channels. It currently covers:
+## Detectors and reload
 
-- Process
-- Image load
-- Network
-- File
-- Registry
-- DNS
-- PowerShell (script block and module logging)
-- WMI
-- Service creation
-- Task creation
-- Security channel audit events
+Live detectors sit behind `engine::DetectorStore` (`src/engine/detectors.rs`).
+`reload/watcher.rs` watches files, falling back to polling; `reload/worker.rs` debounces, rebuilds only the changed detector, validates it, and swaps it atomically.
+Readers keep the previous instance until they finish.
 
-The ETW providers include:
+## Path allowlists
 
-- `Microsoft-Windows-Kernel-Process`
-- `Microsoft-Windows-Kernel-Network`
-- `Microsoft-Windows-Kernel-File`
-- `Microsoft-Windows-Kernel-Registry`
-- `Microsoft-Windows-DNS-Client`
-- `Microsoft-Windows-PowerShell`
-- `Microsoft-Windows-WMI-Activity`
-- `Microsoft-Windows-TaskScheduler`
+`src/utils/path_allowlist.rs` applies three matching policies, kept for compatibility with existing configs and covered by `tests/path_allowlist.rs`:
 
-Service creation comes from the System event log rather than the classic
-Service Control Manager provider, which does not deliver event 7045 to realtime
-user ETW sessions.
-
-The Event Log side is source-agnostic: a source is a channel, an XPath query,
-and a decoder, and the subscription lifecycle is shared. Two sources exist
-today, the System channel's 7045 and the Security channel's audit events, and
-both deliver into the same sensor channel as ETW. The Security source is scoped
-by its query to the event IDs it decodes, so the channel's full volume is
-filtered in the kernel rather than in the agent. What it collects depends on the
-host's audit policy — see
-[Windows audit policy](operations.md#windows-audit-policy).
-
-### Linux
-
-The Linux sensor loads eBPF programs with Aya and currently covers:
-
-- Process execution and exit, with command lines captured in the kernel: argv is snapshotted at `execve`/`execveat` entry, where it is still mapped, and joined to the `sched_process_exec` event that follows, so short-lived processes keep their `CommandLine`
-- Network connect activity
-- File create, delete, change, and rename flows
-- DNS queries observed from userspace `sendto`, `sendmsg`, and `sendmmsg` calls. The eBPF program emits a bounded raw DNS payload and userspace parses `QueryName`, keeping string parsing out of the verifier-sensitive in-kernel path. Linux DNS response answers are not parsed yet, so `QueryResults` remains unavailable on Linux.
-
-The loader attaches a mix of tracepoints and kprobes: `sched_process_exec` and
-`sched_process_exit`, enter/exit pairs on `open`, `openat`, `openat2`, `creat`,
-`unlink`, `unlinkat`, `rename`, `renameat`, `renameat2`, `mkdir`, `mkdirat`, and
-`rmdir`, entry hooks on `connect`, `sendto`, `sendmsg`, and `sendmmsg`, and a
-`vfs_create` kprobe. The authoritative list is in `src/sensor/linux/`.
-
-Requirements for the Linux sensor are kernel 5.8+ and eBPF privileges.
-Runtime BTF enables kernel process identity fields; doctor reports unavailable fields.
-
-### macOS
-
-macOS telemetry comes from two native sources feeding the same shared pipeline:
-
-- Endpoint Security (`EsfSensor`) for process and file events: process exec and
-  exit, and file create, delete, rename, and modify (the modify signal is a
-  close-after-write, which keeps the high-volume close stream down to real
-  content changes). Exec events carry the executable path, arguments, and
-  parent pid directly; the parent image is enriched via libproc.
-- `/dev/bpf` packet capture (`BpfSensor`) for network and DNS: outbound TCP
-  connection initiations (SYN) and DNS queries parsed from port 53 traffic,
-  reusing the shared DNS query-name parser. Connection events are attributed to
-  a process on a best-effort basis by matching the connection's ports against
-  open sockets via libproc.
-
-The Endpoint Security sensor is the primary source and is required; the bpf
-capture source is best-effort and the agent degrades to Endpoint Security only
-if it cannot start. Requirements for the macOS sensor are root, the
-`com.apple.developer.endpoint-security.client` entitlement (or SIP/AMFI relaxed
-for local testing), and access to the bpf device nodes.
-
-## Command Dispatch
-
-`src/runtime/orchestration.rs` handles portable replay commands before platform
-dispatch. Linux and macOS share one command dispatcher, with foreground runs and
-capture delegated to their platform runtime modules. Windows keeps its separate
-dispatcher: replay and doctor run before service dispatch, followed by console
-command handling when service dispatch does not start.
-
-## Shared Pipeline
-
-`src/runtime/startup.rs` loads configuration and CLI overrides, initializes
-logging and alert deduplication, and starts telemetry reporting. Logging guards
-remain in each platform runtime until its final shutdown messages are written.
-
-`src/runtime/pipeline.rs` builds shared caches, detectors, reload workers, YARA
-and IOC workers, normalization, and the event router for all three platforms.
-Platform runtimes retain privilege checks, Windows process snapshotting, sensor
-startup, event-channel capacity, and Windows PE enrichment. Detector startup logs
-use the same messages across platforms. After sensors stop, `runtime/shutdown.rs`
-drains sensor events, YARA file/memory scans, and IOC hashes, then stops reload
-polling, closes reload requests, and drains the reload and response workers.
-Deduplication flushes and the final telemetry snapshot follow worker completion.
-
-Once a platform sensor emits a raw `SensorEvent`, the rest of the runtime is shared:
-
-1. `SensorEventRouter` fans each event out to `SigmaDetectionHandler` and `YaraEventHandler`.
-2. `SigmaDetectionHandler` normalizes the event, evaluates Sigma, runs inline IOC checks, and queues process-start hash jobs when IOC hashing is enabled.
-3. `YaraEventHandler` only handles process-start events and queues executable paths to the YARA worker.
-4. YARA scans and IOC hash calculations run off the hot path in background workers.
-5. Detection hits are written as ECS NDJSON through `AlertSink` and can also be handed to `ResponseEngine`.
-
-Every hop in that list crosses a bounded channel that sheds load rather than
-blocking its producer, trading a detection gap for stability. Each channel
-therefore carries atomic counters (accepted, dropped, and peak queue depth) in
-`src/telemetry`, published to `telemetry.json` beside the logs so the gap is
-measurable from outside the process. See
-[Pipeline Telemetry](configuration.md#pipeline-telemetry) for the counters and
-[Limitations](limitations.md#pipeline-and-operations) for what shedding costs.
-
-## Detector Store and Hot Reload
-
-Live detector instances sit behind `engine::DetectorStore`, defined in
-`src/engine/detectors.rs`. Detection and runtime workers read this shared state
-without depending on the reload subsystem:
-
-- Sigma rules are compiled into the active `Engine`
-- YARA rules are compiled into the active `Scanner`
-- IOC indicator files are loaded into the active `IocEngine`
-
-`src/reload/worker.rs` owns debouncing, rebuild validation, and atomic replacement.
-`src/reload/watcher.rs` owns filesystem notifications, fallback polling, and poller
-shutdown; `src/reload/fingerprint.rs` computes the metadata fingerprints it compares.
-The public reload entry points stay in `reload`, including a compatibility
-re-export of `DetectorStore`. Each detector is swapped independently, and existing
-read guards retain the previous instance until their work finishes.
-
-If hot reload is enabled:
-
-- The watcher monitors filesystem events on Sigma, YARA, and IOC folders (falling back to a 60-second polling cadence if watcher setup fails)
-- The worker debounces/coalesces changes and rebuilds only the affected detector set
-- Successful rebuilds are swapped in atomically
-- Failed rebuilds keep the previous live detector instances
-
-## Path Allowlists
-
-`src/utils/path_allowlist.rs` owns path-prefix normalization and matching. Its
-explicit policies preserve the configuration behavior used by each caller:
-
-| Policy | Windows | Linux/macOS | Prefix boundary | Empty entries |
+| Caller | Windows | Linux and macOS | Prefix match | Empty entry |
 | --- | --- | --- | --- | --- |
-| YARA scanner | ASCII case folded, slash converted to backslash | Case preserved, native separators | Directory separator appended | Ignored |
-| IOC hashing | ASCII case folded, slash converted to backslash | Case preserved, native separators | Raw prefix | Match every path |
-| Active response | ASCII case folded, slash converted to backslash | ASCII case folded, native separators | Directory separator appended | Ignored |
+| YARA | case-insensitive, `/` becomes `\` | case-sensitive | at a separator | ignored |
+| IOC hashing | case-insensitive, `/` becomes `\` | case-sensitive | raw prefix | matches every path |
+| Active response | case-insensitive, `/` becomes `\` | case-insensitive | at a separator | ignored |
 
-All policies trim surrounding whitespace without resolving paths or symlinks.
-`tests/path_allowlist.rs` checks these contracts through all three public callers.
-Changing these policies requires a separate behavior change, particularly for
-IOC raw prefixes and case-insensitive response exclusions on Unix.
+## Windows sensor
 
-## Normalization and Enrichment
+- Two real-time ETW sessions: `rustinel-etw-process` for Kernel-Process, sized and flushed for latency so command lines can be read before short processes exit, and `rustinel-etw-trace` for the high-volume providers, sized for bursts.
+  Inspect them with `Get-EtwTraceSession -Name rustinel-etw-trace` (or `rustinel-etw-process`).
+- A classic kernel logger supplies creation-time command lines and SIDs, joined to Kernel-Process events by PID, parent PID, and time.
+- At startup, key and file name snapshots let registry and file writes through pre-existing handles be named.
+- Event Log subscriptions read System event 7045 and six Security events, filtered by an XPath query.
+  Read positions are saved under `logging.directory/event-log`.
 
-The normalizer keeps one event model across all three platforms and adds context where available:
+## Linux sensor
 
-- Sysmon-style field names in a single `NormalizedEvent` model
-- `ProcessCache` for process metadata and parent correlation
-- `SidCache` for Windows SID-to-user resolution
-- `DnsCache` for DNS answer to later network-event correlation
-- Lazy process-context enrichment on alerts so non-process detections can still carry process details
+eBPF programs attach to tracepoints for exec, exit, fork, file syscalls, and DNS sends, and to socket `fexit` hooks when kernel BTF allows it.
+Hook availability and struct offsets are discovered at startup from tracefs and BTF; nothing depends on the build machine's kernel.
+A missing hook degrades only its feature.
+The loader refuses an object whose event ABI does not match.
 
-On Windows, the agent also snapshots running processes during startup so `ProcessCache` is warm before the first new process event arrives.
+## macOS sensor
 
-## Detection and Response
-
-### Sigma
-
-- Rules are parsed and classified at load time by `product`, `service`, and `category`
-- Conditions are precompiled
-- Rules are bucketed by normalized logsource
-- Unsupported or deferred logsource combinations are skipped at load time
-
-### YARA
-
-- Rules compile at startup and hot reload
-- Scans trigger from process-start events
-- Scanning runs in a background worker
-- Shared allowlists prevent scanning trusted paths
-- Results are cached per file identity with a 10,000-entry cap and a 6-hour TTL
-
-### IOC
-
-- Domains, IPs/CIDRs, path regexes, and file hashes are supported
-- Domain, IP, and path-regex matching runs inline on normalized events
-- File hashing runs in a background worker on process-start events
-- Path allowlists and file-size caps reduce unnecessary hashing
-- Hash results are cached per file identity with a 10,000-entry cap and a 6-hour TTL
-
-### Active Response
-
-- Optional and disabled by default
-- Alerts above the configured threshold are queued to a background worker
-- Windows uses process termination APIs
-- Linux and macOS use `SIGKILL`
-
-## Current Cross-Platform Scope
-
-| Capability | Windows | Linux | macOS |
-| --- | --- | --- | --- |
-| Process telemetry | Yes | Yes | Yes |
-| Network telemetry | Yes | Yes | Yes |
-| File telemetry | Yes | Yes | Yes |
-| DNS telemetry | Yes | Yes | Yes |
-| Registry telemetry | Yes | No | No |
-| Image load telemetry | Yes | No | No |
-| PowerShell telemetry | Yes | No | No |
-| WMI telemetry | Yes | No | No |
-| Service telemetry | Yes | No | No |
-| Task telemetry | Yes | No | No |
-| Built-in service management | Yes | No | No |
+`EsfSensor` subscribes to Endpoint Security exec, exit, and file events.
+`BpfSensor` opens one `/dev/bpf` device per active interface and attributes flows to processes through a periodically refreshed socket list.
+Endpoint Security is required; packet capture is best effort.

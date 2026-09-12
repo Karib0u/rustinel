@@ -4,8 +4,11 @@
 # corrupted recording.
 *.ndjson -text
 
-# Generated availability artifacts are compared byte-for-byte in tests. Keep
-# their newlines stable when Git checks the repository out on Windows.
+# Generated docs and availability artifacts are compared byte-for-byte in
+# tests. Keep their newlines stable when Git checks the repository out on
+# Windows.
 compatibility/field-availability.json text eol=lf
+docs/cli.md text eol=lf
+docs/configuration.md text eol=lf
 docs/coverage.md text eol=lf
-docs/limitations.md text eol=lf
+docs/field-availability.md text eol=lf

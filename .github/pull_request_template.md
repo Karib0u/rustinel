@@ -22,5 +22,6 @@
 
 ## Checklist
 - [ ] Label added to this PR
-- [ ] Docs updated (if behaviour changed)
+- [ ] Docs updated (if behaviour changed): current behaviour only, measurements stay in this PR description
+- [ ] Generated docs refreshed (`cargo run --bin generate-docs`) if CLI flags or config options changed
 - [ ] Release highlights and upgrade notes added (release preparation only)

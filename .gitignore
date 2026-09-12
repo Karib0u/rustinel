@@ -1,5 +1,8 @@
 # Rust build artifacts
 /target/
+
+# Docs site built by `zensical build`
+/site/
 ebpf/target/
 **/*.rs.bk
 

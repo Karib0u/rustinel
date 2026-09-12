@@ -98,7 +98,7 @@ pelite = "0.10"
 memmap2 = "0.9"
 ferrisetw = "1.2"
 roxmltree = "0.21"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_Etw", "Win32_System_Time", "Win32_System_EventLog", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_Diagnostics_Debug"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_Etw", "Win32_System_Time", "Win32_System_EventLog", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }
 windows-service = "0.8.1"
 
 [dev-dependencies]

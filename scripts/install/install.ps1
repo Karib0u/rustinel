@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 function Show-InstallScope {
     Write-Host "This script only installs published Rustinel release binaries."
     Write-Host "It does not install Rust, Cargo, or build Rustinel from source."
-    Write-Host "Source build guide: https://docs.rustinel.io/getting-started/#compile-from-source"
+    Write-Host "Source build guide: https://docs.rustinel.io/development/"
 }
 
 function Test-TruthyEnv {
@@ -113,7 +113,7 @@ if (-not $PSBoundParameters.ContainsKey("Force") -and (Test-TruthyEnv $env:RUSTI
     $Force = $true
 }
 
-$RunEvaluation = [bool]$Run -or $InvokedFromStream
+$RunEvaluation = [bool]$Run
 
 if (-not [Environment]::Is64BitOperatingSystem) {
     throw "Only 64-bit Windows is supported by the published release archive."

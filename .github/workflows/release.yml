@@ -597,32 +597,25 @@ jobs:
 
             ## Installer
 
-            **Linux**
-
-            ```sh
-            curl -fsSL https://rustinel.io/install.sh | sh -s -- --version ${{ steps.version.outputs.version }} --run
-            ```
-
-            **macOS**
+            **Linux and macOS**
 
             ```sh
             curl -fsSL https://rustinel.io/install.sh | sh -s -- --version ${{ steps.version.outputs.version }}
             cd rustinel
-            ```
-
-            macOS support is experimental. Endpoint Security requires root and a one-time Full Disk Access approval before the first successful start. See the install guide for the interactive terminal and LaunchDaemon approval paths, then run:
-
-            ```sh
             sudo ./rustinel run
             ```
 
-            **Windows (PowerShell)**
+            macOS support is experimental. Grant Full Disk Access before the first run: https://docs.rustinel.io/macos-permissions/
+
+            **Windows (elevated PowerShell)**
 
             ```powershell
             $env:RUSTINEL_VERSION='${{ steps.version.outputs.version }}'; irm https://rustinel.io/install.ps1 | iex; Remove-Item Env:\RUSTINEL_VERSION -ErrorAction SilentlyContinue
+            Set-Location rustinel
+            .\rustinel.exe run
             ```
 
-            Full install, configuration, and SIEM ingestion guides: https://docs.rustinel.io/getting-started/
+            Quickstart, configuration, and SIEM guides: https://docs.rustinel.io/getting-started/
 
             Scripts install published release binaries only. Verify downloads with `rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt`.
 

@@ -1,147 +1,82 @@
-# Active Response
+# Use active response
 
-Rustinel includes an optional response engine that can terminate processes when
-an alert reaches the configured minimum severity. It is disabled by default and
-should be tested in dry-run mode first.
+Active response kills the process behind an alert.
+It is off by default.
+Test it in dry-run mode first.
 
-Active response runs on **Windows, Linux, and macOS**. It is least exercised on
-macOS, where the operating system also refuses to kill SIP-protected and some
-system processes even as root. A termination failure there is logged and the
-alert is unaffected.
+## How it works
 
-## Modes
+When an alert's severity is at least `response.min_severity`, Rustinel kills the process: `TerminateProcess` on Windows, `SIGKILL` on Linux and macOS.
+It acts after the event, so the process may already have done its work.
 
-1. Disabled: no response work is queued.
-2. Dry-run: Rustinel logs what it would do.
-3. Prevention: Rustinel terminates eligible processes.
+Severity comes from the rule: the Sigma `level`, always `critical` for YARA, and `ioc.default_severity` for indicators.
 
-## Platform Behavior
+Rustinel never kills:
 
-| Platform | Action |
-| --- | --- |
-| Windows | Uses process termination APIs |
-| Linux | Sends `SIGKILL` |
-| macOS | Sends `SIGKILL`; SIP-protected and some system processes cannot be killed even as root |
+- processes under an allowlisted path or with an allowlisted name,
+- PIDs 0 to 4, or Rustinel itself,
+- a process whose PID or executable path is unknown.
 
-## Severity Handling
+macOS refuses to kill SIP-protected processes even as root.
+The failure is logged and the alert is still written.
 
-- Sigma uses the rule `level`
-- YARA is always treated as `critical`
-- IOC uses `ioc.default_severity`
+## 1. Turn on dry run
 
-`response.min_severity` is applied after those mappings.
+```toml
+[response]
+enabled = true
+prevention_enabled = false   # log only
+min_severity = "critical"
+```
+
+Changes to `[response]` apply without a restart.
+
+## 2. Trigger a test
+
+Build and run the YARA demo binary from the repository.
+It contains a string that the bundled YARA rule matches:
+
+=== "Linux and macOS"
+
+    ```bash
+    rustc examples/yara_demo.rs -o examples/yara_demo
+    ./examples/yara_demo
+    ```
+
+=== "Windows"
+
+    ```powershell
+    rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
+    .\examples\yara_demo.exe
+    ```
+
+The operational log shows what would have happened:
+
+```text
+response: Active response would terminate process pid=4242 image="/home/me/rustinel/examples/yara_demo" dry_run=true
+```
+
+The bundled `whoami` rule is not a good test: `whoami` lives in a trusted system folder, so the expected log line is `Active response skipped: allowlisted`.
+
+## 3. Turn on prevention
+
+```toml
+[response]
+enabled = true
+prevention_enabled = true
+```
+
+Repeat the test.
+The log now shows `Active response terminated process`.
 
 ## Allowlists
 
-Rustinel will not act on processes that match either of these:
-
-- `allowlist_images`: image basenames or full paths
-- `allowlist_paths`: trusted path prefixes
-
-By default, `response.allowlist_paths` inherits `allowlist.paths`, whose per-platform defaults are listed once in [Configuration -> Default Trusted Paths](configuration.md#default-trusted-paths).
-
-## Example Configuration
-
-### Windows
-
-```toml
-[allowlist]
-paths = [
-  "C:\\Windows\\",
-  "C:\\Program Files\\",
-  "C:\\Program Files (x86)\\",
-]
-
-[response]
-enabled = true
-prevention_enabled = false
-min_severity = "critical"
-allowlist_images = []
-```
-
-### Linux
-
-```toml
-[allowlist]
-paths = [
-  "/usr/bin/",
-  "/usr/sbin/",
-]
-
-[response]
-enabled = true
-prevention_enabled = false
-min_severity = "critical"
-allowlist_images = []
-```
-
-## Logging
-
-Response actions are logged in the operational log:
-
-```text
-response: Active response would terminate process pid=4242 image="/tmp/evil" dry_run=true
-response: Active response terminated process pid=4242 image="/tmp/evil"
-response: Active response skipped: allowlisted pid=4321 image="/usr/bin/bash"
-```
-
-## Safety Checks
-
-The response engine skips termination when:
-
-- PID is missing
-- PID is in the protected low system range (PIDs 0-4 on both platforms)
-- The target is the Rustinel process itself
-- The process image path is not known
-- The image or path is allowlisted
-
-## Safe Test Flow
-
-### Cross-Platform YARA Demo
-
-1. Enable dry-run mode:
-
 ```toml
 [response]
-enabled = true
-prevention_enabled = false
+allowlist_images = ["backup-agent", "/opt/tools/scanner"]   # names or full paths
+allowlist_paths = ["/opt/trusted/"]                         # path prefixes
 ```
 
-2. Start Rustinel.
-3. Build and run the sample binary:
-
-```bash
-rustc ./examples/yara_demo.rs -o ./examples/yara_demo
-./examples/yara_demo
-```
-
-On Windows:
-
-```powershell
-rustc .\examples\yara_demo.rs -o .\examples\yara_demo.exe
-.\examples\yara_demo.exe
-```
-
-4. Confirm the operational log shows a dry-run response decision.
-5. After validation, switch `prevention_enabled = true` and repeat.
-
-### Sigma Demo
-
-The bundled `whoami` rules verify Sigma detection and the response safety path.
-The system `whoami` executable is inside the default trusted path allowlist, so
-the expected response log is `Active response skipped: allowlisted`.
-
-Windows:
-
-```powershell
-whoami
-```
-
-Linux:
-
-```bash
-whoami
-```
-
-Use the YARA demo above, or another long-running executable outside the trusted
-path allowlist, when validating dry-run or process termination behavior.
+`allowlist_paths` starts as a copy of the global `allowlist.paths`.
+Setting it replaces that list for response only.
+See [Configuration](configuration.md#response).
