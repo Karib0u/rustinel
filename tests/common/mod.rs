@@ -409,6 +409,7 @@ pub fn file_event(
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: Some(TEST_USER.to_string()),
+            file_identity: None,
             path_truncated: None,
         }),
     }

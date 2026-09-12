@@ -203,6 +203,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                     creation_utc_time: Some("2026-01-01T00:00:00Z".to_string()),
                     previous_creation_utc_time: None,
                     user: Some("alice".to_string()),
+                    file_identity: None,
                     path_truncated: None,
                 }),
             ),

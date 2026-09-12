@@ -856,6 +856,7 @@ mod tests {
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: Some("alice".to_string()),
+                file_identity: None,
                 path_truncated: None,
             }),
         }
@@ -1051,6 +1052,7 @@ mod tests {
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: Some("alice".to_string()),
+                file_identity: None,
                 path_truncated: None,
             }),
         };
@@ -1105,6 +1107,7 @@ mod tests {
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: Some("alice".to_string()),
+                file_identity: None,
                 path_truncated: None,
             }),
         };

@@ -350,14 +350,28 @@ impl Scanner {
         match_debug: MatchDebugLevel,
     ) -> ScanResult {
         use std::io::Read;
-        let Some(expected) = target.identity.as_ref() else {
+        if target.identity.is_none() && target.file_identity.is_none() {
             return self.scan_file(&target.path, match_debug);
-        };
+        }
         let path = Path::new(&target.path);
         let mut file = fs::File::open(path).map_err(|err| ScanError::Failed(err.into()))?;
-        if file_identity::from_file(&file).as_ref() != Some(expected) {
+        let measured = file_identity::from_file(&file).ok_or_else(|| {
+            ScanError::Failed(anyhow::anyhow!(
+                "file identity unavailable before YARA scan"
+            ))
+        })?;
+        let expected = target.identity.as_ref().unwrap_or(&measured);
+        let exact_mismatch = target
+            .identity
+            .as_ref()
+            .is_some_and(|identity| identity != &measured);
+        let object_mismatch = target
+            .file_identity
+            .as_ref()
+            .is_some_and(|identity| !measured.matches_object(identity));
+        if exact_mismatch || object_mismatch {
             return Err(ScanError::Failed(anyhow::anyhow!(
-                "executable identity changed before YARA scan"
+                "file identity changed before YARA scan"
             )));
         }
         let size = file
@@ -387,7 +401,7 @@ impl Scanner {
             .map_err(|err| ScanError::Failed(err.into()))?;
         if !file_identity::unchanged(&file, path, expected) {
             return Err(ScanError::Failed(anyhow::anyhow!(
-                "executable identity changed during YARA read"
+                "file identity changed during YARA read"
             )));
         }
         let matches = self.scan_bytes(&bytes, match_debug)?;
@@ -591,6 +605,8 @@ pub struct FileScanTarget {
     pub path: String,
     pub pid: u32,
     pub(crate) identity: Option<FileIdentity>,
+    #[doc(hidden)]
+    pub file_identity: Option<crate::models::FileObjectIdentity>,
 }
 
 impl FileScanTarget {
@@ -602,6 +618,17 @@ impl FileScanTarget {
                 .exec
                 .as_ref()
                 .and_then(|exec| exec.file_identity.clone()),
+            file_identity: None,
+        }
+    }
+
+    /// Build a target from identity measured on a canonical file event.
+    pub fn from_file_event(path: &str, pid: u32, fields: &crate::models::FileEventFields) -> Self {
+        Self {
+            path: path.to_string(),
+            pid,
+            identity: None,
+            file_identity: fields.file_identity,
         }
     }
 }
@@ -759,6 +786,7 @@ mod tests {
             path: path.to_string_lossy().into_owned(),
             pid: 42,
             identity: file_identity::from_path(&path),
+            file_identity: None,
         };
         assert_eq!(
             scanner
@@ -767,6 +795,39 @@ mod tests {
                 .len(),
             1
         );
+        let replacement = dir.path().join("replacement");
+        fs::write(&replacement, b"clean!").unwrap();
+        fs::rename(replacement, &path).unwrap();
+        assert!(scanner.scan_target(&target, MatchDebugLevel::Off).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn event_object_identity_rejects_replaced_file() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let scanner = scanner_with_marker_rule(dir.path());
+        let path = dir.path().join("sample.bin");
+        fs::write(&path, b"evil!!").unwrap();
+        let metadata = fs::metadata(&path).unwrap();
+        let target = FileScanTarget {
+            path: path.to_string_lossy().into_owned(),
+            pid: 42,
+            identity: None,
+            file_identity: Some(crate::models::FileObjectIdentity {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+            }),
+        };
+        assert_eq!(
+            scanner
+                .scan_target(&target, MatchDebugLevel::Off)
+                .unwrap()
+                .len(),
+            1
+        );
+
         let replacement = dir.path().join("replacement");
         fs::write(&replacement, b"clean!").unwrap();
         fs::rename(replacement, &path).unwrap();

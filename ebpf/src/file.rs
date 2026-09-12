@@ -4,7 +4,6 @@
 //!
 //! - `syscalls/sys_enter_open`, `openat`, `openat2`, and `creat` queue create
 //!   candidates when `O_CREAT` is set or implied.
-//! - `vfs_create` marks candidates that actually created a new inode.
 //! - The matching exit tracepoint emits create events only when the syscall succeeds.
 //! - `syscalls/sys_enter_unlink`, `unlinkat`, and `rmdir` queue delete
 //!   candidates, then emit them only on successful exit.
@@ -71,18 +70,19 @@
 
 use aya_ebpf::{
     helpers::{
-        bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_ktime_get_ns, bpf_probe_read_user,
-        bpf_probe_read_user_str_bytes,
+        bpf_get_current_comm, bpf_get_current_pid_tgid, bpf_get_current_task, bpf_ktime_get_ns,
+        bpf_probe_read_kernel, bpf_probe_read_user, bpf_probe_read_user_str_bytes,
     },
-    macros::{kprobe, map, tracepoint},
-    maps::{HashMap, LruHashMap, PerCpuArray, RingBuf},
-    programs::{ProbeContext, TracePointContext},
+    macros::{kprobe, kretprobe, map, tracepoint},
+    maps::{Array, HashMap, LruHashMap, PerCpuArray, RingBuf},
+    programs::{ProbeContext, RetProbeContext, TracePointContext},
 };
 
 use crate::events::{
     event_metadata, FileEvent, FileIndexEvent, FILE_FLAG_AUX_PATH_TRUNCATED,
     FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
 };
+use crate::file_identity_abi::FileIdentityOffsets;
 use crate::process::current_process_start_time;
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, FILE_FAMILY};
 
@@ -198,9 +198,15 @@ static FILE_PENDING: HashMap<u32, FileEvent> = HashMap::with_max_entries(16_384,
 #[map]
 static FILE_SCRATCH: PerCpuArray<FileEvent> = PerCpuArray::with_max_entries(1, 0);
 
-/// Per-thread marker that `vfs_create` ran for the pending open variant.
+/// Offsets validated against the running kernel's BTF before any identity
+/// enrichment hook is attached.
 #[map]
-static OPENAT_CREATED: HashMap<u32, u8> = HashMap::with_max_entries(16_384, 0);
+pub static FILE_IDENTITY_OFFSETS: Array<FileIdentityOffsets> = Array::with_max_entries(1, 0);
+
+/// The mkdir dentry has no inode at function entry. Hold it until the matching
+/// return probe, then read the inode before the syscall exit emits the event.
+#[map]
+static PENDING_MKDIR_DENTRY: HashMap<u32, u64> = HashMap::with_max_entries(16_384, 0);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -248,11 +254,48 @@ pub fn handle_openat2(ctx: TracePointContext) -> u32 {
     unsafe { try_handle_openat2(&ctx) }.unwrap_or(1)
 }
 
-/// Mark a queued open-with-create as a real create when the kernel reaches
-/// `vfs_create`.
-#[kprobe(function = "vfs_create")]
-pub fn handle_vfs_create(ctx: ProbeContext) -> u32 {
-    unsafe { try_handle_vfs_create(&ctx) }.unwrap_or(1)
+#[kprobe]
+pub fn handle_vfs_unlink_identity1(ctx: ProbeContext) -> u32 {
+    unsafe { try_capture_dentry_identity(ctx.arg::<u64>(1).unwrap_or(0), FILE_KIND_DELETE) }
+        .unwrap_or(1)
+}
+
+#[kprobe]
+pub fn handle_vfs_unlink_identity2(ctx: ProbeContext) -> u32 {
+    unsafe { try_capture_dentry_identity(ctx.arg::<u64>(2).unwrap_or(0), FILE_KIND_DELETE) }
+        .unwrap_or(1)
+}
+
+#[kprobe]
+pub fn handle_vfs_rmdir_identity1(ctx: ProbeContext) -> u32 {
+    unsafe { try_capture_dentry_identity(ctx.arg::<u64>(1).unwrap_or(0), FILE_KIND_DELETE) }
+        .unwrap_or(1)
+}
+
+#[kprobe]
+pub fn handle_vfs_rmdir_identity2(ctx: ProbeContext) -> u32 {
+    unsafe { try_capture_dentry_identity(ctx.arg::<u64>(2).unwrap_or(0), FILE_KIND_DELETE) }
+        .unwrap_or(1)
+}
+
+#[kprobe]
+pub fn handle_vfs_rename_identity(ctx: ProbeContext) -> u32 {
+    unsafe { try_capture_rename_identity(ctx.arg::<u64>(0).unwrap_or(0)) }.unwrap_or(1)
+}
+
+#[kprobe]
+pub fn handle_vfs_mkdir_identity1(ctx: ProbeContext) -> u32 {
+    unsafe { try_remember_mkdir_dentry(ctx.arg::<u64>(1).unwrap_or(0)) }.unwrap_or(1)
+}
+
+#[kprobe]
+pub fn handle_vfs_mkdir_identity2(ctx: ProbeContext) -> u32 {
+    unsafe { try_remember_mkdir_dentry(ctx.arg::<u64>(2).unwrap_or(0)) }.unwrap_or(1)
+}
+
+#[kretprobe]
+pub fn handle_vfs_mkdir_identity_exit(ctx: RetProbeContext) -> u32 {
+    unsafe { try_capture_mkdir_identity(&ctx) }.unwrap_or(1)
 }
 
 /// Emit a file-create event only after `openat` succeeds.
@@ -639,6 +682,140 @@ unsafe fn try_reset_dir_index(_ctx: &TracePointContext) -> Result<u32, i64> {
 }
 
 #[inline(always)]
+unsafe fn read_kernel<T: Copy>(pointer: u64, offset: u32) -> Option<T> {
+    if pointer == 0 {
+        return None;
+    }
+    bpf_probe_read_kernel((pointer + (offset & 0xffff) as u64) as *const T).ok()
+}
+
+#[inline(always)]
+unsafe fn set_pending_identity(inode: u64, expected_kind: u32) -> Result<u32, i64> {
+    if inode == 0 {
+        return Ok(0);
+    }
+    let Some(offsets) = FILE_IDENTITY_OFFSETS.get(0) else {
+        return Ok(0);
+    };
+    if offsets.enabled == 0 {
+        return Ok(0);
+    }
+    let Some(number) = read_kernel::<u64>(inode, offsets.inode_ino) else {
+        return Ok(0);
+    };
+    let Some(super_block) = read_kernel::<u64>(inode, offsets.inode_sb) else {
+        return Ok(0);
+    };
+    let Some(device) = read_kernel::<u32>(super_block, offsets.super_block_dev) else {
+        return Ok(0);
+    };
+    if number == 0 {
+        return Ok(0);
+    }
+    let tid = bpf_get_current_pid_tgid() as u32;
+    let Some(pending) = FILE_PENDING.get_ptr_mut(&tid) else {
+        return Ok(0);
+    };
+    if (*pending).kind != expected_kind {
+        return Ok(0);
+    }
+    (*pending).inode = number;
+    (*pending).device = device;
+    Ok(0)
+}
+
+#[inline(always)]
+unsafe fn try_capture_dentry_identity(dentry: u64, expected_kind: u32) -> Result<u32, i64> {
+    let Some(offsets) = FILE_IDENTITY_OFFSETS.get(0) else {
+        return Ok(0);
+    };
+    if offsets.enabled == 0 {
+        return Ok(0);
+    }
+    let Some(inode) = read_kernel::<u64>(dentry, offsets.dentry_inode) else {
+        return Ok(0);
+    };
+    set_pending_identity(inode, expected_kind)
+}
+
+#[inline(always)]
+unsafe fn try_capture_rename_identity(rename_data: u64) -> Result<u32, i64> {
+    let Some(offsets) = FILE_IDENTITY_OFFSETS.get(0) else {
+        return Ok(0);
+    };
+    if offsets.enabled == 0 {
+        return Ok(0);
+    }
+    let Some(dentry) = read_kernel::<u64>(rename_data, offsets.renamedata_old_dentry) else {
+        return Ok(0);
+    };
+    try_capture_dentry_identity(dentry, FILE_KIND_RENAME)
+}
+
+#[inline(always)]
+unsafe fn try_remember_mkdir_dentry(dentry: u64) -> Result<u32, i64> {
+    if dentry == 0 {
+        return Ok(0);
+    }
+    let tid = bpf_get_current_pid_tgid() as u32;
+    let Some(pending) = FILE_PENDING.get(&tid) else {
+        return Ok(0);
+    };
+    if pending.kind == FILE_KIND_CREATE {
+        let _ = PENDING_MKDIR_DENTRY.insert(&tid, &dentry, 0);
+    }
+    Ok(0)
+}
+
+#[inline(always)]
+unsafe fn try_capture_mkdir_identity(_ctx: &RetProbeContext) -> Result<u32, i64> {
+    let tid = bpf_get_current_pid_tgid() as u32;
+    let Some(dentry) = PENDING_MKDIR_DENTRY.get(&tid).copied() else {
+        return Ok(0);
+    };
+    let result = try_capture_dentry_identity(dentry, FILE_KIND_CREATE);
+    let _ = PENDING_MKDIR_DENTRY.remove(&tid);
+    result
+}
+
+#[inline(always)]
+unsafe fn try_capture_open_identity(fd: i32, kind: u32) -> Result<u32, i64> {
+    if fd < 0 || fd >= 1_048_576 {
+        return Ok(0);
+    }
+    let Some(offsets) = FILE_IDENTITY_OFFSETS.get(0) else {
+        return Ok(0);
+    };
+    if offsets.enabled == 0 {
+        return Ok(0);
+    }
+    let task = bpf_get_current_task();
+    let Some(files) = read_kernel::<u64>(task, offsets.task_files) else {
+        return Ok(0);
+    };
+    let Some(fdtable) = read_kernel::<u64>(files, offsets.files_fdt) else {
+        return Ok(0);
+    };
+    let Some(max_fds) = read_kernel::<u32>(fdtable, offsets.fdtable_max_fds) else {
+        return Ok(0);
+    };
+    if fd as u32 >= max_fds {
+        return Ok(0);
+    }
+    let Some(entries) = read_kernel::<u64>(fdtable, offsets.fdtable_fd) else {
+        return Ok(0);
+    };
+    let slot = entries + ((fd as u64 & 0x000f_ffff) * 8);
+    let Some(file) = bpf_probe_read_kernel(slot as *const u64).ok() else {
+        return Ok(0);
+    };
+    let Some(inode) = read_kernel::<u64>(file, offsets.file_inode) else {
+        return Ok(0);
+    };
+    set_pending_identity(inode, kind)
+}
+
+#[inline(always)]
 unsafe fn try_handle_openat(ctx: &TracePointContext) -> Result<u32, i64> {
     let flags: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
         FILE_TRACEPOINT_OFFSETS.openat_flags
@@ -668,8 +845,6 @@ unsafe fn try_handle_creat(ctx: &TracePointContext) -> Result<u32, i64> {
     let path_ptr = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
         FILE_TRACEPOINT_OFFSETS.creat_path
     )))?;
-    let tid = bpf_get_current_pid_tgid() as u32;
-    let _ = OPENAT_CREATED.remove(&tid);
     queue_file_event_from_args(AT_FDCWD, path_ptr, FILE_KIND_CREATE)
 }
 
@@ -696,7 +871,6 @@ unsafe fn try_handle_openat2(ctx: &TracePointContext) -> Result<u32, i64> {
 unsafe fn try_queue_open(flags: u64, dfd: i32, path_ptr: u64) -> Result<u32, i64> {
     let tid = bpf_get_current_pid_tgid() as u32;
     if flags & O_CREAT != 0 {
-        let _ = OPENAT_CREATED.remove(&tid);
         return queue_file_event_from_args(dfd, path_ptr, FILE_KIND_CREATE);
     }
 
@@ -726,17 +900,19 @@ unsafe fn try_queue_open(flags: u64, dfd: i32, path_ptr: u64) -> Result<u32, i64
 unsafe fn try_handle_open_exit(ctx: &TracePointContext, ret_offset: usize) -> Result<u32, i64> {
     let ret: i64 = ctx.read_at::<i64>(ret_offset)?;
     let tid = bpf_get_current_pid_tgid() as u32;
-    // Clean up the vfs_create marker regardless.
-    let _ = OPENAT_CREATED.remove(&tid);
     // Emit for any successful open-with-create. This matches Sysmon Event ID 11
     // semantics, which fire on any open-with-create, not only brand-new inodes.
-    // The vfs_create kprobe path is kept for potential future filtering but is
-    // no longer required to gate the event.
     if ret >= 0 {
         let fd = ret as i32;
+        // Check the existing pending map first so ordinary read-only opens do
+        // not pay for the task -> fdtable -> file -> inode pointer walk.
+        let pending_kind = FILE_PENDING.get(&tid).map(|pending| pending.kind);
+        if matches!(pending_kind, Some(FILE_KIND_CREATE) | Some(FILE_KIND_CHANGE)) {
+            let _ = try_capture_open_identity(fd, pending_kind.unwrap_or(0));
+        }
         let pid = (bpf_get_current_pid_tgid() >> 32) as u32;
-        if let Some(pending) = FILE_PENDING.get_ptr_mut(&tid) {
-            if (*pending).kind == FILE_KIND_DIR_OPEN {
+        if matches!(pending_kind, Some(FILE_KIND_DIR_OPEN)) {
+            if let Some(pending) = FILE_PENDING.get_ptr_mut(&tid) {
                 let token = bpf_ktime_get_ns() | 1;
                 let state = TrackedDirFd {
                     token,
@@ -812,18 +988,6 @@ unsafe fn try_handle_mkdirat(ctx: &TracePointContext) -> Result<u32, i64> {
     )
 }
 
-#[inline(always)]
-unsafe fn try_handle_vfs_create(_ctx: &ProbeContext) -> Result<u32, i64> {
-    let tid = bpf_get_current_pid_tgid() as u32;
-    if FILE_PENDING.get_ptr(&tid).is_none() {
-        return Ok(0);
-    }
-
-    let created: u8 = 1;
-    let _ = OPENAT_CREATED.insert(&tid, &created, 0);
-    Ok(0)
-}
-
 /// Copy a NUL-terminated user path into `dst`.
 ///
 /// `Some(truncated)` on success. `None` means the string was unreadable or
@@ -890,6 +1054,9 @@ unsafe fn queue_file_event_from_args(dfd: i32, path_ptr: u64, kind: u32) -> Resu
     let dfd_token = current_dir_token((*event).pid, dfd);
     (*event).dfd_token = dfd_token;
     (*event).aux_dfd_token = dfd_token;
+    (*event).inode = 0;
+    (*event).device = 0;
+    (*event)._identity_pad = 0;
     (*event).aux_path[0] = 0;
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
     (*event).process_start_time = current_process_start_time((*event).pid);
@@ -977,6 +1144,9 @@ unsafe fn queue_rename_event_from_args(
     (*event).aux_dfd = old_dfd;
     (*event).dfd_token = current_dir_token((*event).pid, new_dfd);
     (*event).aux_dfd_token = current_dir_token((*event).pid, old_dfd);
+    (*event).inode = 0;
+    (*event).device = 0;
+    (*event)._identity_pad = 0;
     (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
     (*event).process_start_time = current_process_start_time((*event).pid);
 
@@ -1028,5 +1198,6 @@ unsafe fn emit_pending_file_event(
     }
 
     let _ = FILE_PENDING.remove(&tid);
+    let _ = PENDING_MKDIR_DENTRY.remove(&tid);
     Ok(0)
 }

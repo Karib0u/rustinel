@@ -3,6 +3,8 @@
 pub(crate) mod abi;
 pub mod ebpf;
 pub mod events;
+#[path = "../../../ebpf/src/file_identity_abi.rs"]
+pub mod file_identity_abi;
 mod inventory;
 pub mod paths;
 #[path = "../../../ebpf/src/socket_tuple_abi.rs"]
