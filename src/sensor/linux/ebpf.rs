@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use aya::maps::{MapData, PerCpuArray, RingBuf};
+use aya::maps::{Array, MapData, PerCpuArray, RingBuf};
 use aya::programs::{FExit, KProbe, TracePoint};
 use aya::{Ebpf, EbpfLoader};
 use tokio::io::unix::AsyncFd;
@@ -147,6 +147,23 @@ impl Sensor for EbpfSensor {
             offsets.set(index as u32, *plan, 0)?;
         }
 
+        let file_identity_layout = match super::task_btf::FileIdentityLayout::load() {
+            Ok(layout) => {
+                Array::<_, super::file_identity_abi::FileIdentityOffsets>::try_from(
+                    bpf.map_mut("FILE_IDENTITY_OFFSETS")
+                        .context("missing file identity offsets map")?,
+                )?
+                .set(0, layout.offsets, 0)?;
+                Some(layout)
+            }
+            Err(error) => {
+                let reason = format!("{error:#}");
+                LINUX_EBPF.record_hook("file_identity", "runtime_btf", false, Some(&reason));
+                warn!(%reason, "kernel file identity unavailable; file events remain enabled");
+                None
+            }
+        };
+
         // ── Attach programs ──────────────────────────────────────────────────
 
         attach_tracepoint(&mut bpf, "handle_exec", "sched", "sched_process_exec")?;
@@ -198,7 +215,6 @@ impl Sensor for EbpfSensor {
             "syscalls",
             "sys_exit_openat2",
         )?;
-        attach_kprobe(&mut bpf, "handle_vfs_create", "vfs_create")?;
         attach_tracepoint(
             &mut bpf,
             "handle_openat_exit",
@@ -266,6 +282,9 @@ impl Sensor for EbpfSensor {
         )?;
         attach_optional_tracepoint(&mut bpf, "handle_rmdir", "syscalls", "sys_enter_rmdir")?;
         attach_optional_tracepoint(&mut bpf, "handle_rmdir_exit", "syscalls", "sys_exit_rmdir")?;
+        if let Some(layout) = &file_identity_layout {
+            attach_file_identity(&mut bpf, layout)?;
+        }
         attach_tracepoint(&mut bpf, "handle_file_close", "syscalls", "sys_enter_close")?;
         attach_optional_tracepoint(&mut bpf, "handle_file_dup2", "syscalls", "sys_enter_dup2")?;
         attach_tracepoint(&mut bpf, "handle_file_dup3", "syscalls", "sys_enter_dup3")?;
@@ -822,6 +841,7 @@ fn build_file_event(
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user,
+            file_identity: crate::utils::file_identity::from_linux_event(ev.device, ev.inode),
             path_truncated,
         }),
     })
@@ -1013,6 +1033,23 @@ fn attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
     Ok(())
 }
 
+fn attach_file_identity(
+    bpf: &mut Ebpf,
+    layout: &super::task_btf::FileIdentityLayout,
+) -> Result<()> {
+    for (program, function) in [
+        (layout.unlink_program, "vfs_unlink"),
+        (layout.rmdir_program, "vfs_rmdir"),
+        (layout.mkdir_program, "vfs_mkdir"),
+        ("handle_vfs_mkdir_identity_exit", "vfs_mkdir"),
+        ("handle_vfs_rename_identity", "vfs_rename"),
+    ] {
+        attach_kprobe(bpf, program, function)?;
+    }
+    LINUX_EBPF.record_hook("file_identity", "open_fd", true, None);
+    Ok(())
+}
+
 fn try_attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
     let prog: &mut KProbe = bpf
         .program_mut(program)
@@ -1048,6 +1085,14 @@ fn features_for_program(program: &str) -> &'static [&'static str] {
         | "handle_process_vfork" => &["process"],
         "handle_connect" | "handle_connect_exit" => &["network"],
         "handle_sendto" | "handle_sendmsg" | "handle_sendmmsg" => &["dns"],
+        "handle_vfs_unlink_identity1"
+        | "handle_vfs_unlink_identity2"
+        | "handle_vfs_rmdir_identity1"
+        | "handle_vfs_rmdir_identity2"
+        | "handle_vfs_mkdir_identity1"
+        | "handle_vfs_mkdir_identity2"
+        | "handle_vfs_mkdir_identity_exit"
+        | "handle_vfs_rename_identity" => &["file_identity"],
         _ => &["file"],
     }
 }
@@ -1161,6 +1206,9 @@ mod tests {
             aux_dfd: AT_FDCWD,
             dfd_token: 0,
             aux_dfd_token: 0,
+            inode: 0,
+            device: 0,
+            _identity_pad: 0,
             path: fixed(path),
             aux_path: [0u8; FILE_PATH_LEN],
             comm: fixed(comm),
@@ -1710,6 +1758,28 @@ mod tests {
                 assert!(fields.source_filename.is_none());
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/test.txt"));
                 assert!(fields.image.is_none());
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_file_event_preserves_kernel_object_identity() {
+        let mut raw = file_event(1, 55, "/tmp/test.txt", "touch");
+        raw.device = (8 << 20) | 17;
+        raw.inode = 42;
+
+        let event =
+            build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("file event should build");
+        match event.payload {
+            SensorPayload::File(fields) => {
+                assert_eq!(
+                    fields.file_identity,
+                    Some(crate::models::FileObjectIdentity {
+                        device: libc::makedev(8, 17),
+                        inode: 42,
+                    })
+                );
             }
             other => panic!("unexpected payload: {:?}", other),
         }

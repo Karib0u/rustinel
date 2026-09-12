@@ -17,7 +17,6 @@
 //! | `handle_connect_exit` | `syscalls/sys_exit_connect` | emit Event 3    |
 //! | `handle_open*`        | `sys_enter_open/openat/openat2` | queue file event |
 //! | `handle_creat`        | `syscalls/sys_enter_creat`  | queue Event 11 |
-//! | `handle_vfs_create`   | `kprobe/vfs_create`         | confirm create |
 //! | `handle_open*_exit`   | `sys_exit_open/openat/openat2` | emit file event |
 //! | `handle_unlink*`      | `sys_enter_unlink/unlinkat` | queue Event 23 |
 //! | `handle_unlink*_exit` | `sys_exit_unlink/unlinkat`  | emit Event 23 |
@@ -41,6 +40,7 @@
 pub mod dns;
 pub mod events;
 pub mod file;
+pub mod file_identity_abi;
 pub mod network;
 pub mod process;
 pub mod socket_tuple;
@@ -55,7 +55,7 @@ pub mod telemetry;
 /// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
 #[used]
 #[no_mangle]
-pub static RUSTINEL_ABI_VERSION: u32 = 3;
+pub static RUSTINEL_ABI_VERSION: u32 = 4;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

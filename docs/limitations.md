@@ -99,6 +99,9 @@ Fields each platform never fills are listed in [Field availability](field-availa
   A connect still in progress is reported and not retracted if it later fails.
 - **Process identity fields need BTF.**
   Without it, `User` and related fields are empty and `doctor` warns with `linux_task_<field>`.
+- **File object identity needs BTF.**
+  Without it, file events still use syscall paths and success checks, but inode and device identity are unavailable.
+  `doctor` reports the unavailable `file_identity` hook.
 - **Parent identity** is derived for `CLONE_PARENT`, and can be missing for processes that started before Rustinel.
 - **DNS:** plain UDP on port 53 only, no answers, and long names are dropped.
   `RecordType` is `OTHER` for anything but A, NS, CNAME, PTR, TXT, and AAAA.

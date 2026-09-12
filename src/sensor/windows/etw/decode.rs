@@ -520,6 +520,7 @@ fn file_event_fields(parser: &Parser, raw_path: &str) -> Option<FileEventFields>
             mappings.get_etw_field("PreviousCreationUtcTime")?,
         ),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
+        file_identity: None,
         // ETW delivers whole paths or none at all; there is no capture buffer
         // to overflow on Windows.
         path_truncated: None,

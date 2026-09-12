@@ -216,6 +216,12 @@ pub struct FileEvent {
     /// Kernel token for the indexed directory currently held in `aux_dfd`.
     /// Zero means userspace must use the `/proc` fallback.
     pub aux_dfd_token: u64,
+    /// Inode number measured while the kernel still held the object.
+    /// Zero means file identity was unavailable.
+    pub inode: u64,
+    /// Kernel `dev_t` from the inode's superblock.
+    pub device: u32,
+    pub _identity_pad: u32,
     /// Null-terminated file path (target/new name for renames).
     pub path: [u8; FILE_PATH_LEN],
     /// Null-terminated auxiliary path (source/old name for renames).

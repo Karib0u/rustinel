@@ -345,6 +345,126 @@ impl Btf {
         Ok(offset)
     }
 
+    fn file_field(&self, root: &str, path: &[&str], target: FileFieldType) -> Result<u32> {
+        let mut ty = self
+            .types
+            .iter()
+            .find(|ty| ty.kind == 4 && ty.name == root)
+            .with_context(|| format!("missing {root}"))?;
+        let mut offset = 0u32;
+        for component in path {
+            let (delta, id) = self.member(ty, component, 0)?;
+            offset = offset
+                .checked_add(delta)
+                .context("file identity offset overflow")?;
+            ty = self.ty(id)?;
+        }
+        ensure!(
+            offset <= 65535,
+            "file identity offset exceeds verifier bounds"
+        );
+        match target {
+            FileFieldType::Scalar(width) => self.scalar(ty, width)?,
+            FileFieldType::Pointer(name) => {
+                ensure!(ty.kind == 2, "expected pointer to {name}");
+                ensure!(
+                    self.ty(ty.size_type)?.kind == 4 && self.ty(ty.size_type)?.name == name,
+                    "expected pointer to {name}"
+                );
+            }
+            FileFieldType::PointerToPointer(name) => {
+                ensure!(ty.kind == 2, "expected pointer-to-pointer to {name}");
+                let pointer = self.ty(ty.size_type)?;
+                ensure!(pointer.kind == 2, "expected pointer-to-pointer to {name}");
+                ensure!(
+                    self.ty(pointer.size_type)?.kind == 4
+                        && self.ty(pointer.size_type)?.name == name,
+                    "expected pointer-to-pointer to {name}"
+                );
+            }
+        }
+        Ok(offset)
+    }
+
+    fn function_parameter(&self, function: &str, parameter: &str, pointee: &str) -> Result<usize> {
+        let func = self
+            .types
+            .iter()
+            .find(|ty| ty.kind == 12 && ty.name == function)
+            .with_context(|| format!("missing function {function}"))?;
+        let proto = self.ty(func.size_type)?;
+        ensure!(proto.kind == 13, "missing function prototype");
+        let (index, member) = proto
+            .members
+            .iter()
+            .enumerate()
+            .find(|(_, member)| member.name == parameter)
+            .with_context(|| format!("missing parameter {function}.{parameter}"))?;
+        let pointer = self.ty(member.ty)?;
+        ensure!(pointer.kind == 2, "expected pointer parameter {parameter}");
+        ensure!(
+            self.ty(pointer.size_type)?.kind == 4 && self.ty(pointer.size_type)?.name == pointee,
+            "unexpected parameter type for {function}.{parameter}"
+        );
+        Ok(index)
+    }
+
+    fn file_identity_layout(&self) -> Result<FileIdentityLayout> {
+        use super::file_identity_abi::FileIdentityOffsets;
+        let offsets = FileIdentityOffsets {
+            enabled: 1,
+            task_files: self.file_field(
+                "task_struct",
+                &["files"],
+                FileFieldType::Pointer("files_struct"),
+            )?,
+            files_fdt: self.file_field(
+                "files_struct",
+                &["fdt"],
+                FileFieldType::Pointer("fdtable"),
+            )?,
+            fdtable_max_fds: self.file_field("fdtable", &["max_fds"], FileFieldType::Scalar(4))?,
+            fdtable_fd: self.file_field(
+                "fdtable",
+                &["fd"],
+                FileFieldType::PointerToPointer("file"),
+            )?,
+            file_inode: self.file_field("file", &["f_inode"], FileFieldType::Pointer("inode"))?,
+            dentry_inode: self.file_field(
+                "dentry",
+                &["d_inode"],
+                FileFieldType::Pointer("inode"),
+            )?,
+            inode_ino: self.file_field("inode", &["i_ino"], FileFieldType::Scalar(8))?,
+            inode_sb: self.file_field("inode", &["i_sb"], FileFieldType::Pointer("super_block"))?,
+            super_block_dev: self.file_field(
+                "super_block",
+                &["s_dev"],
+                FileFieldType::Scalar(4),
+            )?,
+            renamedata_old_dentry: self.file_field(
+                "renamedata",
+                &["old_dentry"],
+                FileFieldType::Pointer("dentry"),
+            )?,
+        };
+        Ok(FileIdentityLayout {
+            offsets,
+            unlink_program: dentry_program(
+                "handle_vfs_unlink_identity",
+                self.function_parameter("vfs_unlink", "dentry", "dentry")?,
+            )?,
+            rmdir_program: dentry_program(
+                "handle_vfs_rmdir_identity",
+                self.function_parameter("vfs_rmdir", "dentry", "dentry")?,
+            )?,
+            mkdir_program: dentry_program(
+                "handle_vfs_mkdir_identity",
+                self.function_parameter("vfs_mkdir", "dentry", "dentry")?,
+            )?,
+        })
+    }
+
     fn function(&self, name: &str, returns_sock: bool) -> Result<usize> {
         let func = self
             .types
@@ -435,6 +555,24 @@ impl Btf {
             .find(|entry| entry.name == member)
             .map(|entry| entry.bits)
             .context("missing BTF enum value")
+    }
+}
+
+enum FileFieldType {
+    Scalar(u32),
+    Pointer(&'static str),
+    PointerToPointer(&'static str),
+}
+
+fn dentry_program(prefix: &'static str, index: usize) -> Result<&'static str> {
+    match (prefix, index) {
+        ("handle_vfs_unlink_identity", 1) => Ok("handle_vfs_unlink_identity1"),
+        ("handle_vfs_unlink_identity", 2) => Ok("handle_vfs_unlink_identity2"),
+        ("handle_vfs_rmdir_identity", 1) => Ok("handle_vfs_rmdir_identity1"),
+        ("handle_vfs_rmdir_identity", 2) => Ok("handle_vfs_rmdir_identity2"),
+        ("handle_vfs_mkdir_identity", 1) => Ok("handle_vfs_mkdir_identity1"),
+        ("handle_vfs_mkdir_identity", 2) => Ok("handle_vfs_mkdir_identity2"),
+        _ => bail!("unsupported {prefix} dentry argument index {index}"),
     }
 }
 
@@ -557,6 +695,24 @@ mod tests {
 }
 
 unsafe impl aya::Pod for super::socket_tuple_abi::SocketOffsets {}
+unsafe impl aya::Pod for super::file_identity_abi::FileIdentityOffsets {}
+
+pub struct FileIdentityLayout {
+    pub offsets: super::file_identity_abi::FileIdentityOffsets,
+    pub unlink_program: &'static str,
+    pub rmdir_program: &'static str,
+    pub mkdir_program: &'static str,
+}
+
+impl FileIdentityLayout {
+    pub fn load() -> Result<Self> {
+        Self::from_bytes(&std::fs::read(BTF_PATH).context("reading kernel BTF")?)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Btf::parse(bytes)?.file_identity_layout()
+    }
+}
 
 pub struct SocketLayout {
     pub offsets: super::socket_tuple_abi::SocketOffsets,
@@ -584,7 +740,7 @@ mod socket_tests {
             int_encoding: size * 8,
             ..Type::default()
         };
-        let member = |name: &str, ty, offset| Member {
+        let member = |name: &str, ty, offset: u32| Member {
             name: name.into(),
             ty,
             bits: offset * 8,
@@ -702,5 +858,124 @@ mod socket_tests {
         assert_eq!(btf.socket_layout().unwrap().offsets.protocol_width, 1);
         btf.types[6].members[1].ty = 3;
         assert!(btf.socket_layout().is_err());
+    }
+}
+
+#[cfg(test)]
+mod file_identity_tests {
+    use super::*;
+
+    fn fixture(dentry_index: usize) -> Btf {
+        let scalar = |size| Type {
+            kind: 1,
+            size_type: size,
+            int_encoding: size * 8,
+            ..Type::default()
+        };
+        let member = |name: &str, ty, offset: u32| Member {
+            name: name.into(),
+            ty,
+            bits: offset * 8,
+            bitfield: false,
+        };
+        let composite = |name: &str, size, members| Type {
+            name: name.into(),
+            kind: 4,
+            size_type: size,
+            members,
+            ..Type::default()
+        };
+        let pointer = |target| Type {
+            kind: 2,
+            size_type: target,
+            ..Type::default()
+        };
+        let proto = |dentry_index| Type {
+            kind: 13,
+            size_type: 1,
+            members: (0..=dentry_index)
+                .map(|index| member(if index == dentry_index { "dentry" } else { "" }, 8, 0))
+                .collect(),
+            ..Type::default()
+        };
+        let func = |name: &str, prototype| Type {
+            name: name.into(),
+            kind: 12,
+            size_type: prototype,
+            ..Type::default()
+        };
+        Btf {
+            types: vec![
+                Type::default(),
+                scalar(4), // 1
+                scalar(8), // 2
+                composite(
+                    "inode",
+                    256,
+                    vec![member("i_ino", 2, 64), member("i_sb", 6, 72)],
+                ), // 3
+                pointer(3), // 4
+                composite("super_block", 256, vec![member("s_dev", 1, 16)]), // 5
+                pointer(5), // 6
+                composite("dentry", 128, vec![member("d_inode", 4, 48)]), // 7
+                pointer(7), // 8
+                composite("file", 192, vec![member("f_inode", 4, 80)]), // 9
+                pointer(9), // 10
+                pointer(10), // 11
+                composite(
+                    "fdtable",
+                    64,
+                    vec![member("max_fds", 1, 0), member("fd", 11, 8)],
+                ), // 12
+                pointer(12), // 13
+                composite("files_struct", 128, vec![member("fdt", 13, 24)]), // 14
+                pointer(14), // 15
+                composite("task_struct", 4096, vec![member("files", 15, 1024)]), // 16
+                composite("renamedata", 64, vec![member("old_dentry", 8, 16)]), // 17
+                proto(dentry_index), // 18
+                func("vfs_unlink", 18), // 19
+                proto(dentry_index), // 20
+                func("vfs_rmdir", 20), // 21
+                proto(dentry_index), // 22
+                func("vfs_mkdir", 22), // 23
+            ],
+        }
+    }
+
+    #[test]
+    fn file_offsets_and_dentry_arguments_follow_kernel_btf() {
+        for index in [1, 2] {
+            let layout = fixture(index).file_identity_layout().unwrap();
+            assert_eq!(layout.offsets.enabled, 1);
+            assert_eq!(layout.offsets.task_files, 1024);
+            assert_eq!(layout.offsets.file_inode, 80);
+            assert_eq!(layout.offsets.inode_ino, 64);
+            assert_eq!(layout.offsets.super_block_dev, 16);
+            assert_eq!(
+                layout.unlink_program,
+                if index == 1 {
+                    "handle_vfs_unlink_identity1"
+                } else {
+                    "handle_vfs_unlink_identity2"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_file_layout_selects_identity_fallback() {
+        assert!(FileIdentityLayout::from_bytes(&[]).is_err());
+        assert!(fixture(3).file_identity_layout().is_err());
+        let mut btf = fixture(2);
+        btf.types[3].members[0].name = "renamed_ino".into();
+        assert!(btf.file_identity_layout().is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires readable BTF from the running Linux kernel"]
+    fn running_kernel_file_identity_layout_is_supported() {
+        let layout = FileIdentityLayout::load().expect("running kernel file identity layout");
+        assert_eq!(layout.offsets.enabled, 1);
     }
 }

@@ -264,6 +264,12 @@ pub struct FileEvent {
     /// Kernel token for the indexed directory currently held in `aux_dfd`.
     /// Zero means the index must not be used.
     pub aux_dfd_token: u64,
+    /// Inode number measured while the kernel still held the object.
+    /// Zero means file identity was unavailable.
+    pub inode: u64,
+    /// Kernel `dev_t` from the inode's superblock.
+    pub device: u32,
+    pub _identity_pad: u32,
     pub path: [u8; FILE_PATH_LEN],
     pub aux_path: [u8; FILE_PATH_LEN],
     pub comm: [u8; 16],
@@ -340,7 +346,7 @@ const _: () = assert!(
     "NetworkEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(
-    core::mem::size_of::<FileEvent>() == 1104,
+    core::mem::size_of::<FileEvent>() == 1120,
     "FileEvent layout changed — update ebpf/src/events.rs to match"
 );
 const _: () = assert!(core::mem::size_of::<FileEventHeader>() == 8);
@@ -525,6 +531,10 @@ pub mod mapping {
                 creation_utc_time: None,
                 previous_creation_utc_time: None,
                 user: (event.uid != u32::MAX).then(|| event.uid.to_string()),
+                file_identity: crate::utils::file_identity::from_linux_event(
+                    event.device,
+                    event.inode,
+                ),
             }),
         })
     }

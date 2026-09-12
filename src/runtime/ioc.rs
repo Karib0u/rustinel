@@ -87,11 +87,12 @@ pub fn spawn_ioc_hash_worker(
                 }
             }
 
-            let hashes = match cache.get_or_compute_for_identity(
+            let hashes = match cache.get_or_compute_for_target(
                 Path::new(&path),
                 requirements,
                 &mut buf,
                 target.identity.as_ref(),
+                target.file_identity.as_ref(),
             ) {
                 Ok(hashes) => hashes,
                 Err(err) => {

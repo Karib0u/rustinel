@@ -16,6 +16,22 @@ pub(crate) struct FileIdentity {
     changed: i128,
 }
 
+impl FileIdentity {
+    #[cfg(unix)]
+    pub(crate) fn matches_object(&self, expected: &crate::models::FileObjectIdentity) -> bool {
+        matches!(
+            self.platform,
+            PlatformFileIdentity::Unix { device, inode }
+                if device == expected.device && inode == expected.inode
+        )
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn matches_object(&self, _expected: &crate::models::FileObjectIdentity) -> bool {
+        false
+    }
+}
+
 #[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum PlatformFileIdentity {
@@ -59,6 +75,24 @@ pub(crate) fn from_stat(stat: &libc::stat) -> FileIdentity {
         modified: timestamp(stat.st_mtime, stat.st_mtime_nsec),
         changed: timestamp(stat.st_ctime, stat.st_ctime_nsec),
     }
+}
+
+/// Convert the kernel's compact `dev_t` plus inode into the same object
+/// identity used by identities measured from an open userspace handle.
+#[cfg(target_os = "linux")]
+pub(crate) fn from_linux_event(
+    device: u32,
+    inode: u64,
+) -> Option<crate::models::FileObjectIdentity> {
+    if inode == 0 {
+        return None;
+    }
+    let major = device >> 20;
+    let minor = device & 0x000f_ffff;
+    Some(crate::models::FileObjectIdentity {
+        device: libc::makedev(major, minor),
+        inode,
+    })
 }
 
 #[cfg(unix)]
@@ -119,6 +153,25 @@ pub(crate) fn unchanged(file: &File, path: &Path, initial: &FileIdentity) -> boo
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn kernel_device_encoding_matches_userspace_file_identity() {
+        use std::os::unix::fs::MetadataExt;
+
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let metadata = file.as_file().metadata().unwrap();
+        let kernel_device = ((libc::major(metadata.dev()) as u32) << 20)
+            | (libc::minor(metadata.dev()) as u32 & 0x000f_ffff);
+        assert_eq!(
+            from_linux_event(kernel_device, metadata.ino()),
+            Some(crate::models::FileObjectIdentity {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+            })
+        );
+        assert_eq!(from_linux_event(kernel_device, 0), None);
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

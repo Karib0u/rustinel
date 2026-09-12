@@ -49,7 +49,7 @@ pub const TARGET_TELEMETRY: &str = "telemetry";
 /// Bump this whenever a ring-buffer event layout or loader-patched global
 /// changes. This lives outside the Linux-only sensor module because telemetry
 /// snapshots are compiled on every supported platform.
-pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 3;
+pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 4;
 
 /// Linux ring-buffer program families, in snapshot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,6 +355,17 @@ fn linux_feature_is_active(feature: &LinuxEbpfFeatureSnapshot) -> bool {
         ]
         .into_iter()
         .any(|(entry, exit)| attached(entry) && attached(exit)),
+        "file_identity" => {
+            attached("open_fd")
+                && (attached("handle_vfs_unlink_identity1")
+                    || attached("handle_vfs_unlink_identity2"))
+                && (attached("handle_vfs_rmdir_identity1")
+                    || attached("handle_vfs_rmdir_identity2"))
+                && (attached("handle_vfs_mkdir_identity1")
+                    || attached("handle_vfs_mkdir_identity2"))
+                && attached("handle_vfs_mkdir_identity_exit")
+                && attached("handle_vfs_rename_identity")
+        }
         _ => false,
     }
 }
@@ -1317,6 +1328,26 @@ mod tests {
         assert!(!linux_feature_is_active(&linux_feature(
             "network_tuple",
             &fallback
+        )));
+    }
+
+    #[test]
+    fn file_identity_requires_every_operation_family() {
+        let hooks = [
+            "open_fd",
+            "handle_vfs_unlink_identity2",
+            "handle_vfs_rmdir_identity2",
+            "handle_vfs_mkdir_identity2",
+            "handle_vfs_mkdir_identity_exit",
+            "handle_vfs_rename_identity",
+        ];
+        assert!(linux_feature_is_active(&linux_feature(
+            "file_identity",
+            &hooks
+        )));
+        assert!(!linux_feature_is_active(&linux_feature(
+            "file_identity",
+            &hooks[..hooks.len() - 1]
         )));
     }
 

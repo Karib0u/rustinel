@@ -896,6 +896,7 @@ mod tests {
                     creation_utc_time: Some("2026-01-06T00:00:00Z".to_string()),
                     previous_creation_utc_time: None,
                     user: Some("ALICE".to_string()),
+                    file_identity: None,
                     path_truncated: None,
                 }),
                 provenance: Default::default(),

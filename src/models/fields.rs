@@ -209,6 +209,14 @@ pub struct ProcessCreationFields {
     pub windows: Option<Box<WindowsProcessMetadata>>,
 }
 
+/// Sensor-measured identity of a filesystem object.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FileObjectIdentity {
+    pub device: u64,
+    pub inode: u64,
+}
+
 /// File event fields (Sigma: file_access, file_delete, file_event)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEventFields {
@@ -235,6 +243,11 @@ pub struct FileEventFields {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+
+    /// Filesystem object identity measured by the sensor at event time.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub file_identity: Option<FileObjectIdentity>,
 
     /// Which paths on this event were cut short by the sensor's capture buffer:
     /// `"target"`, `"source"`, or `"source,target"`. Absent when both are

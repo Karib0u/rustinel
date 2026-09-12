@@ -74,17 +74,25 @@ impl HashCache {
     where
         F: FnOnce(&mut File, HashRequirements, &mut [u8]) -> anyhow::Result<ComputedHashes>,
     {
-        self.get_or_compute_expected(path, requirements, buf, None, compute)
+        self.get_or_compute_expected(path, requirements, buf, None, None, compute)
     }
 
-    pub(crate) fn get_or_compute_for_identity(
+    pub(crate) fn get_or_compute_for_target(
         &mut self,
         path: &Path,
         requirements: HashRequirements,
         buf: &mut [u8],
         expected: Option<&FileIdentity>,
+        expected_object: Option<&crate::models::FileObjectIdentity>,
     ) -> anyhow::Result<ComputedHashes> {
-        self.get_or_compute_expected(path, requirements, buf, expected, compute_hashes)
+        self.get_or_compute_expected(
+            path,
+            requirements,
+            buf,
+            expected,
+            expected_object,
+            compute_hashes,
+        )
     }
 
     fn get_or_compute_expected<F>(
@@ -93,6 +101,7 @@ impl HashCache {
         requirements: HashRequirements,
         buf: &mut [u8],
         expected: Option<&FileIdentity>,
+        expected_object: Option<&crate::models::FileObjectIdentity>,
         compute: F,
     ) -> anyhow::Result<ComputedHashes>
     where
@@ -101,7 +110,14 @@ impl HashCache {
         let mut file = File::open(path)?;
         let identity = file_identity::from_file(&file);
         if expected.is_some() && identity.as_ref() != expected {
-            anyhow::bail!("executable identity changed before hashing");
+            anyhow::bail!("file identity changed before hashing");
+        }
+        if expected_object.is_some_and(|expected| {
+            !identity
+                .as_ref()
+                .is_some_and(|identity| identity.matches_object(expected))
+        }) {
+            anyhow::bail!("file identity changed before hashing");
         }
         if let Some(identity) = &identity {
             if let Some(entry) = self.entries.get(identity) {
@@ -112,8 +128,12 @@ impl HashCache {
         }
 
         let hashes = compute(&mut file, requirements, buf)?;
-        if expected.is_some_and(|expected| !file_identity::unchanged(&file, path, expected)) {
-            anyhow::bail!("executable identity changed during hashing");
+        if (expected.is_some() || expected_object.is_some())
+            && identity
+                .as_ref()
+                .is_some_and(|identity| !file_identity::unchanged(&file, path, identity))
+        {
+            anyhow::bail!("file identity changed during hashing");
         }
         if let Some(identity) = identity {
             if file_identity::unchanged(&file, path, &identity) {
@@ -209,6 +229,7 @@ mod tests {
                 sha256_only(),
                 &mut buf,
                 Some(&identity),
+                None,
                 |file, requirements, buf| {
                     let hashes = compute_hashes(file, requirements, buf)?;
                     fs::write(&path, b"changed!")?;
@@ -217,7 +238,32 @@ mod tests {
             )
             .is_err());
         assert!(cache
-            .get_or_compute_for_identity(&path, sha256_only(), &mut buf, Some(&identity))
+            .get_or_compute_for_target(&path, sha256_only(), &mut buf, Some(&identity), None,)
+            .is_err());
+        assert!(cache.entries.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn event_object_identity_rejects_replacement() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample");
+        fs::write(&path, b"clean!").unwrap();
+        let metadata = fs::metadata(&path).unwrap();
+        let expected = crate::models::FileObjectIdentity {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        };
+        let replacement = dir.path().join("replacement");
+        fs::write(&replacement, b"changed!").unwrap();
+        fs::rename(replacement, &path).unwrap();
+
+        let mut cache = HashCache::new();
+        let mut buf = [0; 64];
+        assert!(cache
+            .get_or_compute_for_target(&path, sha256_only(), &mut buf, None, Some(&expected),)
             .is_err());
         assert!(cache.entries.is_empty());
     }
