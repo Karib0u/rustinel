@@ -268,7 +268,7 @@ jobs:
         run: |
           sudo -E python3 tests/atomic/run_atomics.py \
             --platform linux \
-            --engine-bin "$GITHUB_WORKSPACE/target/release/rustinel" \
+            --engine-bin "$GITHUB_WORKSPACE/target/release/missing-rustinel" \
             --engine-dir "$GITHUB_WORKSPACE/rustinel-rules/tests/atomic/.engine" \
             --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
             --pack auto
@@ -285,7 +285,7 @@ jobs:
           $env:TMP = $atomicTemp
           python tests\atomic\run_atomics.py `
             --platform windows `
-            --engine-bin "$env:GITHUB_WORKSPACE\target\release\rustinel.exe" `
+            --engine-bin "$env:GITHUB_WORKSPACE\target\release\missing-rustinel.exe" `
             --engine-dir "$env:GITHUB_WORKSPACE\rustinel-rules\tests\atomic\.engine" `
             --rules-dir "$env:GITHUB_WORKSPACE\rustinel-rules" `
             --pack auto
