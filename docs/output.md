@@ -44,13 +44,14 @@ One JSON object per line, following ECS 9.4.0.
 | `event.kind` | Always `alert` |
 | `event.code` | Sysmon-style or native event ID |
 | `event.dataset` | `edr.<family>`, see below |
-| `event.provider` | The Rustinel sensor: `etw`, `windows_event_log`, `ebpf`, `esf`, `bpf`, or `yara-memory` |
+| `event.provider` | The originating Rustinel sensor: `etw`, `windows_event_log`, `ebpf`, `esf`, or `bpf` |
 | `event.sequence` | Native sequence number, when the source has one |
 | `event.count` | Rollup alerts only: repeats suppressed by [deduplication](detection.md#deduplication) |
 | `rule.name` | Rule title |
 | `rule.id` | `sigma::<id>`, `yara::<id>`, or `ioc::<type>::<value>` |
 | `edr.rule.severity` | `Low`, `Medium`, `High`, or `Critical` |
 | `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
+| `edr.yara.scan_source` | YARA alerts only: `file` or `process_memory` |
 | `edr.event.ingest_seq` | Order in which Rustinel processed the event |
 | `edr.event.provenance` | Fields Rustinel reconstructed rather than measured, marked `derived` |
 | `edr.match` | Why the rule matched, when `alerts.match_debug` is on |

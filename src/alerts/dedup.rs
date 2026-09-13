@@ -14,9 +14,9 @@
 //!
 //! # Identity
 //! Every key contains the detection engine, rule ID (or rule name fallback), event
-//! dataset/action/code, and a canonical subject fingerprint. The fingerprint includes
-//! process instance and command-line fields plus the fields that identify the subject
-//! for each supported category:
+//! dataset/action/code, YARA scan source, and a canonical subject fingerprint. The
+//! fingerprint includes process instance and command-line fields plus the fields that
+//! identify the subject for each supported category:
 //! - network endpoints, domain, and protocol
 //! - file or loaded-image path
 //! - registry path, data, event type, and rename target
@@ -37,7 +37,7 @@
 //! so dedup activity stays observable on a long-running agent.
 
 use crate::models::ecs::EcsAlert;
-use crate::models::Alert;
+use crate::models::{Alert, YaraScanSource};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -59,6 +59,7 @@ struct SubjectIdentity {
     event_dataset: String,
     event_action: Option<String>,
     event_code: Option<String>,
+    yara_scan_source: Option<YaraScanSource>,
     process_executable: Option<String>,
     process_command_line: Option<String>,
     process_pid: Option<u64>,
@@ -113,6 +114,7 @@ impl DedupKey {
                 event_dataset: ecs.event_dataset.clone(),
                 event_action: ecs.event_action.clone(),
                 event_code: ecs.event_code.clone(),
+                yara_scan_source: ecs.edr_yara_scan_source,
                 process_executable: ecs.process_executable.clone(),
                 process_command_line: ecs.process_command_line.clone(),
                 process_pid: ecs.process_pid,
@@ -169,6 +171,7 @@ struct DedupEntry {
     /// A clone of the original internal `Alert` so we can rebuild a complete ECS
     /// rollup (with all enriched fields) at flush time.
     sample: Alert,
+    yara_scan_source: Option<YaraScanSource>,
 }
 
 /// Global counters visible to operational logs.
@@ -228,6 +231,7 @@ impl Deduplicator {
                 first_seen: now,
                 count: 1,
                 sample: alert.clone(),
+                yara_scan_source: ecs.edr_yara_scan_source,
             },
         );
         true
@@ -316,6 +320,7 @@ fn rollup_alert(entry: &DedupEntry) -> Option<EcsAlert> {
         return None;
     }
     let mut ecs = EcsAlert::from(&entry.sample);
+    ecs.edr_yara_scan_source = entry.yara_scan_source;
     ecs.event_count = Some(suppressed);
     Some(ecs)
 }
@@ -525,6 +530,41 @@ mod tests {
         assert_distinct_subjects(|ecs| {
             ecs.process_command_line = Some("curl https://second.example".to_string());
         });
+    }
+
+    #[test]
+    fn yara_file_and_memory_hits_are_tracked_separately() {
+        let dedup = Deduplicator::new(60, 1000);
+        let mut alert = make_alert("Rule A", "/usr/bin/curl");
+        alert.engine = DetectionEngine::Yara;
+        let mut file_ecs = EcsAlert::from(&alert);
+        file_ecs.edr_yara_scan_source = Some(YaraScanSource::File);
+        let mut memory_ecs = EcsAlert::from(&alert);
+        memory_ecs.edr_yara_scan_source = Some(YaraScanSource::ProcessMemory);
+
+        assert!(dedup.record(&file_ecs, &alert));
+        assert!(
+            dedup.record(&memory_ecs, &alert),
+            "otherwise identical file and memory detections must not be deduplicated"
+        );
+        assert!(!dedup.record(&file_ecs, &alert));
+        assert!(!dedup.record(&memory_ecs, &alert));
+
+        let entries = dedup.drain_expired(Instant::now() + Duration::from_secs(60));
+        let mut rollup_sources: Vec<_> = entries
+            .iter()
+            .filter_map(rollup_alert)
+            .map(|ecs| ecs.edr_yara_scan_source.expect("YARA scan source"))
+            .collect();
+        rollup_sources.sort_by_key(|source| match source {
+            YaraScanSource::File => 0,
+            YaraScanSource::ProcessMemory => 1,
+        });
+        assert_eq!(
+            rollup_sources,
+            [YaraScanSource::File, YaraScanSource::ProcessMemory],
+            "rollups must preserve their original scan source"
+        );
     }
 
     #[test]
