@@ -216,9 +216,37 @@ pub fn process_image_path(pid: u32) -> Option<String> {
     if pid == 0 {
         return None;
     }
-    libproc::proc_pid::pidpath(pid as i32)
+    libproc::proc_pid::pidpath(i32::try_from(pid).ok()?)
         .ok()
         .filter(|path| !path.is_empty())
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn unix_timeval_nanos(seconds: u64, microseconds: u64) -> Option<u64> {
+    if microseconds >= 1_000_000 {
+        return None;
+    }
+
+    seconds
+        .checked_mul(1_000_000_000)?
+        .checked_add(microseconds.checked_mul(1_000)?)
+}
+
+/// Query the Unix-epoch nanosecond process start time exposed by libproc.
+///
+/// Endpoint Security reports the same `timeval` value and the macOS sensor
+/// stores it as nanoseconds, so this representation can be compared directly
+/// with the identity captured from an exec event.
+#[cfg(target_os = "macos")]
+fn macos_process_start_time(pid: i32) -> Option<u64> {
+    use libproc::bsd_info::BSDInfo;
+
+    let info = libproc::proc_pid::pidinfo::<BSDInfo>(pid, 0).ok()?;
+    if info.pbi_pid != u32::try_from(pid).ok()? {
+        return None;
+    }
+
+    unix_timeval_nanos(info.pbi_start_tvsec, info.pbi_start_tvusec)
 }
 
 #[cfg(target_os = "linux")]
@@ -254,6 +282,34 @@ pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
         image: details.image?,
         start_time: details.start_time,
         command_line_hash: details.command_line.as_deref().map(hash_command_line),
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
+    if pid == 0 {
+        return None;
+    }
+
+    let native_pid = i32::try_from(pid).ok()?;
+    let start_time = macos_process_start_time(native_pid)?;
+    let image = process_image_path(pid)?;
+
+    // `pidpath` and `pidinfo` are separate syscalls. Re-read the process birth
+    // time after resolving the path so a PID recycled between them cannot
+    // produce an identity assembled from two different processes.
+    if macos_process_start_time(native_pid)? != start_time {
+        return None;
+    }
+
+    Some(ProcessIdentity {
+        pid,
+        image,
+        start_time: Some(start_time),
+        // libproc does not provide a command-line query. The start time and
+        // executable path still preserve the PID-reuse protection needed by
+        // memory scanning.
+        command_line_hash: None,
     })
 }
 
@@ -340,7 +396,7 @@ pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
     })
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 pub fn query_process_identity(_pid: u32) -> Option<ProcessIdentity> {
     None
 }
@@ -547,6 +603,21 @@ mod identity_tests {
             Err("process no longer exists or identity could not be queried".to_string())
         );
     }
+
+    #[test]
+    fn macos_timeval_matches_endpoint_security_nanoseconds() {
+        assert_eq!(
+            unix_timeval_nanos(1_725_897_600, 123_456),
+            Some(1_725_897_600_123_456_000)
+        );
+        assert_eq!(unix_timeval_nanos(0, 999_999), Some(999_999_000));
+    }
+
+    #[test]
+    fn invalid_or_overflowing_timeval_is_rejected() {
+        assert_eq!(unix_timeval_nanos(1, 1_000_000), None);
+        assert_eq!(unix_timeval_nanos(u64::MAX, 0), None);
+    }
 }
 
 #[cfg(all(test, windows))]
@@ -560,5 +631,36 @@ mod windows_command_line_tests {
         assert!(query_process_command_line_at_start(pid, start).is_some());
         assert!(query_process_command_line_at_start(pid, start + 1).is_none());
         assert!(query_process_command_line_at_start(4, 1).is_none());
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_identity_tests {
+    use super::*;
+
+    #[test]
+    fn current_process_identity_is_queryable_and_validates() {
+        let pid = std::process::id();
+        let identity = query_process_identity(pid).expect("current process identity");
+
+        assert_eq!(identity.pid, pid);
+        assert!(!identity.image.is_empty());
+        assert!(identity.start_time.is_some());
+        assert_eq!(identity.command_line_hash, None);
+        assert_eq!(validate_process_identity(&identity), Ok(identity));
+    }
+
+    #[test]
+    fn exited_process_identity_is_rejected() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let identity = query_process_identity(child.id()).expect("child process identity");
+
+        child.kill().expect("kill sleep");
+        child.wait().expect("reap sleep");
+
+        assert!(validate_process_identity(&identity).is_err());
     }
 }

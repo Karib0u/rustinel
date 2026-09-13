@@ -6,9 +6,8 @@
 //! with libproc's `regionfilename` (the macOS analog of `/proc/<pid>/maps`).
 //!
 //! `task_for_pid` is privileged: it requires root and, depending on the host,
-//! SIP/AMFI relaxation or the appropriate entitlement. When it is denied this
-//! returns an empty result, exactly like the Linux reader does on permission
-//! errors, so memory scanning simply yields nothing rather than failing.
+//! SIP/AMFI relaxation or the appropriate entitlement. A denial is returned as
+//! an error so the memory worker reports a failed scan rather than a clean one.
 
 use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig, RegionReader};
 use anyhow::Result;
@@ -47,13 +46,9 @@ pub fn visit_process_memory_chunks(
     let mut task: mach_port_t = MACH_PORT_NULL;
     let kr = unsafe { task_for_pid(mach_task_self(), pid as i32, &mut task) };
     if kr != KERN_SUCCESS {
-        tracing::trace!(
-            target: "scanner",
-            pid = pid,
-            kr = kr,
-            "YARA memory: task_for_pid denied (needs root and SIP/entitlement)"
+        anyhow::bail!(
+            "task_for_pid failed for pid {pid} with kernel error {kr}; memory access may require root and SIP/AMFI relaxation"
         );
-        return Ok(());
     }
 
     let mut reader = RegionReader::new(cfg, deadline);
@@ -178,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn read_nonexistent_pid_returns_empty() {
+    fn read_nonexistent_pid_reports_failure() {
         let cfg = MemoryScanConfig {
             max_process_bytes: 1024,
             max_region_bytes: 512,
@@ -188,7 +183,7 @@ mod tests {
             delay_ms: 0,
         };
         let result = super::super::read_process_memory_chunks(99_999_999, &cfg);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        let error = result.expect_err("task_for_pid should reject a nonexistent process");
+        assert!(error.to_string().contains("task_for_pid failed"));
     }
 }
