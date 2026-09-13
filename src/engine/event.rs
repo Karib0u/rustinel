@@ -355,6 +355,8 @@ mod tests {
         let mut fields = SecurityAuditFields::default();
         fields.insert("ObjectName", r"C:\Windows\NTDS\ntds.dit");
         fields.insert("SubjectLogonId", "0x3e4");
+        fields.insert("ProcessName", "-");
+        fields.insert("EmptyField", "");
 
         let mut event = generic_event(&[]);
         event.category = EventCategory::Security;
@@ -364,6 +366,13 @@ mod tests {
         let keys = adapter.field_keys();
         assert!(keys.iter().any(|key| key.as_ref() == "ObjectName"));
         assert!(keys.iter().any(|key| key.as_ref() == "SubjectLogonId"));
+        assert!(keys.iter().any(|key| key.as_ref() == "ProcessName"));
+        assert!(keys.iter().all(|key| key.as_ref() != "EmptyField"));
+        assert_eq!(
+            adapter.get_field("ProcessName"),
+            Some(EventValue::Str(Cow::Borrowed("-")))
+        );
+        assert_eq!(adapter.get_field("EmptyField"), None);
         assert!(adapter.any_string_value(&|value| value.ends_with("ntds.dit")));
     }
 }

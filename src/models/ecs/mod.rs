@@ -324,38 +324,49 @@ impl From<&Alert> for EcsAlert {
                 // Windows names the acting identity in three separate fields;
                 // the rest of the model carries one `DOMAIN\\user` string, so
                 // recompose it before handing it to the shared user mapping.
-                let subject = match (f.get("SubjectDomainName"), f.get("SubjectUserName")) {
+                let subject = match (
+                    f.get_non_placeholder("SubjectDomainName"),
+                    f.get_non_placeholder("SubjectUserName"),
+                ) {
                     (Some(domain), Some(name)) => Some(format!("{domain}\\{name}")),
                     (None, Some(name)) => Some(name.to_string()),
                     _ => None,
                 };
                 apply_user_fields(&mut ecs, subject.as_deref());
                 if ecs.user_id.is_none() {
-                    ecs.user_id = f.get("SubjectUserSid").map(str::to_string);
+                    ecs.user_id = f.get_non_placeholder("SubjectUserSid").map(str::to_string);
                 }
-                ecs.winlog_logon_id = f.get("SubjectLogonId").map(str::to_string);
+                ecs.winlog_logon_id = f.get_non_placeholder("SubjectLogonId").map(str::to_string);
 
                 // 4624 and 5145 name the machine the request came *from*.
-                ecs.source_ip = f.get("IpAddress").map(str::to_string);
-                ecs.source_port = parse_u16(&f.get("IpPort").map(str::to_string));
+                ecs.source_ip = f.get_non_placeholder("IpAddress").map(str::to_string);
+                ecs.source_port = parse_u16(&f.get_non_placeholder("IpPort").map(str::to_string));
 
-                ecs.process_executable = f.get("ProcessName").map(str::to_string);
+                ecs.process_executable = f.get_non_placeholder("ProcessName").map(str::to_string);
                 ecs.process_pid = f.process_id().map(u64::from);
 
-                ecs.service_name = f.get("ServiceName").map(str::to_string);
-                ecs.edr_service_executable = f.get("ServiceFileName").map(str::to_string);
-                ecs.edr_service_type = f.get("ServiceType").map(str::to_string);
-                ecs.edr_service_start_type = f.get("ServiceStartType").map(str::to_string);
-                ecs.edr_service_account_name = f.get("ServiceAccount").map(str::to_string);
+                ecs.service_name = f.get_non_placeholder("ServiceName").map(str::to_string);
+                ecs.edr_service_executable =
+                    f.get_non_placeholder("ServiceFileName").map(str::to_string);
+                ecs.edr_service_type = f.get_non_placeholder("ServiceType").map(str::to_string);
+                ecs.edr_service_start_type = f
+                    .get_non_placeholder("ServiceStartType")
+                    .map(str::to_string);
+                ecs.edr_service_account_name =
+                    f.get_non_placeholder("ServiceAccount").map(str::to_string);
 
-                if matches!(f.get("ObjectType"), Some("File") | Some("Directory")) {
-                    ecs.file_path = f.get("ObjectName").map(str::to_string);
+                if matches!(
+                    f.get_non_placeholder("ObjectType"),
+                    Some("File") | Some("Directory")
+                ) {
+                    ecs.file_path = f.get_non_placeholder("ObjectName").map(str::to_string);
                 }
-                if matches!(f.get("ObjectType"), Some("Key")) {
-                    ecs.registry_path = f.get("ObjectName").map(str::to_string);
+                if matches!(f.get_non_placeholder("ObjectType"), Some("Key")) {
+                    ecs.registry_path = f.get_non_placeholder("ObjectName").map(str::to_string);
                 }
                 if matches!(event_id, 4656 | 4663 | 5145) {
-                    ecs.event_category = ecs_object_access_category(f.get("ObjectType"));
+                    ecs.event_category =
+                        ecs_object_access_category(f.get_non_placeholder("ObjectType"));
                 }
 
                 if !f.fields.is_empty() {
@@ -434,7 +445,7 @@ mod tests {
     use crate::models::{
         AlertSeverity, DetectionEngine, DnsQueryFields, EventCategory, FileEventFields,
         MatchDetails, NetworkConnectionFields, NormalizedEvent, ProcessContext,
-        ProcessCreationFields, RegistryEventFields, ServiceCreationFields,
+        ProcessCreationFields, RegistryEventFields, SecurityAuditFields, ServiceCreationFields,
     };
     use crate::sensor::Platform;
     use std::collections::HashMap;
@@ -819,6 +830,33 @@ mod tests {
         // The type still describes the connection, derived from the address
         // the sensor actually observed.
         assert_eq!(ecs.network_type, Some("ipv4".to_string()));
+    }
+
+    #[test]
+    fn security_placeholders_remain_raw_but_do_not_populate_ecs_values() {
+        let mut alert = network_alert(None);
+        let mut fields = SecurityAuditFields::default();
+        fields.insert("IpAddress", "-");
+        fields.insert("ProcessName", "-");
+        fields.insert("SubjectUserName", "-");
+        alert.event.provider = "windows_event_log".to_string();
+        alert.event.category = EventCategory::Security;
+        alert.event.event_id = 4624;
+        alert.event.event_id_string = "4624".to_string();
+        alert.event.fields = EventFields::SecurityAudit(fields);
+
+        let ecs = EcsAlert::from(&alert);
+        assert!(ecs.source_ip.is_none());
+        assert!(ecs.related_ip.is_none());
+        assert!(ecs.process_executable.is_none());
+        assert!(ecs.user_name.is_none());
+        assert_eq!(
+            ecs.edr_security
+                .as_ref()
+                .and_then(|fields| fields.get("IpAddress"))
+                .map(String::as_str),
+            Some("-")
+        );
     }
 
     #[test]

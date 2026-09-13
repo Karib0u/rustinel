@@ -454,7 +454,7 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
         }
         EventFields::SecurityAudit(f) => {
             pid = f.process_id();
-            image = f.get("ProcessName").map(str::to_string);
+            image = f.get_non_placeholder("ProcessName").map(str::to_string);
         }
         EventFields::Generic(_) => {}
     }
