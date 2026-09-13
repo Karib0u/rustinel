@@ -8,7 +8,7 @@ mod process;
 mod providers;
 mod routing;
 mod session;
-mod state;
+pub(crate) mod state;
 
 use super::event_log::EventLogSubscriptions;
 use crate::sensor::{Sensor, SensorEvent};
@@ -37,6 +37,7 @@ pub(super) const PROCESS_TRACE_SESSION_NAME: &str = "rustinel-etw-process";
 
 /// Windows ETW sensor implementation.
 pub struct EtwSensor {
+    host: Arc<crate::state::HostState>,
     shutdown: Arc<AtomicBool>,
     event_log_directory: std::path::PathBuf,
     loss_counters: Arc<super::loss::LossCounters>,
@@ -56,6 +57,7 @@ impl EtwSensor {
     /// [`super::flush::process_interval`].
     pub fn with_flush_intervals(flush_interval_ms: u64, process_flush_interval_ms: u64) -> Self {
         Self {
+            host: Arc::new(crate::state::HostState::default()),
             shutdown: Arc::new(AtomicBool::new(false)),
             event_log_directory: crate::config::InstallLayout::managed(
                 crate::config::InstallPlatform::Windows,
@@ -66,6 +68,11 @@ impl EtwSensor {
             flush_interval_ms,
             process_flush_interval_ms,
         }
+    }
+
+    pub fn with_host_state(mut self, host: Arc<crate::state::HostState>) -> Self {
+        self.host = host;
+        self
     }
 
     pub fn with_event_log_directory(mut self, directory: std::path::PathBuf) -> Self {

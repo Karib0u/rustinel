@@ -1,10 +1,12 @@
-mod dns;
 mod host;
+#[cfg(target_os = "macos")]
+mod inventory_macos;
+pub use host::{active_snapshot, HostState, HostStateSnapshot, InventorySnapshot, StateLimits};
+mod dns;
 mod process;
 mod sid;
 
 pub use dns::{DnsCache, DnsEntry};
-pub use host::HostState;
 pub use process::{ProcessCache, ProcessMetadata};
 pub use sid::SidCache;
 

@@ -47,6 +47,7 @@ use super::file_paths::BoundedIndex;
 /// than open file handles, and every entry is a short key path. Entries are
 /// evicted on `CloseKey`, so the cap only binds when keys are held open
 /// without closing.
+#[cfg(test)]
 const DEFAULT_CAPACITY: usize = 16384;
 
 /// Number of closed keys kept resolvable after their `CloseKey`.
@@ -60,6 +61,7 @@ const DEFAULT_CAPACITY: usize = 16384;
 /// Keeping the last few thousand closed keys covers that window. A lookup also
 /// checks the event timestamps, so a later key that reuses the same
 /// `CM_KEY_BODY` address cannot inherit the retired path.
+#[cfg(test)]
 const RECENTLY_CLOSED_CAPACITY: usize = 4096;
 
 /// Maximum time by which a write may precede a close that was decoded first.
@@ -76,9 +78,9 @@ struct RecentlyClosedIndex {
 }
 
 impl RecentlyClosedIndex {
-    fn new() -> Self {
+    fn with_capacity(capacity: usize) -> Self {
         Self {
-            paths: BoundedIndex::with_capacity(RECENTLY_CLOSED_CAPACITY),
+            paths: BoundedIndex::with_capacity(capacity),
             closed_at: HashMap::new(),
         }
     }
@@ -89,7 +91,7 @@ impl RecentlyClosedIndex {
 
         // `BoundedIndex` evicts paths internally. Compact the parallel
         // timestamp map periodically so it stays bounded too.
-        if self.closed_at.len() > RECENTLY_CLOSED_CAPACITY.saturating_mul(2) {
+        if self.closed_at.len() > self.paths.capacity().saturating_mul(2) {
             let paths = &self.paths;
             self.closed_at.retain(|key, _| paths.get(*key).is_some());
         }
@@ -131,7 +133,7 @@ pub(super) struct Resolved<'a> {
 }
 
 /// Joins Kernel-Registry naming events to the pathless events that follow them.
-pub(super) struct RegistryPathCache {
+pub(crate) struct RegistryPathCache {
     by_key_object: BoundedIndex,
     /// Keys already open when the session started, from the handle table.
     ///
@@ -146,15 +148,16 @@ pub(super) struct RegistryPathCache {
 }
 
 impl RegistryPathCache {
+    #[cfg(test)]
     pub(super) fn new() -> Self {
         Self::with_capacity(DEFAULT_CAPACITY)
     }
 
-    fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             by_key_object: BoundedIndex::with_capacity(capacity),
             preexisting: HashMap::new(),
-            recently_closed: RecentlyClosedIndex::new(),
+            recently_closed: RecentlyClosedIndex::with_capacity(capacity.min(4096)),
         }
     }
 
@@ -162,7 +165,10 @@ impl RegistryPathCache {
     /// is running so that no key falls between the snapshot and the first
     /// `OpenKey` event.
     pub(super) fn seed(&mut self, preexisting: HashMap<u64, String>) {
-        self.preexisting = preexisting;
+        self.preexisting = preexisting
+            .into_iter()
+            .take(self.by_key_object.capacity())
+            .collect();
     }
 
     /// How many pre-existing keys the seed still covers.
@@ -299,6 +305,10 @@ impl RegistryPathCache {
         self.forget_at(key_object, 1);
     }
 
+    pub(crate) fn retained_count(&self) -> usize {
+        self.by_key_object.len() + self.preexisting.len() + self.recently_closed.paths.len()
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.by_key_object.len()
@@ -331,6 +341,13 @@ mod tests {
             .iter()
             .map(|(object, path)| (*object, (*path).to_string()))
             .collect()
+    }
+
+    #[test]
+    fn startup_path_inventory_obeys_state_capacity() {
+        let mut cache = RegistryPathCache::with_capacity(2);
+        cache.seed((0..10).map(|key| (key, format!("path-{key}"))).collect());
+        assert_eq!(cache.retained_count(), 2);
     }
 
     #[test]

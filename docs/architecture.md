@@ -17,7 +17,7 @@ src/
 │   └── macos/       Endpoint Security and /dev/bpf capture
 ├── models/          CanonicalEvent, the generated NormalizedEvent view, alert, and ECS models
 ├── normalizer/      builds the stable NormalizedEvent compatibility view
-├── state/           HostState plus process, SID, and DNS caches
+├── state/           HostState, bounded attribution indexes and inventory
 ├── engine/          Sigma loading, logsource routing, evaluation (RSigma)
 ├── scanner/         YARA compilation and scanning
 ├── memory/          per-platform process memory reads for YARA
@@ -55,6 +55,17 @@ Blocking an ETW callback or an eBPF ring reader would lose events in the kernel 
 `runtime/pipeline.rs` builds this pipeline for all three platforms.
 Platform runtimes keep privilege checks and sensor startup; `HostState` owns live enrichment and cache-backed normalization.
 `runtime/shutdown.rs` drains sensors, then workers, then flushes deduplication and the final telemetry snapshot.
+
+## Host attribution state
+
+`state::HostState` owns process metadata, cached SID and UID resolution, DNS correlation, Linux directory descriptors, and Windows file, registry, and process-identity indexes.
+Detection and capture share the same construction and `StateLimits` entry ceilings; retired processes also have an entry cap.
+The telemetry reporter reads a weak reference to the active state, so its snapshot does not keep a stopped runtime alive.
+
+Startup inventories use `/proc` on Linux, `libproc` on macOS, and the native process snapshot on Windows.
+Linux inventory keys retain kernel birth-time reconciliation; macOS and Windows use the same native start timestamp as their event collectors.
+Enrichment always requires a matching PID and process identity.
+The inventory reports scanned, seeded, skipped, duration, and failure information through host-state telemetry.
 
 ## Detectors and reload
 

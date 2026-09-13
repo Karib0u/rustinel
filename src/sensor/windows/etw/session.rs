@@ -294,7 +294,10 @@ impl EtwSensor {
                 Vec::new()
             }
         };
-        let state = Arc::new(EtwState::with_process_identities(process_identities));
+        let state = Arc::new(EtwState::with_process_identities(
+            process_identities,
+            Arc::clone(&self.host),
+        ));
 
         let _classic = super::classic::ClassicSession::start(
             Arc::clone(&state),

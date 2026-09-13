@@ -534,7 +534,7 @@ mod tests {
     #[test]
     fn truncated_prefix_recovers_live_suffix_with_derived_provenance() {
         use crate::normalizer::Normalizer;
-        use crate::state::{DnsCache, ProcessCache, SidCache};
+        use crate::state::HostState;
         use std::sync::Arc;
         // Count UTF-16 units rather than UTF-8 bytes, including supplementary characters.
         let captured = "🦀".repeat(512);
@@ -555,11 +555,7 @@ mod tests {
             if let SensorPayload::Process(fields) = &mut out[0].payload {
                 crate::state::enrich_windows_command_line(fields, Some(live.clone()));
             }
-            let normalizer = Normalizer::new(
-                Arc::new(ProcessCache::new()),
-                Arc::new(SidCache::new()),
-                Arc::new(DnsCache::new()),
-            );
+            let normalizer = Normalizer::new(Arc::new(HostState::default()));
             let normalized = normalizer.normalize(&out[0]).unwrap();
             assert!(normalized
                 .provenance

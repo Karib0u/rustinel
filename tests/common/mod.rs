@@ -48,19 +48,11 @@ pub struct TestNormalizer {
 
 impl TestNormalizer {
     pub fn new() -> Self {
-        let process_cache = Arc::new(ProcessCache::new());
-        let sid_cache = Arc::new(SidCache::new());
-        let dns_cache = Arc::new(DnsCache::new());
-        let normalizer = Normalizer::new(
-            Arc::clone(&process_cache),
-            Arc::clone(&sid_cache),
-            Arc::clone(&dns_cache),
-        );
-        let host_state = Arc::new(HostState::new(
-            Arc::clone(&process_cache),
-            Arc::clone(&sid_cache),
-            Arc::clone(&dns_cache),
-        ));
+        let host_state = Arc::new(HostState::default());
+        let process_cache = Arc::clone(&host_state.processes);
+        let sid_cache = Arc::clone(&host_state.users);
+        let dns_cache = Arc::clone(&host_state.dns);
+        let normalizer = Normalizer::new(Arc::clone(&host_state));
 
         Self {
             normalizer,

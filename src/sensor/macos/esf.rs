@@ -818,12 +818,8 @@ mod tests {
     #[test]
     fn reexec_keeps_actor_separate_from_cached_parent() {
         use crate::normalizer::Normalizer;
-        use crate::state::{DnsCache, ProcessCache, SidCache};
-        let normalizer = Normalizer::new(
-            Arc::new(ProcessCache::new()),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        );
+        use crate::state::HostState;
+        let normalizer = Normalizer::new(Arc::new(HostState::default()));
         let unsigned_metadata = || RawMacOsExec {
             real_user_id: Some(0),
             signed: Some(false),
@@ -986,13 +982,9 @@ mod tests {
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_CREATE);
         assert_eq!(event.pid, Some(4242));
         assert_eq!(event.source_seq, Some(77));
-        let canonical = crate::state::HostState::new(
-            Arc::new(crate::state::ProcessCache::new()),
-            Arc::new(crate::state::SidCache::new()),
-            Arc::new(crate::state::DnsCache::new()),
-        )
-        .canonicalize(event.clone())
-        .unwrap();
+        let canonical = Arc::new(crate::state::HostState::default())
+            .canonicalize(event.clone())
+            .unwrap();
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         crate::scanner::YaraEventHandler {
             tx,

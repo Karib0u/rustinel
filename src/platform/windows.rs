@@ -10,7 +10,7 @@ use crate::service::{
     ServiceCommandResult, ServiceStatus, SERVICE_DESCRIPTION, WINDOWS_SERVICE_DISPLAY_NAME,
     WINDOWS_SERVICE_NAME,
 };
-use crate::state::ProcessCache;
+use crate::state::{HostState, InventorySnapshot};
 
 pub const SERVICE_NAME: &str = WINDOWS_SERVICE_NAME;
 
@@ -419,7 +419,22 @@ pub fn snapshot_process_start_keys() -> anyhow::Result<Vec<ProcessStartKey>> {
 }
 
 /// Snapshot all running processes using Native API (NtQuerySystemInformation).
-pub fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
+pub fn snapshot_processes(host: &HostState) -> anyhow::Result<usize> {
+    let started = std::time::Instant::now();
+    let mut snapshot = InventorySnapshot::default();
+    let result = snapshot_processes_inner(host, &mut snapshot);
+    snapshot.duration_ms = started.elapsed().as_millis() as u64;
+    snapshot.skipped = snapshot.scanned.saturating_sub(snapshot.seeded);
+    snapshot.error = result.as_ref().err().map(|error| format!("{error:#}"));
+    host.record_inventory(snapshot);
+    result
+}
+
+fn snapshot_processes_inner(
+    host: &HostState,
+    snapshot: &mut InventorySnapshot,
+) -> anyhow::Result<usize> {
+    let cache = &host.processes;
     use crate::utils::pe;
     use crate::utils::{convert_nt_to_dos, parse_metadata};
 
@@ -427,7 +442,9 @@ pub fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
         .map_err(|e| anyhow::anyhow!("Failed to query system processes: {}", e))?;
 
     let mut count = 0;
-    for proc in processes {
+    snapshot.scanned = processes.len();
+    let capacity = host.limits().processes;
+    for proc in processes.into_iter().take(capacity) {
         let raw_image = proc.full_path.unwrap_or_else(|| proc.image_name.clone());
         let image = convert_nt_to_dos(&raw_image);
 
@@ -454,5 +471,6 @@ pub fn snapshot_processes(cache: &ProcessCache) -> anyhow::Result<usize> {
         count += 1;
     }
 
+    snapshot.seeded = count;
     Ok(count)
 }

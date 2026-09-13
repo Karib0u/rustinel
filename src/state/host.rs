@@ -1,38 +1,222 @@
-//! Host-state boundary between native sensor facts and canonical events.
-//!
-//! Sensors finish decoding before this boundary.  Filesystem, process, account,
-//! and registry-backed enrichment belongs here (or in the stateful normalizer
-//! it owns), never in an ETW callback, Endpoint Security callback, or eBPF ring
-//! drain.
-
-use std::sync::Arc;
-
+//! Shared ownership, entry limits, and raw-to-canonical host enrichment.
+use super::{DnsCache, ProcessCache, SidCache};
 use crate::models::{CanonicalEvent, NormalizedEvent};
 use crate::normalizer::Normalizer;
 use crate::sensor::{RawEvent, RawPayload};
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
-use super::{DnsCache, ProcessCache, SidCache};
+/// Entry ceilings, including auxiliary indexes. Variable-sized metadata is
+/// bounded by the collectors; these ceilings bound retained rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateLimits {
+    pub processes: usize,
+    pub users: usize,
+    pub dns: usize,
+    pub paths: usize,
+}
+impl Default for StateLimits {
+    fn default() -> Self {
+        Self {
+            processes: 65_536,
+            users: 4096,
+            dns: 10_000,
+            paths: 8192,
+        }
+    }
+}
 
-/// Host-dependent enrichment and canonicalization state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventorySnapshot {
+    pub scanned: usize,
+    pub seeded: usize,
+    pub skipped: usize,
+    pub duration_ms: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostStateSnapshot {
+    pub limits: StateLimits,
+    pub processes: usize,
+    pub retired_processes: usize,
+    pub process_identities: usize,
+    pub users: usize,
+    pub dns: usize,
+    pub paths: usize,
+    pub attribution_loss: u64,
+    pub inventory: Option<InventorySnapshot>,
+}
+
 pub struct HostState {
-    normalizer: Normalizer,
+    pub processes: Arc<ProcessCache>,
+    pub users: Arc<SidCache>,
+    pub dns: Arc<DnsCache>,
+    #[cfg(target_os = "linux")]
+    pub(crate) dir_fds: Mutex<crate::sensor::linux::paths::DirFdIndex>,
+    #[cfg(windows)]
+    pub(crate) file_paths: Mutex<crate::sensor::windows::file_paths::FilePathCache>,
+    #[cfg(windows)]
+    pub(crate) registry_paths: Mutex<crate::sensor::windows::registry_paths::RegistryPathCache>,
+    #[cfg(windows)]
+    pub(crate) process_identities: Mutex<crate::sensor::windows::etw::state::ProcessIdentityIndex>,
+    limits: StateLimits,
+    inventory: Mutex<Option<InventorySnapshot>>,
+    attribution_loss: AtomicU64,
+    pub(crate) ingest_seq: AtomicU64,
+}
+static ACTIVE: LazyLock<Mutex<Weak<HostState>>> = LazyLock::new(|| Mutex::new(Weak::new()));
+pub fn active_snapshot() -> Option<HostStateSnapshot> {
+    ACTIVE
+        .lock()
+        .unwrap()
+        .upgrade()
+        .map(|state| state.snapshot())
+}
+impl HostState {
+    pub fn new(mut limits: StateLimits) -> Self {
+        limits.users = limits.users.max(3);
+        limits.paths = limits.paths.max(1);
+        Self {
+            processes: Arc::new(ProcessCache::with_max_entries(limits.processes)),
+            users: Arc::new(SidCache::with_max_entries(limits.users)),
+            dns: Arc::new(DnsCache::with_limits(limits.dns, 15 * 60)),
+            #[cfg(target_os = "linux")]
+            dir_fds: Mutex::new(crate::sensor::linux::paths::DirFdIndex::with_capacity(
+                limits.paths,
+            )),
+            #[cfg(windows)]
+            file_paths: Mutex::new(
+                crate::sensor::windows::file_paths::FilePathCache::with_capacity(limits.paths),
+            ),
+            #[cfg(windows)]
+            registry_paths: Mutex::new(
+                crate::sensor::windows::registry_paths::RegistryPathCache::with_capacity(
+                    limits.paths,
+                ),
+            ),
+            #[cfg(windows)]
+            process_identities: Mutex::new(
+                crate::sensor::windows::etw::state::ProcessIdentityIndex::with_max_entries(
+                    limits.processes,
+                ),
+            ),
+            limits,
+            inventory: Mutex::new(None),
+            attribution_loss: AtomicU64::new(0),
+            ingest_seq: AtomicU64::new(0),
+        }
+    }
+    pub fn for_runtime(max_processes: usize) -> Arc<Self> {
+        let state = Arc::new(Self::new(StateLimits {
+            processes: max_processes,
+            ..Default::default()
+        }));
+        *ACTIVE.lock().unwrap() = Arc::downgrade(&state);
+        #[cfg(target_os = "macos")]
+        state.inventory_macos();
+        state
+    }
+    pub fn limits(&self) -> &StateLimits {
+        &self.limits
+    }
+    pub fn record_attribution_loss(&self) {
+        self.attribution_loss.fetch_add(1, Ordering::Relaxed);
+    }
+    pub fn record_inventory(&self, snapshot: InventorySnapshot) {
+        tracing::info!(scanned=snapshot.scanned, seeded=snapshot.seeded, skipped=snapshot.skipped,
+            duration_ms=snapshot.duration_ms, error=?snapshot.error, "Startup process inventory");
+        *self.inventory.lock().unwrap() = Some(snapshot);
+    }
+    pub fn snapshot(&self) -> HostStateSnapshot {
+        let paths = 0;
+        #[cfg(target_os = "linux")]
+        let paths = paths + self.dir_fds.lock().unwrap_or_else(|e| e.into_inner()).len();
+        #[cfg(windows)]
+        let paths = paths
+            + self
+                .file_paths
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retained_count()
+            + self
+                .registry_paths
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retained_count();
+        let process_identities = 0;
+        #[cfg(windows)]
+        let process_identities = process_identities
+            + self
+                .process_identities
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .count();
+        HostStateSnapshot {
+            process_identities,
+            limits: self.limits.clone(),
+            processes: self.processes.count(),
+            retired_processes: self.processes.retired_count(),
+            users: self.users.count(),
+            dns: self.dns.count(),
+            paths,
+            attribution_loss: self.attribution_loss.load(Ordering::Relaxed),
+            inventory: self.inventory.lock().unwrap().clone(),
+        }
+    }
+}
+impl Default for HostState {
+    fn default() -> Self {
+        Self::new(StateLimits::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn snapshot_reports_inventory_and_bounded_state() {
+        let state = HostState::new(StateLimits {
+            processes: 2,
+            users: 5,
+            dns: 1,
+            paths: 1,
+        });
+        state
+            .dns
+            .update("192.0.2.1".parse().unwrap(), "one.test".into());
+        state
+            .dns
+            .update("192.0.2.2".parse().unwrap(), "two.test".into());
+        state.record_inventory(InventorySnapshot {
+            scanned: 3,
+            seeded: 2,
+            skipped: 1,
+            duration_ms: 10,
+            error: None,
+        });
+        state.record_attribution_loss();
+        #[cfg(target_os = "linux")]
+        {
+            let mut paths = state.dir_fds.lock().unwrap();
+            paths.insert(42, 3, 100, "/tmp/one".into());
+            paths.insert(42, 4, 101, "/tmp/two".into());
+        }
+        let snapshot = state.snapshot();
+        assert!(snapshot.dns <= 1);
+        assert_eq!(snapshot.attribution_loss, 1);
+        assert_eq!(snapshot.inventory.unwrap().seeded, 2);
+        #[cfg(target_os = "linux")]
+        assert_eq!(snapshot.paths, 1);
+    }
 }
 
 impl HostState {
-    pub fn new(
-        process_cache: Arc<ProcessCache>,
-        sid_cache: Arc<SidCache>,
-        dns_cache: Arc<DnsCache>,
-    ) -> Self {
-        Self {
-            normalizer: Normalizer::new(process_cache, sid_cache, dns_cache),
-        }
-    }
-
     /// Enrich one raw event and create the semantic cross-platform boundary.
     pub fn canonicalize(&self, mut event: RawEvent) -> Option<CanonicalEvent> {
         self.enrich(&mut event);
-        let normalized = self.normalizer.normalize(&event)?;
+        let normalized = Normalizer::new(self).normalize(&event)?;
         let pid = match &event.payload {
             RawPayload::Process(process) => Some(process.process_id),
             _ => event.pid,
@@ -52,8 +236,7 @@ impl HostState {
         event: &mut NormalizedEvent,
         process_start_key: Option<crate::sensor::ProcessStartKey>,
     ) {
-        self.normalizer
-            .enrich_process_context(event, process_start_key);
+        Normalizer::new(self).enrich_process_context(event, process_start_key);
     }
 
     fn enrich(&self, event: &mut RawEvent) {
@@ -141,7 +324,7 @@ pub(crate) fn enrich_windows_command_line(
 }
 
 #[cfg(test)]
-mod tests {
+mod canonicalization_tests {
     use super::*;
     use crate::models::EventFields;
     use crate::sensor::{
@@ -150,12 +333,8 @@ mod tests {
     };
     use std::time::SystemTime;
 
-    fn state() -> HostState {
-        HostState::new(
-            Arc::new(ProcessCache::new()),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        )
+    fn state() -> Arc<HostState> {
+        Arc::new(HostState::default())
     }
 
     #[test]
@@ -241,7 +420,15 @@ mod tests {
             }),
         };
 
-        let canonical = state().canonicalize(raw).expect("process canonicalizes");
+        let host = state();
+        let first = host
+            .canonicalize(raw.clone())
+            .expect("process canonicalizes");
+        let canonical = Arc::clone(&host)
+            .canonicalize(raw)
+            .expect("process canonicalizes");
+        assert_eq!(first.normalized().ingest_seq, 1);
+        assert_eq!(canonical.normalized().ingest_seq, 2);
         let EventFields::ProcessCreation(fields) = &canonical.normalized().fields else {
             panic!("expected process view")
         };

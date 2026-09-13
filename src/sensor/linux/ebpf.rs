@@ -29,7 +29,6 @@ use crate::sensor::{
     Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
 };
 use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
-use crate::utils::lookup_username_by_uid;
 
 use super::abi::validate_object_abi;
 use super::events::{
@@ -74,20 +73,20 @@ unsafe impl aya::Pod for KernelCounterRow {}
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
 pub struct EbpfSensor {
-    process_cache: Option<Arc<crate::state::ProcessCache>>,
+    host: Arc<crate::state::HostState>,
     shutdown: Arc<AtomicBool>,
 }
 
 impl EbpfSensor {
-    pub fn with_process_cache(cache: Arc<crate::state::ProcessCache>) -> Self {
+    pub fn with_host_state(host: Arc<crate::state::HostState>) -> Self {
         Self {
-            process_cache: Some(cache),
-            ..Self::new()
+            host,
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
     pub fn new() -> Self {
         Self {
-            process_cache: None,
+            host: Arc::new(crate::state::HostState::default()),
             shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -305,11 +304,17 @@ impl Sensor for EbpfSensor {
 
         // ── Take ring-buffer maps ────────────────────────────────────────────
 
-        if let Some(cache) = &self.process_cache {
+        {
+            let host = &self.host;
             if task_plans.plans[super::events::task_identity_abi::START_BOOTTIME].len != 0 {
-                if let Err(error) = super::inventory::seed(&mut bpf, cache) {
+                if let Err(error) = super::inventory::seed(&mut bpf, host) {
                     warn!(%error, "linux_process_inventory: startup inventory unavailable");
                 }
+            } else {
+                host.record_inventory(crate::state::InventorySnapshot {
+                    error: Some("Kernel process birth time is unavailable".into()),
+                    ..Default::default()
+                });
             }
         }
 
@@ -338,6 +343,7 @@ impl Sensor for EbpfSensor {
         // ── Spawn polling task ───────────────────────────────────────────────
 
         let shutdown = Arc::clone(&self.shutdown);
+        let host = Arc::clone(&self.host);
 
         tokio::spawn(async move {
             // Keep `bpf` alive here — dropping it detaches the programs.
@@ -351,6 +357,7 @@ impl Sensor for EbpfSensor {
                 kernel_counters,
                 tx,
                 shutdown,
+                host,
             )
             .await
             {
@@ -368,6 +375,7 @@ impl Sensor for EbpfSensor {
 
 // ── Ring-buffer polling ──────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn run_ring_poll(
     process_ring: RingBuf<MapData>,
     network_ring: RingBuf<MapData>,
@@ -376,13 +384,13 @@ async fn run_ring_poll(
     kernel_counters: PerCpuArray<MapData, KernelCounterRow>,
     tx: Sender<SensorEvent>,
     shutdown: Arc<AtomicBool>,
+    host: Arc<crate::state::HostState>,
 ) -> Result<()> {
     let mut process_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(process_ring)?;
     let mut network_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(network_ring)?;
     let mut file_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(file_ring)?;
     let mut dns_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(dns_ring)?;
     let mut unresolved_file_events: u64 = 0;
-    let mut dir_fds = DirFdIndex::new();
     let mut counter_tick = tokio::time::interval(std::time::Duration::from_secs(1));
     counter_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut counter_read_failed = false;
@@ -411,7 +419,8 @@ async fn run_ring_poll(
 
             Ok(mut guard) = file_fd.readable_mut() => {
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_file_ring(rb, &tx, &mut dir_fds, &mut unresolved_file_events);
+                let mut dir_fds = host.dir_fds.lock().unwrap_or_else(|e| e.into_inner());
+                drain_file_ring(rb, &tx, &mut dir_fds, &mut unresolved_file_events, &host);
                 guard.clear_ready();
             }
 
@@ -518,6 +527,7 @@ fn drain_file_ring(
     tx: &Sender<SensorEvent>,
     dir_fds: &mut DirFdIndex,
     unresolved: &mut u64,
+    host: &crate::state::HostState,
 ) {
     while let Some(item) = rb.next() {
         LINUX_EBPF.record_received(LinuxEbpfFamily::File);
@@ -545,7 +555,9 @@ fn drain_file_ring(
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
         if ev.kind == FILE_EVENT_DIR_OPEN {
-            index_dir_open(&ev, dir_fds);
+            if !index_dir_open(&ev, dir_fds) {
+                host.record_attribution_loss();
+            }
             LINUX_EBPF.record_internal(LinuxEbpfFamily::File);
             continue;
         }
@@ -567,16 +579,22 @@ fn drain_file_ring(
 /// name was relative to, since `openat(dirfd, "sub", O_DIRECTORY)` is ordinary.
 /// A directory whose own path cannot be resolved is skipped rather than indexed
 /// under a guess — the next `*at` call against it then falls back to `/proc`.
-fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) {
+fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) -> bool {
     let raw = bytes_to_string(&ev.path);
-    if raw.is_empty() || ev.flags & super::events::FILE_FLAG_PATH_TRUNCATED != 0 {
-        return;
+    if raw.is_empty()
+        || ev.flags & super::events::FILE_FLAG_PATH_TRUNCATED != 0
+        || ev.dfd < 0
+        || ev.dfd_token == 0
+    {
+        return false;
     }
     if let Some(path) =
         resolve_indexable_dir_path(dir_fds, ev.pid, ev.aux_dfd, ev.aux_dfd_token, &raw)
     {
         dir_fds.insert(ev.pid, ev.dfd, ev.dfd_token, path);
+        return true;
     }
+    false
 }
 
 fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
@@ -735,7 +753,7 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
         _ => return None,
     };
 
-    let user = resolved_linux_user(ev.uid);
+    let user = linux_user_id(ev.uid);
 
     Some(SensorEvent {
         platform: Platform::Linux,
@@ -819,7 +837,7 @@ fn build_file_event(
         .filter(|value| !value.is_empty())
         .and_then(|value| resolve_at_path(dir_fds, ev.pid, ev.aux_dfd, ev.aux_dfd_token, &value));
 
-    let user = resolved_linux_user(ev.uid);
+    let user = linux_user_id(ev.uid);
     let path_truncated = truncation_marker(ev.flags, source_filename.is_some()).map(str::to_string);
 
     Some(SensorEvent {
@@ -912,8 +930,8 @@ fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
     let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
 
-fn resolved_linux_user(uid: u32) -> Option<String> {
-    (uid != u32::MAX).then(|| lookup_username_by_uid(uid).unwrap_or_else(|| uid.to_string()))
+fn linux_user_id(uid: u32) -> Option<String> {
+    (uid != u32::MAX).then(|| uid.to_string())
 }
 
 /// Try the complete tuple tier before enabling the syscall fallback. Failure
@@ -1111,7 +1129,7 @@ mod tests {
     };
     use crate::sensor::linux::paths::AT_FDCWD;
     use crate::sensor::{RawProcessPlatform, RawUserId};
-    use crate::state::{DnsCache, ProcessCache, SidCache};
+    use crate::state::HostState;
     use std::sync::Arc;
 
     #[test]
@@ -1121,11 +1139,7 @@ mod tests {
         raw.identity.values[EUID] = 0;
         raw.identity.valid = 1 << EUID;
         let event = build_process_event(&raw).unwrap();
-        let normalizer = Normalizer::new(
-            Arc::new(ProcessCache::new()),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        );
+        let normalizer = Normalizer::new(Arc::new(HostState::default()));
         let normalized = normalizer.normalize(&event).unwrap();
         assert_eq!(normalized.get_field("User"), Some("root"));
         assert_eq!(normalized.get_field("RealUserId"), Some("1000"));
@@ -1143,7 +1157,7 @@ mod tests {
         assert_eq!(absent.get_field("User"), None);
         assert_eq!(absent.get_field("EffectiveUserId"), None);
         assert_eq!(absent.get_field("RealUserId"), Some("1000"));
-        assert_eq!(resolved_linux_user(u32::MAX), None);
+        assert_eq!(linux_user_id(u32::MAX), None);
     }
 
     /// Build a `ProcessEvent` the way the kernel would, with no argv capture.
@@ -1268,11 +1282,7 @@ mod tests {
     }
 
     fn test_normalizer() -> Normalizer {
-        Normalizer::new(
-            Arc::new(ProcessCache::new()),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        )
+        Normalizer::new(Arc::new(HostState::default()))
     }
 
     fn normalized_raw_dns_query(name: &str) -> crate::models::NormalizedEvent {

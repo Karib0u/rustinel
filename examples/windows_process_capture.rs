@@ -3,10 +3,9 @@
 
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
-    use rustinel::normalizer::Normalizer;
     use rustinel::sensor::windows::etw::EtwSensor;
     use rustinel::sensor::{Sensor, SensorAction, SensorPayload};
-    use rustinel::state::{DnsCache, ProcessCache, SidCache};
+    use rustinel::state::HostState;
     use serde_json::json;
     use std::sync::Arc;
     use std::time::{Duration, Instant, SystemTime};
@@ -16,16 +15,13 @@ fn main() -> anyhow::Result<()> {
     let wow64 = args.get(3).is_some_and(|x| x == "wow64");
     let long = args.get(3).is_some_and(|x| x == "long");
     let flush: u64 = args.get(4).map(|x| x.parse()).transpose()?.unwrap_or(5);
-    let sensor = Arc::new(EtwSensor::with_flush_intervals(20, flush));
+    let host = Arc::new(HostState::default());
+    let sensor =
+        Arc::new(EtwSensor::with_flush_intervals(20, flush).with_host_state(Arc::clone(&host)));
     let (tx, mut rx) = tokio::sync::mpsc::channel(65536);
     let worker_sensor = Arc::clone(&sensor);
     let worker = std::thread::spawn(move || worker_sensor.start(tx));
     let consumer = std::thread::spawn(move || {
-        let normalizer = Normalizer::new(
-            Arc::new(ProcessCache::new()),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        );
         let mut events = Vec::new();
         while let Some(event) = rx.blocking_recv() {
             if event.action == SensorAction::Start
@@ -36,7 +32,8 @@ fn main() -> anyhow::Result<()> {
                     .unwrap_or_default()
                     .as_secs_f64()
                     * 1000.0;
-                if let Some(normalized) = normalizer.normalize(&event) {
+                if let Some(canonical) = host.canonicalize(event.clone()) {
+                    let normalized = canonical.into_normalized();
                     events.push(json!({"pid":event.pid, "latency_ms":latency,"event":normalized}));
                 }
             }

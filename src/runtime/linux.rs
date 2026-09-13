@@ -29,8 +29,8 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         let session = context.start_recording(&options, Platform::Linux)?;
         let (sensor_tx, sensor_worker) = session.sensor_channel();
 
-        let sensor = Arc::new(EbpfSensor::with_process_cache(Arc::clone(
-            session.process_cache(),
+        let sensor = Arc::new(EbpfSensor::with_host_state(Arc::clone(
+            session.host_state(),
         )));
         info!(target: TARGET_CONSOLE, "Starting eBPF sensor...");
         if let Err(e) = sensor.start(sensor_tx) {
@@ -68,7 +68,7 @@ async fn run_linux_edr(
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
 
-    let process_cache = Arc::clone(&state.process_cache);
+    let host = Arc::clone(&state.host);
     let pipeline = LivePipeline::new(
         &cfg,
         resolved_config_path,
@@ -80,7 +80,7 @@ async fn run_linux_edr(
     );
 
     // eBPF sensor
-    let sensor = Arc::new(EbpfSensor::with_process_cache(process_cache));
+    let sensor = Arc::new(EbpfSensor::with_host_state(host));
 
     info!(
         target: TARGET_CONSOLE,

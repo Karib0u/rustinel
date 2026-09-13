@@ -150,7 +150,7 @@ mod tests {
     use crate::field_availability::FIELD_AVAILABILITY;
     use crate::normalizer::Normalizer;
     use crate::sensor::{SensorAction, SensorPayload};
-    use crate::state::{DnsCache, ProcessCache, SidCache};
+    use crate::state::HostState;
     use std::sync::Arc;
 
     fn security_event(event_id: u16, event_data: &str) -> String {
@@ -293,11 +293,7 @@ level: high
         engine
             .load_rules(rules.path())
             .expect("load SigmaHQ regression rule");
-        let normalizer = Normalizer::new(
-            Arc::new(ProcessCache::new()),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        );
+        let normalizer = Normalizer::new(Arc::new(HostState::default()));
 
         let cases = [
             ("placeholder", Some("-"), false),
