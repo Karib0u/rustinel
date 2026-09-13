@@ -2,7 +2,7 @@
 
 Rustinel writes one JSON alert per line to `alerts.json.<date>` in the alert directory.
 Any shipper that tails NDJSON files can forward them.
-The [alert format](output.md) follows ECS 9.4.0.
+The [alert format](output.md) follows the ECS version documented in the output reference.
 
 The repository has runnable demos for Elastic and Splunk.
 Generate a test alert first with the [Quickstart](getting-started.md).

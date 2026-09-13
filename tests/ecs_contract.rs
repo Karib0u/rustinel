@@ -501,7 +501,7 @@ fn dns_alert_populates_category_specific_fields() {
 }
 
 #[test]
-fn ecs_version_field_is_9_4_0() {
+fn ecs_version_matches_the_documented_target() {
     let json = ecs_json(&alert(
         EventCategory::Process,
         1,
@@ -532,7 +532,32 @@ fn ecs_version_field_is_9_4_0() {
             target_image: None,
         }),
     ));
-    assert_ecs_field_eq(&json, "ecs.version", "9.4.0");
+    let expected_version =
+        std::env::var("RUSTINEL_EXPECTED_ECS_VERSION").unwrap_or_else(|_| "9.5.0".to_string());
+    assert_ecs_field_eq(&json, "ecs.version", expected_version);
+
+    let emitted_version = json["ecs.version"]
+        .as_str()
+        .expect("ecs.version is a string");
+    let output_docs = include_str!("../docs/output.md");
+    let mut output_lines = output_docs.lines();
+    let documented_alert = output_lines
+        .by_ref()
+        .find(|line| *line == "```json")
+        .map(|_| {
+            output_lines
+                .by_ref()
+                .take_while(|line| *line != "```")
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .expect("docs/output.md contains a fenced JSON alert example");
+    let documented_alert: serde_json::Value =
+        serde_json::from_str(&documented_alert).expect("documented alert example is valid JSON");
+    assert_eq!(
+        documented_alert["ecs.version"], emitted_version,
+        "documented alert example must match the emitted ECS version"
+    );
 }
 
 #[test]

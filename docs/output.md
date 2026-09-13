@@ -11,12 +11,12 @@ On Linux and macOS these files are readable by their owner only.
 
 ## Alerts
 
-One JSON object per line, following ECS 9.4.0.
+One JSON object per line, following ECS 9.5.0.
 
 ```json
 {
   "@timestamp": "2026-08-16T21:00:05Z",
-  "ecs.version": "9.4.0",
+  "ecs.version": "9.5.0",
   "event.kind": "alert",
   "event.category": ["process"],
   "event.type": ["start"],
@@ -55,6 +55,16 @@ One JSON object per line, following ECS 9.4.0.
 | `edr.event.ingest_seq` | Order in which Rustinel processed the event |
 | `edr.event.provenance` | Fields Rustinel reconstructed rather than measured, marked `derived` |
 | `edr.match` | Why the rule matched, when `alerts.match_debug` is on |
+
+### ECS version policy
+
+Rustinel targets ECS 9.5.0.
+The target advances only after every ECS field Rustinel emits has been checked against that release's schema and release notes.
+A weekly CI check reports when the latest stable ECS release differs from the target.
+
+`host.tags` is not emitted.
+ECS defines it as operator-configured host metadata, and Rustinel has no host metadata or tag configuration.
+Adding that product behavior is separate from tracking the schema version.
 
 ### Event families
 

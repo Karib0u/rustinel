@@ -1,0 +1,30 @@
+name: ECS Currency
+
+on:
+  schedule:
+    - cron: "17 8 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  current-version:
+    name: Latest stable ECS release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          cache: false
+          rustflags: ""
+      - name: Compare emitted target with upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUSTINEL_EBPF_STUB: "1"
+        run: |
+          latest="$(gh api repos/elastic/ecs/releases/latest --jq '.tag_name')"
+          latest="${latest#v}"
+          RUSTINEL_EXPECTED_ECS_VERSION="$latest" \
+            cargo test --locked --test ecs_contract ecs_version_matches_the_documented_target -- --exact
