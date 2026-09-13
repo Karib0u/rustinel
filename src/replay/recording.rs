@@ -174,10 +174,18 @@ fn verify(
     }
 
     if manifest.status != CaptureStatus::Complete {
+        if manifest.events.lost == 0 && manifest.events.source_lost == 0 {
+            bail!(
+                "recording {} is incomplete: the capture session was interrupted before a \
+                 complete recording could be finalized, so replaying it could report detections \
+                 over a partial stream",
+                payload_path.display()
+            );
+        }
+
         bail!(
-            "recording {} is incomplete: the capture session was interrupted, lost {} of {} \
-             received events, or lost {} events at the source, so replaying it would report \
-             detections over a stream with holes in it",
+            "recording {} is incomplete: capture lost {} of {} received events and {} events at \
+             the source, so replaying it would report detections over a stream with holes in it",
             payload_path.display(),
             manifest.events.lost,
             manifest.events.received,
@@ -364,7 +372,27 @@ mod tests {
         });
 
         let err = Recording::open(&payload).expect_err("incomplete recordings are rejected");
-        assert!(err.to_string().contains("incomplete"), "{err}");
+        assert!(err.to_string().contains("lost 1 of 3"), "{err}");
+        assert!(!err.to_string().contains("interrupted"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_recording_does_not_claim_events_were_lost() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let payload = complete_recording(temp.path()).await;
+        rewrite_manifest(&payload, |manifest| {
+            manifest.status = CaptureStatus::Incomplete;
+            manifest.events = CaptureEventCounts {
+                received: 0,
+                written: 0,
+                lost: 0,
+                source_lost: 0,
+            };
+        });
+
+        let err = Recording::open(&payload).expect_err("interrupted recordings are rejected");
+        assert!(err.to_string().contains("interrupted"), "{err}");
+        assert!(!err.to_string().contains("lost 0 of 0"), "{err}");
     }
 
     #[tokio::test]

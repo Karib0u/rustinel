@@ -268,14 +268,18 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
             .with_telemetry(telemetry)
         }
         Err(err) => {
-            results.push(
-                DiagnosticResult::fail(
-                    "config_parse",
-                    "Configuration failed to parse",
-                    format!("{err}"),
-                )
-                .with_fix("Run rustinel doctor --config <path> after correcting the config file"),
-            );
+            if !selected_path.as_deref().is_some_and(config_path_is_missing) {
+                results.push(
+                    DiagnosticResult::fail(
+                        "config_parse",
+                        "Configuration failed to parse",
+                        format!("{err}"),
+                    )
+                    .with_fix(
+                        "Run rustinel doctor --config <path> after correcting the config file",
+                    ),
+                );
+            }
             results.extend(platform_prerequisite_results());
             let service = inspect_service(mode, &mut results);
 
@@ -453,6 +457,15 @@ fn config_discovery_result(
     selected_path: Option<&Path>,
 ) -> DiagnosticResult {
     match (selected, selected_path) {
+        (Some(selected), Some(path)) if config_path_is_missing(path) => DiagnosticResult::fail(
+            "config_discovery",
+            format!("Config file not found at {}", path.display()),
+            format!(
+                "The selected {} config path does not exist",
+                config_source_label(selected.source)
+            ),
+        )
+        .with_fix("Correct the config path, or remove the override to use config discovery"),
         (Some(selected), Some(path)) => DiagnosticResult::pass(
             "config_discovery",
             format!(
@@ -468,6 +481,10 @@ fn config_discovery_result(
         )
         .with_fix("Create config.toml, set RUSTINEL_CONFIG, or pass --config <path>"),
     }
+}
+
+fn config_path_is_missing(path: &Path) -> bool {
+    matches!(path.try_exists(), Ok(false))
 }
 
 fn platform_support_result() -> DiagnosticResult {
@@ -733,5 +750,32 @@ mod tests {
             .results
             .iter()
             .any(|result| result.id == "config_parse" && result.status == DiagnosticStatus::Fail));
+    }
+
+    #[test]
+    fn inspect_reports_a_missing_explicit_config_during_discovery() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = temp.path().join("missing.toml");
+
+        let report = inspect_with_options(ConfigLoadOptions {
+            explicit_config: Some(config.clone()),
+            env_config: None,
+            managed_config: temp.path().join("managed.toml"),
+            exe_config: None,
+            cwd_config: temp.path().join("cwd.toml"),
+        });
+
+        let discovery = report
+            .results
+            .iter()
+            .find(|result| result.id == "config_discovery")
+            .expect("config discovery result");
+        assert_eq!(discovery.status, DiagnosticStatus::Fail);
+        assert!(discovery.message.contains(&config.display().to_string()));
+        assert!(discovery.message.contains("not found"));
+        assert!(!report
+            .results
+            .iter()
+            .any(|result| result.id == "config_parse"));
     }
 }
