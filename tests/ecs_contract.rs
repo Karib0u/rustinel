@@ -498,7 +498,7 @@ fn dns_alert_populates_category_specific_fields() {
 }
 
 #[test]
-fn ecs_version_field_is_9_4_0() {
+fn ecs_version_matches_the_documented_target() {
     let json = ecs_json(&alert(
         EventCategory::Process,
         1,
@@ -529,7 +529,24 @@ fn ecs_version_field_is_9_4_0() {
             target_image: None,
         }),
     ));
-    assert_ecs_field_eq(&json, "ecs.version", "9.4.0");
+    assert_ecs_field_eq(&json, "ecs.version", "9.5.0");
+
+    let emitted_version = json["ecs.version"]
+        .as_str()
+        .expect("ecs.version is a string");
+    let output_docs = include_str!("../docs/output.md");
+    assert!(
+        output_docs.contains(&format!("following ECS {emitted_version}.")),
+        "docs/output.md target must match the emitted ECS version"
+    );
+    assert!(
+        output_docs.contains(&format!(r#""ecs.version": "{emitted_version}""#)),
+        "docs/output.md example must match the emitted ECS version"
+    );
+    assert!(
+        output_docs.contains(&format!("Rustinel targets ECS {emitted_version}.")),
+        "docs/output.md policy must match the emitted ECS version"
+    );
 }
 
 #[test]
