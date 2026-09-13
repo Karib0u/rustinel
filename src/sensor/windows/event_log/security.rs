@@ -146,8 +146,12 @@ fn parse_system_time(value: &str) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::{decode, PROVIDER, QUERY};
+    use crate::engine::Engine;
     use crate::field_availability::FIELD_AVAILABILITY;
+    use crate::normalizer::Normalizer;
     use crate::sensor::{SensorAction, SensorPayload};
+    use crate::state::{DnsCache, ProcessCache, SidCache};
+    use std::sync::Arc;
 
     fn security_event(event_id: u16, event_data: &str) -> String {
         format!(
@@ -245,9 +249,89 @@ mod tests {
         assert_eq!(fields.get("AuthenticationPackageName"), Some("NTLM"));
         assert_eq!(fields.get("IpAddress"), Some("10.0.0.9"));
         assert_eq!(fields.get("TargetUserName"), Some("bob"));
-        // `-` is how the channel spells "does not apply to this event", not a
-        // value a rule should be able to match on.
-        assert_eq!(fields.get("ProcessName"), None);
+        // Preserve placeholders for every allowlisted field, not only the IP
+        // field from the reported regression. Rules can filter any of them.
+        assert_eq!(fields.get("ProcessName"), Some("-"));
+        // Presentation and enrichment consumers still omit placeholders.
+        assert_eq!(fields.get_non_placeholder("ProcessName"), None);
+    }
+
+    #[test]
+    fn sigmahq_external_smb_rule_distinguishes_placeholder_private_public_and_missing_ip() {
+        let rules = tempfile::tempdir().expect("create Sigma rule directory");
+        std::fs::write(
+            rules.path().join("external-smb.yml"),
+            r#"title: External Remote SMB Logon from Public IP
+id: 78d5cab4-557e-454f-9fb9-a222bd0d5edc
+status: test
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4624
+        LogonType: 3
+    filter_main_local_ranges:
+        IpAddress|cidr:
+            - '::1/128'
+            - '10.0.0.0/8'
+            - '127.0.0.0/8'
+            - '172.16.0.0/12'
+            - '192.168.0.0/16'
+            - '169.254.0.0/16'
+            - 'fc00::/7'
+            - 'fe80::/10'
+    filter_main_empty:
+        IpAddress: '-'
+    condition: selection and not 1 of filter_main_*
+level: high
+"#,
+        )
+        .expect("write SigmaHQ regression rule");
+
+        let mut engine = Engine::new_for_platform(crate::sensor::Platform::Windows);
+        engine
+            .load_rules(rules.path())
+            .expect("load SigmaHQ regression rule");
+        let normalizer = Normalizer::new(
+            Arc::new(ProcessCache::new()),
+            Arc::new(SidCache::new()),
+            Arc::new(DnsCache::new()),
+        );
+
+        let cases = [
+            ("placeholder", Some("-"), false),
+            ("private", Some("10.0.0.9"), false),
+            ("public", Some("198.51.100.10"), true),
+            // An absent field does not satisfy either filter and remains
+            // intentionally distinct from an explicit Windows placeholder.
+            ("missing", None, true),
+        ];
+
+        for (name, ip_address, should_alert) in cases {
+            let ip_data = ip_address
+                .map(|value| format!(r#"    <Data Name="IpAddress">{value}</Data>"#))
+                .unwrap_or_default();
+            let xml = security_event(
+                4624,
+                &format!(
+                    r#"{SUBJECT}
+    <Data Name="LogonType">3</Data>
+{ip_data}"#
+                ),
+            );
+            let decoded = decode(&xml).expect("4624 should decode");
+            let normalized = normalizer
+                .normalize(&decoded)
+                .expect("Security event should normalize");
+
+            assert_eq!(normalized.get_field("IpAddress"), ip_address, "{name}");
+            assert_eq!(
+                !engine.evaluate_event(&normalized).is_empty(),
+                should_alert,
+                "{name} IpAddress case"
+            );
+        }
     }
 
     #[test]

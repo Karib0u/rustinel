@@ -560,18 +560,31 @@ pub struct SecurityAuditFields {
 }
 
 impl SecurityAuditFields {
-    /// Read a decoded field by its Windows name.
+    /// Read a decoded field by its Windows name, preserving its native value.
+    ///
+    /// In particular, Windows uses `-` when a field does not apply. Sigma
+    /// rules can match that placeholder explicitly, so it must remain distinct
+    /// from an absent field in the detection view.
     pub fn get(&self, name: &str) -> Option<&str> {
         self.fields.get(name).map(String::as_str)
     }
 
+    /// Read a field only when it contains a value suitable for enrichment.
+    ///
+    /// Native placeholders remain available through [`Self::get`] for Sigma,
+    /// but must not become values such as ECS `source.ip` or
+    /// `process.executable`.
+    pub fn get_non_placeholder(&self, name: &str) -> Option<&str> {
+        self.get(name).filter(|value| *value != "-")
+    }
+
     /// Record a decoded field, ignoring empty values.
     ///
-    /// The channel writes `-` for a property that does not apply to the
-    /// instance of the event, which is not a value a rule should be able to
-    /// match on, so it is dropped like an empty one.
+    /// A literal `-` is not empty: it is Windows' explicit placeholder for a
+    /// property that does not apply, and Sigma rules rely on being able to
+    /// distinguish it from a missing field.
     pub fn insert(&mut self, name: &str, value: &str) {
-        if value.is_empty() || value == "-" {
+        if value.is_empty() {
             return;
         }
         self.fields.insert(name.to_string(), value.to_string());
