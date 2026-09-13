@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "entries": [
     {
       "platform": "windows",
@@ -9,6 +9,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -19,6 +20,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider may omit the image path"
     },
@@ -30,6 +32,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "CommandLine",
+      "since": null,
       "availability": "conditional",
       "reason": "queried from the live process and lost if it exits first"
     },
@@ -41,6 +44,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ProcessStartTime",
+      "since": null,
       "availability": "conditional",
       "reason": "the event template may omit the native creation time"
     },
@@ -52,6 +56,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ParentProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the event template may omit parent identity"
     },
@@ -63,6 +68,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ParentImage",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -74,6 +80,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ParentCommandLine",
+      "since": null,
       "availability": "conditional",
       "reason": "derived from the process cache when the parent is still known"
     },
@@ -85,6 +92,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "IntegrityLevel",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "available only on process-start templates with a MandatoryLabel SID"
     },
@@ -96,6 +104,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "OriginalFileName",
+      "since": null,
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -107,6 +116,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Product",
+      "since": null,
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -118,6 +128,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Description",
+      "since": null,
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -129,6 +140,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Company",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -140,6 +152,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "FileVersion",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -151,6 +164,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "CgroupId",
+      "since": null,
       "availability": "never",
       "reason": "Windows process events do not have a Linux kernel cgroup identifier"
     },
@@ -162,6 +176,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "User",
+      "since": null,
       "availability": "never",
       "reason": "Microsoft-Windows-Kernel-Process does not expose process user identity"
     },
@@ -173,6 +188,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "CurrentDirectory",
+      "since": null,
       "availability": "never",
       "reason": "Microsoft-Windows-Kernel-Process does not expose the working directory"
     },
@@ -184,6 +200,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "TargetImage",
+      "since": null,
       "availability": "never",
       "reason": "a process-creation event has no target process"
     },
@@ -195,6 +212,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Hashes",
+      "since": null,
       "availability": "never",
       "reason": "process images are not hashed by this collector"
     },
@@ -206,6 +224,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Imphash",
+      "since": null,
       "availability": "never",
       "reason": "process images are not hashed by this collector"
     },
@@ -217,6 +236,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationIp",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the remote address"
     },
@@ -228,6 +248,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "SourceIp",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the local address"
     },
@@ -239,6 +260,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationPort",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the remote port"
     },
@@ -250,6 +272,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "SourcePort",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the local port"
     },
@@ -261,6 +284,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -271,6 +295,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Protocol",
+      "since": null,
       "availability": "always"
     },
     {
@@ -281,6 +306,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Initiated",
+      "since": "1.4.1",
       "availability": "always"
     },
     {
@@ -291,6 +317,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -302,6 +329,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -313,6 +341,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationHostname",
+      "since": null,
       "availability": "conditional",
       "reason": "derived from a preceding observed DNS answer"
     },
@@ -324,6 +353,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationIp",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the remote address"
     },
@@ -335,6 +365,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "SourceIp",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the local address"
     },
@@ -346,6 +377,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationPort",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the remote port"
     },
@@ -357,6 +389,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "SourcePort",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template must carry the local port"
     },
@@ -368,6 +401,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -378,6 +412,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Protocol",
+      "since": null,
       "availability": "always"
     },
     {
@@ -388,6 +423,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Initiated",
+      "since": "1.4.1",
       "availability": "always"
     },
     {
@@ -398,6 +434,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -409,6 +446,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -420,6 +458,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationHostname",
+      "since": null,
       "availability": "conditional",
       "reason": "derived from a preceding observed DNS answer"
     },
@@ -430,6 +469,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -439,6 +479,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -449,6 +490,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -459,6 +501,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -469,6 +512,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "SourceFilename",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
@@ -479,6 +523,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
@@ -489,6 +534,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
@@ -499,6 +545,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PathTruncated",
+      "since": null,
       "availability": "never",
       "reason": "ETW delivers a complete path or no attributable event"
     },
@@ -509,6 +556,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -518,6 +566,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -528,6 +577,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -538,6 +588,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -548,6 +599,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "SourceFilename",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
@@ -558,6 +610,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
@@ -568,6 +621,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
@@ -578,6 +632,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PathTruncated",
+      "since": null,
       "availability": "never",
       "reason": "ETW delivers a complete path or no attributable event"
     },
@@ -588,6 +643,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -597,6 +653,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -607,6 +664,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -617,6 +675,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -627,6 +686,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "SourceFilename",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
@@ -637,6 +697,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
@@ -647,6 +708,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
@@ -657,6 +719,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PathTruncated",
+      "since": null,
       "availability": "never",
       "reason": "ETW delivers a complete path or no attributable event"
     },
@@ -667,6 +730,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -676,6 +740,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -686,6 +751,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -696,6 +762,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -706,6 +773,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "SourceFilename",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
@@ -716,6 +784,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
@@ -726,6 +795,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
@@ -736,6 +806,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PathTruncated",
+      "since": null,
       "availability": "never",
       "reason": "ETW delivers a complete path or no attributable event"
     },
@@ -746,6 +817,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -755,6 +827,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -765,6 +838,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -775,6 +849,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -785,6 +860,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "SourceFilename",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
@@ -795,6 +871,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
@@ -805,6 +882,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
@@ -815,6 +893,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "PathTruncated",
+      "since": null,
       "availability": "never",
       "reason": "ETW delivers a complete path or no attributable event"
     },
@@ -825,6 +904,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "TargetObject",
+      "since": null,
       "availability": "always"
     },
     {
@@ -834,6 +914,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Details",
+      "since": "1.4.0",
       "availability": "conditional",
       "reason": "captured registry value data is available and renderable"
     },
@@ -844,6 +925,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -854,6 +936,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -864,6 +947,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "EventType",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries the event type"
     },
@@ -874,6 +958,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -884,6 +969,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "NewName",
+      "since": null,
       "availability": "conditional",
       "reason": "the operation is a rename and the provider carries the new name"
     },
@@ -894,6 +980,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "TargetObject",
+      "since": null,
       "availability": "always"
     },
     {
@@ -903,6 +990,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Details",
+      "since": "1.4.0",
       "availability": "conditional",
       "reason": "captured registry value data is available and renderable"
     },
@@ -913,6 +1001,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -923,6 +1012,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -933,6 +1023,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "EventType",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries the event type"
     },
@@ -943,6 +1034,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -953,6 +1045,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "NewName",
+      "since": null,
       "availability": "conditional",
       "reason": "the operation is a rename and the provider carries the new name"
     },
@@ -963,6 +1056,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "TargetObject",
+      "since": null,
       "availability": "always"
     },
     {
@@ -972,6 +1066,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Details",
+      "since": "1.4.0",
       "availability": "conditional",
       "reason": "captured registry value data is available and renderable"
     },
@@ -982,6 +1077,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -992,6 +1088,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -1002,6 +1099,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "EventType",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries the event type"
     },
@@ -1012,6 +1110,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -1022,6 +1121,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "NewName",
+      "since": null,
       "availability": "conditional",
       "reason": "the operation is a rename and the provider carries the new name"
     },
@@ -1033,6 +1133,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryName",
+      "since": null,
       "availability": "conditional",
       "reason": "the DNS Client event template carries a query name"
     },
@@ -1044,6 +1145,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryResults",
+      "since": null,
       "availability": "conditional",
       "reason": "the event is a response carrying decoded answers"
     },
@@ -1055,6 +1157,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryStatus",
+      "since": null,
       "availability": "conditional",
       "reason": "the DNS Client event template carries a status"
     },
@@ -1066,6 +1169,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the DNS Client event template carries process identity"
     },
@@ -1077,6 +1181,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -1088,6 +1193,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "RecordType",
+      "since": null,
       "availability": "never",
       "reason": "the subscribed DNS Client events do not expose the query record type"
     },
@@ -1099,6 +1205,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryName",
+      "since": null,
       "availability": "conditional",
       "reason": "the DNS Client event template carries a query name"
     },
@@ -1110,6 +1217,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryResults",
+      "since": null,
       "availability": "conditional",
       "reason": "the event is a response carrying decoded answers"
     },
@@ -1121,6 +1229,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryStatus",
+      "since": null,
       "availability": "conditional",
       "reason": "the DNS Client event template carries a status"
     },
@@ -1132,6 +1241,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the DNS Client event template carries process identity"
     },
@@ -1143,6 +1253,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -1154,6 +1265,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "RecordType",
+      "since": null,
       "availability": "never",
       "reason": "the subscribed DNS Client events do not expose the query record type"
     },
@@ -1165,6 +1277,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ImageLoaded",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider may omit the loaded image path"
     },
@@ -1176,6 +1289,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider may omit process identity"
     },
@@ -1187,6 +1301,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider may omit the loading process image"
     },
@@ -1198,6 +1313,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "OriginalFileName",
+      "since": null,
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -1209,6 +1325,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Product",
+      "since": null,
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -1220,6 +1337,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Description",
+      "since": null,
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -1231,6 +1349,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Company",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -1242,6 +1361,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "FileVersion",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -1253,6 +1373,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signed",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-Process image-load events contain no Authenticode result"
     },
@@ -1264,6 +1385,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signature",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-Process image-load events contain no signer identity"
     },
@@ -1275,6 +1397,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "User",
+      "since": null,
       "availability": "never",
       "reason": "Kernel-Process image-load events contain no user identity"
     },
@@ -1286,6 +1409,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Hashes",
+      "since": null,
       "availability": "never",
       "reason": "loaded images are not hashed by this collector"
     },
@@ -1297,6 +1421,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Imphash",
+      "since": null,
       "availability": "never",
       "reason": "loaded images are not hashed by this collector"
     },
@@ -1308,6 +1433,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "ScriptBlockText",
+      "since": null,
       "availability": "conditional",
       "reason": "event 4104 contains a script block"
     },
@@ -1319,6 +1445,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "ScriptBlockId",
+      "since": null,
       "availability": "conditional",
       "reason": "event 4104 contains a script-block identifier"
     },
@@ -1330,6 +1457,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "Path",
+      "since": null,
       "availability": "conditional",
       "reason": "the script block is associated with a file"
     },
@@ -1341,6 +1469,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -1352,6 +1481,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -1363,6 +1493,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -1374,6 +1505,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "ContextInfo",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "Module Logging is enabled and event 4103 carries context"
     },
@@ -1385,6 +1517,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "Payload",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "Module Logging is enabled and event 4103 carries a payload"
     },
@@ -1396,6 +1529,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "ProcessId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the provider event template carries process identity"
     },
@@ -1407,6 +1541,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "Image",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -1418,6 +1553,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "User",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
     },
@@ -1428,6 +1564,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Operation",
+      "since": null,
       "availability": "conditional",
       "reason": "the native WMI event family carries an operation"
     },
@@ -1438,6 +1575,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "User",
+      "since": null,
       "availability": "conditional",
       "reason": "the native WMI event family carries user identity"
     },
@@ -1448,6 +1586,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Query",
+      "since": null,
       "availability": "conditional",
       "reason": "the native WMI event family carries a query or command line"
     },
@@ -1458,6 +1597,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the native WMI event family carries client process identity"
     },
@@ -1468,6 +1608,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "present in the event or derived from the process cache"
     },
@@ -1478,6 +1619,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "EventNamespace",
+      "since": null,
       "availability": "conditional",
       "reason": "the native WMI event family carries a namespace"
     },
@@ -1488,6 +1630,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "EventType",
+      "since": null,
       "availability": "conditional",
       "reason": "the native WMI event family carries an event type"
     },
@@ -1498,6 +1641,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "DestinationHostname",
+      "since": null,
       "availability": "conditional",
       "reason": "the native WMI event family carries a client machine"
     },
@@ -1509,6 +1653,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
       "field": "TaskName",
+      "since": null,
       "availability": "conditional",
       "reason": "TaskScheduler event 106 carries a task name"
     },
@@ -1520,6 +1665,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
       "field": "UserName",
+      "since": null,
       "availability": "conditional",
       "reason": "TaskScheduler event 106 carries user context"
     },
@@ -1531,6 +1677,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
       "field": "TaskContent",
+      "since": null,
       "availability": "never",
       "reason": "TaskScheduler event 106 does not carry the task XML definition"
     },
@@ -1542,6 +1689,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
       "field": "User",
+      "since": null,
       "availability": "never",
       "reason": "TaskScheduler event 106 has UserContext, not a Sysmon User field"
     },
@@ -1553,6 +1701,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
       "field": "ProcessId",
+      "since": null,
       "availability": "never",
       "reason": "TaskScheduler event 106 does not carry process identity"
     },
@@ -1564,6 +1713,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
       "field": "Image",
+      "since": null,
       "availability": "never",
       "reason": "TaskScheduler event 106 does not carry a process image"
     },
@@ -1575,6 +1725,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "Provider_Name",
+      "since": "1.4.1",
       "availability": "always"
     },
     {
@@ -1585,6 +1736,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "ServiceName",
+      "since": "1.4.0",
       "availability": "always"
     },
     {
@@ -1595,6 +1747,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "ServiceFileName",
+      "since": "1.4.0",
       "availability": "always"
     },
     {
@@ -1605,6 +1758,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "ImagePath",
+      "since": "1.4.1",
       "availability": "always"
     },
     {
@@ -1615,6 +1769,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "ServiceType",
+      "since": "1.4.0",
       "availability": "conditional",
       "reason": "System event 7045 carries a service type"
     },
@@ -1626,6 +1781,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "StartType",
+      "since": "1.4.0",
       "availability": "conditional",
       "reason": "System event 7045 carries a start type"
     },
@@ -1637,6 +1793,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "AccountName",
+      "since": "1.4.0",
       "availability": "conditional",
       "reason": "System event 7045 carries an account name"
     },
@@ -1648,6 +1805,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "User",
+      "since": "1.4.0",
       "availability": "conditional",
       "reason": "the Event Log system header carries a security user ID"
     },
@@ -1659,6 +1817,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "ProcessId",
+      "since": "1.4.0",
       "availability": "never",
       "reason": "System event 7045 does not carry process identity"
     },
@@ -1670,6 +1829,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "Image",
+      "since": "1.4.0",
       "availability": "never",
       "reason": "System event 7045 does not carry a creating process image"
     },
@@ -1681,6 +1841,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1692,6 +1853,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1703,6 +1865,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1714,6 +1877,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1725,6 +1889,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserSid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1736,6 +1901,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1747,6 +1913,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1758,6 +1925,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1769,6 +1937,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1780,6 +1949,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonProcessName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1791,6 +1961,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AuthenticationPackageName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1802,6 +1973,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "WorkstationName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1813,6 +1985,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonGuid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1824,6 +1997,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LmPackageName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1835,6 +2009,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "KeyLength",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1846,6 +2021,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1857,6 +2033,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1868,6 +2045,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1879,6 +2057,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1890,6 +2069,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ImpersonationLevel",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1901,6 +2081,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RestrictedAdminMode",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1912,6 +2093,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetOutboundUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1923,6 +2105,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetOutboundDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1934,6 +2117,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "VirtualAccount",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1945,6 +2129,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetLinkedLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1956,6 +2141,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ElevatedToken",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1967,6 +2153,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1978,6 +2165,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -1989,6 +2177,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2000,6 +2189,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2011,6 +2201,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectServer",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2022,6 +2213,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2033,6 +2225,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2044,6 +2237,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HandleId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2055,6 +2249,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessList",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2066,6 +2261,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessMask",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2077,6 +2273,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessReason",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2088,6 +2285,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2099,6 +2297,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2110,6 +2309,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2121,6 +2321,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2132,6 +2333,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2143,6 +2345,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2154,6 +2357,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2165,6 +2369,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectServer",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2176,6 +2381,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2187,6 +2393,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2198,6 +2405,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HandleId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2209,6 +2417,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessList",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2220,6 +2429,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessMask",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2231,6 +2441,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2242,6 +2453,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2253,6 +2465,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2264,6 +2477,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2275,6 +2489,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2286,6 +2501,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2297,6 +2513,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2308,6 +2525,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceFileName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2319,6 +2537,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2330,6 +2549,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceStartType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2341,6 +2561,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceAccount",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2352,6 +2573,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2363,6 +2585,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2374,6 +2597,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2385,6 +2609,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2396,6 +2621,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DSName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2407,6 +2633,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DSType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2418,6 +2645,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectDN",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2429,6 +2657,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectGUID",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2440,6 +2669,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectClass",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2451,6 +2681,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AttributeLDAPDisplayName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2462,6 +2693,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AttributeSyntaxOID",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2473,6 +2705,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AttributeValue",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2484,6 +2717,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OperationType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2495,6 +2729,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2506,6 +2741,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2517,6 +2753,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2528,6 +2765,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2539,6 +2777,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectType",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2550,6 +2789,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2561,6 +2801,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2572,6 +2813,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ShareName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2583,6 +2825,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ShareLocalPath",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2594,6 +2837,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RelativeTargetName",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2605,6 +2849,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessMask",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2616,6 +2861,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessList",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2627,6 +2873,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessReason",
+      "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -2637,6 +2884,7 @@
       "provider": "none",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "*",
+      "since": null,
       "availability": "never",
       "reason": "named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW"
     },
@@ -2647,6 +2895,7 @@
       "provider": "none",
       "source": "none",
       "field": "*",
+      "since": null,
       "availability": "never",
       "reason": "no Rustinel sensor produces remote-thread creation telemetry"
     },
@@ -2658,6 +2907,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "Image",
+      "since": null,
       "availability": "always"
     },
     {
@@ -2668,6 +2918,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ImageSource",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -2678,6 +2929,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -2688,6 +2940,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "RealUserId",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -2698,6 +2951,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "RealGroupId",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -2708,6 +2962,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "EffectiveUserId",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
@@ -2719,6 +2974,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "EffectiveGroupId",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
@@ -2730,6 +2986,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "MountNamespace",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
@@ -2741,6 +2998,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "PidNamespace",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
@@ -2752,6 +3010,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "NetworkNamespace",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
@@ -2763,6 +3022,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "SessionId",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
@@ -2774,6 +3034,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "KernelStartBoottime",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
@@ -2785,6 +3046,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ControllingTty",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves terminal fields and the process has a controlling terminal"
     },
@@ -2796,6 +3058,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "User",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -2807,6 +3070,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ImageTruncated",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "the raw exec filename exceeded the kernel capture buffer"
     },
@@ -2818,6 +3082,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "CommandLine",
+      "since": null,
       "availability": "conditional",
       "reason": "kernel argv capture or the live /proc entry is available"
     },
@@ -2829,6 +3094,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ParentProcessId",
+      "since": null,
       "availability": "conditional",
       "reason": "the live /proc entry is available"
     },
@@ -2840,6 +3106,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ParentImage",
+      "since": null,
       "availability": "conditional",
       "reason": "measured at fork or available from process state"
     },
@@ -2851,6 +3118,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ParentCommandLine",
+      "since": null,
       "availability": "conditional",
       "reason": "measured at fork or available from process state"
     },
@@ -2862,6 +3130,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "CurrentDirectory",
+      "since": null,
       "availability": "conditional",
       "reason": "the live /proc entry is available"
     },
@@ -2873,6 +3142,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "CgroupId",
+      "since": null,
       "availability": "conditional",
       "reason": "the kernel reports a non-zero cgroup identifier at exec time"
     },
@@ -2884,6 +3154,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "OriginalFileName",
+      "since": null,
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -2895,6 +3166,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "Product",
+      "since": null,
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -2906,6 +3178,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "Description",
+      "since": null,
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -2917,6 +3190,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "Company",
+      "since": null,
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -2928,6 +3202,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "FileVersion",
+      "since": null,
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -2939,6 +3214,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "IntegrityLevel",
+      "since": null,
       "availability": "never",
       "reason": "Windows integrity levels do not exist on Linux"
     },
@@ -2950,6 +3226,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "TargetImage",
+      "since": null,
       "availability": "never",
       "reason": "a process-creation event has no target process"
     },
@@ -2961,6 +3238,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "DestinationIp",
+      "since": null,
       "availability": "always"
     },
     {
@@ -2971,6 +3249,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "DestinationPort",
+      "since": null,
       "availability": "always"
     },
     {
@@ -2981,6 +3260,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -2991,6 +3271,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "User",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -3002,6 +3283,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "Initiated",
+      "since": "1.4.1",
       "availability": "always"
     },
     {
@@ -3012,6 +3294,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "Protocol",
+      "since": null,
       "availability": "conditional",
       "reason": "the socket fexit tier is active and sk_protocol names TCP or UDP"
     },
@@ -3023,6 +3306,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -3034,6 +3318,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "DestinationHostname",
+      "since": null,
       "availability": "conditional",
       "reason": "a preceding observed DNS answer resolves the destination"
     },
@@ -3045,6 +3330,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "SourceIp",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "the socket fexit tier measures the bound source address"
     },
@@ -3056,6 +3342,7 @@
       "provider": "ebpf",
       "source": "socket fexit or connect tracepoints",
       "field": "SourcePort",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "the socket fexit tier measures the bound source port"
     },
@@ -3066,6 +3353,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3075,6 +3363,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3084,6 +3373,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -3094,6 +3384,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SourceFilename",
+      "since": null,
       "availability": "conditional",
       "reason": "the action is rename and the old path can be resolved"
     },
@@ -3104,6 +3395,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -3114,6 +3406,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PathTruncated",
+      "since": null,
       "availability": "conditional",
       "reason": "the kernel path buffer truncated a source or target"
     },
@@ -3124,6 +3417,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3134,6 +3428,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3144,6 +3439,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3153,6 +3449,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3162,6 +3459,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -3172,6 +3470,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SourceFilename",
+      "since": null,
       "availability": "conditional",
       "reason": "the action is rename and the old path can be resolved"
     },
@@ -3182,6 +3481,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -3192,6 +3492,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PathTruncated",
+      "since": null,
       "availability": "conditional",
       "reason": "the kernel path buffer truncated a source or target"
     },
@@ -3202,6 +3503,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3212,6 +3514,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3222,6 +3525,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3231,6 +3535,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3240,6 +3545,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -3250,6 +3556,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SourceFilename",
+      "since": null,
       "availability": "conditional",
       "reason": "the action is rename and the old path can be resolved"
     },
@@ -3260,6 +3567,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -3270,6 +3578,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PathTruncated",
+      "since": null,
       "availability": "conditional",
       "reason": "the kernel path buffer truncated a source or target"
     },
@@ -3280,6 +3589,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3290,6 +3600,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3300,6 +3611,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "TargetFilename",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3309,6 +3621,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3318,6 +3631,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "User",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -3328,6 +3642,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SourceFilename",
+      "since": null,
       "availability": "conditional",
       "reason": "the action is rename and the old path can be resolved"
     },
@@ -3338,6 +3653,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -3348,6 +3664,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PathTruncated",
+      "since": null,
       "availability": "conditional",
       "reason": "the kernel path buffer truncated a source or target"
     },
@@ -3358,6 +3675,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "CreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3368,6 +3686,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "PreviousCreationUtcTime",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF file probes do not read file timestamps"
     },
@@ -3379,6 +3698,7 @@
       "provider": "ebpf",
       "source": "socket send tracepoints",
       "field": "RecordType",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3389,6 +3709,7 @@
       "provider": "ebpf",
       "source": "socket send tracepoints",
       "field": "ProcessId",
+      "since": null,
       "availability": "always"
     },
     {
@@ -3399,6 +3720,7 @@
       "provider": "ebpf",
       "source": "socket send tracepoints",
       "field": "QueryName",
+      "since": null,
       "availability": "conditional",
       "reason": "the DNS question can be parsed or the kernel fallback is non-empty"
     },
@@ -3410,6 +3732,7 @@
       "provider": "ebpf",
       "source": "socket send tracepoints",
       "field": "QueryResults",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF DNS probe emits outbound queries and does not parse responses"
     },
@@ -3421,6 +3744,7 @@
       "provider": "ebpf",
       "source": "socket send tracepoints",
       "field": "Image",
+      "since": null,
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -3432,6 +3756,7 @@
       "provider": "ebpf",
       "source": "socket send tracepoints",
       "field": "QueryStatus",
+      "since": null,
       "availability": "never",
       "reason": "the eBPF DNS probe does not parse response status"
     },
@@ -3443,6 +3768,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "Image",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3453,6 +3779,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "ProcessId",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3463,6 +3790,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "ProcessStartTime",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3473,6 +3801,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "User",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3483,6 +3812,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "CommandLine",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "ESF supplies at least one exec argument"
     },
@@ -3494,6 +3824,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "ParentProcessId",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "the parent PID is non-zero"
     },
@@ -3505,6 +3836,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "ParentImage",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "derived from the process cache by an observed stable parent identity"
     },
@@ -3516,6 +3848,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "ParentCommandLine",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "the stable parent identity resolves to a cached command line"
     },
@@ -3527,6 +3860,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "RealUserId",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -3537,6 +3871,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "Signed",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -3547,6 +3882,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "SignatureStatus",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -3557,6 +3893,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "CodeSigningFlags",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -3567,6 +3904,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "IsPlatformBinary",
+      "since": "1.6.0",
       "availability": "always"
     },
     {
@@ -3577,6 +3915,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "PreExecImage",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "ESF supplies a non-empty acting process executable path"
     },
@@ -3588,6 +3927,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "Script",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "message version 2+ supplies a script for direct shebang execution"
     },
@@ -3599,6 +3939,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "SigningId",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "ESF supplies a non-empty signing identifier"
     },
@@ -3610,6 +3951,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "TeamId",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "ESF supplies a non-empty signing team identifier"
     },
@@ -3621,6 +3963,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "CdHash",
+      "since": "1.6.0",
       "availability": "conditional",
       "reason": "the executable has the CS_SIGNED flag"
     },
@@ -3632,6 +3975,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "CurrentDirectory",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "ESF supplies an exec working directory"
     },
@@ -3643,6 +3987,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "CgroupId",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "macOS process events do not have a Linux kernel cgroup identifier"
     },
@@ -3654,6 +3999,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "ImageSource",
+      "since": "1.6.0",
       "availability": "never",
       "reason": "ESF supplies the executable path directly"
     },
@@ -3665,6 +4011,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "ImageTruncated",
+      "since": "1.6.0",
       "availability": "never",
       "reason": "ESF does not use the Linux raw-image buffer"
     },
@@ -3676,6 +4023,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "IntegrityLevel",
+      "since": "1.4.1",
       "availability": "never",
       "reason": "Windows integrity levels do not exist on macOS"
     },
@@ -3687,6 +4035,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "TargetImage",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "a process-creation event has no target process"
     },
@@ -3698,6 +4047,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "OriginalFileName",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -3709,6 +4059,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "Product",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -3720,6 +4071,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "Description",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -3731,6 +4083,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "Company",
+      "since": "1.4.1",
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -3742,6 +4095,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "FileVersion",
+      "since": "1.4.1",
       "availability": "never",
       "reason": "PE version resources are Windows-only"
     },
@@ -3753,6 +4107,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "DestinationIp",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3763,6 +4118,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "SourceIp",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3773,6 +4129,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "DestinationPort",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3783,6 +4140,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "SourcePort",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3793,6 +4151,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "Protocol",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3803,6 +4162,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "ProcessId",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "bounded socket-inventory attribution finds the owner"
     },
@@ -3814,6 +4174,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "Image",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "bounded socket-inventory attribution finds the owner"
     },
@@ -3825,6 +4186,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "DestinationHostname",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "a preceding observed DNS answer resolves the destination"
     },
@@ -3836,6 +4198,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "User",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "BPF packets do not carry process user identity"
     },
@@ -3847,6 +4210,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "Initiated",
+      "since": "1.4.1",
       "availability": "never",
       "reason": "a wire capture cannot determine whether the local host initiated the flow"
     },
@@ -3857,6 +4221,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "TargetFilename",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3866,6 +4231,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "ProcessId",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3875,6 +4241,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "User",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3884,6 +4251,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "SourceFilename",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "the ESF action is a rename"
     },
@@ -3894,6 +4262,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "Image",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "ESF supplies the acting process executable path"
     },
@@ -3904,6 +4273,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "CreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -3914,6 +4284,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PreviousCreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -3924,6 +4295,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PathTruncated",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
@@ -3934,6 +4306,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "TargetFilename",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3943,6 +4316,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "ProcessId",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3952,6 +4326,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "User",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -3961,6 +4336,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "SourceFilename",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "the ESF action is a rename"
     },
@@ -3971,6 +4347,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "Image",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "ESF supplies the acting process executable path"
     },
@@ -3981,6 +4358,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "CreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -3991,6 +4369,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PreviousCreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -4001,6 +4380,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PathTruncated",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
@@ -4011,6 +4391,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "TargetFilename",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -4020,6 +4401,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "ProcessId",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -4029,6 +4411,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "User",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -4038,6 +4421,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "SourceFilename",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "the ESF action is a rename"
     },
@@ -4048,6 +4432,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "Image",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "ESF supplies the acting process executable path"
     },
@@ -4058,6 +4443,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "CreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -4068,6 +4454,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PreviousCreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -4078,6 +4465,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PathTruncated",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
@@ -4088,6 +4476,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "TargetFilename",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -4097,6 +4486,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "ProcessId",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -4106,6 +4496,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "User",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -4115,6 +4506,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "SourceFilename",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "the ESF action is a rename"
     },
@@ -4125,6 +4517,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "Image",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "ESF supplies the acting process executable path"
     },
@@ -4135,6 +4528,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "CreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -4145,6 +4539,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PreviousCreationUtcTime",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF file notifications do not carry file timestamps"
     },
@@ -4155,6 +4550,7 @@
       "provider": "esf",
       "source": "Endpoint Security file notifications",
       "field": "PathTruncated",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
@@ -4166,6 +4562,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "QueryName",
+      "since": "1.1.0",
       "availability": "always"
     },
     {
@@ -4176,6 +4573,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "RecordType",
+      "since": "1.1.0",
       "availability": "conditional",
       "reason": "the DNS qtype has a known Sysmon-compatible name"
     },
@@ -4187,6 +4585,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "QueryResults",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "the BPF DNS path emits queries, not responses"
     },
@@ -4198,6 +4597,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "QueryStatus",
+      "since": "1.1.0",
       "availability": "never",
       "reason": "the BPF DNS path emits queries, not responses"
     },
@@ -4209,6 +4609,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "ProcessId",
+      "since": "1.7.0",
       "availability": "conditional",
       "reason": "bounded socket-inventory attribution finds the owner"
     },
@@ -4220,6 +4621,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "Image",
+      "since": "1.7.0",
       "availability": "conditional",
       "reason": "bounded socket-inventory attribution finds the owner and executable path"
     }

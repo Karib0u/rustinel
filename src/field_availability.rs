@@ -5,12 +5,23 @@
 //! list: `doctor`, the generated compatibility baseline, and the generated
 //! documentation all consume [`FIELD_AVAILABILITY`].
 
+use semver::Version;
 use serde::Serialize;
 
 use crate::models::{EventCategory, EventFields, NormalizedEvent};
 use crate::sensor::{Platform, SensorAction};
 
-pub const SCHEMA_VERSION: u16 = 1;
+pub const SCHEMA_VERSION: u16 = 2;
+
+/// The field had its current availability at or before the oldest supported
+/// Rustinel release. Keeping this explicit at every declaration prevents a new
+/// capability from silently acquiring a version floor.
+const SINCE_BASELINE: Option<&str> = None;
+const SINCE_1_1_0: Option<&str> = Some("1.1.0");
+const SINCE_1_4_0: Option<&str> = Some("1.4.0");
+const SINCE_1_4_1: Option<&str> = Some("1.4.1");
+const SINCE_1_6_0: Option<&str> = Some("1.6.0");
+const SINCE_1_7_0: Option<&str> = Some("1.7.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -45,6 +56,9 @@ impl Availability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct FieldContract {
     pub field: &'static str,
+    /// First released version where the field reached its current
+    /// availability, or `None` when that predates the supported baseline.
+    pub since: Option<&'static str>,
     #[serde(flatten)]
     pub availability: Availability,
 }
@@ -67,191 +81,310 @@ pub struct EventFieldContract {
     pub fields: &'static [FieldContract],
 }
 
-const fn always(field: &'static str) -> FieldContract {
+const fn always(field: &'static str, since: Option<&'static str>) -> FieldContract {
     FieldContract {
         field,
+        since,
         availability: Availability::Always,
     }
 }
 
-const fn conditional(field: &'static str, reason: &'static str) -> FieldContract {
+const fn conditional(
+    field: &'static str,
+    since: Option<&'static str>,
+    reason: &'static str,
+) -> FieldContract {
     FieldContract {
         field,
+        since,
         availability: Availability::Conditional(reason),
     }
 }
 
-const fn never(field: &'static str, reason: &'static str) -> FieldContract {
+const fn never(
+    field: &'static str,
+    since: Option<&'static str>,
+    reason: &'static str,
+) -> FieldContract {
     FieldContract {
         field,
+        since,
         availability: Availability::Never(reason),
     }
 }
 
 const WINDOWS_PROCESS: &[FieldContract] = &[
-    always("ProcessId"),
-    conditional("Image", "the provider may omit the image path"),
+    always("ProcessId", SINCE_BASELINE),
+    conditional(
+        "Image",
+        SINCE_BASELINE,
+        "the provider may omit the image path",
+    ),
     conditional(
         "CommandLine",
+        SINCE_BASELINE,
         "queried from the live process and lost if it exits first",
     ),
     conditional(
         "ProcessStartTime",
+        SINCE_BASELINE,
         "the event template may omit the native creation time",
     ),
     conditional(
         "ParentProcessId",
+        SINCE_BASELINE,
         "the event template may omit parent identity",
     ),
     conditional(
         "ParentImage",
+        SINCE_BASELINE,
         "present in the event or derived from the process cache",
     ),
     conditional(
         "ParentCommandLine",
+        SINCE_BASELINE,
         "derived from the process cache when the parent is still known",
     ),
     conditional(
         "IntegrityLevel",
+        SINCE_1_4_1,
         "available only on process-start templates with a MandatoryLabel SID",
     ),
     conditional(
         "OriginalFileName",
+        SINCE_BASELINE,
         "PE version-resource enrichment succeeds",
     ),
-    conditional("Product", "PE version-resource enrichment succeeds"),
-    conditional("Description", "PE version-resource enrichment succeeds"),
-    conditional("Company", "PE version-resource enrichment succeeds"),
-    conditional("FileVersion", "PE version-resource enrichment succeeds"),
+    conditional(
+        "Product",
+        SINCE_BASELINE,
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Description",
+        SINCE_BASELINE,
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Company",
+        SINCE_1_4_1,
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "FileVersion",
+        SINCE_1_4_1,
+        "PE version-resource enrichment succeeds",
+    ),
     never(
         "CgroupId",
+        SINCE_BASELINE,
         "Windows process events do not have a Linux kernel cgroup identifier",
     ),
     never(
         "User",
+        SINCE_BASELINE,
         "Microsoft-Windows-Kernel-Process does not expose process user identity",
     ),
     never(
         "CurrentDirectory",
+        SINCE_BASELINE,
         "Microsoft-Windows-Kernel-Process does not expose the working directory",
     ),
     never(
         "TargetImage",
+        SINCE_BASELINE,
         "a process-creation event has no target process",
     ),
-    never("Hashes", "process images are not hashed by this collector"),
-    never("Imphash", "process images are not hashed by this collector"),
+    never(
+        "Hashes",
+        SINCE_BASELINE,
+        "process images are not hashed by this collector",
+    ),
+    never(
+        "Imphash",
+        SINCE_BASELINE,
+        "process images are not hashed by this collector",
+    ),
 ];
 
 const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
-    conditional("ImageLoaded", "the provider may omit the loaded image path"),
-    conditional("ProcessId", "the provider may omit process identity"),
-    conditional("Image", "the provider may omit the loading process image"),
+    conditional(
+        "ImageLoaded",
+        SINCE_BASELINE,
+        "the provider may omit the loaded image path",
+    ),
+    conditional(
+        "ProcessId",
+        SINCE_BASELINE,
+        "the provider may omit process identity",
+    ),
+    conditional(
+        "Image",
+        SINCE_BASELINE,
+        "the provider may omit the loading process image",
+    ),
     conditional(
         "OriginalFileName",
+        SINCE_BASELINE,
         "PE version-resource enrichment succeeds",
     ),
-    conditional("Product", "PE version-resource enrichment succeeds"),
-    conditional("Description", "PE version-resource enrichment succeeds"),
-    conditional("Company", "PE version-resource enrichment succeeds"),
-    conditional("FileVersion", "PE version-resource enrichment succeeds"),
+    conditional(
+        "Product",
+        SINCE_BASELINE,
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Description",
+        SINCE_BASELINE,
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Company",
+        SINCE_1_4_1,
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "FileVersion",
+        SINCE_1_4_1,
+        "PE version-resource enrichment succeeds",
+    ),
     never(
         "Signed",
+        SINCE_BASELINE,
         "Kernel-Process image-load events contain no Authenticode result",
     ),
     never(
         "Signature",
+        SINCE_BASELINE,
         "Kernel-Process image-load events contain no signer identity",
     ),
     never(
         "User",
+        SINCE_BASELINE,
         "Kernel-Process image-load events contain no user identity",
     ),
-    never("Hashes", "loaded images are not hashed by this collector"),
-    never("Imphash", "loaded images are not hashed by this collector"),
+    never(
+        "Hashes",
+        SINCE_BASELINE,
+        "loaded images are not hashed by this collector",
+    ),
+    never(
+        "Imphash",
+        SINCE_BASELINE,
+        "loaded images are not hashed by this collector",
+    ),
 ];
 
 const WINDOWS_NETWORK: &[FieldContract] = &[
     conditional(
         "DestinationIp",
+        SINCE_BASELINE,
         "the provider event template must carry the remote address",
     ),
     conditional(
         "SourceIp",
+        SINCE_BASELINE,
         "the provider event template must carry the local address",
     ),
     conditional(
         "DestinationPort",
+        SINCE_BASELINE,
         "the provider event template must carry the remote port",
     ),
     conditional(
         "SourcePort",
+        SINCE_BASELINE,
         "the provider event template must carry the local port",
     ),
-    always("ProcessId"),
-    always("Protocol"),
-    always("Initiated"),
+    always("ProcessId", SINCE_BASELINE),
+    always("Protocol", SINCE_BASELINE),
+    always("Initiated", SINCE_1_4_1),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "present in the event or derived from the process cache",
     ),
-    conditional("User", "the provider event template carries user identity"),
+    conditional(
+        "User",
+        SINCE_BASELINE,
+        "the provider event template carries user identity",
+    ),
     conditional(
         "DestinationHostname",
+        SINCE_BASELINE,
         "derived from a preceding observed DNS answer",
     ),
 ];
 
 const WINDOWS_FILE: &[FieldContract] = &[
-    always("TargetFilename"),
+    always("TargetFilename", SINCE_BASELINE),
     conditional(
         "ProcessId",
+        SINCE_BASELINE,
         "the provider event template carries process identity",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "present in the event or derived from the process cache",
     ),
-    conditional("User", "the provider event template carries user identity"),
+    conditional(
+        "User",
+        SINCE_BASELINE,
+        "the provider event template carries user identity",
+    ),
     never(
         "SourceFilename",
+        SINCE_BASELINE,
         "Kernel-File does not provide the old name on emitted rename events",
     ),
     never(
         "CreationUtcTime",
+        SINCE_BASELINE,
         "Kernel-File reports the information class, not the new timestamp",
     ),
     never(
         "PreviousCreationUtcTime",
+        SINCE_BASELINE,
         "Kernel-File reports the information class, not the old timestamp",
     ),
     never(
         "PathTruncated",
+        SINCE_BASELINE,
         "ETW delivers a complete path or no attributable event",
     ),
 ];
 
 const WINDOWS_REGISTRY: &[FieldContract] = &[
-    always("TargetObject"),
+    always("TargetObject", SINCE_BASELINE),
     conditional(
         "Details",
+        SINCE_1_4_0,
         "captured registry value data is available and renderable",
     ),
     conditional(
         "ProcessId",
+        SINCE_BASELINE,
         "the provider event template carries process identity",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "present in the event or derived from the process cache",
     ),
     conditional(
         "EventType",
+        SINCE_BASELINE,
         "the provider event template carries the event type",
     ),
-    conditional("User", "the provider event template carries user identity"),
+    conditional(
+        "User",
+        SINCE_BASELINE,
+        "the provider event template carries user identity",
+    ),
     conditional(
         "NewName",
+        SINCE_BASELINE,
         "the operation is a rename and the provider carries the new name",
     ),
 ];
@@ -259,139 +392,206 @@ const WINDOWS_REGISTRY: &[FieldContract] = &[
 const WINDOWS_DNS: &[FieldContract] = &[
     conditional(
         "QueryName",
+        SINCE_BASELINE,
         "the DNS Client event template carries a query name",
     ),
     conditional(
         "QueryResults",
+        SINCE_BASELINE,
         "the event is a response carrying decoded answers",
     ),
     conditional(
         "QueryStatus",
+        SINCE_BASELINE,
         "the DNS Client event template carries a status",
     ),
     conditional(
         "ProcessId",
+        SINCE_BASELINE,
         "the DNS Client event template carries process identity",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "present in the event or derived from the process cache",
     ),
     never(
         "RecordType",
+        SINCE_BASELINE,
         "the subscribed DNS Client events do not expose the query record type",
     ),
 ];
 
 const WINDOWS_POWERSHELL_SCRIPT: &[FieldContract] = &[
-    conditional("ScriptBlockText", "event 4104 contains a script block"),
+    conditional(
+        "ScriptBlockText",
+        SINCE_BASELINE,
+        "event 4104 contains a script block",
+    ),
     conditional(
         "ScriptBlockId",
+        SINCE_BASELINE,
         "event 4104 contains a script-block identifier",
     ),
-    conditional("Path", "the script block is associated with a file"),
+    conditional(
+        "Path",
+        SINCE_BASELINE,
+        "the script block is associated with a file",
+    ),
     conditional(
         "ProcessId",
+        SINCE_BASELINE,
         "the provider event template carries process identity",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "present in the event or derived from the process cache",
     ),
-    conditional("User", "the provider event template carries user identity"),
+    conditional(
+        "User",
+        SINCE_BASELINE,
+        "the provider event template carries user identity",
+    ),
 ];
 
 const WINDOWS_POWERSHELL_MODULE: &[FieldContract] = &[
     conditional(
         "ContextInfo",
+        SINCE_1_4_1,
         "Module Logging is enabled and event 4103 carries context",
     ),
     conditional(
         "Payload",
+        SINCE_1_4_1,
         "Module Logging is enabled and event 4103 carries a payload",
     ),
     conditional(
         "ProcessId",
+        SINCE_1_4_1,
         "the provider event template carries process identity",
     ),
     conditional(
         "Image",
+        SINCE_1_4_1,
         "present in the event or derived from the process cache",
     ),
-    conditional("User", "the provider event template carries user identity"),
+    conditional(
+        "User",
+        SINCE_1_4_1,
+        "the provider event template carries user identity",
+    ),
 ];
 
 const WINDOWS_WMI: &[FieldContract] = &[
     conditional(
         "Operation",
+        SINCE_BASELINE,
         "the native WMI event family carries an operation",
     ),
-    conditional("User", "the native WMI event family carries user identity"),
+    conditional(
+        "User",
+        SINCE_BASELINE,
+        "the native WMI event family carries user identity",
+    ),
     conditional(
         "Query",
+        SINCE_BASELINE,
         "the native WMI event family carries a query or command line",
     ),
     conditional(
         "ProcessId",
+        SINCE_BASELINE,
         "the native WMI event family carries client process identity",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "present in the event or derived from the process cache",
     ),
     conditional(
         "EventNamespace",
+        SINCE_BASELINE,
         "the native WMI event family carries a namespace",
     ),
     conditional(
         "EventType",
+        SINCE_BASELINE,
         "the native WMI event family carries an event type",
     ),
     conditional(
         "DestinationHostname",
+        SINCE_BASELINE,
         "the native WMI event family carries a client machine",
     ),
 ];
 
 const WINDOWS_TASK: &[FieldContract] = &[
-    conditional("TaskName", "TaskScheduler event 106 carries a task name"),
-    conditional("UserName", "TaskScheduler event 106 carries user context"),
+    conditional(
+        "TaskName",
+        SINCE_BASELINE,
+        "TaskScheduler event 106 carries a task name",
+    ),
+    conditional(
+        "UserName",
+        SINCE_BASELINE,
+        "TaskScheduler event 106 carries user context",
+    ),
     never(
         "TaskContent",
+        SINCE_BASELINE,
         "TaskScheduler event 106 does not carry the task XML definition",
     ),
     never(
         "User",
+        SINCE_BASELINE,
         "TaskScheduler event 106 has UserContext, not a Sysmon User field",
     ),
     never(
         "ProcessId",
+        SINCE_BASELINE,
         "TaskScheduler event 106 does not carry process identity",
     ),
     never(
         "Image",
+        SINCE_BASELINE,
         "TaskScheduler event 106 does not carry a process image",
     ),
 ];
 
 const WINDOWS_SERVICE: &[FieldContract] = &[
-    always("Provider_Name"),
-    always("ServiceName"),
-    always("ServiceFileName"),
-    always("ImagePath"),
-    conditional("ServiceType", "System event 7045 carries a service type"),
-    conditional("StartType", "System event 7045 carries a start type"),
-    conditional("AccountName", "System event 7045 carries an account name"),
+    always("Provider_Name", SINCE_1_4_1),
+    always("ServiceName", SINCE_1_4_0),
+    always("ServiceFileName", SINCE_1_4_0),
+    always("ImagePath", SINCE_1_4_1),
+    conditional(
+        "ServiceType",
+        SINCE_1_4_0,
+        "System event 7045 carries a service type",
+    ),
+    conditional(
+        "StartType",
+        SINCE_1_4_0,
+        "System event 7045 carries a start type",
+    ),
+    conditional(
+        "AccountName",
+        SINCE_1_4_0,
+        "System event 7045 carries an account name",
+    ),
     conditional(
         "User",
+        SINCE_1_4_0,
         "the Event Log system header carries a security user ID",
     ),
     never(
         "ProcessId",
+        SINCE_1_4_0,
         "System event 7045 does not carry process identity",
     ),
     never(
         "Image",
+        SINCE_1_4_0,
         "System event 7045 does not carry a creating process image",
     ),
 ];
@@ -400,385 +600,518 @@ const SECURITY_FIELD_REASON: &str =
     "the audited event template and host audit policy supply this field";
 
 macro_rules! security_fields {
-    ($($field:literal),+ $(,)?) => {
+    ($($field:literal => $since:expr),+ $(,)?) => {
         &[
-            conditional("SubjectUserSid", SECURITY_FIELD_REASON),
-            conditional("SubjectUserName", SECURITY_FIELD_REASON),
-            conditional("SubjectDomainName", SECURITY_FIELD_REASON),
-            conditional("SubjectLogonId", SECURITY_FIELD_REASON),
-            $(conditional($field, SECURITY_FIELD_REASON)),+
+            conditional("SubjectUserSid", SINCE_1_4_1, SECURITY_FIELD_REASON),
+            conditional("SubjectUserName", SINCE_1_4_1, SECURITY_FIELD_REASON),
+            conditional("SubjectDomainName", SINCE_1_4_1, SECURITY_FIELD_REASON),
+            conditional("SubjectLogonId", SINCE_1_4_1, SECURITY_FIELD_REASON),
+            $(conditional($field, $since, SECURITY_FIELD_REASON)),+
         ]
     };
 }
 
 const WINDOWS_SECURITY_4624: &[FieldContract] = security_fields!(
-    "TargetUserSid",
-    "TargetUserName",
-    "TargetDomainName",
-    "TargetLogonId",
-    "LogonType",
-    "LogonProcessName",
-    "AuthenticationPackageName",
-    "WorkstationName",
-    "LogonGuid",
-    "LmPackageName",
-    "KeyLength",
-    "ProcessId",
-    "ProcessName",
-    "IpAddress",
-    "IpPort",
-    "ImpersonationLevel",
-    "RestrictedAdminMode",
-    "TargetOutboundUserName",
-    "TargetOutboundDomainName",
-    "VirtualAccount",
-    "TargetLinkedLogonId",
-    "ElevatedToken",
+    "TargetUserSid" => SINCE_1_4_1,
+    "TargetUserName" => SINCE_1_4_1,
+    "TargetDomainName" => SINCE_1_4_1,
+    "TargetLogonId" => SINCE_1_4_1,
+    "LogonType" => SINCE_1_4_1,
+    "LogonProcessName" => SINCE_1_4_1,
+    "AuthenticationPackageName" => SINCE_1_4_1,
+    "WorkstationName" => SINCE_1_4_1,
+    "LogonGuid" => SINCE_1_4_1,
+    "LmPackageName" => SINCE_1_4_1,
+    "KeyLength" => SINCE_1_4_1,
+    "ProcessId" => SINCE_1_4_1,
+    "ProcessName" => SINCE_1_4_1,
+    "IpAddress" => SINCE_1_4_1,
+    "IpPort" => SINCE_1_4_1,
+    "ImpersonationLevel" => SINCE_1_4_1,
+    "RestrictedAdminMode" => SINCE_1_4_1,
+    "TargetOutboundUserName" => SINCE_1_4_1,
+    "TargetOutboundDomainName" => SINCE_1_4_1,
+    "VirtualAccount" => SINCE_1_4_1,
+    "TargetLinkedLogonId" => SINCE_1_4_1,
+    "ElevatedToken" => SINCE_1_4_1,
 );
 const WINDOWS_SECURITY_4656: &[FieldContract] = security_fields!(
-    "ObjectServer",
-    "ObjectType",
-    "ObjectName",
-    "HandleId",
-    "AccessList",
-    "AccessMask",
-    "AccessReason",
-    "PrivilegeList",
-    "ProcessId",
-    "ProcessName",
+    "ObjectServer" => SINCE_1_4_1,
+    "ObjectType" => SINCE_1_4_1,
+    "ObjectName" => SINCE_1_4_1,
+    "HandleId" => SINCE_1_4_1,
+    "AccessList" => SINCE_1_4_1,
+    "AccessMask" => SINCE_1_4_1,
+    "AccessReason" => SINCE_1_4_1,
+    "PrivilegeList" => SINCE_1_4_1,
+    "ProcessId" => SINCE_1_4_1,
+    "ProcessName" => SINCE_1_4_1,
 );
 const WINDOWS_SECURITY_4663: &[FieldContract] = security_fields!(
-    "ObjectServer",
-    "ObjectType",
-    "ObjectName",
-    "HandleId",
-    "AccessList",
-    "AccessMask",
-    "ProcessId",
-    "ProcessName",
+    "ObjectServer" => SINCE_1_4_1,
+    "ObjectType" => SINCE_1_4_1,
+    "ObjectName" => SINCE_1_4_1,
+    "HandleId" => SINCE_1_4_1,
+    "AccessList" => SINCE_1_4_1,
+    "AccessMask" => SINCE_1_4_1,
+    "ProcessId" => SINCE_1_4_1,
+    "ProcessName" => SINCE_1_4_1,
 );
 const WINDOWS_SECURITY_4697: &[FieldContract] = security_fields!(
-    "ServiceName",
-    "ServiceFileName",
-    "ServiceType",
-    "ServiceStartType",
-    "ServiceAccount",
+    "ServiceName" => SINCE_1_4_1,
+    "ServiceFileName" => SINCE_1_4_1,
+    "ServiceType" => SINCE_1_4_1,
+    "ServiceStartType" => SINCE_1_4_1,
+    "ServiceAccount" => SINCE_1_4_1,
 );
 const WINDOWS_SECURITY_5136: &[FieldContract] = security_fields!(
-    "DSName",
-    "DSType",
-    "ObjectDN",
-    "ObjectGUID",
-    "ObjectClass",
-    "AttributeLDAPDisplayName",
-    "AttributeSyntaxOID",
-    "AttributeValue",
-    "OperationType",
+    "DSName" => SINCE_1_4_1,
+    "DSType" => SINCE_1_4_1,
+    "ObjectDN" => SINCE_1_4_1,
+    "ObjectGUID" => SINCE_1_4_1,
+    "ObjectClass" => SINCE_1_4_1,
+    "AttributeLDAPDisplayName" => SINCE_1_4_1,
+    "AttributeSyntaxOID" => SINCE_1_4_1,
+    "AttributeValue" => SINCE_1_4_1,
+    "OperationType" => SINCE_1_4_1,
 );
 const WINDOWS_SECURITY_5145: &[FieldContract] = security_fields!(
-    "ObjectType",
-    "IpAddress",
-    "IpPort",
-    "ShareName",
-    "ShareLocalPath",
-    "RelativeTargetName",
-    "AccessMask",
-    "AccessList",
-    "AccessReason",
+    "ObjectType" => SINCE_1_4_1,
+    "IpAddress" => SINCE_1_4_1,
+    "IpPort" => SINCE_1_4_1,
+    "ShareName" => SINCE_1_4_1,
+    "ShareLocalPath" => SINCE_1_4_1,
+    "RelativeTargetName" => SINCE_1_4_1,
+    "AccessMask" => SINCE_1_4_1,
+    "AccessList" => SINCE_1_4_1,
+    "AccessReason" => SINCE_1_4_1,
 );
 
 const LINUX_PROCESS: &[FieldContract] = &[
-    always("Image"),
-    always("ImageSource"),
-    always("ProcessId"),
-    always("RealUserId"),
-    always("RealGroupId"),
+    always("Image", SINCE_BASELINE),
+    always("ImageSource", SINCE_1_6_0),
+    always("ProcessId", SINCE_BASELINE),
+    always("RealUserId", SINCE_1_6_0),
+    always("RealGroupId", SINCE_1_6_0),
     conditional(
         "EffectiveUserId",
+        SINCE_1_6_0,
         "runtime BTF resolves this field and the kernel read succeeds",
     ),
     conditional(
         "EffectiveGroupId",
+        SINCE_1_6_0,
         "runtime BTF resolves this field and the kernel read succeeds",
     ),
     conditional(
         "MountNamespace",
+        SINCE_1_6_0,
         "runtime BTF resolves this field and the kernel read succeeds",
     ),
     conditional(
         "PidNamespace",
+        SINCE_1_6_0,
         "runtime BTF resolves this field and the kernel read succeeds",
     ),
     conditional(
         "NetworkNamespace",
+        SINCE_1_6_0,
         "runtime BTF resolves this field and the kernel read succeeds",
     ),
     conditional(
         "SessionId",
+        SINCE_1_6_0,
         "runtime BTF resolves this field and the kernel read succeeds",
     ),
     conditional(
         "KernelStartBoottime",
+        SINCE_1_6_0,
         "runtime BTF resolves this field and the kernel read succeeds",
     ),
     conditional(
         "ControllingTty",
+        SINCE_1_6_0,
         "runtime BTF resolves terminal fields and the process has a controlling terminal",
     ),
     conditional(
         "User",
+        SINCE_1_6_0,
         "runtime BTF resolves effective credentials and the kernel read succeeds",
     ),
     conditional(
         "ImageTruncated",
+        SINCE_1_6_0,
         "the raw exec filename exceeded the kernel capture buffer",
     ),
     conditional(
         "CommandLine",
+        SINCE_BASELINE,
         "kernel argv capture or the live /proc entry is available",
     ),
-    conditional("ParentProcessId", "the live /proc entry is available"),
+    conditional(
+        "ParentProcessId",
+        SINCE_BASELINE,
+        "the live /proc entry is available",
+    ),
     conditional(
         "ParentImage",
+        SINCE_BASELINE,
         "measured at fork or available from process state",
     ),
     conditional(
         "ParentCommandLine",
+        SINCE_BASELINE,
         "measured at fork or available from process state",
     ),
-    conditional("CurrentDirectory", "the live /proc entry is available"),
+    conditional(
+        "CurrentDirectory",
+        SINCE_BASELINE,
+        "the live /proc entry is available",
+    ),
     conditional(
         "CgroupId",
+        SINCE_BASELINE,
         "the kernel reports a non-zero cgroup identifier at exec time",
     ),
-    never("OriginalFileName", "PE version resources are Windows-only"),
-    never("Product", "PE version resources are Windows-only"),
-    never("Description", "PE version resources are Windows-only"),
-    never("Company", "PE version resources are Windows-only"),
-    never("FileVersion", "PE version resources are Windows-only"),
+    never(
+        "OriginalFileName",
+        SINCE_BASELINE,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "Product",
+        SINCE_BASELINE,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "Description",
+        SINCE_BASELINE,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "Company",
+        SINCE_BASELINE,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "FileVersion",
+        SINCE_BASELINE,
+        "PE version resources are Windows-only",
+    ),
     never(
         "IntegrityLevel",
+        SINCE_BASELINE,
         "Windows integrity levels do not exist on Linux",
     ),
     never(
         "TargetImage",
+        SINCE_BASELINE,
         "a process-creation event has no target process",
     ),
 ];
 
 const LINUX_NETWORK: &[FieldContract] = &[
-    always("DestinationIp"),
-    always("DestinationPort"),
-    always("ProcessId"),
+    always("DestinationIp", SINCE_BASELINE),
+    always("DestinationPort", SINCE_BASELINE),
+    always("ProcessId", SINCE_BASELINE),
     conditional(
         "User",
+        SINCE_1_6_0,
         "runtime BTF resolves effective credentials and the kernel read succeeds",
     ),
-    always("Initiated"),
+    always("Initiated", SINCE_1_4_1),
     conditional(
         "Protocol",
+        SINCE_BASELINE,
         "the socket fexit tier is active and sk_protocol names TCP or UDP",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "the process identity is still present in the process cache",
     ),
     conditional(
         "DestinationHostname",
+        SINCE_BASELINE,
         "a preceding observed DNS answer resolves the destination",
     ),
     conditional(
         "SourceIp",
+        SINCE_1_6_0,
         "the socket fexit tier measures the bound source address",
     ),
     conditional(
         "SourcePort",
+        SINCE_1_6_0,
         "the socket fexit tier measures the bound source port",
     ),
 ];
 
 const LINUX_FILE: &[FieldContract] = &[
-    always("TargetFilename"),
-    always("ProcessId"),
+    always("TargetFilename", SINCE_BASELINE),
+    always("ProcessId", SINCE_BASELINE),
     conditional(
         "User",
+        SINCE_1_6_0,
         "runtime BTF resolves effective credentials and the kernel read succeeds",
     ),
     conditional(
         "SourceFilename",
+        SINCE_BASELINE,
         "the action is rename and the old path can be resolved",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "the process identity is still present in the process cache",
     ),
     conditional(
         "PathTruncated",
+        SINCE_BASELINE,
         "the kernel path buffer truncated a source or target",
     ),
     never(
         "CreationUtcTime",
+        SINCE_BASELINE,
         "the eBPF file probes do not read file timestamps",
     ),
     never(
         "PreviousCreationUtcTime",
+        SINCE_BASELINE,
         "the eBPF file probes do not read file timestamps",
     ),
 ];
 
 const LINUX_DNS: &[FieldContract] = &[
-    always("RecordType"),
-    always("ProcessId"),
+    always("RecordType", SINCE_BASELINE),
+    always("ProcessId", SINCE_BASELINE),
     conditional(
         "QueryName",
+        SINCE_BASELINE,
         "the DNS question can be parsed or the kernel fallback is non-empty",
     ),
     never(
         "QueryResults",
+        SINCE_BASELINE,
         "the eBPF DNS probe emits outbound queries and does not parse responses",
     ),
     conditional(
         "Image",
+        SINCE_BASELINE,
         "the process identity is still present in the process cache",
     ),
     never(
         "QueryStatus",
+        SINCE_BASELINE,
         "the eBPF DNS probe does not parse response status",
     ),
 ];
 
 const MACOS_PROCESS: &[FieldContract] = &[
-    always("Image"),
-    always("ProcessId"),
-    always("ProcessStartTime"),
-    always("User"),
-    conditional("CommandLine", "ESF supplies at least one exec argument"),
-    conditional("ParentProcessId", "the parent PID is non-zero"),
+    always("Image", SINCE_1_1_0),
+    always("ProcessId", SINCE_1_1_0),
+    always("ProcessStartTime", SINCE_1_1_0),
+    always("User", SINCE_1_1_0),
+    conditional(
+        "CommandLine",
+        SINCE_1_1_0,
+        "ESF supplies at least one exec argument",
+    ),
+    conditional("ParentProcessId", SINCE_1_1_0, "the parent PID is non-zero"),
     conditional(
         "ParentImage",
+        SINCE_1_1_0,
         "derived from the process cache by an observed stable parent identity",
     ),
     conditional(
         "ParentCommandLine",
+        SINCE_1_6_0,
         "the stable parent identity resolves to a cached command line",
     ),
-    always("RealUserId"),
-    always("Signed"),
-    always("SignatureStatus"),
-    always("CodeSigningFlags"),
-    always("IsPlatformBinary"),
+    always("RealUserId", SINCE_1_6_0),
+    always("Signed", SINCE_1_6_0),
+    always("SignatureStatus", SINCE_1_6_0),
+    always("CodeSigningFlags", SINCE_1_6_0),
+    always("IsPlatformBinary", SINCE_1_6_0),
     conditional(
         "PreExecImage",
+        SINCE_1_6_0,
         "ESF supplies a non-empty acting process executable path",
     ),
     conditional(
         "Script",
+        SINCE_1_6_0,
         "message version 2+ supplies a script for direct shebang execution",
     ),
-    conditional("SigningId", "ESF supplies a non-empty signing identifier"),
-    conditional("TeamId", "ESF supplies a non-empty signing team identifier"),
-    conditional("CdHash", "the executable has the CS_SIGNED flag"),
-    conditional("CurrentDirectory", "ESF supplies an exec working directory"),
+    conditional(
+        "SigningId",
+        SINCE_1_6_0,
+        "ESF supplies a non-empty signing identifier",
+    ),
+    conditional(
+        "TeamId",
+        SINCE_1_6_0,
+        "ESF supplies a non-empty signing team identifier",
+    ),
+    conditional(
+        "CdHash",
+        SINCE_1_6_0,
+        "the executable has the CS_SIGNED flag",
+    ),
+    conditional(
+        "CurrentDirectory",
+        SINCE_1_1_0,
+        "ESF supplies an exec working directory",
+    ),
     never(
         "CgroupId",
+        SINCE_1_1_0,
         "macOS process events do not have a Linux kernel cgroup identifier",
     ),
-    never("ImageSource", "ESF supplies the executable path directly"),
+    never(
+        "ImageSource",
+        SINCE_1_6_0,
+        "ESF supplies the executable path directly",
+    ),
     never(
         "ImageTruncated",
+        SINCE_1_6_0,
         "ESF does not use the Linux raw-image buffer",
     ),
     never(
         "IntegrityLevel",
+        SINCE_1_4_1,
         "Windows integrity levels do not exist on macOS",
     ),
     never(
         "TargetImage",
+        SINCE_1_1_0,
         "a process-creation event has no target process",
     ),
-    never("OriginalFileName", "PE version resources are Windows-only"),
-    never("Product", "PE version resources are Windows-only"),
-    never("Description", "PE version resources are Windows-only"),
-    never("Company", "PE version resources are Windows-only"),
-    never("FileVersion", "PE version resources are Windows-only"),
+    never(
+        "OriginalFileName",
+        SINCE_1_1_0,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "Product",
+        SINCE_1_1_0,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "Description",
+        SINCE_1_1_0,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "Company",
+        SINCE_1_4_1,
+        "PE version resources are Windows-only",
+    ),
+    never(
+        "FileVersion",
+        SINCE_1_4_1,
+        "PE version resources are Windows-only",
+    ),
 ];
 
 const MACOS_FILE: &[FieldContract] = &[
-    always("TargetFilename"),
-    always("ProcessId"),
-    always("User"),
-    conditional("SourceFilename", "the ESF action is a rename"),
-    conditional("Image", "ESF supplies the acting process executable path"),
+    always("TargetFilename", SINCE_1_1_0),
+    always("ProcessId", SINCE_1_1_0),
+    always("User", SINCE_1_1_0),
+    conditional("SourceFilename", SINCE_1_1_0, "the ESF action is a rename"),
+    conditional(
+        "Image",
+        SINCE_1_1_0,
+        "ESF supplies the acting process executable path",
+    ),
     never(
         "CreationUtcTime",
+        SINCE_1_1_0,
         "ESF file notifications do not carry file timestamps",
     ),
     never(
         "PreviousCreationUtcTime",
+        SINCE_1_1_0,
         "ESF file notifications do not carry file timestamps",
     ),
     never(
         "PathTruncated",
+        SINCE_1_1_0,
         "ESF paths are not copied through a fixed Rustinel buffer",
     ),
 ];
 
 const MACOS_NETWORK: &[FieldContract] = &[
-    always("DestinationIp"),
-    always("SourceIp"),
-    always("DestinationPort"),
-    always("SourcePort"),
-    always("Protocol"),
+    always("DestinationIp", SINCE_1_1_0),
+    always("SourceIp", SINCE_1_1_0),
+    always("DestinationPort", SINCE_1_1_0),
+    always("SourcePort", SINCE_1_1_0),
+    always("Protocol", SINCE_1_1_0),
     conditional(
         "ProcessId",
+        SINCE_1_1_0,
         "bounded socket-inventory attribution finds the owner",
     ),
     conditional(
         "Image",
+        SINCE_1_1_0,
         "bounded socket-inventory attribution finds the owner",
     ),
     conditional(
         "DestinationHostname",
+        SINCE_1_1_0,
         "a preceding observed DNS answer resolves the destination",
     ),
-    never("User", "BPF packets do not carry process user identity"),
+    never(
+        "User",
+        SINCE_1_1_0,
+        "BPF packets do not carry process user identity",
+    ),
     never(
         "Initiated",
+        SINCE_1_4_1,
         "a wire capture cannot determine whether the local host initiated the flow",
     ),
 ];
 
 const MACOS_DNS: &[FieldContract] = &[
-    always("QueryName"),
+    always("QueryName", SINCE_1_1_0),
     conditional(
         "RecordType",
+        SINCE_1_1_0,
         "the DNS qtype has a known Sysmon-compatible name",
     ),
     never(
         "QueryResults",
+        SINCE_1_1_0,
         "the BPF DNS path emits queries, not responses",
     ),
     never(
         "QueryStatus",
+        SINCE_1_1_0,
         "the BPF DNS path emits queries, not responses",
     ),
     conditional(
         "ProcessId",
+        SINCE_1_7_0,
         "bounded socket-inventory attribution finds the owner",
     ),
     conditional(
         "Image",
+        SINCE_1_7_0,
         "bounded socket-inventory attribution finds the owner and executable path",
     ),
 ];
 
 const PIPE_CREATED: &[FieldContract] = &[never(
-    "*",
+    "*", SINCE_BASELINE,
     "named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW",
 )];
 
 const CREATE_REMOTE_THREAD: &[FieldContract] = &[never(
     "*",
+    SINCE_BASELINE,
     "no Rustinel sensor produces remote-thread creation telemetry",
 )];
 
@@ -1291,11 +1624,13 @@ struct BaselineEntry<'a> {
     provider: &'a str,
     source: &'a str,
     field: &'a str,
+    since: Option<&'a str>,
     #[serde(flatten)]
     availability: Availability,
 }
 
 pub fn compatibility_json() -> String {
+    validate_since_versions();
     let entries = FIELD_AVAILABILITY
         .iter()
         .flat_map(|contract| {
@@ -1307,6 +1642,7 @@ pub fn compatibility_json() -> String {
                 provider: contract.provider,
                 source: contract.source,
                 field: field.field,
+                since: field.since,
                 availability: field.availability,
             })
         })
@@ -1318,6 +1654,31 @@ pub fn compatibility_json() -> String {
     .expect("static field availability serializes");
     json.push('\n');
     json
+}
+
+fn validate_since_versions() {
+    let current = Version::parse(env!("CARGO_PKG_VERSION"))
+        .expect("the Rustinel package version must be valid semver");
+    for field in FIELD_AVAILABILITY
+        .iter()
+        .flat_map(|contract| contract.fields)
+    {
+        let Some(since) = field.since else {
+            continue;
+        };
+        let version = Version::parse(since)
+            .unwrap_or_else(|error| panic!("{} has invalid since {since:?}: {error}", field.field));
+        assert!(
+            version.pre.is_empty(),
+            "{} since {since:?} is not a released version",
+            field.field
+        );
+        assert!(
+            version <= current,
+            "{} since {since:?} is newer than Rustinel {current}",
+            field.field
+        );
+    }
 }
 
 fn key_label(contract: &EventFieldContract) -> String {
