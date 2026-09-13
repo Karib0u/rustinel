@@ -257,6 +257,29 @@ pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
     })
 }
 
+/// Convert a Linux `CLOCK_BOOTTIME` nanosecond timestamp to the clock-tick
+/// representation exposed by `/proc/<pid>/stat`.
+///
+/// `/proc` truncates process start times to tick precision. Do the conversion
+/// before retaining an eBPF birth timestamp so later identity validation
+/// compares values in the same clock domain and units.
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_boot_time_ns_to_start_ticks(start_time_ns: u64) -> Option<u64> {
+    static CLOCK_TICKS_PER_SECOND: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    let hz = *CLOCK_TICKS_PER_SECOND.get_or_init(|| {
+        let value = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        (1..=1_000_000).contains(&value).then_some(value as u64)
+    });
+
+    boot_time_ns_to_start_ticks_at_hz(start_time_ns, hz?)
+}
+
+#[cfg(target_os = "linux")]
+fn boot_time_ns_to_start_ticks_at_hz(start_time_ns: u64, hz: u64) -> Option<u64> {
+    let ticks = u128::from(start_time_ns).checked_mul(u128::from(hz))? / 1_000_000_000_u128;
+    ticks.try_into().ok()
+}
+
 #[cfg(windows)]
 pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
     use windows::Win32::Foundation::{CloseHandle, FILETIME};
@@ -432,6 +455,21 @@ mod tests {
         let command_line =
             query_process_command_line(pid).expect("current process command line should exist");
         assert!(!command_line.is_empty());
+    }
+
+    #[test]
+    fn boot_nanoseconds_convert_to_proc_clock_ticks() {
+        assert_eq!(
+            boot_time_ns_to_start_ticks_at_hz(325_827_924_504_916, 100),
+            Some(32_582_792)
+        );
+    }
+
+    #[test]
+    fn boot_nanoseconds_use_proc_tick_precision() {
+        assert_eq!(boot_time_ns_to_start_ticks_at_hz(9_999_999, 100), Some(0));
+        assert_eq!(boot_time_ns_to_start_ticks_at_hz(10_000_000, 100), Some(1));
+        assert_eq!(boot_time_ns_to_start_ticks_at_hz(19_999_999, 100), Some(1));
     }
 }
 
