@@ -537,13 +537,20 @@ fn ecs_version_matches_the_documented_target() {
         .as_str()
         .expect("ecs.version is a string");
     let output_docs = include_str!("../docs/output.md");
-    let documented_alert = output_docs
-        .split_once("```json\n")
-        .and_then(|(_, remainder)| remainder.split_once("\n```"))
-        .map(|(example, _)| example)
+    let mut output_lines = output_docs.lines();
+    let documented_alert = output_lines
+        .by_ref()
+        .find(|line| *line == "```json")
+        .map(|_| {
+            output_lines
+                .by_ref()
+                .take_while(|line| *line != "```")
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .expect("docs/output.md contains a fenced JSON alert example");
     let documented_alert: serde_json::Value =
-        serde_json::from_str(documented_alert).expect("documented alert example is valid JSON");
+        serde_json::from_str(&documented_alert).expect("documented alert example is valid JSON");
     assert_eq!(
         documented_alert["ecs.version"], emitted_version,
         "documented alert example must match the emitted ECS version"
