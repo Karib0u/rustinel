@@ -1,6 +1,6 @@
 use super::helpers::{basename, parse_u64};
 use super::user::apply_user_fields;
-use crate::models::{MatchDetails, ProcessContext, Provenance};
+use crate::models::{MatchDetails, ProcessContext, Provenance, YaraScanSource};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -108,6 +108,14 @@ pub struct EcsAlert {
     /// Detection engine (Sigma, Yara, Ioc)
     #[serde(rename = "edr.rule.engine")]
     pub edr_rule_engine: String,
+
+    /// Artifact inspected for a YARA detection. This remains present regardless
+    /// of match-debug verbosity and does not replace the originating provider.
+    #[serde(
+        rename = "edr.yara.scan_source",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_yara_scan_source: Option<YaraScanSource>,
 
     // ========================================================================
     // Process Fields

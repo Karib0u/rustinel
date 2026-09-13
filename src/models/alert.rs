@@ -42,3 +42,11 @@ pub enum DetectionEngine {
     Yara,
     Ioc,
 }
+
+/// The artifact inspected for a YARA detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum YaraScanSource {
+    File,
+    ProcessMemory,
+}
