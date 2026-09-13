@@ -16,17 +16,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Compare target with upstream
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          cache: false
+          rustflags: ""
+      - name: Compare emitted target with upstream
         env:
           GH_TOKEN: ${{ github.token }}
+          RUSTINEL_EBPF_STUB: "1"
         run: |
-          target="$(sed -n 's/^const ECS_VERSION: &str = "\([^"]*\)";/\1/p' src/models/ecs/mod.rs)"
-          test -n "$target" || { echo "Could not read ECS_VERSION" >&2; exit 1; }
-
           latest="$(gh api repos/elastic/ecs/releases/latest --jq '.tag_name')"
           latest="${latest#v}"
-          if [ "$target" != "$latest" ]; then
-            echo "Rustinel targets ECS $target, but the latest stable release is ECS $latest." >&2
-            echo "Review the upstream release notes and emitted fields before updating ECS_VERSION." >&2
-            exit 1
-          fi
+          RUSTINEL_EXPECTED_ECS_VERSION="$latest" \
+            cargo test --locked --test ecs_contract ecs_version_matches_the_documented_target -- --exact

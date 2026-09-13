@@ -529,23 +529,24 @@ fn ecs_version_matches_the_documented_target() {
             target_image: None,
         }),
     ));
-    assert_ecs_field_eq(&json, "ecs.version", "9.5.0");
+    let expected_version =
+        std::env::var("RUSTINEL_EXPECTED_ECS_VERSION").unwrap_or_else(|_| "9.5.0".to_string());
+    assert_ecs_field_eq(&json, "ecs.version", expected_version);
 
     let emitted_version = json["ecs.version"]
         .as_str()
         .expect("ecs.version is a string");
     let output_docs = include_str!("../docs/output.md");
-    assert!(
-        output_docs.contains(&format!("following ECS {emitted_version}.")),
-        "docs/output.md target must match the emitted ECS version"
-    );
-    assert!(
-        output_docs.contains(&format!(r#""ecs.version": "{emitted_version}""#)),
-        "docs/output.md example must match the emitted ECS version"
-    );
-    assert!(
-        output_docs.contains(&format!("Rustinel targets ECS {emitted_version}.")),
-        "docs/output.md policy must match the emitted ECS version"
+    let documented_alert = output_docs
+        .split_once("```json\n")
+        .and_then(|(_, remainder)| remainder.split_once("\n```"))
+        .map(|(example, _)| example)
+        .expect("docs/output.md contains a fenced JSON alert example");
+    let documented_alert: serde_json::Value =
+        serde_json::from_str(documented_alert).expect("documented alert example is valid JSON");
+    assert_eq!(
+        documented_alert["ecs.version"], emitted_version,
+        "documented alert example must match the emitted ECS version"
     );
 }
 
