@@ -73,6 +73,7 @@ fn dns_event(query_name: &str) -> CanonicalEvent {
             process_id: None,
             image: None,
         }),
+        process_name: None,
         provenance: Default::default(),
         process_context: None,
     })

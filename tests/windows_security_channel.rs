@@ -31,6 +31,8 @@ fn security_event(event_id: u16, action: SensorAction, pairs: &[(&str, &str)]) -
     let pid = fields.process_id();
 
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Windows,
         provider: "windows_event_log",
         action,

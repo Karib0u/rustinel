@@ -426,6 +426,16 @@ pub mod mapping {
             _ => SensorAction::Start,
         };
         SensorEvent {
+            process_name: (action == SensorAction::Start)
+                .then(|| bytes_to_string(&event.comm))
+                .filter(|name| !name.is_empty()),
+            provenance: {
+                let mut provenance = crate::models::Provenance::default();
+                if event.args_truncated != 0 && event.kernel_command_line().is_some() {
+                    provenance.mark("CommandLine", crate::models::Fidelity::Truncated);
+                }
+                provenance
+            },
             platform: Platform::Linux,
             provider: PROVIDER,
             action,
@@ -479,6 +489,8 @@ pub mod mapping {
 
     pub fn network_event_to_sensor(event: &NetworkEvent) -> SensorEvent {
         SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: PROVIDER,
             action: SensorAction::Connect,
@@ -541,6 +553,17 @@ pub mod mapping {
             });
 
         Some(SensorEvent {
+            process_name: Some(bytes_to_string(&event.comm)).filter(|name| !name.is_empty()),
+            provenance: {
+                let mut provenance = crate::models::Provenance::default();
+                if !bytes_to_string(&event.path).starts_with('/') {
+                    provenance.mark_derived("TargetFilename");
+                }
+                if source_filename.is_some() && !bytes_to_string(&event.aux_path).starts_with('/') {
+                    provenance.mark_derived("SourceFilename");
+                }
+                provenance
+            },
             platform: Platform::Linux,
             provider: PROVIDER,
             action,
@@ -571,6 +594,8 @@ pub mod mapping {
 
     pub fn dns_event_to_sensor(event: &DnsEvent) -> SensorEvent {
         SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: PROVIDER,
             action: SensorAction::Query,
@@ -610,6 +635,8 @@ pub mod mapping {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    use crate::sensor::SensorAction;
 
     #[test]
     fn parse_event_rejects_short_reads() {
@@ -673,6 +700,39 @@ mod tests {
             decoded.kernel_command_line().as_deref(),
             Some("/bin/true --quiet")
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_exit_mapping_does_not_allocate_an_unobservable_name() {
+        let mut event = ProcessEvent {
+            identity: Default::default(),
+            event_time_ns: 0,
+            source_seq: 0,
+            cgroup_id: 0,
+            process_start_time: 123_456,
+            parent_process_start_time: 0,
+            kind: 2,
+            pid: 4242,
+            uid: 1000,
+            parent_pid: 0,
+            creator_tid: 0,
+            creator_tgid: 0,
+            comm: [0u8; 16],
+            image: [0u8; PROCESS_IMAGE_CAPACITY],
+            args_len: 0,
+            args_count: 0,
+            args_truncated: 0,
+            image_truncated: 0,
+            parent_pid_derived: 0,
+            _pad1: 0,
+            args: [0u8; ARGV_CAPACITY],
+        };
+        event.comm[..4].copy_from_slice(b"bash");
+
+        let mapped = mapping::process_event_to_sensor(&event);
+        assert_eq!(mapped.action, SensorAction::Stop);
+        assert!(mapped.process_name.is_none());
     }
 
     #[test]

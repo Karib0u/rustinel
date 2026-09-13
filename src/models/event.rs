@@ -2,34 +2,178 @@ use super::EventFields;
 use crate::sensor::Platform;
 use serde::{Deserialize, Serialize};
 
-/// Fidelity of a populated field that was not measured by the event source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Known limitation on the evidentiary fidelity of a populated field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Fidelity {
     Derived,
+    BestEffort,
+    Truncated,
+    Stale,
 }
 
-/// Provenance for one non-measured event field.
+/// Compact identifiers for fields with known reconstruction paths. Unknown
+/// names remain round-trippable for recordings from newer collectors.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FieldId {
+    Image,
+    CommandLine,
+    ProcessId,
+    ProcessStartTime,
+    ParentProcessId,
+    ParentImage,
+    ParentCommandLine,
+    User,
+    OriginalFileName,
+    Product,
+    Description,
+    Company,
+    FileVersion,
+    CurrentDirectory,
+    IntegrityLevel,
+    DestinationHostname,
+    TargetFilename,
+    SourceFilename,
+    TargetObject,
+    EventID,
+    WindowsLiveCommandLine,
+    Other(String),
+}
+
+impl FieldId {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Image => "Image",
+            Self::CommandLine => "CommandLine",
+            Self::ProcessId => "ProcessId",
+            Self::ProcessStartTime => "ProcessStartTime",
+            Self::ParentProcessId => "ParentProcessId",
+            Self::ParentImage => "ParentImage",
+            Self::ParentCommandLine => "ParentCommandLine",
+            Self::User => "User",
+            Self::OriginalFileName => "OriginalFileName",
+            Self::Product => "Product",
+            Self::Description => "Description",
+            Self::Company => "Company",
+            Self::FileVersion => "FileVersion",
+            Self::CurrentDirectory => "CurrentDirectory",
+            Self::IntegrityLevel => "IntegrityLevel",
+            Self::DestinationHostname => "DestinationHostname",
+            Self::TargetFilename => "TargetFilename",
+            Self::SourceFilename => "SourceFilename",
+            Self::TargetObject => "TargetObject",
+            Self::EventID => "EventID",
+            Self::WindowsLiveCommandLine => "WindowsProcessMetadata.conflicting_live_command_line",
+            Self::Other(name) => name,
+        }
+    }
+}
+
+impl From<&str> for FieldId {
+    fn from(name: &str) -> Self {
+        match name {
+            "Image" => Self::Image,
+            "CommandLine" => Self::CommandLine,
+            "ProcessId" => Self::ProcessId,
+            "ProcessStartTime" => Self::ProcessStartTime,
+            "ParentProcessId" => Self::ParentProcessId,
+            "ParentImage" => Self::ParentImage,
+            "ParentCommandLine" => Self::ParentCommandLine,
+            "User" => Self::User,
+            "OriginalFileName" => Self::OriginalFileName,
+            "Product" => Self::Product,
+            "Description" => Self::Description,
+            "Company" => Self::Company,
+            "FileVersion" => Self::FileVersion,
+            "CurrentDirectory" => Self::CurrentDirectory,
+            "IntegrityLevel" => Self::IntegrityLevel,
+            "DestinationHostname" => Self::DestinationHostname,
+            "TargetFilename" => Self::TargetFilename,
+            "SourceFilename" => Self::SourceFilename,
+            "TargetObject" => Self::TargetObject,
+            "EventID" => Self::EventID,
+            "WindowsProcessMetadata.conflicting_live_command_line" => Self::WindowsLiveCommandLine,
+            _ => Self::Other(name.to_string()),
+        }
+    }
+}
+
+impl std::ops::Deref for FieldId {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for FieldId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<&str> for FieldId {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl Serialize for FieldId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for FieldId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        Ok(Self::from(name.as_str()))
+    }
+}
+
+/// One fidelity limitation attached to a populated event field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldProvenance {
-    pub field: String,
+    pub field: FieldId,
     pub fidelity: Fidelity,
 }
 
-/// Sparse field-level provenance. Empty means every populated field was measured.
+/// Sparse field-level provenance. Empty means no fidelity limitation is known.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Provenance(Vec<FieldProvenance>);
+pub struct Provenance(smallvec::SmallVec<[FieldProvenance; 2]>);
 
 impl Provenance {
-    pub fn mark_derived(&mut self, field: &str) {
-        if self.0.iter().any(|entry| entry.field == field) {
+    /// Preserve independent limitations: a reconstructed value can also be
+    /// truncated or stale. Repeated identical evidence is idempotent.
+    pub fn mark(&mut self, field: &str, fidelity: Fidelity) {
+        if self
+            .0
+            .iter()
+            .any(|entry| entry.field == field && entry.fidelity == fidelity)
+        {
             return;
         }
         self.0.push(FieldProvenance {
-            field: field.to_string(),
-            fidelity: Fidelity::Derived,
+            field: field.into(),
+            fidelity,
         });
+    }
+
+    pub fn mark_derived(&mut self, field: &str) {
+        self.mark(field, Fidelity::Derived);
+    }
+
+    pub fn has(&self, field: &str, fidelity: Fidelity) -> bool {
+        self.0
+            .iter()
+            .any(|entry| entry.field == field && entry.fidelity == fidelity)
+    }
+
+    /// Copy limitations along with a cached value, renaming parent fields.
+    pub fn inherit(&mut self, source: &Self, from: &str, to: &str) {
+        for entry in source.entries().iter().filter(|entry| entry.field == from) {
+            self.mark(to, entry.fidelity);
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -74,9 +218,12 @@ pub struct NormalizedEvent {
     pub opcode: u8,
     /// Event-specific fields
     pub fields: EventFields,
-    /// Fidelity markers for populated fields that were not sensor-measured.
+    /// Known fidelity limitations on populated fields.
     #[serde(default, skip_serializing_if = "Provenance::is_empty")]
     pub provenance: Provenance,
+    /// Native short name, kept separate from the executable path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     /// Optional process context for non-process events (alert enrichment only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_context: Option<ProcessContext>,
@@ -106,6 +253,8 @@ impl<'de> Deserialize<'de> for NormalizedEvent {
             #[serde(default)]
             provenance: Provenance,
             #[serde(default)]
+            process_name: Option<String>,
+            #[serde(default)]
             process_context: Option<ProcessContext>,
         }
 
@@ -113,7 +262,7 @@ impl<'de> Deserialize<'de> for NormalizedEvent {
         let fields = EventFields::from_recorded(recorded.category, recorded.fields)
             .map_err(serde::de::Error::custom)?;
 
-        Ok(Self {
+        let event = Self {
             timestamp: recorded.event_time,
             source_seq: recorded.source_seq,
             ingest_seq: recorded.ingest_seq,
@@ -127,8 +276,13 @@ impl<'de> Deserialize<'de> for NormalizedEvent {
             opcode: recorded.opcode,
             fields,
             provenance: recorded.provenance,
+            process_name: recorded.process_name,
             process_context: recorded.process_context,
-        })
+        };
+        event
+            .validate_provenance()
+            .map_err(serde::de::Error::custom)?;
+        Ok(event)
     }
 }
 
@@ -182,6 +336,60 @@ pub struct ProcessContext {
 }
 
 impl NormalizedEvent {
+    /// Reject evidence attached to absent values. Used at the canonical boundary
+    /// in debug builds and available to recording/diagnostic consumers.
+    pub fn validate_provenance(&self) -> Result<(), String> {
+        if self.provenance.is_empty() {
+            return Ok(());
+        }
+        let roots = self.provenance_roots()?;
+        for entry in self.provenance.entries() {
+            if !Self::populated_in(&roots, &entry.field) {
+                return Err(format!("provenance for absent field {}", entry.field));
+            }
+        }
+        Ok(())
+    }
+
+    /// Copy limitations from `source` onto the fields this event populates.
+    /// Entries for fields this event lacks are dropped, so the result still
+    /// satisfies [`validate_provenance`](Self::validate_provenance).
+    pub fn inherit_populated_provenance(&mut self, source: &Provenance) {
+        let missing: smallvec::SmallVec<[&FieldProvenance; 2]> = source
+            .entries()
+            .iter()
+            .filter(|entry| !self.provenance.has(&entry.field, entry.fidelity))
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        let Ok(roots) = self.provenance_roots() else {
+            return;
+        };
+        for entry in missing {
+            if Self::populated_in(&roots, &entry.field) {
+                self.provenance.mark(&entry.field, entry.fidelity);
+            }
+        }
+    }
+
+    fn provenance_roots(&self) -> Result<[serde_json::Value; 2], String> {
+        let fields = serde_json::to_value(&self.fields).map_err(|error| error.to_string())?;
+        let context =
+            serde_json::to_value(&self.process_context).map_err(|error| error.to_string())?;
+        Ok([fields, context])
+    }
+
+    fn populated_in(roots: &[serde_json::Value; 2], field: &str) -> bool {
+        field == "EventID"
+            || roots.iter().any(|root| {
+                field
+                    .split('.')
+                    .try_fold(root, |value, key| value.get(key))
+                    .is_some_and(|value| !value.is_null())
+            })
+    }
+
     /// Zero-allocation field accessor
     /// Returns reference to string without creating HashMap or cloning
     /// PERFORMANCE: Replaces flatten() to eliminate heap allocations
@@ -451,6 +659,7 @@ mod round_trip_tests {
                 file_identity: None,
                 path_truncated: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         }
@@ -508,6 +717,81 @@ mod round_trip_tests {
     }
 
     #[test]
+    fn sparse_provenance_stays_inline_and_retains_independent_limitations() {
+        let mut provenance = Provenance::default();
+        assert!(provenance.is_empty());
+        assert!(!provenance.0.spilled());
+        provenance.mark_derived("Image");
+        provenance.mark("Image", Fidelity::Truncated);
+        provenance.mark_derived("Image");
+        assert_eq!(provenance.entries().len(), 2);
+        assert!(!provenance.0.spilled());
+        assert!(provenance.has("Image", Fidelity::Derived));
+        assert!(provenance.has("Image", Fidelity::Truncated));
+    }
+
+    #[test]
+    fn provenance_cannot_claim_an_absent_field_is_populated() {
+        let mut event = file_event();
+        event.provenance.mark_derived("CommandLine");
+        assert_eq!(event.get_field("CommandLine"), None);
+        assert!(event.validate_provenance().is_err());
+
+        let recorded = serde_json::to_value(event).expect("invalid event still serializes");
+        let error = serde_json::from_value::<NormalizedEvent>(recorded)
+            .expect_err("recording must reject provenance for an absent field");
+        assert!(error
+            .to_string()
+            .contains("provenance for absent field CommandLine"));
+    }
+
+    #[test]
+    fn inherited_provenance_keeps_only_populated_fields() {
+        let mut source = Provenance::default();
+        source.mark_derived("Image");
+        source.mark("Image", Fidelity::Truncated);
+        source.mark_derived("CommandLine");
+        let mut event = file_event();
+        event.inherit_populated_provenance(&source);
+        event.inherit_populated_provenance(&source);
+        assert_eq!(event.provenance.entries().len(), 2);
+        assert!(event.provenance.has("Image", Fidelity::Derived));
+        assert!(event.provenance.has("Image", Fidelity::Truncated));
+        assert!(!event.provenance.has("CommandLine", Fidelity::Derived));
+        event
+            .validate_provenance()
+            .expect("inherited provenance stays valid");
+    }
+
+    #[test]
+    fn all_fidelities_and_native_process_name_round_trip_without_sigma_exposure() {
+        let mut original = file_event();
+        original.process_name = Some("touch".into());
+        for fidelity in [
+            Fidelity::Derived,
+            Fidelity::BestEffort,
+            Fidelity::Truncated,
+            Fidelity::Stale,
+        ] {
+            original.provenance.mark("TargetFilename", fidelity);
+        }
+        let recorded = round_trip(&original);
+        assert_eq!(recorded.provenance, original.provenance);
+        assert_eq!(recorded.process_name.as_deref(), Some("touch"));
+        for field in [
+            "process_name",
+            "provenance",
+            "Fidelity",
+            "edr.event.provenance",
+        ] {
+            assert_eq!(recorded.get_field(field), None);
+        }
+        let measured = serde_json::to_value(file_event()).unwrap();
+        assert!(measured.get("provenance").is_none());
+        assert!(measured.get("process_name").is_none());
+    }
+
+    #[test]
     fn recording_round_trips_field_provenance() {
         let mut original = file_event();
         original.provenance.mark_derived("Image");
@@ -557,6 +841,7 @@ mod round_trip_tests {
                 integrity_level: None,
                 user: Some("analyst".to_string()),
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         };
@@ -671,6 +956,7 @@ mod round_trip_tests {
                 protocol: Some("tcp".to_string()),
                 initiated,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         }
@@ -751,6 +1037,7 @@ mod round_trip_tests {
                 process_id: None,
                 image: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         };
@@ -819,6 +1106,7 @@ mod round_trip_tests {
                 file_version: None,
                 target_image: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         };

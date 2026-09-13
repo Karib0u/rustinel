@@ -141,8 +141,8 @@ pub struct ProcessCreationFields {
     #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 
-    /// Source used to populate `Image` on Linux process-start events: `proc`
-    /// for `/proc/<pid>/exe`, or `execve` for the raw kernel filename fallback.
+    /// Legacy Sysmon compatibility marker: `execve` for the kernel filename,
+    /// or `proc` in older recordings. General fidelity lives on the event.
     #[serde(rename = "ImageSource", skip_serializing_if = "Option::is_none")]
     pub image_source: Option<String>,
     /// True when the sensor had to cut the end off `Image`.

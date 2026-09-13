@@ -113,6 +113,8 @@ pub fn renamed_test_file_path(platform: Platform) -> &'static str {
 pub fn process_start_event(platform: Platform) -> SensorEvent {
     let image = image_for(platform);
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform,
         provider: provider_for(platform),
         action: SensorAction::Start,
@@ -186,6 +188,8 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
 /// provider that wrote it travels in the payload as `Provider_Name`.
 pub fn service_installation_event() -> SensorEvent {
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Windows,
         provider: "windows_event_log",
         action: SensorAction::Register,
@@ -214,6 +218,8 @@ pub fn service_installation_event() -> SensorEvent {
 
 pub fn network_connect_event(platform: Platform) -> SensorEvent {
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform,
         provider: provider_for(platform),
         action: SensorAction::Connect,
@@ -282,6 +288,8 @@ pub fn file_rename_event(platform: Platform) -> SensorEvent {
 
 pub fn dns_query_event(platform: Platform) -> SensorEvent {
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform,
         provider: provider_for(platform),
         action: SensorAction::Query,
@@ -334,6 +342,8 @@ pub const TEST_PS_MODULE_PAYLOAD: &str = concat!(
 /// logsource. Only Windows publishes it, so there is no platform parameter.
 pub fn powershell_module_event() -> SensorEvent {
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Windows,
         provider: "etw",
         action: SensorAction::Execute,
@@ -361,6 +371,8 @@ pub fn powershell_module_event() -> SensorEvent {
 /// live PowerShell provider.
 pub fn powershell_script_event() -> SensorEvent {
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Windows,
         provider: "etw",
         action: SensorAction::Execute,
@@ -393,6 +405,8 @@ pub fn file_event(
     target_filename: Option<&str>,
 ) -> SensorEvent {
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform,
         provider: provider_for(platform),
         action,

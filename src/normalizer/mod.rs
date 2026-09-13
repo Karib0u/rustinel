@@ -32,7 +32,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     /// Generate the Sigma-compatible view for a raw event.
     pub fn normalize(&self, event: &SensorEvent) -> Option<NormalizedEvent> {
-        let mut provenance = Provenance::default();
+        let mut provenance = event.provenance.clone();
         let fields = match &event.payload {
             SensorPayload::Process(fields) => {
                 self.normalize_process(event, fields, &mut provenance)
@@ -49,12 +49,18 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             SensorPayload::Registry(fields) => {
                 self.normalize_registry(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::ImageLoad(fields) => self.normalize_image_load(fields.clone()),
-            SensorPayload::Scripting(fields) => self.normalize_powershell(fields.clone()),
-            SensorPayload::PowerShellModule(fields) => {
-                self.normalize_powershell_module(fields.clone())
+            SensorPayload::ImageLoad(fields) => {
+                self.normalize_image_load(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::Wmi(fields) => self.normalize_wmi(fields.clone()),
+            SensorPayload::Scripting(fields) => {
+                self.normalize_powershell(event, fields.clone(), &mut provenance)
+            }
+            SensorPayload::PowerShellModule(fields) => {
+                self.normalize_powershell_module(event, fields.clone(), &mut provenance)
+            }
+            SensorPayload::Wmi(fields) => {
+                self.normalize_wmi(event, fields.clone(), &mut provenance)
+            }
             SensorPayload::Service(fields) => {
                 self.normalize_service(event, fields.clone(), &mut provenance)
             }
@@ -75,6 +81,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             event_id_string: event.normalization.event_id.to_string(),
             opcode: event.normalization.action_code,
             fields,
+            process_name: event.process_name.clone(),
             provenance,
             process_context: None,
         };
@@ -91,6 +98,12 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             missing_always
         );
 
+        debug_assert!(
+            normalized.validate_provenance().is_ok(),
+            "{:?}",
+            normalized.validate_provenance()
+        );
+        crate::telemetry::provenance::record(&normalized.provenance);
         Some(normalized)
     }
 
@@ -120,6 +133,23 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         }
 
         let mut fields = raw.compatibility_fields();
+        if fields.image.is_some() {
+            if fields.image_source.as_deref() == Some("proc") {
+                provenance.mark_derived("Image");
+            }
+            if fields.image_truncated == Some(true) {
+                provenance.mark("Image", Fidelity::Truncated);
+            }
+        }
+        if fields.command_line.is_some()
+            && fields.windows.as_ref().is_some_and(|metadata| {
+                metadata.command_line_may_be_truncated
+                    && metadata.command_line_source.as_deref() != Some("live_query")
+            })
+        {
+            provenance.mark("CommandLine", Fidelity::Truncated);
+        }
+
         self.resolve_actor_user(
             event.platform,
             &mut fields.user,
@@ -187,17 +217,23 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
                     if fields.parent_image.is_none() {
                         fields.parent_image = Some(convert_nt_to_dos(&parent.image_name));
                         provenance.mark_derived("ParentImage");
+                        provenance.inherit(&parent.provenance, "Image", "ParentImage");
                     }
                     if fields.parent_command_line.is_none() {
                         if let Some(command_line) = parent.command_line {
                             fields.parent_command_line = Some(command_line);
                             provenance.mark_derived("ParentCommandLine");
+                            provenance.inherit(
+                                &parent.provenance,
+                                "CommandLine",
+                                "ParentCommandLine",
+                            );
                         }
                     }
                 }
 
                 if let Some(key) = event.process_start_key.filter(|key| key.pid == pid) {
-                    self.state.processes.add(
+                    self.state.processes.add_with_provenance(
                         pid,
                         key.start_time,
                         image,
@@ -213,6 +249,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
                         fields.file_version.clone(),
                         fields.current_directory.clone(),
                         fields.integrity_level.clone(),
+                        provenance.clone(),
                     );
                 } else {
                     self.state.record_attribution_loss();
@@ -233,6 +270,18 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
     ) -> Option<EventFields> {
         self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         self.enrich_image(event, &mut fields.image, provenance);
+        match fields.path_truncated.as_deref() {
+            Some("target" | "source,target") if fields.target_filename.is_some() => {
+                provenance.mark("TargetFilename", Fidelity::Truncated)
+            }
+            _ => {}
+        }
+        match fields.path_truncated.as_deref() {
+            Some("source" | "source,target") if fields.source_filename.is_some() => {
+                provenance.mark("SourceFilename", Fidelity::Truncated)
+            }
+            _ => {}
+        }
 
         Some(EventFields::FileEvent(fields))
     }
@@ -243,7 +292,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         mut fields: RegistryEventFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::RegistryEvent(fields))
@@ -263,6 +312,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
                 if let Ok(ip) = destination_ip.parse::<IpAddr>() {
                     if let Some(hostname) = self.state.dns.lookup(&ip) {
                         fields.destination_hostname = Some(hostname);
+                        provenance.mark_derived("DestinationHostname");
                     }
                 }
             }
@@ -292,26 +342,43 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         Some(EventFields::DnsQuery(fields))
     }
 
-    fn normalize_image_load(&self, mut fields: ImageLoadFields) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+    fn normalize_image_load(
+        &self,
+        event: &SensorEvent,
+        mut fields: ImageLoadFields,
+        provenance: &mut Provenance,
+    ) -> Option<EventFields> {
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         Some(EventFields::ImageLoad(fields))
     }
 
-    fn normalize_powershell(&self, mut fields: PowerShellScriptFields) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+    fn normalize_powershell(
+        &self,
+        event: &SensorEvent,
+        mut fields: PowerShellScriptFields,
+        provenance: &mut Provenance,
+    ) -> Option<EventFields> {
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         Some(EventFields::PowerShellScript(fields))
     }
 
     fn normalize_powershell_module(
         &self,
+        event: &SensorEvent,
         mut fields: PowerShellModuleFields,
+        provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         Some(EventFields::PowerShellModule(fields))
     }
 
-    fn normalize_wmi(&self, mut fields: WmiEventFields) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+    fn normalize_wmi(
+        &self,
+        event: &SensorEvent,
+        mut fields: WmiEventFields,
+        provenance: &mut Provenance,
+    ) -> Option<EventFields> {
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         Some(EventFields::WmiEvent(fields))
     }
 
@@ -321,7 +388,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         mut fields: ServiceCreationFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::ServiceCreation(fields))
@@ -333,7 +400,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         mut fields: TaskCreationFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        self.resolve_user_field(&mut fields.user);
+        self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
         self.enrich_image(event, &mut fields.image, provenance);
 
         Some(EventFields::TaskCreation(fields))
@@ -354,6 +421,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
         *image = Some(convert_nt_to_dos(&metadata.image_name));
         provenance.mark_derived("Image");
+        provenance.inherit(&metadata.provenance, "Image", "Image");
     }
 
     fn metadata_for_event(&self, event: &SensorEvent) -> Option<ProcessMetadata> {
@@ -414,18 +482,23 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         let Some(key) = process_start_key else {
             return;
         };
-        let Some(context) = self.build_process_context(&event.fields, key) else {
+        let Some((context, provenance)) = self.build_process_context(&event.fields, key) else {
             return;
         };
-        mark_process_context_provenance(event, &context);
+        mark_process_context_provenance(event, &context, &provenance);
         event.process_context = Some(context);
+        debug_assert!(
+            event.validate_provenance().is_ok(),
+            "{:?}",
+            event.validate_provenance()
+        );
     }
 
     fn build_process_context(
         &self,
         fields: &EventFields,
         process_start_key: ProcessStartKey,
-    ) -> Option<ProcessContext> {
+    ) -> Option<(ProcessContext, Provenance)> {
         if matches!(fields, EventFields::ProcessCreation(_)) {
             return None;
         }
@@ -435,23 +508,26 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             .processes
             .get_metadata_by_key(process_start_key.pid, process_start_key.start_time)?;
 
-        Some(ProcessContext {
-            image: Some(meta.image_name),
-            command_line: meta.command_line,
-            process_id: Some(process_start_key.pid.to_string()),
-            process_start_time: Some(meta.creation_time),
-            parent_process_id: meta.parent_pid.map(|value| value.to_string()),
-            parent_image: meta.parent_image,
-            parent_command_line: meta.parent_command_line,
-            original_file_name: meta.original_filename,
-            product: meta.product,
-            description: meta.description,
-            company: meta.company,
-            file_version: meta.file_version,
-            current_directory: meta.current_directory,
-            integrity_level: meta.integrity_level,
-            user: meta.user,
-        })
+        Some((
+            ProcessContext {
+                image: Some(meta.image_name),
+                command_line: meta.command_line,
+                process_id: Some(process_start_key.pid.to_string()),
+                process_start_time: Some(meta.creation_time),
+                parent_process_id: meta.parent_pid.map(|value| value.to_string()),
+                parent_image: meta.parent_image,
+                parent_command_line: meta.parent_command_line,
+                original_file_name: meta.original_filename,
+                product: meta.product,
+                description: meta.description,
+                company: meta.company,
+                file_version: meta.file_version,
+                current_directory: meta.current_directory,
+                integrity_level: meta.integrity_level,
+                user: meta.user,
+            },
+            meta.provenance,
+        ))
     }
 }
 
@@ -463,11 +539,16 @@ fn format_timestamp(timestamp: SystemTime) -> String {
     DateTime::<Utc>::from(timestamp).to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
-fn mark_process_context_provenance(event: &mut NormalizedEvent, context: &ProcessContext) {
+fn mark_process_context_provenance(
+    event: &mut NormalizedEvent,
+    context: &ProcessContext,
+    provenance: &Provenance,
+) {
     let derived_fields = [
         ("Image", context.image.is_some()),
         ("CommandLine", context.command_line.is_some()),
         ("ProcessId", context.process_id.is_some()),
+        ("ProcessStartTime", context.process_start_time.is_some()),
         ("ParentProcessId", context.parent_process_id.is_some()),
         ("ParentImage", context.parent_image.is_some()),
         ("ParentCommandLine", context.parent_command_line.is_some()),
@@ -484,6 +565,7 @@ fn mark_process_context_provenance(event: &mut NormalizedEvent, context: &Proces
     for (field, present) in derived_fields {
         if present && event.get_field(field).is_none() {
             event.provenance.mark_derived(field);
+            event.provenance.inherit(provenance, field, field);
         }
     }
 }
@@ -521,6 +603,118 @@ mod tests {
 
     fn build_normalizer() -> Normalizer {
         Normalizer::new(Arc::new(HostState::default()))
+    }
+
+    #[test]
+    fn legacy_markers_preserve_sigma_values_and_generalize_fidelity() {
+        let normalizer = build_normalizer();
+        let mut event = process_start_event(Platform::Linux, "test", 4242);
+        if let SensorPayload::Process(fields) = &mut event.payload {
+            let crate::sensor::RawProcessPlatform::Linux(source) = fields.platform.as_mut() else {
+                unreachable!()
+            };
+            source.image_source = Some("proc".into());
+            source.image_truncated = Some(true);
+        }
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert!(normalized.provenance.has("Image", Fidelity::Derived));
+        assert!(normalized.provenance.has("Image", Fidelity::Truncated));
+        assert_eq!(normalized.get_field("ImageSource"), Some("proc"));
+        assert_eq!(normalized.get_field("ImageTruncated"), Some("true"));
+
+        for marker in [None, Some("target"), Some("source"), Some("source,target")] {
+            let mut event = file_event(Platform::Linux, "test", 4242);
+            if let SensorPayload::File(fields) = &mut event.payload {
+                fields.source_filename = Some("/tmp/source".into());
+                fields.path_truncated = marker.map(str::to_string);
+            }
+            let normalized = normalizer.normalize(&event).unwrap();
+            assert_eq!(normalized.get_field("PathTruncated"), marker);
+            assert_eq!(
+                normalized
+                    .provenance
+                    .has("TargetFilename", Fidelity::Truncated),
+                marker.is_some_and(|m| m.contains("target"))
+            );
+            assert_eq!(
+                normalized
+                    .provenance
+                    .has("SourceFilename", Fidelity::Truncated),
+                marker.is_some_and(|m| m.contains("source"))
+            );
+        }
+    }
+
+    #[test]
+    fn cache_enrichment_preserves_truncation_in_image_and_parent_fields() {
+        let normalizer = build_normalizer();
+        let mut parent = process_start_with_identity(4242, 100, "/usr/bin/truncated");
+        if let SensorPayload::Process(fields) = &mut parent.payload {
+            let crate::sensor::RawProcessPlatform::Linux(source) = fields.platform.as_mut() else {
+                unreachable!()
+            };
+            source.image_truncated = Some(true);
+        }
+        parent.provenance.mark("CommandLine", Fidelity::Truncated);
+        normalizer.normalize(&parent).unwrap();
+        let mut file = file_event(Platform::Linux, "ebpf", 4242);
+        file.process_start_key = parent.process_start_key;
+        let normalized = normalizer.normalize(&file).unwrap();
+        assert!(normalized.provenance.has("Image", Fidelity::Derived));
+        assert!(normalized.provenance.has("Image", Fidelity::Truncated));
+
+        let mut child = process_start_with_identity(4243, 200, "/usr/bin/child");
+        child.parent_process_start_key = parent.process_start_key;
+        let normalized = normalizer.normalize(&child).unwrap();
+        for field in ["ParentImage", "ParentCommandLine"] {
+            assert!(normalized.provenance.has(field, Fidelity::Derived));
+            assert!(normalized.provenance.has(field, Fidelity::Truncated));
+        }
+    }
+
+    #[test]
+    fn dns_cache_hostname_is_derived_but_native_hostname_is_measured() {
+        let normalizer = build_normalizer();
+        let mut event = network_event(Platform::Linux, "test", 4242);
+        let SensorPayload::Network(fields) = &mut event.payload else {
+            unreachable!()
+        };
+        normalizer.state.dns.update(
+            fields.destination_ip.as_ref().unwrap().parse().unwrap(),
+            "cached.test".into(),
+        );
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert_eq!(
+            normalized.get_field("DestinationHostname"),
+            Some("cached.test")
+        );
+        assert!(normalized
+            .provenance
+            .has("DestinationHostname", Fidelity::Derived));
+        let SensorPayload::Network(fields) = &mut event.payload else {
+            unreachable!()
+        };
+        fields.destination_hostname = Some("native.test".into());
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert!(!normalized
+            .provenance
+            .has("DestinationHostname", Fidelity::Derived));
+    }
+
+    #[test]
+    fn unknown_and_missing_fields_do_not_become_false_or_measured_values() {
+        let normalizer = build_normalizer();
+        let mut event = network_event(Platform::MacOS, "test", 4242);
+        if let SensorPayload::Network(fields) = &mut event.payload {
+            fields.initiated = None;
+            fields.image = None;
+        }
+        event.provenance.mark("EventID", Fidelity::BestEffort);
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert_eq!(normalized.get_field("Initiated"), None);
+        assert_eq!(normalized.get_field("Image"), None);
+        assert!(!normalized.provenance.has("Image", Fidelity::Derived));
+        assert!(normalized.provenance.has("EventID", Fidelity::BestEffort));
     }
 
     #[cfg(unix)]
@@ -719,6 +913,8 @@ mod tests {
 
     fn process_start_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
         SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform,
             provider,
             action: SensorAction::Start,
@@ -750,7 +946,7 @@ mod tests {
                     parent_process_id_derived: false,
                     windows: Default::default(),
                     image: Some("/usr/bin/curl".to_string()),
-                    image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
+                    image_source: (platform == Platform::Linux).then(|| "execve".to_string()),
                     image_truncated: None,
                     original_file_name: None,
                     product: None,
@@ -779,6 +975,8 @@ mod tests {
         with_start_key: bool,
     ) -> SensorEvent {
         SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform,
             provider,
             action: SensorAction::Stop,
@@ -828,6 +1026,8 @@ mod tests {
 
     fn network_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
         SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform,
             provider,
             action: SensorAction::Connect,
@@ -860,6 +1060,8 @@ mod tests {
 
     fn file_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
         SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform,
             provider,
             action: SensorAction::Create,
@@ -923,6 +1125,8 @@ mod tests {
         );
 
         let event = SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Windows,
             provider: "etw",
             action: SensorAction::Stop,
@@ -1011,6 +1215,8 @@ mod tests {
         );
 
         let build_event = || SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Windows,
             provider: "etw",
             action: SensorAction::Connect,
@@ -1063,6 +1269,8 @@ mod tests {
     fn normalizer_preserves_sensor_supplied_compat_metadata() {
         let normalizer = build_normalizer();
         let event = SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: "ebpf",
             action: SensorAction::Create,
@@ -1118,6 +1326,8 @@ mod tests {
         );
 
         let event = SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: "ebpf",
             action: SensorAction::Create,
@@ -1182,7 +1392,7 @@ mod tests {
         assert_eq!(
             normalized.provenance.entries(),
             &[FieldProvenance {
-                field: "Image".to_string(),
+                field: "Image".into(),
                 fidelity: Fidelity::Derived,
             }]
         );
@@ -1358,15 +1568,15 @@ mod tests {
             normalized.provenance.entries(),
             &[
                 FieldProvenance {
-                    field: "ProcessStartTime".to_string(),
+                    field: "ProcessStartTime".into(),
                     fidelity: Fidelity::Derived,
                 },
                 FieldProvenance {
-                    field: "ParentImage".to_string(),
+                    field: "ParentImage".into(),
                     fidelity: Fidelity::Derived,
                 },
                 FieldProvenance {
-                    field: "ParentCommandLine".to_string(),
+                    field: "ParentCommandLine".into(),
                     fidelity: Fidelity::Derived,
                 },
             ]

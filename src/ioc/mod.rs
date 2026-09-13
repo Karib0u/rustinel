@@ -15,7 +15,7 @@ pub use types::{IocKind, IocMatch};
 use crate::config::IocConfig;
 use crate::models::{
     Alert, AlertSeverity, CanonicalEvent, DetectionEngine, EventCategory, EventFields,
-    NormalizedEvent, ProcessCreationFields,
+    NormalizedEvent, ProcessCreationFields, Provenance,
 };
 use crate::sensor::Platform;
 use std::collections::HashSet;
@@ -201,12 +201,13 @@ impl IocEngine {
         m: &IocMatch,
         path: &str,
         pid: u32,
+        provenance: &Provenance,
         platform: Platform,
         provider: &str,
     ) -> Alert {
         let name = ioc_rule_name(m);
         let ioc_id = format!("ioc::{}::{}", m.kind.as_str(), m.indicator);
-        Alert {
+        let mut alert = Alert {
             severity: self.severity,
             rule_name: name,
             rule_description: ioc_rule_description(m),
@@ -248,11 +249,14 @@ impl IocEngine {
                     integrity_level: None,
                     user: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
             match_details: None,
-        }
+        };
+        alert.event.inherit_populated_provenance(provenance);
+        alert
     }
 }
 
@@ -305,6 +309,7 @@ mod tests {
                 process_id: None,
                 image: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         });
@@ -359,6 +364,7 @@ mod tests {
                 process_id: None,
                 image: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         })

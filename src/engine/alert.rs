@@ -232,6 +232,7 @@ level: high
                 file_version: None,
                 target_image: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         }

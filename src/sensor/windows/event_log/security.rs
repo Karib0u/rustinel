@@ -111,6 +111,8 @@ fn decode(xml: &str) -> Result<SensorEvent> {
     let pid = fields.process_id();
 
     Ok(SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Windows,
         provider: "windows_event_log",
         action: action_for_event(event_id),

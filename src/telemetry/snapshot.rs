@@ -472,6 +472,9 @@ pub struct TelemetrySnapshot {
     /// How long that agent had been running.
     pub uptime_secs: u64,
     pub channels: Vec<ChannelSnapshot>,
+    /// Populated canonical fields with fidelity limitations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_fidelity: Vec<super::FieldFidelitySnapshot>,
     /// Sensor ingress volume and loss split by event category.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sensor_events_by_category: Vec<SensorEventCategorySnapshot>,
@@ -518,6 +521,7 @@ impl TelemetrySnapshot {
                 .iter()
                 .map(|channel| channel.counters().snapshot())
                 .collect(),
+            field_fidelity: super::provenance::snapshot(),
             sensor_events_by_category: super::sensor_event_category_snapshots(),
             linux_ebpf: super::LINUX_EBPF.snapshot(),
             macos_collectors: super::macos::snapshot(),
@@ -696,6 +700,7 @@ mod tests {
             pid: 42,
             captured_at: "2026-08-24T00:00:00Z".to_string(),
             uptime_secs: 60,
+            field_fidelity: Vec::new(),
             channels,
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,

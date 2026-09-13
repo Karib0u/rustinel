@@ -8,7 +8,7 @@ use common::{
 };
 use rustinel::{
     ioc::{HashCache, IocEngine},
-    models::CanonicalEvent,
+    models::{CanonicalEvent, Provenance},
     sensor::Platform,
 };
 
@@ -233,14 +233,25 @@ fn hash_ioc_pipeline_detects_required_hashes_and_respects_limits_and_allowlist()
         assert_eq!(m.source, fixture.config().hashes_path.display().to_string());
         assert_eq!(m.line, line);
     }
+    // The hash job reports the process-start image, so its fidelity must
+    // survive the async hop; limitations on fields the alert omits must not.
+    let mut provenance = Provenance::default();
+    provenance.mark_derived("Image");
+    provenance.mark_derived("ParentImage");
     let alert = engine.build_alert_for_hash_match(
         &matches[0],
         sample.to_str().unwrap(),
         TEST_PID,
+        &provenance,
         Platform::Linux,
         "ebpf",
     );
-    assert_ecs_field_eq(&ecs_json(&alert), "edr.rule.engine", "Ioc");
+    let ecs = ecs_json(&alert);
+    assert_ecs_field_eq(&ecs, "edr.rule.engine", "Ioc");
+    assert_eq!(
+        ecs["edr.event.provenance"],
+        serde_json::json!([{ "field": "Image", "fidelity": "derived" }])
+    );
 }
 
 #[test]

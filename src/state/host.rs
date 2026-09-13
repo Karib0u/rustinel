@@ -376,6 +376,8 @@ mod canonicalization_tests {
     #[test]
     fn numeric_raw_process_facts_are_rendered_only_after_host_state() {
         let raw = RawEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: "ebpf",
             action: SensorAction::Start,

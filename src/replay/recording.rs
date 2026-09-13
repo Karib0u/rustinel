@@ -277,6 +277,7 @@ mod tests {
                 integrity_level: None,
                 user: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         }
@@ -290,6 +291,14 @@ mod tests {
         let sink = recorder.sink();
         let mut first = process_event("100");
         first.provenance.mark_derived("Image");
+        first.process_name = Some("native-name".into());
+        for fidelity in [
+            crate::models::Fidelity::BestEffort,
+            crate::models::Fidelity::Truncated,
+            crate::models::Fidelity::Stale,
+        ] {
+            first.provenance.mark("Image", fidelity);
+        }
         sink.record(&CanonicalEvent::from_normalized(first));
         sink.record(&CanonicalEvent::from_normalized(process_event("200")));
         drop(sink);
@@ -330,6 +339,17 @@ mod tests {
             events[0].provenance().entries()[0].fidelity,
             crate::models::Fidelity::Derived
         );
+        assert_eq!(
+            events[0].normalized().process_name.as_deref(),
+            Some("native-name")
+        );
+        assert_eq!(events[0].provenance().entries().len(), 4);
+        assert!(events[0]
+            .provenance()
+            .has("Image", crate::models::Fidelity::Truncated));
+        assert!(events[0]
+            .provenance()
+            .has("Image", crate::models::Fidelity::Stale));
         assert_eq!(recording.manifest().platform, Platform::Windows);
     }
 

@@ -13,7 +13,7 @@ use tracing::{debug, info, warn};
 use yara_x::{Compiler, Rules, Scanner as XScanner};
 
 use crate::models::{
-    CanonicalEvent, EventFields, MatchDebugLevel, ProcessCreationFields, YaraRuleMatch,
+    CanonicalEvent, EventFields, MatchDebugLevel, ProcessCreationFields, Provenance, YaraRuleMatch,
     YaraStringMatch,
 };
 use crate::sensor::{CanonicalEventHandler, SensorAction};
@@ -206,8 +206,20 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 #[derive(Debug, Clone)]
 pub struct YaraMemoryJob {
     pub expected_identity: ProcessIdentity,
+    /// Fidelity limitations on the image and PID the alert will report.
+    pub provenance: Provenance,
     /// Monotonic enqueue time so queue waiting counts toward the scan delay.
     pub enqueued_at: Instant,
+}
+
+/// Keep only the limitations on the fields a scan alert reports, so a queued
+/// job stays inline for the common all-measured case.
+pub(crate) fn scan_subject_provenance(provenance: &Provenance) -> Provenance {
+    let mut subject = Provenance::default();
+    for field in ["Image", "ProcessId"] {
+        subject.inherit(provenance, field, field);
+    }
+    subject
 }
 
 /// Main Scanner struct holding compiled rules
@@ -701,6 +713,7 @@ impl CanonicalEventHandler for YaraEventHandler {
                 memory_tx,
                 YaraMemoryJob {
                     expected_identity,
+                    provenance: scan_subject_provenance(event.provenance()),
                     enqueued_at: Instant::now(),
                 },
             ) {
@@ -751,6 +764,7 @@ impl CanonicalEventHandler for YaraMemoryEventHandler {
             &self.tx,
             YaraMemoryJob {
                 expected_identity,
+                provenance: scan_subject_provenance(event.provenance()),
                 enqueued_at: Instant::now(),
             },
         ) {
@@ -1233,5 +1247,63 @@ mod tests {
             .expect("scan mutated file");
 
         assert!(scanner.cache.lock().unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn memory_scan_jobs_carry_the_scan_subject_provenance() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let handler = YaraMemoryEventHandler {
+            tx,
+            allowlist_paths: Vec::new(),
+        };
+        let mut normalized = crate::models::NormalizedEvent {
+            timestamp: "2026-09-14T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 1,
+            platform: crate::sensor::Platform::Linux,
+            provider: "ebpf".to_string(),
+            category: crate::models::EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                linux_identity: Default::default(),
+                cgroup_id: None,
+                exec: Default::default(),
+                parent_process_id_derived: false,
+                windows: Default::default(),
+                image: Some("/usr/bin/sample".to_string()),
+                image_source: None,
+                image_truncated: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                target_image: None,
+                command_line: None,
+                process_id: Some("4242".to_string()),
+                process_start_time: None,
+                parent_process_id: None,
+                parent_image: Some("/bin/bash".to_string()),
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+            }),
+            process_name: None,
+            provenance: Provenance::default(),
+            process_context: None,
+        };
+        normalized.provenance.mark_derived("Image");
+        normalized.provenance.mark_derived("ParentImage");
+        handler.handle_event(&CanonicalEvent::from_normalized(normalized));
+
+        let mut expected = Provenance::default();
+        expected.mark_derived("Image");
+        assert_eq!(
+            rx.try_recv().expect("memory scan queued").provenance,
+            expected
+        );
     }
 }

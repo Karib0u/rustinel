@@ -632,6 +632,14 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
 
             let event_time = system_time_from_boot_ns(ev.event_time_ns);
             Some(SensorEvent {
+                process_name: Some(bytes_to_string(&ev.comm)).filter(|name| !name.is_empty()),
+                provenance: {
+                    let mut provenance = crate::models::Provenance::default();
+                    if ev.args_truncated != 0 && ev.kernel_command_line().is_some() {
+                        provenance.mark("CommandLine", crate::models::Fidelity::Truncated);
+                    }
+                    provenance
+                },
                 platform: Platform::Linux,
                 provider: "ebpf",
                 action: SensorAction::Start,
@@ -678,6 +686,8 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
             })
         }
         PROCESS_EVENT_EXIT => Some(SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: "ebpf",
             action: SensorAction::Stop,
@@ -756,6 +766,8 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
     let user = linux_user_id(ev.uid);
 
     Some(SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Linux,
         provider: "ebpf",
         action: SensorAction::Connect,
@@ -841,6 +853,17 @@ fn build_file_event(
     let path_truncated = truncation_marker(ev.flags, source_filename.is_some()).map(str::to_string);
 
     Some(SensorEvent {
+        process_name: Some(bytes_to_string(&ev.comm)).filter(|name| !name.is_empty()),
+        provenance: {
+            let mut provenance = crate::models::Provenance::default();
+            if !raw_path.starts_with('/') {
+                provenance.mark_derived("TargetFilename");
+            }
+            if source_filename.is_some() && !bytes_to_string(&ev.aux_path).starts_with('/') {
+                provenance.mark_derived("SourceFilename");
+            }
+            provenance
+        },
         platform: Platform::Linux,
         provider: "ebpf",
         action,
@@ -883,6 +906,8 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
     };
 
     Some(SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Linux,
         provider: "ebpf",
         action: SensorAction::Query,
@@ -1510,6 +1535,7 @@ mod tests {
 
         let event = build_process_event(&raw).expect("process exit should build");
         assert_eq!(event.action, SensorAction::Stop);
+        assert!(event.process_name.is_none());
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_TERMINATE);
         assert_eq!(
             event.process_start_key,
@@ -1768,6 +1794,7 @@ mod tests {
                 start_time: 123_456,
             })
         );
+        assert_eq!(event.process_name.as_deref(), Some("touch"));
         match event.payload {
             SensorPayload::File(fields) => {
                 assert!(fields.source_filename.is_none());

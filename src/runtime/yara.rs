@@ -3,8 +3,8 @@ use crate::engine::DetectorStore;
 use crate::memory::{self, MemoryChunk, MemoryScanConfig};
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, MatchDebugLevel,
-    MatchDetails, NormalizedEvent, ProcessCreationFields, YaraMatchDetails, YaraRuleMatch,
-    YaraScanSource,
+    MatchDetails, NormalizedEvent, ProcessCreationFields, Provenance, YaraMatchDetails,
+    YaraRuleMatch, YaraScanSource,
 };
 use crate::response::ResponseEngine;
 use crate::scanner::{self, ScanError, ScanResult, YaraMemoryJob};
@@ -87,17 +87,19 @@ pub fn build_yara_match_details(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_yara_alert(
     rule_name: &str,
     metadata_id: Option<String>,
     path: &str,
     pid: u32,
+    provenance: &Provenance,
     match_details: Option<MatchDetails>,
     platform: Platform,
     provider: &str,
 ) -> Alert {
     let rule_id = metadata_id.map(|id| format!("yara::{}", id));
-    Alert {
+    let mut alert = Alert {
         severity: AlertSeverity::Critical,
         rule_name: rule_name.to_string(),
         rule_description: None,
@@ -139,11 +141,14 @@ pub fn build_yara_alert(
                 integrity_level: None,
                 user: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         },
         match_details,
-    }
+    };
+    alert.event.inherit_populated_provenance(provenance);
+    alert
 }
 
 pub fn build_yara_memory_match_details(
@@ -178,17 +183,19 @@ pub fn build_yara_memory_match_details(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_yara_memory_alert(
     rule_name: &str,
     metadata_id: Option<String>,
     image: &str,
     pid: u32,
+    provenance: &Provenance,
     match_details: Option<MatchDetails>,
     platform: Platform,
     provider: &str,
 ) -> Alert {
     let rule_id = metadata_id.map(|id| format!("yara::{}", id));
-    Alert {
+    let mut alert = Alert {
         severity: AlertSeverity::Critical,
         rule_name: rule_name.to_string(),
         rule_description: None,
@@ -230,11 +237,14 @@ pub fn build_yara_memory_alert(
                 integrity_level: None,
                 user: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         },
         match_details,
-    }
+    };
+    alert.event.inherit_populated_provenance(provenance);
+    alert
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -291,6 +301,7 @@ pub fn spawn_yara_file_worker(
                                 rule_match.metadata_id.clone(),
                                 &path,
                                 pid,
+                                &Provenance::default(),
                                 match_details,
                                 platform,
                                 provider,
@@ -469,6 +480,7 @@ pub fn spawn_yara_memory_worker(
                                 rule_match.metadata_id.clone(),
                                 &job.expected_identity.image,
                                 job.expected_identity.pid,
+                                &job.provenance,
                                 details,
                                 platform,
                                 provider,
@@ -512,8 +524,9 @@ pub fn spawn_yara_memory_worker(
 #[cfg(test)]
 mod tests {
     use super::YaraScanCounters;
-    use crate::models::YaraRuleMatch;
+    use crate::models::{Fidelity, Provenance, YaraRuleMatch};
     use crate::scanner::ScanError;
+    use crate::sensor::Platform;
     use std::time::Duration;
 
     fn rule_match() -> YaraRuleMatch {
@@ -523,6 +536,46 @@ mod tests {
             tags: Vec::new(),
             namespace: None,
             strings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn scan_alerts_keep_image_and_pid_provenance() {
+        let mut provenance = Provenance::default();
+        provenance.mark_derived("Image");
+        provenance.mark("Image", Fidelity::Truncated);
+        provenance.mark("ProcessId", Fidelity::BestEffort);
+        provenance.mark_derived("CommandLine");
+        for alert in [
+            super::build_yara_alert(
+                "TestRule",
+                None,
+                "/usr/bin/sample",
+                4242,
+                &provenance,
+                None,
+                Platform::Linux,
+                "ebpf",
+            ),
+            super::build_yara_memory_alert(
+                "TestRule",
+                None,
+                "/usr/bin/sample",
+                4242,
+                &provenance,
+                None,
+                Platform::Linux,
+                "ebpf",
+            ),
+        ] {
+            let event = &alert.event;
+            assert_eq!(event.provenance.entries().len(), 3);
+            assert!(event.provenance.has("Image", Fidelity::Derived));
+            assert!(event.provenance.has("Image", Fidelity::Truncated));
+            assert!(event.provenance.has("ProcessId", Fidelity::BestEffort));
+            event
+                .validate_provenance()
+                .expect("alert provenance is valid");
         }
     }
 

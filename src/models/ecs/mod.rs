@@ -109,7 +109,7 @@ impl From<&Alert> for EcsAlert {
             edr_process_session_id: None,
             edr_process_controlling_tty: None,
             edr_process_kernel_start_boottime: None,
-            process_name: None,
+            process_name: alert.event.process_name.clone(),
             process_command_line: None,
             process_pid: None,
             process_parent_executable: None,
@@ -524,6 +524,7 @@ mod tests {
                     current_directory: None,
                     integrity_level: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
@@ -596,6 +597,7 @@ mod tests {
                     process_id: None,
                     image: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
@@ -657,6 +659,7 @@ mod tests {
                     process_id: None,
                     image: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: Some(ProcessContext {
                     image: Some(r"C:\Windows\System32\svchost.exe".to_string()),
@@ -725,6 +728,7 @@ mod tests {
                     user: Some("SYSTEM".to_string()),
                     new_name: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
@@ -772,6 +776,7 @@ mod tests {
                     protocol: Some("tcp".to_string()),
                     initiated,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
@@ -836,10 +841,27 @@ mod tests {
     fn ecs_carries_field_provenance() {
         let mut alert = network_alert(Some(true));
         alert.event.provenance.mark_derived("Image");
+        alert
+            .event
+            .provenance
+            .mark("Image", crate::models::Fidelity::Truncated);
 
         let json = serde_json::to_value(EcsAlert::from(&alert)).expect("ECS serializes");
         assert_eq!(json["edr.event.provenance"][0]["field"], "Image");
         assert_eq!(json["edr.event.provenance"][0]["fidelity"], "derived");
+        assert_eq!(json["edr.event.provenance"][1]["fidelity"], "truncated");
+    }
+
+    #[test]
+    fn native_short_name_does_not_supply_an_executable_path() {
+        let mut alert = network_alert(None);
+        alert.event.process_name = Some("curl".into());
+        if let EventFields::NetworkConnection(fields) = &mut alert.event.fields {
+            fields.image = None;
+        }
+        let ecs = EcsAlert::from(&alert);
+        assert_eq!(ecs.process_name.as_deref(), Some("curl"));
+        assert!(ecs.process_executable.is_none());
     }
 
     #[test]
@@ -922,6 +944,7 @@ mod tests {
                     process_id: None,
                     image: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
@@ -975,6 +998,7 @@ mod tests {
                     file_identity: None,
                     path_truncated: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
@@ -1008,6 +1032,7 @@ mod tests {
                 event_id_string: "1".to_string(),
                 opcode: 1,
                 fields: EventFields::Generic(HashMap::new()),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },

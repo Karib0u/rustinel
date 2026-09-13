@@ -16,6 +16,7 @@ All counters start at zero when the agent starts.
 | `linux_ebpf` | Linux kernel and userspace counters |
 | `macos_collectors` | macOS Endpoint Security and packet capture loss |
 | `windows_event_log` | Windows System and Security subscription health |
+| `field_fidelity` | Counts by populated field and [fidelity limitation](output.md#field-provenance) at normalization |
 | `windows_process_command_line` | Windows process starts with and without a command line |
 | `windows_process_correlation` | Windows process metadata sources |
 | `registry` | Windows registry key-path resolution |

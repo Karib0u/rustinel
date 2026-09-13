@@ -180,6 +180,12 @@ impl PendingRegistryEvent {
         self.fields.target_object = Some(target_object);
 
         SensorEvent {
+            process_name: None,
+            provenance: {
+                let mut provenance = crate::models::Provenance::default();
+                provenance.mark_derived("TargetObject");
+                provenance
+            },
             platform: Platform::Windows,
             provider: "etw",
             action: self.action,

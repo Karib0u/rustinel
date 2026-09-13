@@ -670,10 +670,30 @@ fn apply_socket_owner(
     match &mut event.payload {
         SensorPayload::Network(fields) => {
             fields.process_id = Some(owner.pid.to_string());
+            event.provenance.mark_derived("ProcessId");
+            event
+                .provenance
+                .mark("ProcessId", crate::models::Fidelity::BestEffort);
+            if owner.image.is_some() {
+                event.provenance.mark_derived("Image");
+                event
+                    .provenance
+                    .mark("Image", crate::models::Fidelity::BestEffort);
+            }
             fields.image = owner.image;
         }
         SensorPayload::Dns(fields) => {
             fields.process_id = Some(owner.pid.to_string());
+            event.provenance.mark_derived("ProcessId");
+            event
+                .provenance
+                .mark("ProcessId", crate::models::Fidelity::BestEffort);
+            if owner.image.is_some() {
+                event.provenance.mark_derived("Image");
+                event
+                    .provenance
+                    .mark("Image", crate::models::Fidelity::BestEffort);
+            }
             fields.image = owner.image;
         }
         _ => {}
@@ -718,6 +738,12 @@ fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<
     }
 
     Some(SensorEvent {
+        process_name: None,
+        provenance: {
+            let mut provenance = crate::models::Provenance::default();
+            provenance.mark("EventID", crate::models::Fidelity::BestEffort);
+            provenance
+        },
         platform: Platform::MacOS,
         provider: "bpf",
         action: SensorAction::Connect,
@@ -770,6 +796,8 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<Sens
     let (query_name, qtype) = crate::sensor::dns::parse_question(dns_payload)?;
 
     Some(SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::MacOS,
         provider: "bpf",
         action: SensorAction::Query,

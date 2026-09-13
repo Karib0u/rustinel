@@ -185,6 +185,7 @@ mod tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::Generic(map),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         }
@@ -277,6 +278,24 @@ mod tests {
             .all_string_values()
             .iter()
             .all(|value| value.as_ref() != "true"));
+    }
+
+    #[test]
+    fn provenance_and_short_names_are_not_sigma_fields_or_keywords() {
+        let mut event = generic_event(&[("Image", "/bin/sh")]);
+        event.process_name = Some("native-short-name".into());
+        event
+            .provenance
+            .mark("Image", crate::models::Fidelity::Truncated);
+        let adapter = RsigmaEvent::new(&event);
+        assert!(adapter.get_field("provenance").is_none());
+        assert!(adapter.get_field("process_name").is_none());
+        assert!(!adapter
+            .any_string_value(&|value| value == "truncated" || value == "native-short-name"));
+        assert!(!adapter
+            .field_keys()
+            .iter()
+            .any(|key| key == "provenance" || key == "process_name"));
     }
 
     #[test]
