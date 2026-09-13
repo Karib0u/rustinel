@@ -149,6 +149,7 @@ fn pipeline_check(report: &serde_json::Value) -> &serde_json::Value {
 fn snapshot_with(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
     TelemetrySnapshot {
         host_state: None,
+        artifact_resolver: None,
         version: env!("CARGO_PKG_VERSION").to_string(),
         pid: 4242,
         captured_at: "2026-08-24T09:30:00Z".to_string(),

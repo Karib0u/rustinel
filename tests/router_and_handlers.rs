@@ -51,7 +51,6 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
         Arc::clone(&harness.host_state),
         DetectionPipeline {
             detectors,
-            ioc_hash_tx: None,
             alert_sink: AlertSink::new(writer),
             response_engine: response,
         },

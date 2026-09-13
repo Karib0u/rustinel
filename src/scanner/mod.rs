@@ -722,6 +722,55 @@ impl CanonicalEventHandler for YaraEventHandler {
     }
 }
 
+/// Runtime handler for YARA process-memory jobs only. On-disk scans are owned
+/// by `ArtifactResolver`, so registering the legacy combined handler would
+/// reintroduce a second executable open.
+pub(crate) struct YaraMemoryEventHandler {
+    pub tx: Sender<YaraMemoryJob>,
+    pub allowlist_paths: Vec<String>,
+}
+
+impl CanonicalEventHandler for YaraMemoryEventHandler {
+    fn handle_event(&self, event: &CanonicalEvent) {
+        if event.action != SensorAction::Start {
+            return;
+        }
+        let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
+            return;
+        };
+        let Some(path) = fields.image.as_deref() else {
+            return;
+        };
+        if is_path_allowlisted(path, &self.allowlist_paths) {
+            return;
+        }
+        let pid = event.pid.unwrap_or(0);
+        let expected_identity = capture_process_identity(event, fields, pid, path);
+        match crate::telemetry::try_send(
+            crate::telemetry::ChannelId::YaraMemoryScan,
+            &self.tx,
+            YaraMemoryJob {
+                expected_identity,
+                enqueued_at: Instant::now(),
+            },
+        ) {
+            Ok(()) => tracing::trace!(
+                target: "scanner",
+                pid,
+                file = path,
+                "YARA queued process for memory scan"
+            ),
+            Err(err) => warn!(
+                target: "scanner",
+                pid,
+                file = path,
+                error = %err,
+                "YARA memory queue full; dropping scan job"
+            ),
+        }
+    }
+}
+
 fn capture_process_identity(
     event: &CanonicalEvent,
     fields: &ProcessCreationFields,

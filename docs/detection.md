@@ -33,6 +33,20 @@ Correlation state lives in memory, so a Sigma reload starts new windows.
 YARA scans the executable of every new process, skipping trusted paths.
 Results are cached per file, so an unchanged executable is scanned once.
 Files that are written but never run are not scanned.
+The shared artifact resolver supplies YARA and IOC hashing from one identity-validated file read.
+Its queue and per-artifact deadline are bounded; a saturated or expired job skips the scan and records the unavailable enrichment in telemetry.
+YARA results carry the active rule generation, so a successful rule reload invalidates YARA results without discarding immutable hash or PE metadata entries.
+
+### Asynchronous enrichment and admission
+
+Every event enters Sigma, correlation, and capture exactly once, in the order Rustinel ingested it (`ingest_seq`).
+A recording therefore replays in the order live detection evaluated it.
+Only enrichment that fills fields Sigma can match may delay that admission.
+Today that is Windows PE metadata (`OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`) on process starts and image loads.
+It may hold an event for at most 100 ms from the event's arrival; events behind it wait in order, so no event is delayed longer than that.
+When PE metadata is not ready in time, the event is admitted without it and `artifact_resolver` counts the miss; the metadata is still cached for the next start of the same image.
+YARA file scanning and hash indicators never delay admission, because they raise their own alerts instead of feeding Sigma.
+Enrichment that cannot fit the budget, such as future hash or signature fields, must be evaluated by a separate deferred pass rather than by holding events.
 
 Memory scanning is off by default (`scanner.yara_memory_enabled`).
 When on, Rustinel waits `yara_memory_delay_ms` after the process starts, then scans its private memory.

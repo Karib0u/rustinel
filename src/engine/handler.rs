@@ -6,15 +6,12 @@
 
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
-use tracing::debug;
-
 use crate::alerts::AlertSink;
 use crate::capture::CaptureSink;
 use crate::engine::{DetectorStore, EventDetectors};
 use crate::models::CanonicalEvent;
 use crate::response::ResponseEngine;
-use crate::sensor::{CanonicalEventHandler, SensorAction};
+use crate::sensor::CanonicalEventHandler;
 use crate::state::HostState;
 
 /// Target name for engine operational logs.
@@ -24,8 +21,6 @@ const TARGET_ENGINE: &str = "engine";
 pub struct DetectionPipeline {
     /// Live detector store (sigma/ioc hot-reloaded atomically).
     pub detectors: Arc<DetectorStore>,
-    /// Hash worker channel (optional).
-    pub ioc_hash_tx: Option<mpsc::Sender<crate::scanner::FileScanTarget>>,
     /// ECS NDJSON alert sink.
     pub alert_sink: AlertSink,
     /// Active response engine.
@@ -93,34 +88,6 @@ impl CanonicalEventHandler for NormalizedEventHandler {
         let Some(detection) = &self.detection else {
             return;
         };
-
-        if let Some(tx) = &detection.ioc_hash_tx {
-            if normalized_event.category == crate::models::EventCategory::Process
-                && event.action == SensorAction::Start
-            {
-                if let crate::models::EventFields::ProcessCreation(fields) =
-                    &normalized_event.fields
-                {
-                    if let Some(image) = fields.image.as_deref() {
-                        let pid = event.pid.unwrap_or(0);
-
-                        if let Err(err) = crate::telemetry::try_send(
-                            crate::telemetry::ChannelId::IocHash,
-                            tx,
-                            crate::scanner::FileScanTarget::new(image, pid, fields),
-                        ) {
-                            debug!(
-                                target: TARGET_ENGINE,
-                                pid = pid,
-                                image = image,
-                                error = %err,
-                                "IOC hash queue full; dropping job"
-                            );
-                        }
-                    }
-                }
-            }
-        }
 
         // The same canonical detector service is used by replay.
         let detectors = EventDetectors::snapshot(&detection.detectors);

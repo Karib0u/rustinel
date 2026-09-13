@@ -46,6 +46,11 @@ impl CanonicalEvent {
         &self.normalized
     }
 
+    /// Mutable access for bounded host enrichment before detector admission.
+    pub(crate) fn normalized_mut(&mut self) -> &mut NormalizedEvent {
+        &mut self.normalized
+    }
+
     pub fn into_normalized(self) -> NormalizedEvent {
         self.normalized
     }

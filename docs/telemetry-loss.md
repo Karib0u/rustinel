@@ -11,7 +11,8 @@ Every drop is counted, so you can tell whether a quiet endpoint is quiet or blin
 | Before Rustinel | An eBPF ring is full, Endpoint Security or `/dev/bpf` drops, ETW buffers overflow | `linux_ebpf`, `macos_esf_kernel_loss`, `macos_bpf_kernel_loss`. ETW loss is a warning in the operational log |
 | Inside the sensor | A Windows registry or file event whose path cannot be recovered, an ETW record that fails to decode | `registry_path_resolution`, `file_path_attribution`, `etw_decode` |
 | Attribution state | A process update has no known identity, or a directory-open update cannot name its descriptor | `host_state` |
-| Between stages | A full queue between the sensor and the detectors, or in front of YARA, hashing, or response | `pipeline_telemetry` |
+| Between stages | A full queue between the sensor and the detectors, artifact resolution, memory YARA, or response | `pipeline_telemetry` |
+| Artifact resolution | An executable cannot be opened/read, changes identity, exceeds its size/deadline budget, misses the PE admission budget, or the resolver queue is full | `artifact_resolver` |
 
 A rule can also miss events that were never produced, because the platform or host policy does not provide them.
 That is a coverage question, see [Platform coverage](coverage.md).
@@ -45,9 +46,8 @@ Every field is described in [telemetry.json](telemetry.md).
 | Queue | Lost when full |
 | --- | --- |
 | `sensor_events` | Events never reach any rule. The widest gap |
-| `yara_file_scan` | Executables are not YARA scanned |
+| `artifact_resolution` | Base events are routed, but PE metadata, file YARA, and hash IOC enrichment are unavailable |
 | `yara_memory_scan` | Processes are not memory scanned |
-| `ioc_hash` | Executables are not hashed |
 | `active_response` | Responses are not carried out |
 | `capture_writer` | Events are missing from a recording, which is then marked incomplete |
 

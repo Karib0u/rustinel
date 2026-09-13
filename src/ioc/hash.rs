@@ -14,14 +14,14 @@ use crate::utils::file_identity::{self, FileIdentity};
 const HASH_CACHE_MAX_ENTRIES: usize = 10_000;
 const HASH_CACHE_TTL_SECS: u64 = 6 * 60 * 60;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HashRequirements {
     pub md5: bool,
     pub sha1: bool,
     pub sha256: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ComputedHashes {
     pub md5: Option<String>,
     pub sha1: Option<String>,
@@ -193,6 +193,32 @@ fn compute_hashes(
         sha1: sha1_hasher.map(|h| hex::encode(h.finalize())),
         sha256: sha256_hasher.map(|h| hex::encode(h.finalize())),
     })
+}
+
+/// Compute requested digests from bytes already read by the artifact resolver.
+pub(crate) fn compute_hashes_from_bytes(
+    bytes: &[u8],
+    requirements: HashRequirements,
+) -> ComputedHashes {
+    let mut md5_hasher = requirements.md5.then(Md5::new);
+    let mut sha1_hasher = requirements.sha1.then(Sha1::new);
+    let mut sha256_hasher = requirements.sha256.then(Sha256::new);
+
+    if let Some(hasher) = md5_hasher.as_mut() {
+        hasher.update(bytes);
+    }
+    if let Some(hasher) = sha1_hasher.as_mut() {
+        hasher.update(bytes);
+    }
+    if let Some(hasher) = sha256_hasher.as_mut() {
+        hasher.update(bytes);
+    }
+
+    ComputedHashes {
+        md5: md5_hasher.map(|h| hex::encode(h.finalize())),
+        sha1: sha1_hasher.map(|h| hex::encode(h.finalize())),
+        sha256: sha256_hasher.map(|h| hex::encode(h.finalize())),
+    }
 }
 
 fn now_secs() -> u64 {

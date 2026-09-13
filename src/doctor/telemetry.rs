@@ -45,6 +45,7 @@ pub(crate) fn telemetry_results(
 
     let mut results = linux_ebpf_results(&snapshot);
     results.extend(host_state_results(&snapshot));
+    results.extend(artifact_resolver_results(&snapshot));
     results.extend(macos_collector_results(&snapshot));
     results.extend(registry_results(&snapshot));
     results.extend(file_attribution_results(&snapshot));
@@ -91,6 +92,59 @@ pub(crate) fn telemetry_results(
 
     results.insert(0, result);
     (results, Some(snapshot))
+}
+
+fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let Some(resolver) = &snapshot.artifact_resolver else {
+        return Vec::new();
+    };
+    let failures = resolver
+        .queue_saturated
+        .saturating_add(resolver.worker_saturated)
+        .saturating_add(resolver.deadline_exceeded)
+        .saturating_add(resolver.admission_budget_exceeded)
+        .saturating_add(resolver.open_failed)
+        .saturating_add(resolver.identity_mismatch)
+        .saturating_add(resolver.read_failed)
+        .saturating_add(resolver.consumer_failed)
+        .saturating_add(resolver.oversized);
+    let detail = format!(
+        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} read, {} consumer, {} oversized",
+        resolver.queued,
+        resolver.resolved,
+        resolver.cache_hits,
+        resolver.cache_misses,
+        resolver.pe_entries,
+        resolver.hash_entries,
+        resolver.imphash_entries,
+        resolver.signature_entries,
+        resolver.yara_entries,
+        resolver.yara_generation,
+        resolver.evicted,
+        resolver.admission_budget_exceeded,
+        resolver.admission_budget_ms,
+        resolver.admission_backpressure,
+        resolver.queue_saturated,
+        resolver.worker_saturated,
+        resolver.deadline_exceeded,
+        resolver.open_failed,
+        resolver.identity_mismatch,
+        resolver.read_failed,
+        resolver.consumer_failed,
+        resolver.oversized,
+    );
+    vec![if failures == 0 {
+        DiagnosticResult::pass("artifact_resolver", detail)
+    } else {
+        DiagnosticResult::warn(
+            "artifact_resolver",
+            format!("{failures} artifact-resolution failure outcomes were recorded"),
+            detail,
+        )
+        .with_fix(
+            "Inspect artifact resolver pressure and file-access failures; increase throughput or narrow artifact consumers before relying on enriched detections",
+        )
+    }]
 }
 
 fn host_state_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
@@ -675,6 +729,7 @@ mod tests {
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         TelemetrySnapshot {
             host_state: None,
+            artifact_resolver: None,
             version: "1.3.0".to_string(),
             pid: 7,
             captured_at: "2026-08-24T12:00:00Z".to_string(),
@@ -690,6 +745,47 @@ mod tests {
             file_attribution: None,
             etw_decode: None,
         }
+    }
+
+    #[test]
+    fn artifact_resolver_check_reports_every_store_and_failure() {
+        let mut snap = snapshot(Vec::new());
+        snap.artifact_resolver = Some(crate::artifact::ArtifactResolverSnapshot {
+            queue_capacity: 256,
+            deadline_ms: 10_000,
+            admission_budget_ms: 100,
+            queued: 12,
+            resolved: 11,
+            cache_hits: 5,
+            cache_misses: 6,
+            queue_saturated: 1,
+            worker_saturated: 0,
+            deadline_exceeded: 0,
+            admission_budget_exceeded: 2,
+            admission_backpressure: 9,
+            open_failed: 0,
+            identity_mismatch: 0,
+            read_failed: 0,
+            consumer_failed: 0,
+            oversized: 0,
+            evicted: 3,
+            pe_entries: 4,
+            hash_entries: 5,
+            imphash_entries: 6,
+            signature_entries: 7,
+            yara_entries: 8,
+            yara_generation: 2,
+        });
+
+        let results = artifact_resolver_results(&snap);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.contains("3 artifact-resolution failure"));
+        let detail = results[0].detail.as_deref().expect("resolver detail");
+        assert!(detail.contains("PE 4, hashes 5, imphashes 6, signatures 7, YARA 8"));
+        assert!(detail.contains("1 queue saturated"));
+        assert!(detail.contains("2 past the 100 ms budget, 9 backpressured sends"));
     }
 
     fn channel(name: &str, accepted: u64, dropped: u64) -> ChannelSnapshot {
