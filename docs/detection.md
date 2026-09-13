@@ -59,18 +59,14 @@ The file format is in [Write and test rules](rule-development.md#add-indicators)
 | YARA | Always `critical` |
 | IOC | `ioc.default_severity` |
 
-An informational Sigma alert has `event.severity: 1` and
-`edr.rule.severity: Informational`; low remains `25` and `Low`. Active response
-accepts `low` as its least severe threshold, so informational alerts are always
-reported but never terminate a process. An unrecognized Sigma level does not
-silently become a valid low level: rule loading logs a warning and
-`rustinel doctor` reports the parser diagnostic under `sigma_rules_parse`. The
-rule continues to load with the explicit low fallback.
+An informational Sigma alert has `event.severity: 1` and `edr.rule.severity: Informational`; low remains `25` and `Low`.
+Active response accepts `low` as its least severe threshold, so informational alerts are always reported but never terminate a process.
+An unrecognized Sigma level does not silently become a valid low level: rule loading logs a warning and `rustinel doctor` reports the parser diagnostic under `sigma_rules_parse`.
+The rule continues to load with the explicit low fallback.
 
 ## Sigma metadata in alerts
 
-Rustinel preserves this bounded, operator-facing subset of Sigma metadata from
-rule loading through alert construction and NDJSON serialization:
+Rustinel preserves this bounded, operator-facing subset of Sigma metadata from rule loading through alert construction and NDJSON serialization:
 
 | Sigma metadata | Alert field |
 | --- | --- |
@@ -83,16 +79,13 @@ rule loading through alert construction and NDJSON serialization:
 | `attack.tNNNN` tags | ECS `threat.technique.*` |
 | `attack.tNNNN.NNN` tags | Parent `threat.technique.*` plus `threat.technique.subtechnique.*` |
 
-Only canonical lowercase Sigma ATT&CK tags are mapped into `threat.*` fields;
-tactic names use underscores, such as `attack.initial_access`. Other tags are
-still preserved in ECS `tags` but do not create ATT&CK fields.
+Only canonical lowercase Sigma ATT&CK tags are mapped into `threat.*` fields; tactic names use underscores, such as `attack.initial_access`.
+Other tags are still preserved in ECS `tags` but do not create ATT&CK fields.
 
-Metadata is available regardless of `alerts.match_debug`; that setting only
-controls match evidence. To keep one rule from producing unbounded alerts,
-Rustinel includes at most 64 tags (256 UTF-8 bytes each), 32 references (2,048
-bytes each), and 512 bytes of author text. `edr.sigma.metadata_truncated: true`
-marks an alert where a limit was applied. Arbitrary Sigma custom attributes are
-not copied into alerts.
+Metadata is available regardless of `alerts.match_debug`; that setting only controls match evidence.
+To keep one rule from producing unbounded alerts, Rustinel includes at most 64 tags (256 UTF-8 bytes each), 32 references (2,048 bytes each), and 512 bytes of author text.
+`edr.sigma.metadata_truncated: true` marks an alert where a limit was applied.
+Arbitrary Sigma custom attributes are not copied into alerts.
 
 ## Deduplication
 

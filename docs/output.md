@@ -56,8 +56,7 @@ One JSON object per line, following ECS 9.5.0.
 | `edr.event.provenance` | Fields Rustinel reconstructed rather than measured, marked `derived` |
 | `edr.match` | Why the rule matched, when `alerts.match_debug` is on |
 
-Sigma alerts can also carry bounded rule metadata and ECS ATT&CK fields; see
-[Sigma metadata in alerts](detection.md#sigma-metadata-in-alerts).
+Sigma alerts can also carry bounded rule metadata and ECS ATT&CK fields; see [Sigma metadata in alerts](detection.md#sigma-metadata-in-alerts).
 
 ### ECS version policy
 
