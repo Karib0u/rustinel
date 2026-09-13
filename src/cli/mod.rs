@@ -10,8 +10,13 @@ pub struct Cli {
     /// Configuration file to load. Overrides RUSTINEL_CONFIG and every discovered config.toml
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<std::path::PathBuf>,
-    /// Log level for this run: error, warn, info, debug, or trace
-    #[arg(long, global = true, value_name = "LEVEL")]
+    /// Log level for this run
+    #[arg(
+        long,
+        global = true,
+        value_name = "LEVEL",
+        value_parser = ["error", "warn", "info", "debug", "trace"]
+    )]
     pub log_level: Option<String>,
 }
 
@@ -270,6 +275,25 @@ mod tests {
         };
 
         assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn global_log_level_accepts_documented_values() {
+        for level in ["error", "warn", "info", "debug", "trace"] {
+            let cli = Cli::try_parse_from(["rustinel", "--log-level", level, "doctor"])
+                .expect("documented log level should parse");
+            assert_eq!(cli.log_level.as_deref(), Some(level));
+        }
+    }
+
+    #[test]
+    fn global_log_level_rejects_unknown_values() {
+        let err = match Cli::try_parse_from(["rustinel", "--log-level", "bogus", "doctor"]) {
+            Ok(_) => panic!("unknown log level should fail"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
     }
 
     #[test]
