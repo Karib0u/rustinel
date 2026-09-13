@@ -1,6 +1,6 @@
-//! The normalized-event detector service.
+//! The canonical-event detector service.
 //!
-//! This is the single place where a canonical [`NormalizedEvent`] is turned into
+//! This is the single place where a [`CanonicalEvent`] is turned into
 //! alerts. Live protection calls it from the sensor pipeline; `rustinel replay`
 //! calls it over a recording. Neither owns a matching implementation of its own,
 //! so a replayed event is evaluated by exactly the code that would have seen it

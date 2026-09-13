@@ -48,7 +48,8 @@ ebpf/src/            Linux eBPF programs and the event ABI
 Capture also receives `CanonicalEvent`.
 Recording schema v2 deliberately serializes its unchanged `NormalizedEvent` view, and replay wraps that same view back in a canonical event, so existing recordings remain compatible.
 
-Every hop is a bounded channel that drops instead of blocking, with counters in `src/telemetry`.
+Sensor and background-worker queues are bounded channels that drop instead of blocking, with counters in `src/telemetry`.
+Canonicalization and detector dispatch run synchronously in the sensor-channel worker.
 Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
 
 `runtime/pipeline.rs` builds this pipeline for all three platforms.
