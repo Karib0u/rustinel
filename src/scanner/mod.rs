@@ -731,11 +731,28 @@ fn capture_process_identity(
     image: &str,
 ) -> ProcessIdentity {
     let queried = query_process_identity(pid);
-    let event_start_time = event
+    #[cfg(target_os = "linux")]
+    // eBPF identities are CLOCK_BOOTTIME nanoseconds, but `/proc` validation
+    // exposes task birth in clock ticks. Prefer the measured kernel birth
+    // value, with live `/proc` as the exact fallback, and never retain raw ns.
+    let start_time = fields
+        .linux_identity
+        .kernel_start_boottime
+        .and_then(crate::utils::process::linux_boot_time_ns_to_start_ticks)
+        .or_else(|| queried.as_ref().and_then(|identity| identity.start_time))
+        .or_else(|| {
+            event
+                .process_start_key
+                .filter(|key| key.pid == pid)
+                .and_then(|key| {
+                    crate::utils::process::linux_boot_time_ns_to_start_ticks(key.start_time)
+                })
+        });
+    #[cfg(not(target_os = "linux"))]
+    let start_time = event
         .process_start_key
         .filter(|key| key.pid == pid)
-        .map(|key| key.start_time);
-    let start_time = event_start_time
+        .map(|key| key.start_time)
         .or_else(|| queried.as_ref().and_then(|identity| identity.start_time))
         .or(fields.process_start_time);
     let command_line_hash = fields

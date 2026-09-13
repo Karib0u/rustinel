@@ -82,7 +82,12 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     };
 
     let before_enqueue = std::time::Instant::now();
-    handler.handle_event(&process_start_event(Platform::Linux));
+    let mut start = process_start_event(Platform::Linux);
+    let rustinel::sensor::SensorPayload::Process(fields) = &mut start.payload else {
+        unreachable!();
+    };
+    fields.linux_identity.kernel_start_boottime = Some(common::TEST_PROCESS_START_TIME);
+    handler.handle_event(&start);
     let target = file_rx.try_recv().expect("disk job queued");
     let (path, pid) = (target.path, target.pid);
     assert_eq!(path, common::image_for(Platform::Linux));
@@ -97,7 +102,7 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     );
     assert_eq!(
         memory.expected_identity.start_time,
-        Some(common::TEST_PROCESS_START_TIME)
+        Some(expected_linux_start_time(common::TEST_PROCESS_START_TIME))
     );
     assert_eq!(
         memory.expected_identity.command_line_hash,
@@ -113,6 +118,20 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     handler.handle_event(&stop);
     assert!(file_rx.try_recv().is_err());
     assert!(memory_rx.try_recv().is_err());
+}
+
+fn expected_linux_start_time(event_start_time: u64) -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        assert!(hz > 0);
+        let hz = hz as u64;
+        (u128::from(event_start_time) * u128::from(hz) / 1_000_000_000) as u64
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        event_start_time
+    }
 }
 
 #[tokio::test]

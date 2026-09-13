@@ -1,11 +1,27 @@
 #![cfg(target_os = "linux")]
 
+#[cfg(test)]
+mod common;
+
+use arc_swap::ArcSwap;
 use rustinel::{
-    sensor::{linux::EbpfSensor, Sensor, SensorAction, SensorPayload},
+    alerts::AlertSink,
+    config::ResponseConfig,
+    engine::{DetectorStore, Engine},
+    ioc::IocEngine,
+    memory::MemoryScanConfig,
+    models::MatchDebugLevel,
+    response::ResponseEngine,
+    runtime::yara::spawn_yara_memory_worker,
+    scanner::{Scanner, YaraEventHandler},
+    sensor::{
+        linux::EbpfSensor, Platform, Sensor, SensorAction, SensorEventHandler, SensorPayload,
+    },
     state::ProcessCache,
+    utils::query_process_identity,
 };
 use std::{
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     os::unix::{fs::MetadataExt, process::CommandExt},
     process::{Command, Stdio},
     sync::Arc,
@@ -229,6 +245,131 @@ async fn live_task_identity_matches_proc() {
     .await
     .unwrap();
     sensor.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires root, process-memory access, kernel BTF, and a built eBPF object and memory_target example"]
+async fn live_ebpf_process_reaches_yara_memory_scan() {
+    assert_eq!(unsafe { libc::geteuid() }, 0);
+    let plans = rustinel::sensor::linux::task_btf::TaskPlans::load();
+    assert!(plans.warnings.is_empty(), "{:?}", plans.warnings);
+
+    let executable = "target/debug/examples/memory_target";
+    assert!(
+        std::path::Path::new(executable).exists(),
+        "binary not found at {executable}; run cargo build --example memory_target"
+    );
+
+    let sensor = EbpfSensor::new();
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(8192);
+    sensor.start(event_tx).unwrap();
+    assert_verifier_acceptance();
+
+    let mut target = Child(
+        Command::new(executable)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn memory target"),
+    );
+    let target_pid = target.0.id();
+    let mut ready = String::new();
+    BufReader::new(target.0.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready.trim(), format!("READY:{target_pid}"));
+
+    let event = tokio::time::timeout(Duration::from_secs(15), async {
+        while let Some(event) = event_rx.recv().await {
+            if event.pid == Some(target_pid) && event.action == SensorAction::Start {
+                return event;
+            }
+        }
+        panic!("eBPF event channel closed before target exec");
+    })
+    .await
+    .expect("timed out waiting for target exec event");
+    sensor.shutdown();
+
+    let SensorPayload::Process(fields) = &event.payload else {
+        panic!("target exec did not carry process fields");
+    };
+    assert!(fields.linux_identity.kernel_start_boottime.is_some());
+
+    let (file_tx, mut file_rx) = tokio::sync::mpsc::channel(1);
+    let (queued_tx, mut queued_rx) = tokio::sync::mpsc::channel(1);
+    let handler = YaraEventHandler {
+        tx: file_tx,
+        memory_tx: Some(queued_tx),
+        allowlist_paths: Vec::new(),
+    };
+    handler.handle_event(&event);
+    assert!(
+        file_rx.try_recv().is_ok(),
+        "exec must also reach file scanning"
+    );
+    let job = queued_rx.try_recv().expect("exec must queue a memory scan");
+    let proc_identity = query_process_identity(target_pid).expect("live target identity");
+    assert_eq!(
+        job.expected_identity.start_time, proc_identity.start_time,
+        "queued eBPF identity must use /proc clock ticks"
+    );
+    assert_ne!(
+        job.expected_identity.start_time,
+        event.process_start_key.map(|key| key.start_time),
+        "raw eBPF nanoseconds must not reach /proc identity validation"
+    );
+
+    let yara_fixture = common::YaraFixture::new();
+    yara_fixture.write_default_rule();
+    let detectors = DetectorStore::new(
+        Arc::new(Engine::new_for_platform(Platform::Linux)),
+        Arc::new(Scanner::new(yara_fixture.rules_dir()).unwrap()),
+        Arc::new(IocEngine::disabled()),
+    );
+    let alert_dir = tempfile::tempdir().unwrap();
+    let alert_path = alert_dir.path().join("alerts.ndjson");
+    let alert_file = std::fs::File::create(&alert_path).unwrap();
+    let (writer, guard) = tracing_appender::non_blocking(alert_file);
+    let response_config = Arc::new(ArcSwap::from(Arc::new(ResponseConfig {
+        enabled: false,
+        prevention_enabled: false,
+        min_severity: "critical".to_string(),
+        channel_capacity: 4,
+        allowlist_images: Vec::new(),
+        allowlist_paths: Vec::new(),
+    })));
+    let (response, response_handle) = ResponseEngine::new(response_config);
+    let (worker_tx, worker_rx) = tokio::sync::mpsc::channel(1);
+    let worker = spawn_yara_memory_worker(
+        detectors,
+        AlertSink::new(writer),
+        response,
+        MemoryScanConfig {
+            max_process_bytes: 64 * 1024 * 1024,
+            max_region_bytes: 8 * 1024 * 1024,
+            include_private: true,
+            include_image: true,
+            include_mapped: false,
+            delay_ms: 0,
+        },
+        MatchDebugLevel::Off,
+        worker_rx,
+        Platform::Linux,
+        "yara-memory",
+    );
+    worker_tx.send(job).await.unwrap();
+    drop(worker_tx);
+    tokio::time::timeout(Duration::from_secs(20), worker)
+        .await
+        .expect("memory worker timed out")
+        .expect("memory worker failed");
+    response_handle.abort();
+    drop(guard);
+
+    let alerts = std::fs::read_to_string(alert_path).unwrap();
+    assert!(alerts.contains("TestMarkerString"), "{alerts}");
+    assert!(alerts.contains("yara-memory"), "{alerts}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
