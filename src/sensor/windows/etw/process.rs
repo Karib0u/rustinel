@@ -301,20 +301,20 @@ fn same_creation(event: &SensorEvent, classic: &ClassicProcess) -> bool {
     let SensorPayload::Process(fields) = &event.payload else {
         return false;
     };
-    let created = filetime_to_system_time(key.start_time as i64);
     let skew = event
         .timestamp
         .duration_since(classic.at)
         .or_else(|_| classic.at.duration_since(event.timestamp))
         .unwrap();
     key.pid == classic.pid
-        && created <= classic.at
         && classic
             .stopped_at
             .is_none_or(|stopped| event.timestamp <= stopped)
         // The providers can timestamp the same creation more than 1 ms apart.
         // Use the correlation window for source skew as well as delivery age;
-        // lifetime, parent, and ambiguity checks still bind the pair.
+        // stop, parent, and ambiguity checks still bind the pair. Do not compare
+        // CreateTime with ETW timestamps: CreateTime follows wall-clock changes,
+        // while these QPC-based sessions retain their original clock reference.
         && skew <= WINDOW
         && fields.parent_process_id == Some(classic.parent)
 }
@@ -453,6 +453,7 @@ mod tests {
             let mut correlation = ProcessCorrelation::default();
             let mut old = classic(BASE + 150, "old");
             old.parent = parent;
+            old.stopped_at = Some(filetime_to_system_time((BASE + 175) as i64));
             correlation.insert_classic(old, Instant::now());
             let event = if parent == 7 {
                 manifest(BASE + 200, BASE + 250)
@@ -466,6 +467,36 @@ mod tests {
                 panic!()
             };
             assert!(fields.command_line.is_none());
+        }
+    }
+
+    #[test]
+    fn wall_clock_adjustment_does_not_discard_captured_command_line() {
+        for reverse in [false, true] {
+            let mut correlation = ProcessCorrelation::default();
+            // CreateTime follows wall-clock adjustments; the QPC-derived ETW
+            // timestamps retain the trace's original clock reference.
+            let start = BASE + 50_000_000;
+            let event = manifest(start, BASE + 100);
+            let mut facts = classic(BASE + 150, "wevtutil.exe cl RustinelAtomicLog");
+            facts.stopped_at = Some(filetime_to_system_time((BASE + 1000) as i64));
+            let out = if reverse {
+                assert!(correlation.manifest(event).is_empty());
+                correlation.insert_classic(facts, Instant::now())
+            } else {
+                assert!(correlation.insert_classic(facts, Instant::now()).is_empty());
+                correlation.manifest(event)
+            };
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0].process_start_key.unwrap().start_time, start);
+            let SensorPayload::Process(fields) = &out[0].payload else {
+                panic!("expected process creation")
+            };
+            assert_eq!(
+                fields.command_line.as_deref(),
+                Some("wevtutil.exe cl RustinelAtomicLog")
+            );
+            assert!(correlation.disable().is_empty());
         }
     }
 
