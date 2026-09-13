@@ -8,7 +8,7 @@
 pub mod dedup;
 
 use crate::models::ecs::EcsAlert;
-use crate::models::Alert;
+use crate::models::{Alert, YaraScanSource};
 use std::io::Write;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -75,8 +75,18 @@ impl AlertSink {
 
     /// Write an alert, routing through dedup when enabled.
     pub fn write_alert(&self, alert: &Alert) {
-        let ecs = EcsAlert::from(alert);
+        self.write_mapped_alert(alert, EcsAlert::from(alert));
+    }
 
+    /// Write a YARA alert with an explicit scan source. The source is output
+    /// independently of match-debug detail and participates in deduplication.
+    pub fn write_yara_alert(&self, alert: &Alert, source: YaraScanSource) {
+        let mut ecs = EcsAlert::from(alert);
+        ecs.edr_yara_scan_source = Some(source);
+        self.write_mapped_alert(alert, ecs);
+    }
+
+    fn write_mapped_alert(&self, alert: &Alert, ecs: EcsAlert) {
         if let Some(dedup) = &self.dedup {
             if dedup.record(&ecs, alert) {
                 // First occurrence — emit immediately.

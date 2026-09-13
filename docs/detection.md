@@ -36,7 +36,9 @@ Files that are written but never run are not scanned.
 
 Memory scanning is off by default (`scanner.yara_memory_enabled`).
 When on, Rustinel waits `yara_memory_delay_ms` after the process starts, then scans its private memory.
-Memory hits carry `event.provider: yara-memory`.
+Every YARA alert carries `edr.yara.scan_source: file` or
+`edr.yara.scan_source: process_memory`, including when match debug is off.
+`event.provider` continues to identify the sensor that observed the process start.
 
 ## IOC
 
@@ -61,7 +63,8 @@ The file format is in [Write and test rules](rule-development.md#add-indicators)
 ## Deduplication
 
 Identical alerts within `dedup.window_secs` (60 by default) are collapsed.
-Two alerts are identical when they share the engine, rule, process executable, parent executable, and user.
+Two alerts are identical when they share the engine, rule, scan source, process executable, parent executable, and user.
+The scan source applies to YARA alerts, so a file hit and a process-memory hit are never collapsed together.
 
 - The first alert is written immediately.
 - At the end of the window, one rollup alert is written with `event.count` set to the number of repeats that were suppressed.

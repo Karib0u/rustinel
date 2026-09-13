@@ -64,6 +64,7 @@ impl From<&Alert> for EcsAlert {
             rule_id: alert.rule_id.clone(),
             edr_rule_severity: format!("{:?}", alert.severity),
             edr_rule_engine: format!("{:?}", alert.engine),
+            edr_yara_scan_source: None,
             process_executable: None,
             edr_process_image_source: None,
             edr_process_image_truncated: None,

@@ -4,6 +4,7 @@ use crate::memory::{self, MemoryChunk, MemoryScanConfig};
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, MatchDebugLevel,
     MatchDetails, NormalizedEvent, ProcessCreationFields, YaraMatchDetails, YaraRuleMatch,
+    YaraScanSource,
 };
 use crate::response::ResponseEngine;
 use crate::scanner::{self, ScanError, ScanResult, YaraMemoryJob};
@@ -292,7 +293,7 @@ pub fn spawn_yara_file_worker(
                                 platform,
                                 provider,
                             );
-                            alert_sink.write_alert(&alert);
+                            alert_sink.write_yara_alert(&alert, YaraScanSource::File);
                             response_engine.handle_alert(&alert);
                         }
                     } else {
@@ -470,7 +471,7 @@ pub fn spawn_yara_memory_worker(
                                 platform,
                                 provider,
                             );
-                            alert_sink.write_alert(&alert);
+                            alert_sink.write_yara_alert(&alert, YaraScanSource::ProcessMemory);
                             response_engine.handle_alert(&alert);
                         }
                     }
