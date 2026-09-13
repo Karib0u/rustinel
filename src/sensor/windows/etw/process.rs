@@ -218,12 +218,6 @@ impl ProcessCorrelation {
                 let facts = classic.remove(classic_index).unwrap().value;
                 self.count -= 2;
                 if let SensorPayload::Process(fields) = &mut event.payload {
-                    let conflict = fields
-                        .command_line
-                        .as_ref()
-                        .zip(facts.command_line.as_ref())
-                        .is_some_and(|(live, captured)| live != captured);
-                    let live_command_line = fields.command_line.clone();
                     let evidence = fields
                         .windows_mut()
                         .expect("Windows process payload carries Windows source metadata");
@@ -233,35 +227,13 @@ impl ProcessCorrelation {
                         .is_some_and(|line| line.encode_utf16().count() == 1024);
                     evidence.user_sid = facts.sid.clone();
                     evidence.session_id = facts.session_id;
-                    if conflict {
-                        evidence.conflicting_live_command_line = live_command_line.clone();
-                        METRICS
-                            .conflicting
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        tracing::warn!(pid, "Classic command line differs from live-query value");
-                    } else {
-                        METRICS
-                            .matched
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
+                    evidence.correlation_pending = true;
                     if let Some(command_line) = facts.command_line {
-                        // Only recover a suffix at the observed source limit.
-                        // The live value was captured through a lifetime-checked
-                        // handle; different prefixes remain genuine conflicts.
-                        let recover_suffix = evidence.command_line_may_be_truncated
-                            && live_command_line.as_ref().is_some_and(|live| {
-                                live.len() > command_line.len() && live.starts_with(&command_line)
-                            });
-                        if recover_suffix {
-                            evidence.classic_command_line = Some(command_line);
-                            evidence.command_line_source = Some("live_query".into());
-                        } else {
-                            evidence.command_line_source = Some("classic".into());
-                            fields.command_line = Some(command_line);
-                            METRICS
-                                .classic_command_line
-                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        }
+                        evidence.command_line_source = Some("classic".into());
+                        fields.command_line = Some(command_line);
+                        METRICS
+                            .classic_command_line
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                     if let Some(sid) = facts.sid {
                         fields.user = Some(RawUserId::WindowsSid(sid));
@@ -518,13 +490,16 @@ mod tests {
             if let SensorPayload::Process(fields) = &mut event.payload {
                 fields.command_line = Some(live.clone());
             }
-            let out = if reverse {
+            let mut out = if reverse {
                 correlation.manifest(event);
                 correlation.insert_classic(classic(BASE + 150, &captured), Instant::now())
             } else {
                 correlation.insert_classic(classic(BASE + 150, &captured), Instant::now());
                 correlation.manifest(event)
             };
+            if let SensorPayload::Process(fields) = &mut out[0].payload {
+                crate::state::enrich_windows_command_line(fields, Some(live.clone()));
+            }
             let normalizer = Normalizer::new(
                 Arc::new(ProcessCache::new()),
                 Arc::new(SidCache::new()),
@@ -588,7 +563,10 @@ mod tests {
                 fields.windows_mut().unwrap().command_line_source = Some("live_query".into());
             }
             correlation.manifest(event);
-            let out = correlation.insert_classic(classic(BASE + 150, &command), Instant::now());
+            let mut out = correlation.insert_classic(classic(BASE + 150, &command), Instant::now());
+            if let SensorPayload::Process(fields) = &mut out[0].payload {
+                crate::state::enrich_windows_command_line(fields, Some("modified PEB".into()));
+            }
             let SensorPayload::Process(fields) = &out[0].payload else {
                 panic!()
             };

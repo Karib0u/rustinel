@@ -109,3 +109,6 @@ mod tests {
         assert!(cache.count() <= 2);
     }
 }
+
+#[cfg(all(windows, test))]
+pub(crate) use host::enrich_windows_command_line;

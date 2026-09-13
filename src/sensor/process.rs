@@ -81,6 +81,7 @@ pub struct RawMacOsProcess {
 /// Windows creation-source evidence before host enrichment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RawWindowsProcess {
+    pub correlation_pending: bool,
     pub command_line_source: Option<String>,
     pub conflicting_live_command_line: Option<String>,
     pub classic_command_line: Option<String>,
@@ -334,6 +335,7 @@ impl RawProcessEvent {
             crate::sensor::Platform::Windows => {
                 let source = fields.windows.as_deref().cloned().unwrap_or_default();
                 RawProcessPlatform::Windows(RawWindowsProcess {
+                    correlation_pending: false,
                     command_line_source: source.command_line_source,
                     conflicting_live_command_line: source.conflicting_live_command_line,
                     classic_command_line: source.classic_command_line,

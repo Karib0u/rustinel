@@ -272,7 +272,7 @@ pub(super) fn decode_process(
     let creation_time_with_fallback =
         creation_time_opt.or_else(|| try_get_uint_as_u64(parser, "TimeStamp"));
 
-    let raw_image = try_get_string_any(
+    let image = try_get_string_any(
         parser,
         &[
             mappings.get_etw_field("Image")?,
@@ -280,12 +280,10 @@ pub(super) fn decode_process(
             "ProcessName",
         ],
     );
-    let raw_parent_image = try_get_string_any(
+    let parent_image = try_get_string_any(
         parser,
         &[mappings.get_etw_field("ParentImage")?, "ParentProcessName"],
     );
-    let image = raw_image.map(|path| convert_nt_to_dos(&path));
-    let parent_image = raw_parent_image.map(|path| convert_nt_to_dos(&path));
 
     let fields = raw_windows_process(
         pid,

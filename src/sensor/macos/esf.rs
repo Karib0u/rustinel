@@ -966,6 +966,11 @@ mod tests {
             metadata: RawMacOsExec {
                 pre_exec_image: Some("/bin/zsh".to_string()),
                 file_identity: identity.clone(),
+                real_user_id: Some(501),
+                signed: Some(false),
+                signature_status: Some("unsigned".to_string()),
+                codesigning_flags: Some(0),
+                is_platform_binary: Some(false),
                 ..Default::default()
             },
             current_directory: Some("/Users/alice".to_string()),

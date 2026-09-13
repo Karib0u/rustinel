@@ -70,44 +70,73 @@ impl HostState {
 
 #[cfg(windows)]
 fn enrich_windows_process(event: &mut RawEvent) {
-    use crate::sensor::{RawPayload, RawProcessPlatform, SensorAction};
+    use crate::sensor::{RawPayload, SensorAction};
 
-    if event.action != SensorAction::Start || event.platform != crate::sensor::Platform::Windows {
+    if event.platform != crate::sensor::Platform::Windows {
         return;
     }
-    let Some(start_time) = event.process_start_key.map(|key| key.start_time) else {
-        return;
-    };
     let RawPayload::Process(process) = &mut event.payload else {
         return;
     };
-    let RawProcessPlatform::Windows(source) = process.platform.as_mut() else {
+    for value in [&mut process.image, &mut process.parent_image]
+        .into_iter()
+        .flatten()
+    {
+        *value = crate::utils::convert_nt_to_dos(value);
+    }
+    if event.action != SensorAction::Start {
         return;
-    };
-    let Some(live) =
-        crate::utils::query_process_command_line_at_start(process.process_id, start_time)
-    else {
-        return;
-    };
+    }
+    let live = event.process_start_key.and_then(|key| {
+        crate::utils::query_process_command_line_at_start(process.process_id, key.start_time)
+    });
+    enrich_windows_command_line(process, live);
+}
 
-    match process.command_line.as_ref() {
-        None => {
-            process.command_line = Some(live);
-            source.command_line_source = Some("live_query".into());
+#[cfg(any(windows, test))]
+pub(crate) fn enrich_windows_command_line(
+    process: &mut crate::sensor::RawProcessEvent,
+    live: Option<String>,
+) {
+    let crate::sensor::RawProcessPlatform::Windows(source) = process.platform.as_mut() else {
+        return;
+    };
+    let correlated = std::mem::take(&mut source.correlation_pending);
+    let mut conflicting = false;
+    if let Some(live) = live {
+        match process.command_line.as_ref() {
+            None => {
+                process.command_line = Some(live);
+                source.command_line_source = Some("live_query".into());
+            }
+            Some(captured)
+                if source.command_line_may_be_truncated
+                    && live.len() > captured.len()
+                    && live.starts_with(captured) =>
+            {
+                source.classic_command_line = Some(captured.clone());
+                process.command_line = Some(live);
+                source.command_line_source = Some("live_query".into());
+            }
+            Some(captured) if captured != &live => {
+                source.conflicting_live_command_line = Some(live);
+                conflicting = true;
+            }
+            Some(_) => {}
         }
-        Some(captured)
-            if source.command_line_may_be_truncated
-                && live.len() > captured.len()
-                && live.starts_with(captured) =>
-        {
-            source.classic_command_line = Some(captured.clone());
-            process.command_line = Some(live);
-            source.command_line_source = Some("live_query".into());
-        }
-        Some(captured) if captured != &live => {
-            source.conflicting_live_command_line = Some(live);
-        }
-        Some(_) => {}
+    }
+    if correlated {
+        let metrics = &crate::telemetry::WINDOWS_PROCESS_CORRELATION;
+        let counter = if conflicting {
+            tracing::warn!(
+                pid = process.process_id,
+                "Classic command line differs from live-query value"
+            );
+            &metrics.conflicting
+        } else {
+            &metrics.matched
+        };
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -127,6 +156,43 @@ mod tests {
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
         )
+    }
+
+    #[test]
+    fn windows_live_command_line_preserves_capture_and_recovers_only_truncated_prefixes() {
+        for (captured, live, truncated, expected, conflict) in [
+            ("captured", Some("changed"), false, "captured", true),
+            ("captured", Some("captured"), false, "captured", false),
+            ("captured", None, false, "captured", false),
+            (
+                "prefix",
+                Some("prefix suffix"),
+                true,
+                "prefix suffix",
+                false,
+            ),
+            ("prefix", Some("prefix suffix"), false, "prefix", true),
+        ] {
+            let mut process = RawProcessEvent::from_compatibility(
+                serde_json::from_value(serde_json::json!({"ProcessId": "42"})).unwrap(),
+                Platform::Windows,
+                Some(42),
+            );
+            process.command_line = Some(captured.into());
+            let source = process.windows_mut().unwrap();
+            source.command_line_source = Some("classic".into());
+            source.command_line_may_be_truncated = truncated;
+            source.correlation_pending = true;
+            enrich_windows_command_line(&mut process, live.map(String::from));
+            assert_eq!(process.command_line.as_deref(), Some(expected));
+            let source = process.windows_mut().unwrap();
+            assert!(!source.correlation_pending);
+            assert_eq!(source.conflicting_live_command_line.is_some(), conflict);
+            assert_eq!(
+                source.classic_command_line.as_deref(),
+                (expected != captured).then_some(captured)
+            );
+        }
     }
 
     #[test]

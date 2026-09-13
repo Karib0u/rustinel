@@ -322,9 +322,6 @@ impl TryFrom<EventFields> for RawPayload {
 
     fn try_from(fields: EventFields) -> std::result::Result<Self, Self::Error> {
         match fields {
-            EventFields::ProcessCreation(fields) => Ok(Self::Process(
-                RawProcessEvent::from_compatibility(fields, Platform::Linux, None),
-            )),
             EventFields::NetworkConnection(fields) => Ok(Self::Network(fields)),
             EventFields::FileEvent(fields) => Ok(Self::File(fields)),
             EventFields::DnsQuery(fields) => Ok(Self::Dns(fields)),
@@ -381,6 +378,7 @@ mod tests {
         ));
 
         assert_eq!(payload.category(), EventCategory::Process);
+        assert!(SensorPayload::try_from(payload.into_event_fields()).is_err());
     }
 
     #[test]
