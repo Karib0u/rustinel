@@ -18,21 +18,16 @@ use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
 use crate::sensor::{Platform, SensorEventRouter};
-use crate::state::{DnsCache, HostState, ProcessCache, SidCache};
+use crate::state::HostState;
 use crate::{reload, scanner};
 
 pub(super) struct SharedState {
-    pub process_cache: Arc<ProcessCache>,
-    sid_cache: Arc<SidCache>,
-    dns_cache: Arc<DnsCache>,
+    pub host: Arc<HostState>,
 }
-
 impl SharedState {
     pub fn new(cfg: &AppConfig) -> Self {
         Self {
-            process_cache: Arc::new(ProcessCache::with_max_entries(cfg.process.max_entries)),
-            sid_cache: Arc::new(SidCache::new()),
-            dns_cache: Arc::new(DnsCache::new()),
+            host: HostState::for_runtime(cfg.process.max_entries),
         }
     }
 }
@@ -242,11 +237,7 @@ impl LivePipeline {
         };
 
         // Host-state enrichment and canonicalization boundary.
-        let host_state = Arc::new(HostState::new(
-            Arc::clone(&state.process_cache),
-            Arc::clone(&state.sid_cache),
-            Arc::clone(&state.dns_cache),
-        ));
+        let host_state = state.host;
 
         // Detection handlers + router
         let sigma_handler = NormalizedEventHandler::detecting(

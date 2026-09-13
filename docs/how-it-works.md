@@ -26,6 +26,10 @@ Details per platform are in [Platform coverage](coverage.md).
 Every event is converted to one model with Sysmon-style field names, such as `Image`, `CommandLine`, and `TargetFilename`.
 A Sigma rule uses the same names on every platform, as long as the platform collects that field.
 
+Rustinel inventories existing processes at startup so their first events can carry an executable path even without a new process-start event.
+Processes that exit during enumeration or cannot be inspected remain unattributed.
+Username lookups are cached, including failed lookups; inventory coverage and state usage appear in [telemetry.json](telemetry.md#host_state).
+
 ## Detection
 
 - **Sigma** and **IP, domain, and path indicators** run on every event as it arrives.

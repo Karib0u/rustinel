@@ -92,7 +92,7 @@ impl DirFdIndex {
         Self::with_capacity(DIR_FD_CAPACITY)
     }
 
-    fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             paths: HashMap::new(),
             order: VecDeque::new(),
@@ -137,8 +137,7 @@ impl DirFdIndex {
         self.order.retain(|(owner, _)| *owner != pid);
     }
 
-    #[cfg(test)]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.paths.len()
     }
 }

@@ -28,6 +28,7 @@ use std::collections::{HashMap, VecDeque};
 /// number of open handles on the machine rather than total file activity. The
 /// cap only binds when processes hold handles without closing them; at this
 /// size the worst case is roughly 8192 paths per index, a few megabytes.
+#[cfg(test)]
 pub(super) const DEFAULT_CAPACITY: usize = 8192;
 
 /// A bounded `u64 -> path` index with FIFO eviction.
@@ -140,25 +141,29 @@ impl BoundedIndex {
         self.capacity_evictions
     }
 
-    #[cfg(test)]
+    pub(super) fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     pub(super) fn len(&self) -> usize {
         self.entries.len()
     }
 }
 
 /// Joins Kernel-File naming events to the pathless events that follow them.
-pub(super) struct FilePathCache {
+pub(crate) struct FilePathCache {
     by_object: BoundedIndex,
     by_key: BoundedIndex,
     seed: HashMap<u64, (String, i64)>,
 }
 
 impl FilePathCache {
+    #[cfg(test)]
     pub(super) fn new() -> Self {
         Self::with_capacity(DEFAULT_CAPACITY)
     }
 
-    fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             by_object: BoundedIndex::with_capacity(capacity),
             by_key: BoundedIndex::with_capacity(capacity),
@@ -254,7 +259,11 @@ impl FilePathCache {
     /// FileObject is a name key, matching manifest FileKey, not FileObject.
     /// Never use a snapshot to attribute an event older than its observation.
     pub(super) fn seed(&mut self, entries: HashMap<u64, (String, i64)>) {
-        self.seed = entries;
+        self.seed = entries.into_iter().take(self.by_key.capacity).collect();
+    }
+
+    pub(crate) fn retained_count(&self) -> usize {
+        self.by_object.len() + self.by_key.len() + self.seed.len()
     }
 
     /// Entries both indexes dropped to stay under their cap.
@@ -279,6 +288,17 @@ impl FilePathCache {
 #[cfg(test)]
 mod tests {
     use super::{BoundedIndex, FilePathCache, DEFAULT_CAPACITY};
+
+    #[test]
+    fn startup_path_inventory_obeys_state_capacity() {
+        let mut cache = FilePathCache::with_capacity(2);
+        cache.seed(
+            (0..10)
+                .map(|key| (key, (format!("path-{key}"), 100)))
+                .collect(),
+        );
+        assert_eq!(cache.retained_count(), 2);
+    }
 
     #[test]
     fn newer_snapshot_beats_buffered_object_name_but_not_later_opens() {

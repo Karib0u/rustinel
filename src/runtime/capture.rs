@@ -22,7 +22,7 @@ use crate::config::AppConfig;
 use crate::engine::NormalizedEventHandler;
 use crate::runtime::logging::{init_operational_logging, log_startup_banner};
 use crate::sensor::{Platform, RawEvent, SensorEventRouter};
-use crate::state::{DnsCache, HostState, ProcessCache, SidCache};
+use crate::state::HostState;
 
 /// Capacity of the sensor-to-router channel, matching the live runtimes.
 const SENSOR_CHANNEL_CAPACITY: usize = 8192;
@@ -90,14 +90,7 @@ impl CaptureContext {
         let payload_path = resolve_output_path(&self.config, options.output.as_deref(), Utc::now());
         let recorder = CaptureRecorder::start(payload_path, platform)?;
 
-        let process_cache = Arc::new(ProcessCache::with_max_entries(
-            self.config.process.max_entries,
-        ));
-        let host_state = Arc::new(HostState::new(
-            Arc::clone(&process_cache),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        ));
+        let host_state = HostState::for_runtime(self.config.process.max_entries);
 
         // The only handler: no detectors, no alert sink, no response engine.
         let mut router = SensorEventRouter::new();
@@ -116,7 +109,6 @@ impl CaptureContext {
             recorder,
             router: Arc::new(router),
             host_state,
-            process_cache,
             progress,
         })
     }
@@ -129,8 +121,6 @@ pub(crate) struct CaptureSession {
     recorder: CaptureRecorder,
     router: Arc<SensorEventRouter>,
     host_state: Arc<HostState>,
-    #[cfg_attr(not(windows), allow(dead_code))]
-    process_cache: Arc<ProcessCache>,
     progress: JoinHandle<()>,
 }
 
@@ -138,8 +128,8 @@ impl CaptureSession {
     /// Process metadata cache, so platforms that can enumerate running
     /// processes can seed it during startup.
     #[cfg(any(windows, target_os = "linux"))]
-    pub(crate) fn process_cache(&self) -> &Arc<ProcessCache> {
-        &self.process_cache
+    pub(crate) fn host_state(&self) -> &Arc<HostState> {
+        &self.host_state
     }
 
     /// Start the router worker and hand back the channel the sensors feed.

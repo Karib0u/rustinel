@@ -2,11 +2,11 @@ mod enrichment;
 pub mod etw;
 mod event_log;
 mod field_maps;
-mod file_paths;
+pub(crate) mod file_paths;
 mod flush;
 mod loss;
 pub mod mapper;
-mod registry_paths;
+pub(crate) mod registry_paths;
 mod registry_rundown;
 mod registry_value_data;
 

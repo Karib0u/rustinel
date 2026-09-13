@@ -44,6 +44,7 @@ pub(crate) fn telemetry_results(
     };
 
     let mut results = linux_ebpf_results(&snapshot);
+    results.extend(host_state_results(&snapshot));
     results.extend(macos_collector_results(&snapshot));
     results.extend(registry_results(&snapshot));
     results.extend(file_attribution_results(&snapshot));
@@ -90,6 +91,42 @@ pub(crate) fn telemetry_results(
 
     results.insert(0, result);
     (results, Some(snapshot))
+}
+
+fn host_state_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let Some(state) = &snapshot.host_state else {
+        return Vec::new();
+    };
+    let detail = format!("{} active and {} retired processes (limit {} each), {} users (limit {}), {} DNS entries (limit {}), {} path entries (limit {} per index); {} attribution losses",
+        state.processes, state.retired_processes, state.limits.processes,
+        state.users, state.limits.users, state.dns, state.limits.dns, state.paths, state.limits.paths, state.attribution_loss);
+    let mut results = vec![if state.attribution_loss > 0 {
+        DiagnosticResult::warn(
+            "host_state",
+            "Host attribution state updates were lost",
+            detail,
+        )
+    } else {
+        DiagnosticResult::pass("host_state", detail)
+    }];
+    if let Some(inventory) = &state.inventory {
+        let detail = format!(
+            "{} of {} processes seeded, {} skipped in {} ms",
+            inventory.seeded, inventory.scanned, inventory.skipped, inventory.duration_ms
+        );
+        results.push(if let Some(error) = &inventory.error {
+            DiagnosticResult::warn("process_inventory", detail, error)
+        } else if inventory.seeded == 0 && inventory.scanned > 0 {
+            DiagnosticResult::warn(
+                "process_inventory",
+                "No existing processes could be attributed",
+                detail,
+            )
+        } else {
+            DiagnosticResult::pass("process_inventory", detail)
+        });
+    }
+    results
 }
 
 /// Keep kernel loss distinct from ingress and detector queue shedding.
@@ -637,6 +674,7 @@ mod tests {
 
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         TelemetrySnapshot {
+            host_state: None,
             version: "1.3.0".to_string(),
             pid: 7,
             captured_at: "2026-08-24T12:00:00Z".to_string(),
@@ -1131,5 +1169,21 @@ mod tests {
         assert_eq!(wifi.status, DiagnosticStatus::Pass);
         assert_eq!(vpn.status, DiagnosticStatus::Warn);
         assert!(vpn.detail.as_ref().unwrap().contains("device unavailable"));
+    }
+    #[test]
+    fn host_state_diagnostics_report_loss_and_inventory_failure() {
+        let mut snapshot = snapshot(Vec::new());
+        assert!(host_state_results(&snapshot).is_empty());
+        let host = crate::state::HostState::default();
+        host.record_attribution_loss();
+        host.record_inventory(crate::state::InventorySnapshot {
+            error: Some("inventory denied".into()),
+            ..Default::default()
+        });
+        snapshot.host_state = Some(host.snapshot());
+        let results = host_state_results(&snapshot);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "host_state");
+        assert_eq!(results[1].id, "process_inventory");
     }
 }

@@ -209,7 +209,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         let session = context.start_recording(&options, Platform::Windows)?;
 
         // Cold start: seed the process cache so early events resolve parents.
-        match crate::platform::windows::snapshot_processes(session.process_cache()) {
+        match crate::platform::windows::snapshot_processes(session.host_state()) {
             Ok(count) => info!(
                 target: TARGET_CONSOLE,
                 "✓ Process Cache initialized with {} existing processes",
@@ -224,6 +224,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         let (sensor_tx, sensor_worker) = session.sensor_channel();
         let sensor = Arc::new(
             EtwSensor::with_flush_intervals(flush_interval_ms, process_flush_interval_ms)
+                .with_host_state(Arc::clone(session.host_state()))
                 .with_event_log_directory(event_log_directory),
         );
         let sensor_for_trace = Arc::clone(&sensor);
@@ -301,7 +302,7 @@ async fn run_edr(
 
     // Snapshot existing processes using Windows API (handles cold start problem)
     {
-        match crate::platform::windows::snapshot_processes(&state.process_cache) {
+        match crate::platform::windows::snapshot_processes(&state.host) {
             Ok(count) => {
                 info!(
                     target: TARGET_CONSOLE,
@@ -323,6 +324,7 @@ async fn run_edr(
             cfg.windows.etw_flush_interval_ms,
             cfg.windows.etw_process_flush_interval_ms,
         )
+        .with_host_state(Arc::clone(&state.host))
         .with_event_log_directory(cfg.logging.directory.join("event-log")),
     );
 

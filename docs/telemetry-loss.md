@@ -10,6 +10,7 @@ Every drop is counted, so you can tell whether a quiet endpoint is quiet or blin
 | --- | --- | --- |
 | Before Rustinel | An eBPF ring is full, Endpoint Security or `/dev/bpf` drops, ETW buffers overflow | `linux_ebpf`, `macos_esf_kernel_loss`, `macos_bpf_kernel_loss`. ETW loss is a warning in the operational log |
 | Inside the sensor | A Windows registry or file event whose path cannot be recovered, an ETW record that fails to decode | `registry_path_resolution`, `file_path_attribution`, `etw_decode` |
+| Attribution state | A process update has no known identity, or a directory-open update cannot name its descriptor | `host_state` |
 | Between stages | A full queue between the sensor and the detectors, or in front of YARA, hashing, or response | `pipeline_telemetry` |
 
 A rule can also miss events that were never produced, because the platform or host policy does not provide them.
@@ -21,7 +22,7 @@ That is a coverage question, see [Platform coverage](coverage.md).
 rustinel doctor
 ```
 
-A passing `pipeline_telemetry` check means nothing was dropped since the agent started.
+A passing `pipeline_telemetry` check means no pipeline queue dropped an item since the agent started.
 When something was, the check names the queue:
 
 ```text

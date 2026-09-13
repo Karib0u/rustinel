@@ -5,7 +5,7 @@
 //! while preserving shared enrichment and cache behavior.
 
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -15,30 +15,19 @@ use crate::models::*;
 use crate::sensor::{
     Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorPayload,
 };
-use crate::state::{DnsCache, ProcessCache, ProcessMetadata, SidCache};
+use crate::state::{HostState, ProcessMetadata};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
 
 /// Event normalizer that converts shared sensor events to normalized events.
-pub struct Normalizer {
-    process_cache: Arc<ProcessCache>,
-    sid_cache: Arc<SidCache>,
-    dns_cache: Arc<DnsCache>,
-    ingest_seq: AtomicU64,
+/// Canonicalization borrows its host state; standalone consumers may share an Arc.
+pub struct Normalizer<S = Arc<HostState>> {
+    state: S,
 }
 
-impl Normalizer {
+impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
     /// Creates a new normalizer instance.
-    pub fn new(
-        process_cache: Arc<ProcessCache>,
-        sid_cache: Arc<SidCache>,
-        dns_cache: Arc<DnsCache>,
-    ) -> Self {
-        Self {
-            process_cache,
-            sid_cache,
-            dns_cache,
-            ingest_seq: AtomicU64::new(0),
-        }
+    pub fn new(state: S) -> Self {
+        Self { state }
     }
 
     /// Generate the Sigma-compatible view for a raw event.
@@ -78,7 +67,7 @@ impl Normalizer {
         let normalized = NormalizedEvent {
             timestamp: format_timestamp(event.timestamp),
             source_seq: event.source_seq,
-            ingest_seq: self.ingest_seq.fetch_add(1, Ordering::Relaxed) + 1,
+            ingest_seq: self.state.ingest_seq.fetch_add(1, Ordering::Relaxed) + 1,
             platform: event.platform,
             provider: event.provider.to_string(),
             category: event.category(),
@@ -115,7 +104,17 @@ impl Normalizer {
 
         if event.action == SensorAction::Stop {
             if let Some(key) = event.process_start_key {
-                self.process_cache.remove(key.pid, key.start_time);
+                if self
+                    .state
+                    .processes
+                    .get_metadata_by_key(key.pid, key.start_time)
+                    .is_none()
+                {
+                    self.state.record_attribution_loss();
+                }
+                self.state.processes.remove(key.pid, key.start_time);
+            } else {
+                self.state.record_attribution_loss();
             }
             return None;
         }
@@ -181,7 +180,8 @@ impl Normalizer {
                 let parent_pid = parse_optional_u32(fields.parent_process_id.as_deref());
 
                 if let Some(parent) = event.parent_process_start_key.and_then(|key| {
-                    self.process_cache
+                    self.state
+                        .processes
                         .get_metadata_by_key(key.pid, key.start_time)
                 }) {
                     if fields.parent_image.is_none() {
@@ -197,7 +197,7 @@ impl Normalizer {
                 }
 
                 if let Some(key) = event.process_start_key.filter(|key| key.pid == pid) {
-                    self.process_cache.add(
+                    self.state.processes.add(
                         pid,
                         key.start_time,
                         image,
@@ -214,7 +214,11 @@ impl Normalizer {
                         fields.current_directory.clone(),
                         fields.integrity_level.clone(),
                     );
+                } else {
+                    self.state.record_attribution_loss();
                 }
+            } else {
+                self.state.record_attribution_loss();
             }
         }
 
@@ -257,7 +261,7 @@ impl Normalizer {
         if fields.destination_hostname.is_none() {
             if let Some(destination_ip) = fields.destination_ip.as_deref() {
                 if let Ok(ip) = destination_ip.parse::<IpAddr>() {
-                    if let Some(hostname) = self.dns_cache.lookup(&ip) {
+                    if let Some(hostname) = self.state.dns.lookup(&ip) {
                         fields.destination_hostname = Some(hostname);
                     }
                 }
@@ -281,7 +285,7 @@ impl Normalizer {
             fields.query_results.as_deref(),
         ) {
             for ip in extract_ips_from_query_results(query_results) {
-                self.dns_cache.update(ip, query_name.to_string());
+                self.state.dns.update(ip, query_name.to_string());
             }
         }
 
@@ -354,7 +358,8 @@ impl Normalizer {
 
     fn metadata_for_event(&self, event: &SensorEvent) -> Option<ProcessMetadata> {
         let key = event.process_start_key?;
-        self.process_cache
+        self.state
+            .processes
             .get_metadata_by_key(key.pid, key.start_time)
     }
 
@@ -377,7 +382,7 @@ impl Normalizer {
             let uid = effective_uid
                 .or(user.as_deref())
                 .and_then(|value| value.parse::<u32>().ok());
-            if let Some(name) = uid.and_then(crate::utils::lookup_username_by_uid) {
+            if let Some(name) = uid.and_then(|uid| self.state.users.resolve_uid(uid)) {
                 *user = Some(name);
                 provenance.mark_derived("User");
             }
@@ -392,7 +397,7 @@ impl Normalizer {
             _ => return,
         };
 
-        if let Some(resolved) = self.sid_cache.resolve(&sid) {
+        if let Some(resolved) = self.state.users.resolve(&sid) {
             *user = Some(resolved);
         }
     }
@@ -426,7 +431,8 @@ impl Normalizer {
         }
 
         let meta = self
-            .process_cache
+            .state
+            .processes
             .get_metadata_by_key(process_start_key.pid, process_start_key.start_time)?;
 
         Some(ProcessContext {
@@ -514,11 +520,7 @@ mod tests {
     use crate::sensor::{Platform, ProcessStartKey, SensorNormalization};
 
     fn build_normalizer() -> Normalizer {
-        Normalizer::new(
-            Arc::new(ProcessCache::new()),
-            Arc::new(SidCache::new()),
-            Arc::new(DnsCache::new()),
-        )
+        Normalizer::new(Arc::new(HostState::default()))
     }
 
     #[cfg(unix)]
@@ -902,7 +904,7 @@ mod tests {
     fn process_stop_events_only_maintain_cache() {
         let normalizer = build_normalizer();
 
-        normalizer.process_cache.add(
+        normalizer.state.processes.add(
             42,
             99,
             "C:\\test.exe".to_string(),
@@ -968,7 +970,7 @@ mod tests {
         };
 
         assert!(normalizer.normalize(&event).is_none());
-        assert_eq!(normalizer.process_cache.count(), 0);
+        assert_eq!(normalizer.state.processes.count(), 0);
     }
 
     #[test]
@@ -984,13 +986,13 @@ mod tests {
         assert_eq!(start_normalized.get_field("Image"), Some("/usr/bin/curl"));
 
         assert!(normalizer.normalize(&stop).is_none());
-        assert_eq!(normalizer.process_cache.count(), 1);
+        assert_eq!(normalizer.state.processes.count(), 1);
     }
 
     #[test]
     fn repeated_network_connections_stay_visible_to_detection() {
         let normalizer = build_normalizer();
-        normalizer.process_cache.add(
+        normalizer.state.processes.add(
             7,
             1,
             "C:\\curl.exe".to_string(),
@@ -1097,7 +1099,7 @@ mod tests {
     #[test]
     fn sensor_measured_file_image_is_not_overwritten() {
         let normalizer = build_normalizer();
-        normalizer.process_cache.add(
+        normalizer.state.processes.add(
             9,
             1,
             "/usr/bin/touch".to_string(),
@@ -1193,6 +1195,82 @@ mod tests {
             fields.image = Some(image.to_string());
         }
         event
+    }
+
+    #[test]
+    fn inventory_attributes_first_file_network_and_dns_event_on_every_platform() {
+        for platform in [Platform::Linux, Platform::MacOS, Platform::Windows] {
+            let state = Arc::new(HostState::default());
+            let image = if platform == Platform::Windows {
+                r"C:\Program Files\service.exe"
+            } else {
+                "/usr/local/bin/service"
+            };
+            // Inventory seeds metadata without synthesizing a process-start event.
+            state.processes.add(
+                4242,
+                100,
+                image.into(),
+                Some("service --daemon".into()),
+                Some("service-user".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            let normalizer = Normalizer::new(state);
+            let mut dns = file_event(platform, "test", 4242);
+            dns.payload = SensorPayload::Dns(DnsQueryFields {
+                query_name: Some("example.test".into()),
+                query_results: None,
+                record_type: Some("A".into()),
+                query_status: None,
+                process_id: Some("4242".into()),
+                image: None,
+                user: None,
+            });
+            for mut event in [
+                file_event(platform, "test", 4242),
+                network_event(platform, "test", 4242),
+                dns,
+            ] {
+                event.process_start_key = Some(ProcessStartKey {
+                    pid: 4242,
+                    start_time: 100,
+                });
+                let mut normalized = normalizer.normalize(&event).unwrap();
+                assert_eq!(normalized.get_field("Image"), Some(image));
+                normalizer.enrich_process_context(&mut normalized, event.process_start_key);
+                assert_eq!(
+                    normalized.process_context.unwrap().command_line.as_deref(),
+                    Some("service --daemon")
+                );
+                event.process_start_key.as_mut().unwrap().start_time = 101;
+                assert!(normalizer
+                    .normalize(&event)
+                    .unwrap()
+                    .get_field("Image")
+                    .is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_process_state_updates_count_attribution_loss() {
+        let normalizer = build_normalizer();
+        let unknown_stop = process_stop_event(Platform::Linux, "test", 4242, true);
+        assert!(normalizer.normalize(&unknown_stop).is_none());
+        let mut missing_key = process_start_with_identity(4242, 100, "/bin/service");
+        missing_key.provider = "test";
+        missing_key.process_start_key = None;
+        assert!(normalizer.normalize(&missing_key).is_some());
+        assert_eq!(normalizer.state.snapshot().attribution_loss, 2);
     }
 
     #[test]

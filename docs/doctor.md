@@ -55,6 +55,8 @@ See [Telemetry loss](telemetry-loss.md).
 
 | Check | Warns when |
 | --- | --- |
+| `host_state` | Attribution updates were lost; reports process, user, DNS, and path-state occupancy |
+| `process_inventory` | Startup inventory failed or seeded no processes; reports duration and coverage |
 | `pipeline_telemetry` | Any queue dropped events. Also warns when `telemetry.enabled = false` |
 | `linux_ebpf` | A kernel ring or map filled, records were short or unusable, file paths could not be rebuilt, or counters do not add up |
 | `linux_ebpf_<feature>_capability` | A kernel hook is missing, so that feature is degraded. The rest keeps working |

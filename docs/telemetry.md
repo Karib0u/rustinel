@@ -23,6 +23,27 @@ All counters start at zero when the agent starts.
 
 Platform sections appear only on their platform.
 
+## `host_state`
+
+Present when the runtime has initialized attribution state.
+Counts describe retained entries, including expired entries awaiting lazy cleanup, rather than exact memory bytes.
+The snapshot reads each index separately while events continue to arrive.
+
+| Field | Meaning |
+| --- | --- |
+| `limits` | Entry ceilings: configured `processes`, 4,096 `users`, 10,000 `dns`, and 8,192 `paths` per index |
+| `processes`, `retired_processes` | Live metadata and recently exited processes; each has the configured process ceiling |
+| `process_identities` | Windows process lifetimes used for timestamp-based attribution; has the process ceiling |
+| `users`, `dns` | Cached account resolutions and IP-to-hostname mappings |
+| `paths` | Retained directory paths on Linux, or combined file and registry paths on Windows, including startup and recently closed entries |
+| `attribution_loss` | Process-state updates without a usable subject identity or image, unknown process stops, and unusable Linux directory-open updates |
+| `inventory` | Startup process enumeration: `scanned`, `seeded`, `skipped`, `duration_ms`, and optional `error` |
+
+Windows keeps separate bounded indexes for file objects, file keys, file startup names, registry keys, registry startup names, and recently closed registry keys.
+The recently closed registry index is capped at 4,096 entries.
+A process skipped because it vanished, was inaccessible, or exceeded the entry ceiling contributes to `inventory.skipped`.
+Linux startup attribution also requires kernel process birth-time support.
+
 ## `channels`
 
 | Field | Meaning |

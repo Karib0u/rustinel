@@ -7,7 +7,7 @@ use crate::models::RegistryEventFields;
 use crate::sensor::{
     Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,19 +21,24 @@ struct ProcessLifetime {
     stopped_at: Option<u64>,
 }
 
-#[derive(Default)]
-pub(super) struct ProcessIdentityIndex {
+pub(crate) struct ProcessIdentityIndex {
     by_pid: HashMap<u32, Vec<ProcessLifetime>>,
     last_cleanup_at: u64,
+    order: BTreeSet<(u64, u32)>,
+    max_entries: usize,
 }
 
 impl ProcessIdentityIndex {
-    pub(super) fn seeded(keys: impl IntoIterator<Item = ProcessStartKey>) -> Self {
-        let mut index = Self::default();
-        for key in keys {
-            index.observe_start(key);
+    pub(crate) fn with_max_entries(max_entries: usize) -> Self {
+        Self {
+            by_pid: HashMap::new(),
+            last_cleanup_at: 0,
+            order: BTreeSet::new(),
+            max_entries,
         }
-        index
+    }
+    pub(crate) fn count(&self) -> usize {
+        self.order.len()
     }
 
     fn observe_start(&mut self, key: ProcessStartKey) {
@@ -46,6 +51,17 @@ impl ProcessIdentityIndex {
             stopped_at: None,
         });
         lifetimes.sort_unstable_by_key(|lifetime| lifetime.key.start_time);
+        self.order.insert((key.start_time, key.pid));
+        while self.order.len() > self.max_entries {
+            if let Some((start_time, pid)) = self.order.pop_first() {
+                if let Some(lifetimes) = self.by_pid.get_mut(&pid) {
+                    lifetimes.retain(|lifetime| lifetime.key.start_time != start_time);
+                    if lifetimes.is_empty() {
+                        self.by_pid.remove(&pid);
+                    }
+                }
+            }
+        }
     }
 
     fn observe_stop(&mut self, key: ProcessStartKey, stopped_at: u64) {
@@ -113,6 +129,20 @@ impl ProcessIdentityIndex {
             });
             !lifetimes.is_empty()
         });
+        self.order.retain(|(start, pid)| {
+            self.by_pid.get(pid).is_some_and(|lifetimes| {
+                lifetimes
+                    .iter()
+                    .any(|lifetime| lifetime.key.start_time == *start)
+            })
+        });
+    }
+}
+
+#[cfg(test)]
+impl Default for ProcessIdentityIndex {
+    fn default() -> Self {
+        Self::with_max_entries(crate::state::StateLimits::default().processes)
     }
 }
 
@@ -285,26 +315,35 @@ impl PendingRegistryEvents {
 pub(super) struct EtwState {
     pub(super) routing: EtwRouting,
     pub(super) process_correlation: Mutex<super::process::ProcessCorrelation>,
-    pub(super) file_paths: Mutex<FilePathCache>,
-    pub(super) registry_paths: Mutex<RegistryPathCache>,
+    host: std::sync::Arc<crate::state::HostState>,
     pub(super) pending_registry_events: Mutex<PendingRegistryEvents>,
-    process_identities: Mutex<ProcessIdentityIndex>,
 }
 
 impl EtwState {
-    pub(super) fn with_process_identities(keys: impl IntoIterator<Item = ProcessStartKey>) -> Self {
+    pub(super) fn with_process_identities(
+        keys: impl IntoIterator<Item = ProcessStartKey>,
+        host: std::sync::Arc<crate::state::HostState>,
+    ) -> Self {
+        {
+            let mut identities = host
+                .process_identities
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            for key in keys {
+                identities.observe_start(key);
+            }
+        }
         Self {
             routing: EtwRouting::new(),
             process_correlation: Mutex::new(Default::default()),
-            file_paths: Mutex::new(FilePathCache::new()),
-            registry_paths: Mutex::new(RegistryPathCache::new()),
+            host,
             pending_registry_events: Mutex::new(PendingRegistryEvents::new()),
-            process_identities: Mutex::new(ProcessIdentityIndex::seeded(keys)),
         }
     }
 
     pub(super) fn attribute_process_identity(&self, event: &mut SensorEvent) {
-        self.process_identities
+        self.host
+            .process_identities
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .attribute(event);
@@ -316,7 +355,8 @@ impl EtwState {
     /// sensor down. Losing path resolution for the life of the process because
     /// one callback panicked is a worse failure than a stale cache entry.
     pub(super) fn paths(&self) -> MutexGuard<'_, FilePathCache> {
-        self.file_paths
+        self.host
+            .file_paths
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -324,7 +364,8 @@ impl EtwState {
     /// Recovered for the same reason as [`Self::paths`]: unwinding out of an
     /// OS-invoked ETW callback would take the sensor down.
     pub(super) fn registry_paths(&self) -> MutexGuard<'_, RegistryPathCache> {
-        self.registry_paths
+        self.host
+            .registry_paths
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -366,6 +407,20 @@ mod tests {
             timestamp: UNIX_EPOCH,
             event_at,
         }
+    }
+
+    #[test]
+    fn process_identity_history_is_bounded_under_pid_reuse() {
+        let mut index = ProcessIdentityIndex::with_max_entries(2);
+        for start_time in 1..100 {
+            index.observe_start(ProcessStartKey {
+                pid: 42,
+                start_time,
+            });
+            assert!(index.count() <= 2);
+        }
+        assert!(index.resolve(42, 1).is_none());
+        assert_eq!(index.resolve(42, 99).unwrap().start_time, 99);
     }
 
     #[test]

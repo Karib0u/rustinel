@@ -18,7 +18,6 @@ use rustinel::{
         linux::EbpfSensor, Platform, RawProcessPlatform, RawUserId, Sensor, SensorAction,
         SensorEventHandler, SensorPayload,
     },
-    state::ProcessCache,
     utils::query_process_identity,
 };
 use std::{
@@ -80,8 +79,9 @@ async fn live_task_identity_matches_proc() {
     // This child predates attachment and must reconcile through the inventory.
     let mut existing = Child(child().spawn().unwrap());
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let cache = Arc::new(ProcessCache::new());
-    let sensor = EbpfSensor::with_process_cache(Arc::clone(&cache));
+    let host = Arc::new(rustinel::state::HostState::default());
+    let cache = Arc::clone(&host.processes);
+    let sensor = EbpfSensor::with_host_state(host);
     let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
     sensor.start(tx).unwrap();
     assert_verifier_acceptance();

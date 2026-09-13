@@ -164,6 +164,15 @@ impl ProcessCache {
         if let Some(meta) = removed_meta {
             let now = now_secs();
             if let Ok(mut graveyard) = self.graveyard.write() {
+                if graveyard.len() >= self.max_entries {
+                    if let Some(key) = graveyard
+                        .iter()
+                        .min_by_key(|(_, entry)| entry.death_time)
+                        .map(|(key, _)| *key)
+                    {
+                        graveyard.remove(&key);
+                    }
+                }
                 graveyard.insert(
                     (pid, creation_time),
                     GraveyardEntry {
@@ -198,6 +207,11 @@ impl ProcessCache {
     pub fn count(&self) -> usize {
         let cache = self.cache.read().unwrap();
         cache.len()
+    }
+
+    pub fn retired_count(&self) -> usize {
+        self.cleanup_graveyard_if_needed(now_secs());
+        self.graveyard.read().unwrap().len()
     }
 
     fn cleanup_graveyard_if_needed(&self, now: u64) {
@@ -291,6 +305,18 @@ mod tests {
 
         assert_eq!(cache.count(), 0);
         assert!(cache.get_metadata_by_key(10, 100).is_none());
+    }
+
+    #[test]
+    fn process_churn_keeps_retired_metadata_bounded() {
+        let cache = ProcessCache::with_max_entries(2);
+        for pid in 0..20 {
+            add_process(&cache, pid, u64::from(pid));
+            cache.remove(pid, u64::from(pid));
+            assert!(cache.retired_count() <= 2);
+        }
+        assert_eq!(cache.count(), 0);
+        assert!(cache.get_metadata_by_key(19, 19).is_some());
     }
 
     #[test]
