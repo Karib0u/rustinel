@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use rustinel::field_availability::{
     availability_for_event, compatibility_json, coverage_markdown, missing_always_fields,
-    unavailable_fields_markdown, Availability, FIELD_AVAILABILITY,
+    unavailable_fields_markdown, Availability, FIELD_AVAILABILITY, SCHEMA_VERSION,
 };
 use rustinel::models::{
     EventCategory, EventFields, ImageLoadFields, NormalizedEvent, ProcessCreationFields,
@@ -56,6 +56,59 @@ fn generated_artifacts_match_the_contract() {
     assert_eq!(
         generated_region(include_str!("../docs/coverage.md")),
         coverage_markdown().trim_end()
+    );
+}
+
+#[test]
+fn compatibility_entries_always_state_since() {
+    let artifact: serde_json::Value =
+        serde_json::from_str(&compatibility_json()).expect("compatibility artifact is valid JSON");
+    assert_eq!(artifact["schema_version"], SCHEMA_VERSION);
+
+    let entries = artifact["entries"]
+        .as_array()
+        .expect("compatibility entries are an array");
+    assert!(!entries.is_empty());
+    for entry in entries {
+        assert!(
+            entry
+                .as_object()
+                .is_some_and(|entry| entry.contains_key("since")),
+            "compatibility entry omits since: {entry}"
+        );
+    }
+}
+
+#[test]
+fn known_field_transitions_keep_their_release_provenance() {
+    let since = |platform, category: &str, field: &str| {
+        FIELD_AVAILABILITY
+            .iter()
+            .filter(|contract| contract.platform == platform && contract.category == category)
+            .flat_map(|contract| contract.fields)
+            .find(|entry| entry.field == field)
+            .and_then(|entry| entry.since)
+    };
+
+    assert_eq!(
+        since(Platform::Windows, "registry_event", "Details"),
+        Some("1.4.0")
+    );
+    assert_eq!(
+        since(Platform::Windows, "service_creation", "ImagePath"),
+        Some("1.4.1")
+    );
+    assert_eq!(
+        since(Platform::Windows, "process_creation", "IntegrityLevel"),
+        Some("1.4.1")
+    );
+    assert_eq!(
+        since(Platform::Linux, "network_connection", "SourceIp"),
+        Some("1.6.0")
+    );
+    assert_eq!(
+        since(Platform::MacOS, "dns_query", "ProcessId"),
+        Some("1.7.0")
     );
 }
 
