@@ -4,7 +4,7 @@ use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::pipeline::{LivePipeline, SharedState};
 use crate::runtime::startup::{load_config, RuntimeLogging};
 use crate::sensor::linux::EbpfSensor;
-use crate::sensor::{Platform, Sensor, SensorEvent};
+use crate::sensor::{Platform, RawEvent, Sensor};
 use arc_swap::ArcSwap;
 use std::sync::Arc;
 use tokio::runtime::Builder;
@@ -87,11 +87,14 @@ async fn run_linux_edr(
         "Starting eBPF sensor; press Ctrl+C to stop gracefully"
     );
 
-    let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(8192);
+    let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(8192);
     let router_for_worker = Arc::clone(&pipeline.router);
+    let host_state = Arc::clone(&pipeline.host_state);
     let sensor_worker_handle = tokio::task::spawn_blocking(move || {
         while let Some(event) = sensor_rx.blocking_recv() {
-            router_for_worker.route_event(&event);
+            if let Some(event) = host_state.canonicalize(event) {
+                router_for_worker.route_event(&event);
+            }
         }
     });
 

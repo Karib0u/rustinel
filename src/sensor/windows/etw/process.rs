@@ -1,7 +1,7 @@
 //! Bounded correlation of classic creation facts and manifest process identity.
 
 use super::parser::{filetime_to_system_time, try_get_uint_as_u64};
-use crate::sensor::{SensorAction, SensorEvent, SensorPayload};
+use crate::sensor::{RawUserId, SensorAction, SensorEvent, SensorPayload};
 use crate::telemetry::WINDOWS_PROCESS_CORRELATION as METRICS;
 use ferrisetw::{parser::Parser, schema_locator::SchemaLocator, EventRecord};
 use std::collections::{HashMap, VecDeque};
@@ -223,7 +223,10 @@ impl ProcessCorrelation {
                         .as_ref()
                         .zip(facts.command_line.as_ref())
                         .is_some_and(|(live, captured)| live != captured);
-                    let evidence = fields.windows.get_or_insert_with(Default::default);
+                    let live_command_line = fields.command_line.clone();
+                    let evidence = fields
+                        .windows_mut()
+                        .expect("Windows process payload carries Windows source metadata");
                     evidence.command_line_may_be_truncated = facts
                         .command_line
                         .as_ref()
@@ -231,7 +234,7 @@ impl ProcessCorrelation {
                     evidence.user_sid = facts.sid.clone();
                     evidence.session_id = facts.session_id;
                     if conflict {
-                        evidence.conflicting_live_command_line = fields.command_line.clone();
+                        evidence.conflicting_live_command_line = live_command_line.clone();
                         METRICS
                             .conflicting
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -246,7 +249,7 @@ impl ProcessCorrelation {
                         // The live value was captured through a lifetime-checked
                         // handle; different prefixes remain genuine conflicts.
                         let recover_suffix = evidence.command_line_may_be_truncated
-                            && fields.command_line.as_ref().is_some_and(|live| {
+                            && live_command_line.as_ref().is_some_and(|live| {
                                 live.len() > command_line.len() && live.starts_with(&command_line)
                             });
                         if recover_suffix {
@@ -261,7 +264,7 @@ impl ProcessCorrelation {
                         }
                     }
                     if let Some(sid) = facts.sid {
-                        fields.user = Some(sid);
+                        fields.user = Some(RawUserId::WindowsSid(sid));
                     }
                 }
                 out.push(event);
@@ -341,11 +344,7 @@ fn same_creation(event: &SensorEvent, classic: &ClassicProcess) -> bool {
             .stopped_at
             .is_none_or(|stopped| event.timestamp <= stopped)
         && skew <= PAIR_SKEW
-        && fields
-            .parent_process_id
-            .as_deref()
-            .and_then(|pid| pid.parse::<u32>().ok())
-            == Some(classic.parent)
+        && fields.parent_process_id == Some(classic.parent)
 }
 
 /// WBEM SID prefixes the SID with two pointer-sized TOKEN_USER fields.
@@ -397,7 +396,11 @@ mod tests {
                 start_time: start,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(fields),
+            payload: SensorPayload::Process(crate::sensor::RawProcessEvent::from_compatibility(
+                fields,
+                Platform::Windows,
+                Some(42),
+            )),
         }
     }
 
@@ -440,12 +443,7 @@ mod tests {
             assert_eq!(fields.command_line.as_deref(), Some(command));
             assert_eq!(fields.image.as_deref(), Some("C:\\Windows\\cmd.exe"));
             assert_eq!(
-                fields
-                    .windows
-                    .as_ref()
-                    .unwrap()
-                    .command_line_source
-                    .as_deref(),
+                fields.windows().unwrap().command_line_source.as_deref(),
                 Some("classic")
             );
             assert!(correlation.expire(now + WINDOW, true).is_empty());
@@ -573,20 +571,10 @@ mod tests {
             };
             assert_eq!(fields.command_line.as_ref(), Some(&classic_value));
             assert_eq!(
-                fields
-                    .windows
-                    .as_ref()
-                    .unwrap()
-                    .command_line_source
-                    .as_deref(),
+                fields.windows().unwrap().command_line_source.as_deref(),
                 Some("classic")
             );
-            assert!(fields
-                .windows
-                .as_ref()
-                .unwrap()
-                .classic_command_line
-                .is_none());
+            assert!(fields.windows().unwrap().classic_command_line.is_none());
         }
     }
 
@@ -597,10 +585,7 @@ mod tests {
             let mut event = manifest(BASE, BASE + 100);
             if let SensorPayload::Process(fields) = &mut event.payload {
                 fields.command_line = Some("modified PEB".into());
-                fields
-                    .windows
-                    .get_or_insert_with(Default::default)
-                    .command_line_source = Some("live_query".into());
+                fields.windows_mut().unwrap().command_line_source = Some("live_query".into());
             }
             correlation.manifest(event);
             let out = correlation.insert_classic(classic(BASE + 150, &command), Instant::now());
@@ -610,8 +595,7 @@ mod tests {
             assert_eq!(fields.command_line.as_ref(), Some(&command));
             assert_eq!(
                 fields
-                    .windows
-                    .as_ref()
+                    .windows()
                     .unwrap()
                     .conflicting_live_command_line
                     .as_deref(),

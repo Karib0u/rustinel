@@ -8,6 +8,7 @@ use common::{
 };
 use rustinel::{
     ioc::{HashCache, IocEngine},
+    models::CanonicalEvent,
     sensor::Platform,
 };
 
@@ -18,10 +19,12 @@ fn domain_ioc_matches_exact_and_suffix_dns_events() {
     let engine = IocEngine::load(&fixture.config());
     let harness = TestNormalizer::new();
 
-    let event = harness
-        .normalizer
-        .normalize(&dns_query_event(Platform::Linux))
-        .expect("dns event should normalize");
+    let event = CanonicalEvent::from_normalized(
+        harness
+            .normalizer
+            .normalize(&dns_query_event(Platform::Linux))
+            .expect("dns event should normalize"),
+    );
     let matches = engine.check_event(&event);
     assert_eq!(matches.len(), 2);
     for (m, comment, line) in [(&matches[0], "exact", 1), (&matches[1], "suffix", 2)] {
@@ -52,11 +55,12 @@ fn domain_ioc_matches_exact_and_suffix_dns_events() {
         (Some(" \t"), 0),
         (None, 0),
     ] {
-        let mut variant = event.clone();
-        let rustinel::models::EventFields::DnsQuery(fields) = &mut variant.fields else {
+        let mut normalized = event.clone().into_normalized();
+        let rustinel::models::EventFields::DnsQuery(fields) = &mut normalized.fields else {
             panic!("expected DNS fields");
         };
         fields.query_name = query.map(str::to_owned);
+        let variant = CanonicalEvent::from_normalized(normalized);
         let matches = engine.check_event(&variant);
         assert_eq!(matches.len(), expected, "query: {query:?}");
         if expected == 2 {
@@ -76,22 +80,28 @@ fn ip_ioc_matches_network_and_dns_response_ips() {
     let engine = IocEngine::load(&fixture.config());
     let harness = TestNormalizer::new();
 
-    let network = harness
-        .normalizer
-        .normalize(&network_connect_event(Platform::Linux))
-        .expect("network event should normalize");
+    let network = CanonicalEvent::from_normalized(
+        harness
+            .normalizer
+            .normalize(&network_connect_event(Platform::Linux))
+            .expect("network event should normalize"),
+    );
     assert_eq!(engine.check_event(&network).len(), 2);
 
-    let repeated_network = harness
-        .normalizer
-        .normalize(&network_connect_event(Platform::Linux))
-        .expect("repeated network event should remain available to IOC detection");
+    let repeated_network = CanonicalEvent::from_normalized(
+        harness
+            .normalizer
+            .normalize(&network_connect_event(Platform::Linux))
+            .expect("repeated network event should remain available to IOC detection"),
+    );
     assert_eq!(engine.check_event(&repeated_network).len(), 2);
 
-    let dns = harness
-        .normalizer
-        .normalize(&dns_query_event(Platform::Linux))
-        .expect("dns event should normalize");
+    let dns = CanonicalEvent::from_normalized(
+        harness
+            .normalizer
+            .normalize(&dns_query_event(Platform::Linux))
+            .expect("dns event should normalize"),
+    );
     let matches = engine.check_event(&dns);
     assert_eq!(matches.len(), 2);
     for (m, comment, line) in [(&matches[0], "exact", 1), (&matches[1], "cidr", 2)] {
@@ -105,13 +115,14 @@ fn ip_ioc_matches_network_and_dns_response_ips() {
     assert_ecs_field_eq(&json, "dns.question.name", TEST_DOMAIN);
     assert_ecs_field_present(&json, "related.ip");
 
-    let mut separated = dns.clone();
-    let rustinel::models::EventFields::DnsQuery(fields) = &mut separated.fields else {
+    let mut normalized = dns.clone().into_normalized();
+    let rustinel::models::EventFields::DnsQuery(fields) = &mut normalized.fields else {
         panic!("expected DNS fields");
     };
     fields.query_results = Some(format!(
         " ,;\t{TEST_DESTINATION_IP};invalid,\n{TEST_DESTINATION_IP}\u{2003}203.0.113.1;; "
     ));
+    let separated = CanonicalEvent::from_normalized(normalized);
     let separated_matches = engine.check_event(&separated);
     let match_identity = |m: &rustinel::ioc::IocMatch| {
         (
@@ -138,10 +149,12 @@ fn path_regex_ioc_matches_process_and_file_paths() {
     let engine = IocEngine::load(&fixture.config());
     let harness = TestNormalizer::new();
 
-    let process = harness
-        .normalizer
-        .normalize(&process_start_event(Platform::Windows))
-        .expect("process event should normalize");
+    let process = CanonicalEvent::from_normalized(
+        harness
+            .normalizer
+            .normalize(&process_start_event(Platform::Windows))
+            .expect("process event should normalize"),
+    );
     let process_matches = engine.check_event(&process);
     assert_eq!(process_matches.len(), 1);
     assert_eq!(
@@ -161,10 +174,12 @@ fn path_regex_ioc_matches_process_and_file_paths() {
         .contains("source:"));
     assert_ecs_field_present(&ecs_json(&alert), "process.executable");
 
-    let file = harness
-        .normalizer
-        .normalize(&file_create_event(Platform::Linux))
-        .expect("file event should normalize");
+    let file = CanonicalEvent::from_normalized(
+        harness
+            .normalizer
+            .normalize(&file_create_event(Platform::Linux))
+            .expect("file event should normalize"),
+    );
     let file_matches = engine.check_event(&file);
     assert_eq!(file_matches.len(), 1);
     assert_ecs_field_present(
@@ -236,10 +251,12 @@ fn domain_metadata_preserves_duplicate_lines_and_optional_comments() {
     ));
     let engine = IocEngine::load(&fixture.config());
     let harness = TestNormalizer::new();
-    let event = harness
-        .normalizer
-        .normalize(&dns_query_event(Platform::Linux))
-        .expect("DNS event");
+    let event = CanonicalEvent::from_normalized(
+        harness
+            .normalizer
+            .normalize(&dns_query_event(Platform::Linux))
+            .expect("DNS event"),
+    );
     let matches = engine.check_event(&event);
     assert_eq!(matches.len(), 4);
     for (index, m) in matches.iter().enumerate() {

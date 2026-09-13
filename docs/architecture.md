@@ -15,9 +15,9 @@ src/
 │   ├── windows/     ETW sessions and Event Log subscriptions
 │   ├── linux/       eBPF loader, ring readers, decoders
 │   └── macos/       Endpoint Security and /dev/bpf capture
-├── models/          NormalizedEvent, alert, and ECS models
-├── normalizer/      builds NormalizedEvent, enrichment from caches
-├── state/           process, SID, and DNS caches
+├── models/          CanonicalEvent, the generated NormalizedEvent view, alert, and ECS models
+├── normalizer/      builds the stable NormalizedEvent compatibility view
+├── state/           HostState plus process, SID, and DNS caches
 ├── engine/          Sigma loading, logsource routing, evaluation (RSigma)
 ├── scanner/         YARA compilation and scanning
 ├── memory/          per-platform process memory reads for YARA
@@ -38,17 +38,19 @@ ebpf/src/            Linux eBPF programs and the event ABI
 
 ## Event path
 
-1. A platform sensor emits a `SensorEvent` into the bounded `sensor_events` channel.
-2. `SensorEventRouter` hands each event to `SigmaDetectionHandler` and `YaraEventHandler`.
-3. `SigmaDetectionHandler` normalizes the event, evaluates Sigma and inline IOC checks, and queues hash jobs for process starts.
-4. `YaraEventHandler` queues process-start executables for the YARA worker.
+1. A platform sensor emits a `RawEvent` into the bounded `sensor_events` channel. Process records retain native numeric identities and source-specific facts; the other categories are migrated independently.
+2. `HostState` performs host-dependent enrichment after that channel and creates a provenance-carrying `CanonicalEvent`.
+3. `SensorEventRouter` hands only canonical events to detection, YARA, and capture.
+4. Sigma and IOC evaluate the canonical event's generated `NormalizedEvent` view; `YaraEventHandler` queues process-start executables.
 5. Hits go to `AlertSink` (ECS NDJSON) and, when enabled, `ResponseEngine`.
+
+Capture also receives `CanonicalEvent`. Recording schema v2 deliberately serializes its unchanged `NormalizedEvent` view, and replay wraps that same view back in a canonical event, so existing recordings remain compatible.
 
 Every hop is a bounded channel that drops instead of blocking, with counters in `src/telemetry`.
 Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
 
 `runtime/pipeline.rs` builds this pipeline for all three platforms.
-Platform runtimes keep privilege checks, sensor startup, and platform enrichment.
+Platform runtimes keep privilege checks and sensor startup; `HostState` owns live enrichment and cache-backed normalization.
 `runtime/shutdown.rs` drains sensors, then workers, then flushes deduplication and the final telemetry snapshot.
 
 ## Detectors and reload
@@ -69,7 +71,7 @@ Readers keep the previous instance until they finish.
 
 ## Windows sensor
 
-- Two real-time ETW sessions: `rustinel-etw-process` for Kernel-Process, sized and flushed for latency so command lines can be read before short processes exit, and `rustinel-etw-trace` for the high-volume providers, sized for bursts.
+- Two real-time ETW sessions: `rustinel-etw-process` for Kernel-Process, sized and flushed for latency so post-channel host enrichment can read command lines before short processes exit, and `rustinel-etw-trace` for the high-volume providers, sized for bursts. The ETW decoder itself performs no live process query.
   Inspect them with `Get-EtwTraceSession -Name rustinel-etw-trace` (or `rustinel-etw-process`).
 - A classic kernel logger supplies creation-time command lines and SIDs, joined to Kernel-Process events by PID, parent PID, and time.
 - At startup, key and file name snapshots let registry and file writes through pre-existing handles be named.

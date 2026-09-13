@@ -13,8 +13,8 @@ pub use types::{IocKind, IocMatch};
 
 use crate::config::IocConfig;
 use crate::models::{
-    Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
-    ProcessCreationFields,
+    Alert, AlertSeverity, CanonicalEvent, DetectionEngine, EventCategory, EventFields,
+    NormalizedEvent, ProcessCreationFields,
 };
 use crate::sensor::Platform;
 use std::collections::HashSet;
@@ -136,11 +136,12 @@ impl IocEngine {
         PathAllowlistPolicy::IocPrefix.is_match(path, &self.hash_allowlist_paths)
     }
 
-    pub fn check_event(&self, event: &NormalizedEvent) -> Vec<IocMatch> {
+    pub fn check_event(&self, event: &CanonicalEvent) -> Vec<IocMatch> {
         if !self.enabled {
             return Vec::new();
         }
 
+        let event = event.normalized();
         let mut matches = Vec::new();
         let mut seen = HashSet::new();
 
@@ -179,7 +180,7 @@ impl IocEngine {
         matches
     }
 
-    pub fn build_alert_for_match(&self, m: &IocMatch, event: &NormalizedEvent) -> Alert {
+    pub fn build_alert_for_match(&self, m: &IocMatch, event: &CanonicalEvent) -> Alert {
         let name = ioc_rule_name(m);
         let ioc_id = format!("ioc::{}::{}", m.kind.as_str(), m.indicator);
         Alert {
@@ -188,7 +189,7 @@ impl IocEngine {
             rule_description: ioc_rule_description(m),
             rule_id: Some(ioc_id),
             engine: DetectionEngine::Ioc,
-            event: event.clone(),
+            event: event.normalized().clone(),
             match_details: None,
         }
     }
@@ -282,7 +283,7 @@ mod tests {
             hash_allowlist_paths: Vec::new(),
         };
 
-        let event = NormalizedEvent {
+        let event = CanonicalEvent::from_normalized(NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
             source_seq: None,
             ingest_seq: 0,
@@ -303,7 +304,7 @@ mod tests {
             }),
             provenance: Default::default(),
             process_context: None,
-        };
+        });
 
         let matches = engine.check_event(&event);
         assert_eq!(matches.len(), 1);
@@ -335,8 +336,8 @@ mod tests {
         }
     }
 
-    fn dns_event(query_name: &str) -> NormalizedEvent {
-        NormalizedEvent {
+    fn dns_event(query_name: &str) -> CanonicalEvent {
+        CanonicalEvent::from_normalized(NormalizedEvent {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
             source_seq: None,
             ingest_seq: 0,
@@ -357,7 +358,7 @@ mod tests {
             }),
             provenance: Default::default(),
             process_context: None,
-        }
+        })
     }
 
     #[test]

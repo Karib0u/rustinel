@@ -1,8 +1,10 @@
 mod dns;
+mod host;
 mod process;
 mod sid;
 
 pub use dns::{DnsCache, DnsEntry};
+pub use host::HostState;
 pub use process::{ProcessCache, ProcessMetadata};
 pub use sid::SidCache;
 

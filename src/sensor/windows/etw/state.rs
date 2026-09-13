@@ -76,8 +76,6 @@ impl ProcessIdentityIndex {
             if event.action == SensorAction::Start {
                 event.parent_process_start_key = fields
                     .parent_process_id
-                    .as_deref()
-                    .and_then(|pid| pid.parse::<u32>().ok())
                     .and_then(|pid| self.resolve(pid, event_at));
 
                 if let Some(key) = event.process_start_key {

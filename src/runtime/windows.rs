@@ -4,7 +4,7 @@ use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::pipeline::{LivePipeline, SharedState};
 use crate::runtime::startup::{load_config, RuntimeLogging};
 use crate::sensor::windows::EtwSensor;
-use crate::sensor::{Platform, Sensor, SensorEvent};
+use crate::sensor::{Platform, RawEvent, Sensor};
 
 const SENSOR_EVENT_CHANNEL_CAPACITY: usize = 32_768;
 use arc_swap::ArcSwap;
@@ -349,15 +349,15 @@ async fn run_edr(
     info!("");
 
     // Start shared sensor event pipeline
-    let (sensor_tx, mut sensor_rx) = mpsc::channel::<SensorEvent>(SENSOR_EVENT_CHANNEL_CAPACITY);
+    let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(SENSOR_EVENT_CHANNEL_CAPACITY);
     let router_clone = Arc::clone(&pipeline.router);
+    let host_state = Arc::clone(&pipeline.host_state);
     let sensor_worker_handle = tokio::task::spawn_blocking(move || {
         info!(target: "sensor", "Sensor event worker thread started");
-        while let Some(mut event) = sensor_rx.blocking_recv() {
-            // PE parsing opens and maps the image, so it must happen after the
-            // bounded channel rather than in the ETW callback.
-            crate::sensor::windows::enrich_event(&mut event);
-            router_clone.route_event(&event);
+        while let Some(event) = sensor_rx.blocking_recv() {
+            if let Some(event) = host_state.canonicalize(event) {
+                router_clone.route_event(&event);
+            }
         }
         info!(target: "sensor", "Sensor event worker thread shutting down");
     });

@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rustinel::config::IocConfig;
 use rustinel::ioc::IocEngine;
-use rustinel::models::{DnsQueryFields, EventCategory, EventFields, NormalizedEvent};
+use rustinel::models::{
+    CanonicalEvent, DnsQueryFields, EventCategory, EventFields, NormalizedEvent,
+};
 use rustinel::sensor::Platform;
 use tempfile::TempDir;
 
@@ -51,8 +53,8 @@ fn engine_with_feed(dir: &Path, count: usize) -> IocEngine {
     })
 }
 
-fn dns_event(query_name: &str) -> NormalizedEvent {
-    NormalizedEvent {
+fn dns_event(query_name: &str) -> CanonicalEvent {
+    CanonicalEvent::from_normalized(NormalizedEvent {
         timestamp: "2025-01-01T00:00:00Z".to_string(),
         source_seq: None,
         ingest_seq: 0,
@@ -73,7 +75,7 @@ fn dns_event(query_name: &str) -> NormalizedEvent {
         }),
         provenance: Default::default(),
         process_context: None,
-    }
+    })
 }
 
 fn bench_domain_matching(c: &mut Criterion) {

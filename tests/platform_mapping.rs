@@ -80,7 +80,10 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
                 fields.image.as_deref().map(str::len),
                 Some(PROCESS_IMAGE_CAPACITY - 1)
             );
-            assert_eq!(fields.image_truncated, Some(true));
+            let rustinel::sensor::RawProcessPlatform::Linux(source) = *fields.platform else {
+                panic!("expected Linux process facts");
+            };
+            assert_eq!(source.image_truncated, Some(true));
         }
         _ => panic!("expected process payload"),
     }

@@ -118,6 +118,11 @@ mod tests {
         });
         let pipeline = LivePipeline {
             router,
+            host_state: Arc::new(crate::state::HostState::new(
+                Arc::new(crate::state::ProcessCache::new()),
+                Arc::new(crate::state::SidCache::new()),
+                Arc::new(crate::state::DnsCache::new()),
+            )),
             yara_worker_handle: Some(yara),
             yara_memory_worker_handle: None,
             ioc_hash_worker_handle: None,

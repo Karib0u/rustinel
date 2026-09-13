@@ -13,16 +13,19 @@ use super::routing::{
 use super::state::{EtwState, PendingRegistryEvent};
 use crate::models::{
     DnsQueryFields, EventCategory, FileEventFields, ImageLoadFields, NetworkConnectionFields,
-    PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
-    TaskCreationFields, WmiEventFields,
+    PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields, TaskCreationFields,
+    WmiEventFields,
 };
 use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::classify_kernel_network_event;
-use crate::sensor::{Platform, ProcessStartKey, SensorAction, SensorEvent, SensorPayload};
+use crate::sensor::{
+    Platform, ProcessStartKey, RawProcessEvent, RawProcessPlatform, RawWindowsProcess,
+    SensorAction, SensorEvent, SensorPayload,
+};
 use crate::telemetry::{
     EtwDecodeFailure, EtwDecodeFailureKey, RegistryPathSource, ETW_DECODE, WINDOWS_FILE_ATTRIBUTION,
 };
-use crate::utils::{convert_nt_to_dos, query_process_command_line_at_start};
+use crate::utils::convert_nt_to_dos;
 use ferrisetw::parser::Parser;
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::EventRecord;
@@ -259,24 +262,12 @@ pub(super) fn decode_process(
 ) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::process_creation_mappings();
 
-    // Capture the fallback before any enrichment or reorder buffering. The
-    // creation time is needed to verify the live handle belongs to this event.
-    let process_id = try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
-        .or_else(|| Some(record.process_id().to_string()));
-    let pid = process_id
-        .as_deref()
-        .and_then(|value| value.parse::<u32>().ok())
+    let pid = try_get_uint_as_u64(parser, mappings.get_etw_field("ProcessId")?)
+        .and_then(|value| u32::try_from(value).ok())
         .unwrap_or_else(|| record.process_id());
 
     let creation_time_opt = try_get_uint_as_u64(parser, "CreateTime")
         .or_else(|| try_get_uint_as_u64(parser, "ProcessStartTime"));
-    // Capture the conservative fallback immediately, before buffering for the
-    // classic record. The handle must belong to this manifest lifetime.
-    let command_line = if action == SensorAction::Start {
-        creation_time_opt.and_then(|started| query_process_command_line_at_start(pid, started))
-    } else {
-        None
-    };
 
     let creation_time_with_fallback =
         creation_time_opt.or_else(|| try_get_uint_as_u64(parser, "TimeStamp"));
@@ -296,40 +287,18 @@ pub(super) fn decode_process(
     let image = raw_image.map(|path| convert_nt_to_dos(&path));
     let parent_image = raw_parent_image.map(|path| convert_nt_to_dos(&path));
 
-    let fields = ProcessCreationFields {
-        linux_identity: Default::default(),
-        cgroup_id: None,
-        exec: Default::default(),
-        parent_process_id_derived: false,
-        windows: (action == SensorAction::Start).then(|| {
-            Box::new(crate::models::WindowsProcessMetadata {
-                command_line_source: command_line.as_ref().map(|_| "live_query".to_string()),
-                ..Default::default()
-            })
-        }),
-        image: image.clone(),
-        image_source: None,
-        image_truncated: None,
-        original_file_name: None,
-        product: None,
-        description: None,
-        company: None,
-        file_version: None,
-        // Process creation describes one image and has no target process.
-        target_image: None,
-        command_line,
-        process_id,
-        process_start_time: creation_time_with_fallback,
-        parent_process_id: try_get_uint(parser, mappings.get_etw_field("ParentProcessId")?),
+    let fields = raw_windows_process(
+        pid,
+        try_get_uint_as_u64(parser, mappings.get_etw_field("ParentProcessId")?)
+            .and_then(|value| u32::try_from(value).ok()),
+        creation_time_with_fallback,
+        image.clone(),
         parent_image,
-        parent_command_line: try_get_string(parser, mappings.get_etw_field("ParentCommandLine")?),
-        current_directory: None,
+        try_get_string(parser, mappings.get_etw_field("ParentCommandLine")?),
         // `MandatoryLabel` is a SID; Sigma matches on Sysmon's level name.
-        // It is only on the start template, so a stop event has none.
-        integrity_level: try_get_string(parser, mappings.get_etw_field("IntegrityLevel")?)
+        try_get_string(parser, mappings.get_etw_field("IntegrityLevel")?)
             .and_then(|sid| integrity_level_from_sid(&sid)),
-        user: None,
-    };
+    );
 
     let process_start_key = match action {
         SensorAction::Start => {
@@ -346,6 +315,41 @@ pub(super) fn decode_process(
         process_start_key,
         payload: SensorPayload::Process(fields),
     })
+}
+
+/// Assemble only the facts carried by Kernel-Process itself.
+///
+/// In particular, this boundary does not accept a command line: the provider
+/// does not carry one, and the lifetime-checked process query belongs to
+/// `HostState` after the sensor channel.
+fn raw_windows_process(
+    process_id: u32,
+    parent_process_id: Option<u32>,
+    process_start_time: Option<u64>,
+    image: Option<String>,
+    parent_image: Option<String>,
+    parent_command_line: Option<String>,
+    integrity_level: Option<String>,
+) -> RawProcessEvent {
+    RawProcessEvent {
+        process_id,
+        parent_process_id,
+        process_start_time,
+        image,
+        command_line: None,
+        parent_image,
+        parent_command_line,
+        current_directory: None,
+        integrity_level,
+        user: None,
+        original_file_name: None,
+        product: None,
+        description: None,
+        company: None,
+        file_version: None,
+        target_image: None,
+        platform: Box::new(RawProcessPlatform::Windows(RawWindowsProcess::default())),
+    }
 }
 
 /// Decode a Microsoft-Windows-Kernel-File record, resolving its path.
@@ -921,6 +925,25 @@ mod tests {
     use crate::models::PowerShellModuleFields;
     use crate::models::PowerShellScriptFields;
     use crate::sensor::SensorPayload;
+
+    #[test]
+    fn kernel_process_assembly_keeps_native_facts_and_does_not_enrich() {
+        let fields = raw_windows_process(
+            42,
+            Some(7),
+            Some(123_456),
+            Some(r"C:\Windows\System32\cmd.exe".into()),
+            None,
+            None,
+            Some("High".into()),
+        );
+
+        assert_eq!(fields.process_id, 42);
+        assert_eq!(fields.parent_process_id, Some(7));
+        assert_eq!(fields.process_start_time, Some(123_456));
+        assert!(fields.command_line.is_none());
+        assert!(matches!(*fields.platform, RawProcessPlatform::Windows(_)));
+    }
 
     #[test]
     fn registry_details_maps_only_to_the_value_data_property() {

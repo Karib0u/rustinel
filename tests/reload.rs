@@ -8,7 +8,7 @@ use rustinel::{
     config::{ReloadConfig, ResponseConfig, ScannerConfig},
     engine::{DetectorStore, Engine},
     ioc::IocEngine,
-    models::MatchDebugLevel,
+    models::{CanonicalEvent, MatchDebugLevel},
     reload::{spawn_reload_worker, ReloadTarget},
     scanner::Scanner,
     sensor::Platform,
@@ -247,10 +247,12 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
     );
     tx.send(ReloadTarget::Ioc).expect("send ioc reload");
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    let event = TestNormalizer::new()
-        .normalizer
-        .normalize(&dns_query_event(platform))
-        .unwrap();
+    let event = CanonicalEvent::from_normalized(
+        TestNormalizer::new()
+            .normalizer
+            .normalize(&dns_query_event(platform))
+            .unwrap(),
+    );
     assert_eq!(store.ioc().check_event(&event).len(), 1);
     assert!(previous_ioc.check_event(&event).is_empty());
 

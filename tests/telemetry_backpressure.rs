@@ -11,7 +11,7 @@ mod common;
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 
-use common::process_start_event;
+use common::{process_start_event, TestNormalizer};
 use rustinel::config::AppConfig;
 use rustinel::runtime::telemetry::TelemetryReporter;
 use rustinel::scanner::YaraEventHandler;
@@ -49,7 +49,10 @@ fn a_saturated_scan_queue_counts_every_shed_event() {
         allowlist_paths: Vec::new(),
     }));
 
-    let event = process_start_event(Platform::Linux);
+    let event = TestNormalizer::new()
+        .host_state
+        .canonicalize(process_start_event(Platform::Linux))
+        .expect("event canonicalizes");
     for _ in 0..10 {
         router.route_event(&event);
     }
@@ -86,7 +89,10 @@ fn accepted_events_are_counted_after_the_queue_drains() {
         allowlist_paths: Vec::new(),
     }));
 
-    let event = process_start_event(Platform::Linux);
+    let event = TestNormalizer::new()
+        .host_state
+        .canonicalize(process_start_event(Platform::Linux))
+        .expect("event canonicalizes");
     router.route_event(&event);
     router.route_event(&event);
     rx.try_recv().expect("the queued job is readable");

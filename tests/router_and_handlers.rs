@@ -48,7 +48,7 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
 
     let harness = TestNormalizer::new();
     let handler = NormalizedEventHandler::detecting(
-        Arc::new(harness.normalizer),
+        Arc::clone(&harness.host_state),
         DetectionPipeline {
             detectors,
             ioc_hash_tx: None,
@@ -59,7 +59,7 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
 
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
-    router.route_event(&process_start_event(Platform::Linux));
+    router.route_raw_event(&harness.host_state, &process_start_event(Platform::Linux));
 
     drop(router);
     drop(guard);
@@ -86,7 +86,12 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     let rustinel::sensor::SensorPayload::Process(fields) = &mut start.payload else {
         unreachable!();
     };
-    fields.linux_identity.kernel_start_boottime = Some(common::TEST_PROCESS_START_TIME);
+    let rustinel::sensor::RawProcessPlatform::Linux(source) = fields.platform.as_mut() else {
+        unreachable!();
+    };
+    source.identity.kernel_start_boottime = Some(common::TEST_PROCESS_START_TIME);
+    let host_state = TestNormalizer::new().host_state;
+    let start = host_state.canonicalize(start).expect("start canonicalizes");
     handler.handle_event(&start);
     let target = file_rx.try_recv().expect("disk job queued");
     let (path, pid) = (target.path, target.pid);
@@ -115,7 +120,7 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
 
     let mut stop = process_start_event(Platform::Linux);
     stop.action = SensorAction::Stop;
-    handler.handle_event(&stop);
+    assert!(host_state.canonicalize(stop).is_none());
     assert!(file_rx.try_recv().is_err());
     assert!(memory_rx.try_recv().is_err());
 }
@@ -142,7 +147,11 @@ async fn yara_event_handler_respects_disabled_memory_and_allowlisted_paths() {
         memory_tx: None,
         allowlist_paths: Vec::new(),
     };
-    handler.handle_event(&process_start_event(Platform::Linux));
+    let host_state = TestNormalizer::new().host_state;
+    let start = host_state
+        .canonicalize(process_start_event(Platform::Linux))
+        .expect("start canonicalizes");
+    handler.handle_event(&start);
     assert!(file_rx.try_recv().is_ok());
 
     let (allow_file_tx, mut allow_file_rx) = mpsc::channel(8);
@@ -151,9 +160,12 @@ async fn yara_event_handler_respects_disabled_memory_and_allowlisted_paths() {
         memory_tx: None,
         allowlist_paths: normalize_allowlist_paths(&["/usr/bin".to_string()]),
     };
-    allowlisted.handle_event(&process_start_event(Platform::Linux));
+    allowlisted.handle_event(&start);
     assert!(allow_file_rx.try_recv().is_err());
 
-    allowlisted.handle_event(&common::network_connect_event(Platform::Linux));
+    let network = host_state
+        .canonicalize(common::network_connect_event(Platform::Linux))
+        .expect("network canonicalizes");
+    allowlisted.handle_event(&network);
     assert!(allow_file_rx.try_recv().is_err());
 }

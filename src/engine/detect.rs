@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::engine::DetectorStore;
 use crate::ioc::IocEngine;
-use crate::models::{Alert, NormalizedEvent};
+use crate::models::{Alert, CanonicalEvent};
 
 /// The event-based detectors, evaluated together in a fixed order.
 ///
@@ -45,8 +45,9 @@ impl EventDetectors {
     /// Returns the selected Sigma detection, any Sigma correlations, and IOC
     /// matches in a deterministic order. The same event evaluated against the
     /// same detectors produces the same alerts in the same sequence.
-    pub fn evaluate(&self, event: &NormalizedEvent) -> Vec<Alert> {
-        let mut alerts = self.sigma.evaluate_event(event);
+    pub fn evaluate(&self, event: &CanonicalEvent) -> Vec<Alert> {
+        let normalized = event.normalized();
+        let mut alerts = self.sigma.evaluate_event(normalized);
 
         for ioc_match in self.ioc.check_event(event) {
             alerts.push(self.ioc.build_alert_for_match(&ioc_match, event));

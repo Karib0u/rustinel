@@ -5,11 +5,13 @@
 pub mod ecs;
 
 mod alert;
+mod canonical;
 mod event;
 mod fields;
 mod match_details;
 
 pub use alert::*;
+pub use canonical::*;
 pub use event::*;
 pub use fields::*;
 pub use match_details::*;

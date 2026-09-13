@@ -1,8 +1,8 @@
 //! Shared event normalizer.
 //!
-//! Converts decoded [`SensorEvent`](crate::sensor::SensorEvent) values into the
-//! existing normalized event model while preserving shared enrichment and cache
-//! behavior.
+//! Owned by [`HostState`](crate::state::HostState), this converts decoded
+//! [`RawEvent`](crate::sensor::RawEvent) values into the stable normalized view
+//! while preserving shared enrichment and cache behavior.
 
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,7 +12,9 @@ use std::time::SystemTime;
 use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::models::*;
-use crate::sensor::{Platform, ProcessStartKey, SensorAction, SensorEvent, SensorPayload};
+use crate::sensor::{
+    Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorPayload,
+};
 use crate::state::{DnsCache, ProcessCache, ProcessMetadata, SidCache};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
 
@@ -39,7 +41,7 @@ impl Normalizer {
         }
     }
 
-    /// Normalize a shared sensor event to Sigma-compatible format.
+    /// Generate the Sigma-compatible view for a raw event.
     pub fn normalize(&self, event: &SensorEvent) -> Option<NormalizedEvent> {
         let mut provenance = Provenance::default();
         let fields = match &event.payload {
@@ -106,10 +108,10 @@ impl Normalizer {
     fn normalize_process(
         &self,
         event: &SensorEvent,
-        fields: &ProcessCreationFields,
+        raw: &RawProcessEvent,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
-        let pid = event_pid(event, fields.process_id.as_deref());
+        let pid = raw.process_id;
 
         if event.action == SensorAction::Stop {
             if let Some(key) = event.process_start_key {
@@ -118,7 +120,7 @@ impl Normalizer {
             return None;
         }
 
-        let mut fields = fields.clone();
+        let mut fields = raw.compatibility_fields();
         self.resolve_actor_user(
             event.platform,
             &mut fields.user,
@@ -447,13 +449,6 @@ impl Normalizer {
     }
 }
 
-fn event_pid(event: &SensorEvent, explicit_pid: Option<&str>) -> u32 {
-    explicit_pid
-        .and_then(|value| value.parse::<u32>().ok())
-        .or(event.pid)
-        .unwrap_or(0)
-}
-
 fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
     value.and_then(|value| value.parse::<u32>().ok())
 }
@@ -565,10 +560,20 @@ mod tests {
                 for user in [Some("0"), Some("4294967295"), Some("alice"), None] {
                     match &mut event.payload {
                         SensorPayload::Process(fields) => {
-                            fields.user = user.map(str::to_string);
-                            fields.linux_identity.effective_user_id = (platform == Platform::Linux)
-                                .then(|| user.map(str::to_string))
-                                .flatten();
+                            fields.user = user.map(|value| {
+                                value
+                                    .parse()
+                                    .map(crate::sensor::RawUserId::Unix)
+                                    .unwrap_or_else(|_| {
+                                        crate::sensor::RawUserId::Name(value.into())
+                                    })
+                            });
+                            if let crate::sensor::RawProcessPlatform::Linux(source) =
+                                fields.platform.as_mut()
+                            {
+                                source.identity.effective_user_id =
+                                    user.and_then(|value| value.parse().ok());
+                            }
                         }
                         SensorPayload::File(fields) => fields.user = user.map(str::to_string),
                         SensorPayload::Network(fields) => fields.user = user.map(str::to_string),
@@ -622,8 +627,8 @@ mod tests {
         if let SensorPayload::Process(fields) = &mut event.payload {
             fields.command_line = Some("cmd.exe /c test".into());
             fields
-                .windows
-                .get_or_insert_with(Default::default)
+                .windows_mut()
+                .expect("Windows test event")
                 .command_line_source = Some("live_query".into());
         }
         let normalized = normalizer.normalize(&event).unwrap();
@@ -637,8 +642,8 @@ mod tests {
         assert_eq!(replayed.provenance, normalized.provenance);
         if let SensorPayload::Process(fields) = &mut event.payload {
             fields
-                .windows
-                .get_or_insert_with(Default::default)
+                .windows_mut()
+                .expect("Windows test event")
                 .command_line_source = Some("classic".into());
         }
         let measured = normalizer.normalize(&event).unwrap();
@@ -698,6 +703,18 @@ mod tests {
         assert!(second.source_seq.is_none());
     }
 
+    fn process_payload(
+        platform: Platform,
+        pid: u32,
+        fields: ProcessCreationFields,
+    ) -> SensorPayload {
+        SensorPayload::Process(RawProcessEvent::from_compatibility(
+            fields,
+            platform,
+            Some(pid),
+        ))
+    }
+
     fn process_start_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
         SensorEvent {
             platform,
@@ -715,37 +732,41 @@ mod tests {
                 start_time: 123_456,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(ProcessCreationFields {
-                linux_identity: Box::new(LinuxProcessIdentity {
-                    real_group_id: Some("1000".to_string()),
-                    ..Default::default()
-                }),
-                cgroup_id: None,
-                exec: Some(Box::new(ExecMetadata {
-                    real_user_id: Some("1000".to_string()),
-                    ..Default::default()
-                })),
-                parent_process_id_derived: false,
-                windows: Default::default(),
-                image: Some("/usr/bin/curl".to_string()),
-                image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
-                image_truncated: None,
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                command_line: Some("/usr/bin/curl https://example.test".to_string()),
-                process_id: Some(pid.to_string()),
-                process_start_time: None,
-                parent_process_id: Some("7".to_string()),
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: Some("/tmp".to_string()),
-                integrity_level: None,
-                user: Some("alice".to_string()),
-            }),
+            payload: process_payload(
+                platform,
+                pid,
+                ProcessCreationFields {
+                    linux_identity: Box::new(LinuxProcessIdentity {
+                        real_group_id: Some("1000".to_string()),
+                        ..Default::default()
+                    }),
+                    cgroup_id: None,
+                    exec: Some(Box::new(ExecMetadata {
+                        real_user_id: Some("1000".to_string()),
+                        ..Default::default()
+                    })),
+                    parent_process_id_derived: false,
+                    windows: Default::default(),
+                    image: Some("/usr/bin/curl".to_string()),
+                    image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
+                    image_truncated: None,
+                    original_file_name: None,
+                    product: None,
+                    description: None,
+                    company: None,
+                    file_version: None,
+                    target_image: None,
+                    command_line: Some("/usr/bin/curl https://example.test".to_string()),
+                    process_id: Some(pid.to_string()),
+                    process_start_time: None,
+                    parent_process_id: Some("7".to_string()),
+                    parent_image: None,
+                    parent_command_line: None,
+                    current_directory: Some("/tmp".to_string()),
+                    integrity_level: None,
+                    user: Some("alice".to_string()),
+                },
+            ),
         }
     }
 
@@ -771,31 +792,35 @@ mod tests {
                 start_time: 123_456,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(ProcessCreationFields {
-                linux_identity: Default::default(),
-                cgroup_id: None,
-                exec: Default::default(),
-                parent_process_id_derived: false,
-                windows: Default::default(),
-                image: None,
-                image_source: None,
-                image_truncated: None,
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                command_line: None,
-                process_id: Some(pid.to_string()),
-                process_start_time: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: Some("alice".to_string()),
-            }),
+            payload: process_payload(
+                platform,
+                pid,
+                ProcessCreationFields {
+                    linux_identity: Default::default(),
+                    cgroup_id: None,
+                    exec: Default::default(),
+                    parent_process_id_derived: false,
+                    windows: Default::default(),
+                    image: None,
+                    image_source: None,
+                    image_truncated: None,
+                    original_file_name: None,
+                    product: None,
+                    description: None,
+                    company: None,
+                    file_version: None,
+                    target_image: None,
+                    command_line: None,
+                    process_id: Some(pid.to_string()),
+                    process_start_time: None,
+                    parent_process_id: None,
+                    parent_image: None,
+                    parent_command_line: None,
+                    current_directory: None,
+                    integrity_level: None,
+                    user: Some("alice".to_string()),
+                },
+            ),
         }
     }
 
@@ -911,31 +936,35 @@ mod tests {
                 start_time: 99,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(ProcessCreationFields {
-                linux_identity: Default::default(),
-                cgroup_id: None,
-                exec: Default::default(),
-                parent_process_id_derived: false,
-                windows: Default::default(),
-                image: None,
-                image_source: None,
-                image_truncated: None,
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                command_line: None,
-                process_id: Some("42".to_string()),
-                process_start_time: None,
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: None,
-            }),
+            payload: process_payload(
+                Platform::Windows,
+                42,
+                ProcessCreationFields {
+                    linux_identity: Default::default(),
+                    cgroup_id: None,
+                    exec: Default::default(),
+                    parent_process_id_derived: false,
+                    windows: Default::default(),
+                    image: None,
+                    image_source: None,
+                    image_truncated: None,
+                    original_file_name: None,
+                    product: None,
+                    description: None,
+                    company: None,
+                    file_version: None,
+                    target_image: None,
+                    command_line: None,
+                    process_id: Some("42".to_string()),
+                    process_start_time: None,
+                    parent_process_id: None,
+                    parent_image: None,
+                    parent_command_line: None,
+                    current_directory: None,
+                    integrity_level: None,
+                    user: None,
+                },
+            ),
         };
 
         assert!(normalizer.normalize(&event).is_none());
@@ -1236,7 +1265,7 @@ mod tests {
             start_time: 100,
         });
         if let SensorPayload::Process(fields) = &mut child.payload {
-            fields.parent_process_id = Some(parent_pid.to_string());
+            fields.parent_process_id = Some(parent_pid);
         }
 
         normalizer.normalize(&parent).expect("parent starts");
