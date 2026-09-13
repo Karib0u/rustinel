@@ -36,8 +36,7 @@ Files that are written but never run are not scanned.
 
 Memory scanning is off by default (`scanner.yara_memory_enabled`).
 When on, Rustinel waits `yara_memory_delay_ms` after the process starts, then scans its private memory.
-Every YARA alert carries `edr.yara.scan_source: file` or
-`edr.yara.scan_source: process_memory`, including when match debug is off.
+Every YARA alert carries `edr.yara.scan_source: file` or `edr.yara.scan_source: process_memory`, including when match debug is off.
 `event.provider` continues to identify the sensor that observed the process start.
 
 ## IOC
