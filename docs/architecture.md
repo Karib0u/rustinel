@@ -38,13 +38,15 @@ ebpf/src/            Linux eBPF programs and the event ABI
 
 ## Event path
 
-1. A platform sensor emits a `RawEvent` into the bounded `sensor_events` channel. Process records retain native numeric identities and source-specific facts; the other categories are migrated independently.
+1. A platform sensor emits a `RawEvent` into the bounded `sensor_events` channel.
+   Process records retain native numeric identities and source-specific facts; the other categories are migrated independently.
 2. `HostState` performs host-dependent enrichment after that channel and creates a provenance-carrying `CanonicalEvent`.
 3. `SensorEventRouter` hands only canonical events to detection, YARA, and capture.
 4. Sigma and IOC evaluate the canonical event's generated `NormalizedEvent` view; `YaraEventHandler` queues process-start executables.
 5. Hits go to `AlertSink` (ECS NDJSON) and, when enabled, `ResponseEngine`.
 
-Capture also receives `CanonicalEvent`. Recording schema v2 deliberately serializes its unchanged `NormalizedEvent` view, and replay wraps that same view back in a canonical event, so existing recordings remain compatible.
+Capture also receives `CanonicalEvent`.
+Recording schema v2 deliberately serializes its unchanged `NormalizedEvent` view, and replay wraps that same view back in a canonical event, so existing recordings remain compatible.
 
 Every hop is a bounded channel that drops instead of blocking, with counters in `src/telemetry`.
 Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
@@ -71,7 +73,8 @@ Readers keep the previous instance until they finish.
 
 ## Windows sensor
 
-- Two real-time ETW sessions: `rustinel-etw-process` for Kernel-Process, sized and flushed for latency so post-channel host enrichment can read command lines before short processes exit, and `rustinel-etw-trace` for the high-volume providers, sized for bursts. The ETW decoder itself performs no live process query.
+- Two real-time ETW sessions: `rustinel-etw-process` for Kernel-Process, sized and flushed for latency so post-channel host enrichment can read command lines before short processes exit, and `rustinel-etw-trace` for the high-volume providers, sized for bursts.
+  The ETW decoder itself performs no live process query.
   Inspect them with `Get-EtwTraceSession -Name rustinel-etw-trace` (or `rustinel-etw-process`).
 - A classic kernel logger supplies creation-time command lines and SIDs, joined to Kernel-Process events by PID, parent PID, and time.
 - At startup, key and file name snapshots let registry and file writes through pre-existing handles be named.
