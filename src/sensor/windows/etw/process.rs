@@ -9,9 +9,6 @@ use std::time::{Duration, Instant};
 
 const WINDOW: Duration = Duration::from_secs(2);
 const CAPACITY: usize = 4096;
-// These are adjacent notifications from the same creation, not an arbitrary
-// PID lookup. Require creation time and near-identical source timestamps.
-const PAIR_SKEW: Duration = Duration::from_millis(1);
 
 pub(super) struct ClassicProcess {
     pid: u32,
@@ -315,7 +312,10 @@ fn same_creation(event: &SensorEvent, classic: &ClassicProcess) -> bool {
         && classic
             .stopped_at
             .is_none_or(|stopped| event.timestamp <= stopped)
-        && skew <= PAIR_SKEW
+        // The providers can timestamp the same creation more than 1 ms apart.
+        // Use the correlation window for source skew as well as delivery age;
+        // lifetime, parent, and ambiguity checks still bind the pair.
+        && skew <= WINDOW
         && fields.parent_process_id == Some(classic.parent)
 }
 
@@ -424,6 +424,30 @@ mod tests {
     }
 
     #[test]
+    fn delayed_provider_notification_preserves_exited_process_command_line() {
+        for reverse in [false, true] {
+            let mut correlation = ProcessCorrelation::default();
+            let mut facts = classic(BASE + 250_000, "cmd.exe /c whoami");
+            facts.stopped_at = Some(filetime_to_system_time((BASE + 500_000) as i64));
+            let event = manifest(BASE, BASE + 100);
+            let out = if reverse {
+                assert!(correlation.manifest(event).is_empty());
+                correlation.insert_classic(facts, Instant::now())
+            } else {
+                assert!(correlation.insert_classic(facts, Instant::now()).is_empty());
+                correlation.manifest(event)
+            };
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0].process_start_key.unwrap().start_time, BASE);
+            let SensorPayload::Process(fields) = &out[0].payload else {
+                panic!("expected process creation")
+            };
+            assert_eq!(fields.command_line.as_deref(), Some("cmd.exe /c whoami"));
+            assert!(correlation.expire(Instant::now(), true).is_empty());
+        }
+    }
+
+    #[test]
     fn old_pid_generation_and_parent_conflicts_do_not_join() {
         for parent in [7, 8] {
             let mut correlation = ProcessCorrelation::default();
@@ -471,7 +495,7 @@ mod tests {
         assert!(correlation.manifest(manifest(BASE, BASE + 100)).is_empty());
         assert_eq!(correlation.disable().len(), 1);
         let mut correlation = ProcessCorrelation::default();
-        correlation.insert_classic(classic(BASE + 100_000, "late lifetime"), now);
+        correlation.insert_classic(classic(BASE + 30_000_000, "late lifetime"), now);
         assert!(correlation.manifest(manifest(BASE, BASE + 100)).is_empty());
         assert_eq!(correlation.disable().len(), 1);
     }

@@ -8,6 +8,9 @@ pub use host::HostState;
 pub use process::{ProcessCache, ProcessMetadata};
 pub use sid::SidCache;
 
+#[cfg(all(windows, test))]
+pub(crate) use host::enrich_windows_command_line;
+
 #[cfg(test)]
 mod tests {
     use super::{DnsCache, SidCache};
@@ -109,6 +112,3 @@ mod tests {
         assert!(cache.count() <= 2);
     }
 }
-
-#[cfg(all(windows, test))]
-pub(crate) use host::enrich_windows_command_line;
