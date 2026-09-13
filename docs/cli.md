@@ -17,7 +17,7 @@ Accepted by every command.
 | Option | Description |
 | --- | --- |
 | `--config <PATH>` | Configuration file to load. Overrides RUSTINEL_CONFIG and every discovered config.toml. |
-| `--log-level <LEVEL>` | Log level for this run: error, warn, info, debug, or trace. One of `error`, `warn`, `info`, `debug`, `trace`. |
+| `--log-level <LEVEL>` | Log level for this run. One of `error`, `warn`, `info`, `debug`, `trace`. |
 | `--help` | Print help. |
 | `--version` | Print the version. |
 

@@ -10,7 +10,7 @@ pub struct Cli {
     /// Configuration file to load. Overrides RUSTINEL_CONFIG and every discovered config.toml
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<std::path::PathBuf>,
-    /// Log level for this run: error, warn, info, debug, or trace
+    /// Log level for this run
     #[arg(
         long,
         global = true,
