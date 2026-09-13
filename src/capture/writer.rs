@@ -1,9 +1,9 @@
 //! Capture sink and NDJSON payload writer.
 //!
-//! [`CaptureSink`] sits at the post-normalization boundary of the shared event
-//! pipeline: it is handed each canonical [`NormalizedEvent`] before alert-only
-//! enrichment or any detector evaluation, so a recording reflects what the
-//! sensors observed rather than what detection made of it.
+//! [`CaptureSink`] sits at the post-host-state boundary of the shared event
+//! pipeline: it is handed each [`CanonicalEvent`] before alert-only enrichment
+//! or detector evaluation. Schema v2 serializes the canonical event's stable
+//! [`NormalizedEvent`](crate::models::NormalizedEvent) view, so recordings remain compatible.
 //!
 //! Serialization happens on the calling thread and the resulting line is handed
 //! to a background writer through a bounded queue. When that queue is full the
@@ -26,7 +26,7 @@ use tracing::{info, warn};
 use crate::capture::manifest::{
     manifest_path_for, CaptureEventCounts, CaptureManifest, CaptureStatus,
 };
-use crate::models::NormalizedEvent;
+use crate::models::CanonicalEvent;
 use crate::sensor::Platform;
 use crate::utils::fs::{restrict_directory_permissions, restrict_file_permissions};
 use crate::utils::{now_timestamp_string, LogRateLimiter};
@@ -67,7 +67,7 @@ impl CaptureCounters {
     }
 }
 
-/// Handle used by the event pipeline to record normalized events.
+/// Handle used by the event pipeline to record canonical events.
 ///
 /// Cloning is cheap; every clone feeds the same recording.
 #[derive(Clone)]
@@ -78,14 +78,16 @@ pub struct CaptureSink {
 }
 
 impl CaptureSink {
-    /// Record one normalized event into the payload.
+    /// Record one canonical event's stable view into the payload.
     ///
     /// Never blocks the caller: the event is either queued for the writer or
     /// counted as lost.
-    pub fn record(&self, event: &NormalizedEvent) {
+    pub fn record(&self, event: &CanonicalEvent) {
         self.counters.received.fetch_add(1, Ordering::Relaxed);
 
-        let line = match serde_json::to_string(event) {
+        // Capture schema v2 remains the generated NormalizedEvent view, so
+        // recordings produced before this boundary split replay byte-for-byte.
+        let line = match serde_json::to_string(event.normalized()) {
             Ok(line) => line,
             Err(err) => {
                 self.count_loss("serialize", &err.to_string());
@@ -403,10 +405,10 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::models::{EventCategory, EventFields, ProcessCreationFields};
+    use crate::models::{EventCategory, EventFields, NormalizedEvent, ProcessCreationFields};
 
-    fn process_event(pid: &str) -> NormalizedEvent {
-        NormalizedEvent {
+    fn process_event(pid: &str) -> CanonicalEvent {
+        CanonicalEvent::from_normalized(NormalizedEvent {
             timestamp: "2026-08-16T10:00:00Z".to_string(),
             source_seq: None,
             ingest_seq: 0,
@@ -443,7 +445,7 @@ mod tests {
             }),
             provenance: Default::default(),
             process_context: None,
-        }
+        })
     }
 
     fn read_manifest(path: &Path) -> CaptureManifest {
@@ -591,13 +593,13 @@ mod tests {
             CaptureRecorder::start(payload.clone(), Platform::MacOS).expect("capture starts");
         let sink = recorder.sink();
 
-        let mut generic = process_event("100");
+        let mut generic = process_event("100").into_normalized();
         generic.category = EventCategory::Process;
         generic.fields = EventFields::Generic(HashMap::from([(
             "Image".to_string(),
             "/bin/zsh".to_string(),
         )]));
-        sink.record(&generic);
+        sink.record(&CanonicalEvent::from_normalized(generic));
         drop(sink);
 
         recorder.finish().await.expect("capture finalizes");

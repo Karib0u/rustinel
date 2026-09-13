@@ -89,6 +89,30 @@ pub struct ProcessEvent {
 }
 
 impl ProcessEvent {
+    pub fn raw_effective_uid(&self) -> Option<u32> {
+        self.identity_value(task_identity_abi::EUID)
+            .and_then(|uid| u32::try_from(uid).ok())
+    }
+
+    pub fn raw_linux_identity(&self) -> crate::sensor::RawLinuxProcessIdentity {
+        use task_identity_abi::*;
+        let value = |field| self.identity_value(field);
+        crate::sensor::RawLinuxProcessIdentity {
+            real_group_id: Some(self.identity.real_gid),
+            effective_user_id: value(EUID).and_then(|value| u32::try_from(value).ok()),
+            effective_group_id: value(EGID).and_then(|value| u32::try_from(value).ok()),
+            mount_namespace: value(MOUNT_NS),
+            pid_namespace: value(PID_NS),
+            network_namespace: value(NET_NS),
+            session_id: value(SESSION_ID),
+            controlling_tty: value(TTY_MAJOR)
+                .zip(value(TTY_MINOR))
+                .zip(value(TTY_INDEX))
+                .map(|((major, minor), index)| (major, minor, index)),
+            kernel_start_boottime: value(START_BOOTTIME),
+        }
+    }
+
     pub fn exec_metadata(&self) -> Option<Box<crate::models::ExecMetadata>> {
         Some(Box::new(crate::models::ExecMetadata {
             real_user_id: Some(self.uid.to_string()),
@@ -384,7 +408,8 @@ pub mod mapping {
         DnsQueryFields, FileEventFields, NetworkConnectionFields, ProcessCreationFields,
     };
     use crate::sensor::{
-        Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+        Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorNormalization,
+        SensorPayload,
     };
     use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -416,34 +441,39 @@ pub mod mapping {
                 event.parent_pid,
                 event.parent_process_start_time,
             ),
-            payload: SensorPayload::Process(ProcessCreationFields {
-                linux_identity: event.linux_identity(),
-                cgroup_id: (event.cgroup_id != 0).then(|| event.cgroup_id.to_string()),
-                exec: event.exec_metadata(),
-                parent_process_id_derived: event.parent_pid_derived != 0,
-                windows: Default::default(),
-                image: Some(bytes_to_string(&event.image)),
-                image_source: None,
-                image_truncated: (event.image_truncated != 0).then_some(true),
-                original_file_name: None,
-                product: None,
-                description: None,
-                company: None,
-                file_version: None,
-                target_image: None,
-                // Exit events carry no argv; only exec fills the buffer.
-                command_line: (action == SensorAction::Start)
-                    .then(|| event.kernel_command_line())
-                    .flatten(),
-                process_id: Some(event.pid.to_string()),
-                process_start_time: None,
-                parent_process_id: (event.parent_pid != 0).then(|| event.parent_pid.to_string()),
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: event.effective_uid(),
-            }),
+            payload: SensorPayload::Process(RawProcessEvent::from_compatibility(
+                ProcessCreationFields {
+                    linux_identity: event.linux_identity(),
+                    cgroup_id: (event.cgroup_id != 0).then(|| event.cgroup_id.to_string()),
+                    exec: event.exec_metadata(),
+                    parent_process_id_derived: event.parent_pid_derived != 0,
+                    windows: Default::default(),
+                    image: Some(bytes_to_string(&event.image)),
+                    image_source: None,
+                    image_truncated: (event.image_truncated != 0).then_some(true),
+                    original_file_name: None,
+                    product: None,
+                    description: None,
+                    company: None,
+                    file_version: None,
+                    target_image: None,
+                    // Exit events carry no argv; only exec fills the buffer.
+                    command_line: (action == SensorAction::Start)
+                        .then(|| event.kernel_command_line())
+                        .flatten(),
+                    process_id: Some(event.pid.to_string()),
+                    process_start_time: None,
+                    parent_process_id: (event.parent_pid != 0)
+                        .then(|| event.parent_pid.to_string()),
+                    parent_image: None,
+                    parent_command_line: None,
+                    current_directory: None,
+                    integrity_level: None,
+                    user: event.effective_uid(),
+                },
+                Platform::Linux,
+                Some(event.pid),
+            )),
         }
     }
 

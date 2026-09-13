@@ -1,7 +1,7 @@
 //! Bounded correlation of classic creation facts and manifest process identity.
 
 use super::parser::{filetime_to_system_time, try_get_uint_as_u64};
-use crate::sensor::{SensorAction, SensorEvent, SensorPayload};
+use crate::sensor::{RawUserId, SensorAction, SensorEvent, SensorPayload};
 use crate::telemetry::WINDOWS_PROCESS_CORRELATION as METRICS;
 use ferrisetw::{parser::Parser, schema_locator::SchemaLocator, EventRecord};
 use std::collections::{HashMap, VecDeque};
@@ -9,9 +9,6 @@ use std::time::{Duration, Instant};
 
 const WINDOW: Duration = Duration::from_secs(2);
 const CAPACITY: usize = 4096;
-// These are adjacent notifications from the same creation, not an arbitrary
-// PID lookup. Require creation time and near-identical source timestamps.
-const PAIR_SKEW: Duration = Duration::from_millis(1);
 
 pub(super) struct ClassicProcess {
     pid: u32,
@@ -218,50 +215,25 @@ impl ProcessCorrelation {
                 let facts = classic.remove(classic_index).unwrap().value;
                 self.count -= 2;
                 if let SensorPayload::Process(fields) = &mut event.payload {
-                    let conflict = fields
-                        .command_line
-                        .as_ref()
-                        .zip(facts.command_line.as_ref())
-                        .is_some_and(|(live, captured)| live != captured);
-                    let evidence = fields.windows.get_or_insert_with(Default::default);
+                    let evidence = fields
+                        .windows_mut()
+                        .expect("Windows process payload carries Windows source metadata");
                     evidence.command_line_may_be_truncated = facts
                         .command_line
                         .as_ref()
                         .is_some_and(|line| line.encode_utf16().count() == 1024);
                     evidence.user_sid = facts.sid.clone();
                     evidence.session_id = facts.session_id;
-                    if conflict {
-                        evidence.conflicting_live_command_line = fields.command_line.clone();
-                        METRICS
-                            .conflicting
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        tracing::warn!(pid, "Classic command line differs from live-query value");
-                    } else {
-                        METRICS
-                            .matched
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
+                    evidence.correlation_pending = true;
                     if let Some(command_line) = facts.command_line {
-                        // Only recover a suffix at the observed source limit.
-                        // The live value was captured through a lifetime-checked
-                        // handle; different prefixes remain genuine conflicts.
-                        let recover_suffix = evidence.command_line_may_be_truncated
-                            && fields.command_line.as_ref().is_some_and(|live| {
-                                live.len() > command_line.len() && live.starts_with(&command_line)
-                            });
-                        if recover_suffix {
-                            evidence.classic_command_line = Some(command_line);
-                            evidence.command_line_source = Some("live_query".into());
-                        } else {
-                            evidence.command_line_source = Some("classic".into());
-                            fields.command_line = Some(command_line);
-                            METRICS
-                                .classic_command_line
-                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        }
+                        evidence.command_line_source = Some("classic".into());
+                        fields.command_line = Some(command_line);
+                        METRICS
+                            .classic_command_line
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                     if let Some(sid) = facts.sid {
-                        fields.user = Some(sid);
+                        fields.user = Some(RawUserId::WindowsSid(sid));
                     }
                 }
                 out.push(event);
@@ -329,23 +301,22 @@ fn same_creation(event: &SensorEvent, classic: &ClassicProcess) -> bool {
     let SensorPayload::Process(fields) = &event.payload else {
         return false;
     };
-    let created = filetime_to_system_time(key.start_time as i64);
     let skew = event
         .timestamp
         .duration_since(classic.at)
         .or_else(|_| classic.at.duration_since(event.timestamp))
         .unwrap();
     key.pid == classic.pid
-        && created <= classic.at
         && classic
             .stopped_at
             .is_none_or(|stopped| event.timestamp <= stopped)
-        && skew <= PAIR_SKEW
-        && fields
-            .parent_process_id
-            .as_deref()
-            .and_then(|pid| pid.parse::<u32>().ok())
-            == Some(classic.parent)
+        // The providers can timestamp the same creation more than 1 ms apart.
+        // Use the correlation window for source skew as well as delivery age;
+        // stop, parent, and ambiguity checks still bind the pair. Do not compare
+        // CreateTime with ETW timestamps: CreateTime follows wall-clock changes,
+        // while these QPC-based sessions retain their original clock reference.
+        && skew <= WINDOW
+        && fields.parent_process_id == Some(classic.parent)
 }
 
 /// WBEM SID prefixes the SID with two pointer-sized TOKEN_USER fields.
@@ -397,7 +368,11 @@ mod tests {
                 start_time: start,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(fields),
+            payload: SensorPayload::Process(crate::sensor::RawProcessEvent::from_compatibility(
+                fields,
+                Platform::Windows,
+                Some(42),
+            )),
         }
     }
 
@@ -440,16 +415,35 @@ mod tests {
             assert_eq!(fields.command_line.as_deref(), Some(command));
             assert_eq!(fields.image.as_deref(), Some("C:\\Windows\\cmd.exe"));
             assert_eq!(
-                fields
-                    .windows
-                    .as_ref()
-                    .unwrap()
-                    .command_line_source
-                    .as_deref(),
+                fields.windows().unwrap().command_line_source.as_deref(),
                 Some("classic")
             );
             assert!(correlation.expire(now + WINDOW, true).is_empty());
             assert_eq!(correlation.count, 0);
+        }
+    }
+
+    #[test]
+    fn delayed_provider_notification_preserves_exited_process_command_line() {
+        for reverse in [false, true] {
+            let mut correlation = ProcessCorrelation::default();
+            let mut facts = classic(BASE + 250_000, "cmd.exe /c whoami");
+            facts.stopped_at = Some(filetime_to_system_time((BASE + 500_000) as i64));
+            let event = manifest(BASE, BASE + 100);
+            let out = if reverse {
+                assert!(correlation.manifest(event).is_empty());
+                correlation.insert_classic(facts, Instant::now())
+            } else {
+                assert!(correlation.insert_classic(facts, Instant::now()).is_empty());
+                correlation.manifest(event)
+            };
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0].process_start_key.unwrap().start_time, BASE);
+            let SensorPayload::Process(fields) = &out[0].payload else {
+                panic!("expected process creation")
+            };
+            assert_eq!(fields.command_line.as_deref(), Some("cmd.exe /c whoami"));
+            assert!(correlation.expire(Instant::now(), true).is_empty());
         }
     }
 
@@ -459,6 +453,7 @@ mod tests {
             let mut correlation = ProcessCorrelation::default();
             let mut old = classic(BASE + 150, "old");
             old.parent = parent;
+            old.stopped_at = Some(filetime_to_system_time((BASE + 175) as i64));
             correlation.insert_classic(old, Instant::now());
             let event = if parent == 7 {
                 manifest(BASE + 200, BASE + 250)
@@ -472,6 +467,36 @@ mod tests {
                 panic!()
             };
             assert!(fields.command_line.is_none());
+        }
+    }
+
+    #[test]
+    fn wall_clock_adjustment_does_not_discard_captured_command_line() {
+        for reverse in [false, true] {
+            let mut correlation = ProcessCorrelation::default();
+            // CreateTime follows wall-clock adjustments; the QPC-derived ETW
+            // timestamps retain the trace's original clock reference.
+            let start = BASE + 50_000_000;
+            let event = manifest(start, BASE + 100);
+            let mut facts = classic(BASE + 150, "wevtutil.exe cl RustinelAtomicLog");
+            facts.stopped_at = Some(filetime_to_system_time((BASE + 1000) as i64));
+            let out = if reverse {
+                assert!(correlation.manifest(event).is_empty());
+                correlation.insert_classic(facts, Instant::now())
+            } else {
+                assert!(correlation.insert_classic(facts, Instant::now()).is_empty());
+                correlation.manifest(event)
+            };
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0].process_start_key.unwrap().start_time, start);
+            let SensorPayload::Process(fields) = &out[0].payload else {
+                panic!("expected process creation")
+            };
+            assert_eq!(
+                fields.command_line.as_deref(),
+                Some("wevtutil.exe cl RustinelAtomicLog")
+            );
+            assert!(correlation.disable().is_empty());
         }
     }
 
@@ -501,7 +526,7 @@ mod tests {
         assert!(correlation.manifest(manifest(BASE, BASE + 100)).is_empty());
         assert_eq!(correlation.disable().len(), 1);
         let mut correlation = ProcessCorrelation::default();
-        correlation.insert_classic(classic(BASE + 100_000, "late lifetime"), now);
+        correlation.insert_classic(classic(BASE + 30_000_000, "late lifetime"), now);
         assert!(correlation.manifest(manifest(BASE, BASE + 100)).is_empty());
         assert_eq!(correlation.disable().len(), 1);
     }
@@ -520,13 +545,16 @@ mod tests {
             if let SensorPayload::Process(fields) = &mut event.payload {
                 fields.command_line = Some(live.clone());
             }
-            let out = if reverse {
+            let mut out = if reverse {
                 correlation.manifest(event);
                 correlation.insert_classic(classic(BASE + 150, &captured), Instant::now())
             } else {
                 correlation.insert_classic(classic(BASE + 150, &captured), Instant::now());
                 correlation.manifest(event)
             };
+            if let SensorPayload::Process(fields) = &mut out[0].payload {
+                crate::state::enrich_windows_command_line(fields, Some(live.clone()));
+            }
             let normalizer = Normalizer::new(
                 Arc::new(ProcessCache::new()),
                 Arc::new(SidCache::new()),
@@ -573,20 +601,10 @@ mod tests {
             };
             assert_eq!(fields.command_line.as_ref(), Some(&classic_value));
             assert_eq!(
-                fields
-                    .windows
-                    .as_ref()
-                    .unwrap()
-                    .command_line_source
-                    .as_deref(),
+                fields.windows().unwrap().command_line_source.as_deref(),
                 Some("classic")
             );
-            assert!(fields
-                .windows
-                .as_ref()
-                .unwrap()
-                .classic_command_line
-                .is_none());
+            assert!(fields.windows().unwrap().classic_command_line.is_none());
         }
     }
 
@@ -597,21 +615,20 @@ mod tests {
             let mut event = manifest(BASE, BASE + 100);
             if let SensorPayload::Process(fields) = &mut event.payload {
                 fields.command_line = Some("modified PEB".into());
-                fields
-                    .windows
-                    .get_or_insert_with(Default::default)
-                    .command_line_source = Some("live_query".into());
+                fields.windows_mut().unwrap().command_line_source = Some("live_query".into());
             }
             correlation.manifest(event);
-            let out = correlation.insert_classic(classic(BASE + 150, &command), Instant::now());
+            let mut out = correlation.insert_classic(classic(BASE + 150, &command), Instant::now());
+            if let SensorPayload::Process(fields) = &mut out[0].payload {
+                crate::state::enrich_windows_command_line(fields, Some("modified PEB".into()));
+            }
             let SensorPayload::Process(fields) = &out[0].payload else {
                 panic!()
             };
             assert_eq!(fields.command_line.as_ref(), Some(&command));
             assert_eq!(
                 fields
-                    .windows
-                    .as_ref()
+                    .windows()
                     .unwrap()
                     .conflicting_live_command_line
                     .as_deref(),

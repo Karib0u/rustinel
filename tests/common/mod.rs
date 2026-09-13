@@ -14,9 +14,10 @@ use rustinel::models::{
 };
 use rustinel::normalizer::Normalizer;
 use rustinel::sensor::{
-    Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+    Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorNormalization,
+    SensorPayload,
 };
-use rustinel::state::{DnsCache, ProcessCache, SidCache};
+use rustinel::state::{DnsCache, HostState, ProcessCache, SidCache};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -39,6 +40,7 @@ pub const TEST_SERVICE_PROVIDER: &str = "Service Control Manager";
 
 pub struct TestNormalizer {
     pub normalizer: Normalizer,
+    pub host_state: Arc<HostState>,
     pub process_cache: Arc<ProcessCache>,
     pub sid_cache: Arc<SidCache>,
     pub dns_cache: Arc<DnsCache>,
@@ -54,9 +56,15 @@ impl TestNormalizer {
             Arc::clone(&sid_cache),
             Arc::clone(&dns_cache),
         );
+        let host_state = Arc::new(HostState::new(
+            Arc::clone(&process_cache),
+            Arc::clone(&sid_cache),
+            Arc::clone(&dns_cache),
+        ));
 
         Self {
             normalizer,
+            host_state,
             process_cache,
             sid_cache,
             dns_cache,
@@ -128,50 +136,55 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             start_time: TEST_PROCESS_START_TIME,
         }),
         parent_process_start_key: None,
-        payload: SensorPayload::Process(ProcessCreationFields {
-            linux_identity: Box::new(rustinel::models::LinuxProcessIdentity {
-                real_group_id: (platform == Platform::Linux).then(|| "1000".to_string()),
-                ..Default::default()
-            }),
-            cgroup_id: None,
-            exec: if platform == Platform::Linux {
-                Some(
-                    serde_json::from_value(serde_json::json!({"RealUserId": "1000"}))
-                        .expect("Linux real UID fixture"),
-                )
-            } else {
-                (platform == Platform::MacOS).then(|| {
-                    serde_json::from_value(serde_json::json!({
-                        "RealUserId": "501",
-                        "Signed": "false",
-                        "SignatureStatus": "unsigned",
-                        "CodeSigningFlags": "0",
-                        "IsPlatformBinary": false
-                    }))
-                    .expect("macOS exec metadata fixture")
-                })
+        payload: SensorPayload::Process(RawProcessEvent::from_compatibility(
+            ProcessCreationFields {
+                linux_identity: Box::new(rustinel::models::LinuxProcessIdentity {
+                    real_group_id: (platform == Platform::Linux).then(|| "1000".to_string()),
+                    ..Default::default()
+                }),
+                cgroup_id: None,
+                exec: if platform == Platform::Linux {
+                    Some(
+                        serde_json::from_value(serde_json::json!({"RealUserId": "1000"}))
+                            .expect("Linux real UID fixture"),
+                    )
+                } else {
+                    (platform == Platform::MacOS).then(|| {
+                        serde_json::from_value(serde_json::json!({
+                            "RealUserId": "501",
+                            "Signed": "false",
+                            "SignatureStatus": "unsigned",
+                            "CodeSigningFlags": "0",
+                            "IsPlatformBinary": false
+                        }))
+                        .expect("macOS exec metadata fixture")
+                    })
+                },
+                parent_process_id_derived: false,
+                windows: Default::default(),
+                image: Some(image.to_string()),
+                image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
+                image_truncated: None,
+                original_file_name: Some("curl.exe".to_string()),
+                product: Some("curl".to_string()),
+                description: Some("test process".to_string()),
+                company: None,
+                file_version: None,
+                target_image: None,
+                command_line: Some(format!("{image} https://{TEST_DOMAIN}")),
+                process_id: Some(TEST_PID.to_string()),
+                process_start_time: (platform == Platform::MacOS)
+                    .then_some(TEST_PROCESS_START_TIME),
+                parent_process_id: Some(TEST_PARENT_PID.to_string()),
+                parent_image: Some(parent_image_for(platform).to_string()),
+                parent_command_line: Some("parent-shell".to_string()),
+                current_directory: Some(temp_current_directory(platform).to_string()),
+                integrity_level: None,
+                user: Some(TEST_USER.to_string()),
             },
-            parent_process_id_derived: false,
-            windows: Default::default(),
-            image: Some(image.to_string()),
-            image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
-            image_truncated: None,
-            original_file_name: Some("curl.exe".to_string()),
-            product: Some("curl".to_string()),
-            description: Some("test process".to_string()),
-            company: None,
-            file_version: None,
-            target_image: None,
-            command_line: Some(format!("{image} https://{TEST_DOMAIN}")),
-            process_id: Some(TEST_PID.to_string()),
-            process_start_time: (platform == Platform::MacOS).then_some(TEST_PROCESS_START_TIME),
-            parent_process_id: Some(TEST_PARENT_PID.to_string()),
-            parent_image: Some(parent_image_for(platform).to_string()),
-            parent_command_line: Some("parent-shell".to_string()),
-            current_directory: Some(temp_current_directory(platform).to_string()),
-            integrity_level: None,
-            user: Some(TEST_USER.to_string()),
-        }),
+            platform,
+            Some(TEST_PID),
+        )),
     }
 }
 
@@ -707,7 +720,9 @@ pub fn assert_normalized_field_eq(event: &NormalizedEvent, field: &str, expected
 
 pub fn event_fields_from_payload(event: SensorEvent) -> EventFields {
     match event.payload {
-        SensorPayload::Process(fields) => EventFields::ProcessCreation(fields),
+        SensorPayload::Process(fields) => {
+            EventFields::ProcessCreation(fields.compatibility_fields())
+        }
         SensorPayload::Network(fields) => EventFields::NetworkConnection(fields),
         SensorPayload::File(fields) => EventFields::FileEvent(fields),
         SensorPayload::Dns(fields) => EventFields::DnsQuery(fields),

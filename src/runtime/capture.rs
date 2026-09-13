@@ -1,7 +1,7 @@
 //! Shared runtime for `rustinel capture`.
 //!
 //! Capture is a passive runtime mode, not a lab orchestrator: it starts the
-//! same sensors live protection uses, records every normalized event, and stops
+//! same sensors live protection uses, records every canonical event, and stops
 //! on Ctrl-C. The user launches the sample, script, or Atomic test separately —
 //! Rustinel never runs the activity being observed.
 //!
@@ -20,10 +20,9 @@ use tracing::{error, info};
 use crate::capture::{CaptureRecorder, CaptureStatus};
 use crate::config::AppConfig;
 use crate::engine::NormalizedEventHandler;
-use crate::normalizer::Normalizer;
 use crate::runtime::logging::{init_operational_logging, log_startup_banner};
-use crate::sensor::{Platform, SensorEvent, SensorEventRouter};
-use crate::state::{DnsCache, ProcessCache, SidCache};
+use crate::sensor::{Platform, RawEvent, SensorEventRouter};
+use crate::state::{DnsCache, HostState, ProcessCache, SidCache};
 
 /// Capacity of the sensor-to-router channel, matching the live runtimes.
 const SENSOR_CHANNEL_CAPACITY: usize = 8192;
@@ -94,7 +93,7 @@ impl CaptureContext {
         let process_cache = Arc::new(ProcessCache::with_max_entries(
             self.config.process.max_entries,
         ));
-        let normalizer = Arc::new(Normalizer::new(
+        let host_state = Arc::new(HostState::new(
             Arc::clone(&process_cache),
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
@@ -103,7 +102,7 @@ impl CaptureContext {
         // The only handler: no detectors, no alert sink, no response engine.
         let mut router = SensorEventRouter::new();
         router.register_handler(Box::new(NormalizedEventHandler::recording(
-            normalizer,
+            Arc::clone(&host_state),
             recorder.sink(),
         )));
 
@@ -116,6 +115,7 @@ impl CaptureContext {
             _context: self,
             recorder,
             router: Arc::new(router),
+            host_state,
             process_cache,
             progress,
         })
@@ -128,6 +128,7 @@ pub(crate) struct CaptureSession {
     _context: CaptureContext,
     recorder: CaptureRecorder,
     router: Arc<SensorEventRouter>,
+    host_state: Arc<HostState>,
     #[cfg_attr(not(windows), allow(dead_code))]
     process_cache: Arc<ProcessCache>,
     progress: JoinHandle<()>,
@@ -142,18 +143,15 @@ impl CaptureSession {
     }
 
     /// Start the router worker and hand back the channel the sensors feed.
-    pub(crate) fn sensor_channel(&self) -> (mpsc::Sender<SensorEvent>, JoinHandle<()>) {
-        let (tx, mut rx) = mpsc::channel::<SensorEvent>(SENSOR_CHANNEL_CAPACITY);
+    pub(crate) fn sensor_channel(&self) -> (mpsc::Sender<RawEvent>, JoinHandle<()>) {
+        let (tx, mut rx) = mpsc::channel::<RawEvent>(SENSOR_CHANNEL_CAPACITY);
         let router = Arc::clone(&self.router);
+        let host_state = Arc::clone(&self.host_state);
         let worker = tokio::task::spawn_blocking(move || {
             while let Some(event) = rx.blocking_recv() {
-                #[cfg(windows)]
-                let event = {
-                    let mut event = event;
-                    crate::sensor::windows::enrich_event(&mut event);
-                    event
-                };
-                router.route_event(&event);
+                if let Some(event) = host_state.canonicalize(event) {
+                    router.route_event(&event);
+                }
             }
         });
         (tx, worker)

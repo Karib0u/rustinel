@@ -57,7 +57,10 @@ fn linux_process_image_source_survives_normalization_and_maps_to_ecs() {
         let SensorPayload::Process(fields) = &mut event.payload else {
             panic!("expected process payload");
         };
-        fields.image_source = Some(source.to_string());
+        let rustinel::sensor::RawProcessPlatform::Linux(platform) = fields.platform.as_mut() else {
+            panic!("expected Linux process facts");
+        };
+        platform.image_source = Some(source.to_string());
 
         let normalized = fixture
             .normalizer

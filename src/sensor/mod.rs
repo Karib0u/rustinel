@@ -1,8 +1,8 @@
 //! Shared sensor boundary types.
 //!
-//! Phase 1 introduces a platform-neutral raw event contract so Windows ETW and
-//! Linux eBPF can feed the same downstream pipeline without leaking sensor-
-//! specific record types into shared code.
+//! `RawEvent` preserves platform-native facts at the bounded sensor channel.
+//! `HostState` converts that input into the cross-platform canonical boundary;
+//! process is the first payload category migrated to typed raw fields.
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod dns;
@@ -14,8 +14,14 @@ pub mod linux;
 pub mod macos;
 #[cfg(any(windows, test))]
 mod network_events;
+mod process;
 #[cfg(windows)]
 pub mod windows;
+
+pub use process::{
+    RawLinuxProcess, RawLinuxProcessIdentity, RawMacOsExec, RawMacOsProcess, RawProcessEvent,
+    RawProcessPlatform, RawUserId, RawWindowsProcess,
+};
 
 use std::time::SystemTime;
 
@@ -25,24 +31,26 @@ use tokio::sync::mpsc::Sender;
 
 use crate::models::{
     DnsQueryFields, EventCategory, EventFields, FileEventFields, ImageLoadFields,
-    NetworkConnectionFields, PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields,
-    RegistryEventFields, SecurityAuditFields, ServiceCreationFields, TaskCreationFields,
-    WmiEventFields,
+    NetworkConnectionFields, PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields,
+    SecurityAuditFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
 
 /// Cross-platform sensor interface.
 ///
 /// Concrete sensors are responsible for decoding platform-specific telemetry
-/// into [`SensorEvent`] values and emitting them through a bounded channel.
+/// into [`RawEvent`] values and emitting them through a bounded channel.
 pub trait Sensor: Send + Sync {
-    fn start(&self, tx: Sender<SensorEvent>) -> Result<()>;
+    fn start(&self, tx: Sender<RawEvent>) -> Result<()>;
     fn shutdown(&self);
 }
 
-/// Shared event handler trait for the post-sensor pipeline.
-pub trait SensorEventHandler: Send + Sync {
-    fn handle_event(&self, event: &SensorEvent);
+/// Shared event handler trait for the post-host-state pipeline.
+pub trait CanonicalEventHandler: Send + Sync {
+    fn handle_event(&self, event: &crate::models::CanonicalEvent);
 }
+
+/// Compatibility name retained while downstream handlers are renamed.
+pub use CanonicalEventHandler as SensorEventHandler;
 
 /// Platform that produced the raw sensor event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,8 +103,12 @@ pub struct ProcessStartKey {
 }
 
 /// Shared raw event emitted by any platform sensor.
+///
+/// Process payloads preserve platform-native numeric facts. Other payload
+/// categories retain their compatibility shapes until they are migrated one at
+/// a time.
 #[derive(Debug, Clone)]
-pub struct SensorEvent {
+pub struct RawEvent {
     pub platform: Platform,
     pub provider: &'static str,
     pub action: SensorAction,
@@ -107,10 +119,10 @@ pub struct SensorEvent {
     pub source_seq: Option<u64>,
     pub process_start_key: Option<ProcessStartKey>,
     pub parent_process_start_key: Option<ProcessStartKey>,
-    pub payload: SensorPayload,
+    pub payload: RawPayload,
 }
 
-impl SensorEvent {
+impl RawEvent {
     /// Return the event category, derived from the payload variant.
     ///
     /// This is the single source of truth — category is not stored separately
@@ -207,9 +219,12 @@ impl SensorNormalization {
     }
 }
 
-/// Shared event router that dispatches decoded sensor events to downstream handlers.
+/// Compatibility name for callers that have not yet adopted `RawEvent`.
+pub type SensorEvent = RawEvent;
+
+/// Shared event router that dispatches canonical events to downstream handlers.
 pub struct SensorEventRouter {
-    handlers: Vec<Box<dyn SensorEventHandler>>,
+    handlers: Vec<Box<dyn CanonicalEventHandler>>,
 }
 
 impl SensorEventRouter {
@@ -219,13 +234,20 @@ impl SensorEventRouter {
         }
     }
 
-    pub fn register_handler(&mut self, handler: Box<dyn SensorEventHandler>) {
+    pub fn register_handler(&mut self, handler: Box<dyn CanonicalEventHandler>) {
         self.handlers.push(handler);
     }
 
-    pub fn route_event(&self, event: &SensorEvent) {
+    pub fn route_event(&self, event: &crate::models::CanonicalEvent) {
         for handler in &self.handlers {
             handler.handle_event(event);
+        }
+    }
+
+    /// Cross the host-state boundary and route the resulting canonical event.
+    pub fn route_raw_event(&self, host_state: &crate::state::HostState, event: &RawEvent) {
+        if let Some(event) = host_state.canonicalize(event.clone()) {
+            self.route_event(&event);
         }
     }
 }
@@ -237,9 +259,9 @@ impl Default for SensorEventRouter {
 }
 
 /// Typed payload emitted by a sensor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SensorPayload {
-    Process(ProcessCreationFields),
+#[derive(Debug, Clone)]
+pub enum RawPayload {
+    Process(RawProcessEvent),
     Network(NetworkConnectionFields),
     File(FileEventFields),
     Dns(DnsQueryFields),
@@ -253,7 +275,10 @@ pub enum SensorPayload {
     Security(SecurityAuditFields),
 }
 
-impl SensorPayload {
+/// Compatibility name retained for unmigrated call sites.
+pub type SensorPayload = RawPayload;
+
+impl RawPayload {
     /// Return the shared event category for this payload.
     pub fn category(&self) -> EventCategory {
         match self {
@@ -276,7 +301,7 @@ impl SensorPayload {
     /// Convert the sensor payload back into the existing shared field enum.
     pub fn into_event_fields(self) -> EventFields {
         match self {
-            Self::Process(fields) => EventFields::ProcessCreation(fields),
+            Self::Process(fields) => EventFields::ProcessCreation(fields.compatibility_fields()),
             Self::Network(fields) => EventFields::NetworkConnection(fields),
             Self::File(fields) => EventFields::FileEvent(fields),
             Self::Dns(fields) => EventFields::DnsQuery(fields),
@@ -292,12 +317,11 @@ impl SensorPayload {
     }
 }
 
-impl TryFrom<EventFields> for SensorPayload {
+impl TryFrom<EventFields> for RawPayload {
     type Error = EventFields;
 
     fn try_from(fields: EventFields) -> std::result::Result<Self, Self::Error> {
         match fields {
-            EventFields::ProcessCreation(fields) => Ok(Self::Process(fields)),
             EventFields::NetworkConnection(fields) => Ok(Self::Network(fields)),
             EventFields::FileEvent(fields) => Ok(Self::File(fields)),
             EventFields::DnsQuery(fields) => Ok(Self::Dns(fields)),
@@ -323,33 +347,38 @@ mod tests {
 
     #[test]
     fn payload_category_matches_variant() {
-        let payload = SensorPayload::Process(ProcessCreationFields {
-            linux_identity: Default::default(),
-            cgroup_id: None,
-            exec: Default::default(),
-            parent_process_id_derived: false,
-            windows: Default::default(),
-            image: Some("/usr/bin/bash".to_string()),
-            image_source: None,
-            image_truncated: None,
-            original_file_name: None,
-            product: None,
-            description: None,
-            company: None,
-            file_version: None,
-            target_image: None,
-            command_line: Some("/usr/bin/bash -c id".to_string()),
-            process_id: Some("42".to_string()),
-            process_start_time: None,
-            parent_process_id: None,
-            parent_image: None,
-            parent_command_line: None,
-            current_directory: None,
-            integrity_level: None,
-            user: None,
-        });
+        let payload = SensorPayload::Process(RawProcessEvent::from_compatibility(
+            crate::models::ProcessCreationFields {
+                linux_identity: Default::default(),
+                cgroup_id: None,
+                exec: Default::default(),
+                parent_process_id_derived: false,
+                windows: Default::default(),
+                image: Some("/usr/bin/bash".to_string()),
+                image_source: None,
+                image_truncated: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                target_image: None,
+                command_line: Some("/usr/bin/bash -c id".to_string()),
+                process_id: Some("42".to_string()),
+                process_start_time: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+            },
+            Platform::Linux,
+            Some(42),
+        ));
 
         assert_eq!(payload.category(), EventCategory::Process);
+        assert!(SensorPayload::try_from(payload.into_event_fields()).is_err());
     }
 
     #[test]

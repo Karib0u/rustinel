@@ -12,8 +12,11 @@ use tokio::sync::mpsc::Sender;
 use tracing::{debug, info, warn};
 use yara_x::{Compiler, Rules, Scanner as XScanner};
 
-use crate::models::{MatchDebugLevel, ProcessCreationFields, YaraRuleMatch, YaraStringMatch};
-use crate::sensor::{SensorAction, SensorEvent, SensorEventHandler, SensorPayload};
+use crate::models::{
+    CanonicalEvent, EventFields, MatchDebugLevel, ProcessCreationFields, YaraRuleMatch,
+    YaraStringMatch,
+};
+use crate::sensor::{CanonicalEventHandler, SensorAction};
 use crate::utils::cache::trim_to_headroom;
 use crate::utils::file_identity::{self, FileIdentity};
 use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
@@ -640,13 +643,13 @@ pub struct YaraEventHandler {
     pub allowlist_paths: Vec<String>,
 }
 
-impl SensorEventHandler for YaraEventHandler {
-    fn handle_event(&self, event: &SensorEvent) {
+impl CanonicalEventHandler for YaraEventHandler {
+    fn handle_event(&self, event: &CanonicalEvent) {
         if event.action != SensorAction::Start {
             return;
         }
 
-        let SensorPayload::Process(fields) = &event.payload else {
+        let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
             return;
         };
 
@@ -659,12 +662,7 @@ impl SensorEventHandler for YaraEventHandler {
             return;
         };
 
-        let pid = fields
-            .process_id
-            .as_deref()
-            .and_then(|value| value.parse::<u32>().ok())
-            .or(event.pid)
-            .unwrap_or(0);
+        let pid = event.pid.unwrap_or(0);
 
         if is_path_allowlisted(path, &self.allowlist_paths) {
             tracing::trace!(
@@ -725,7 +723,7 @@ impl SensorEventHandler for YaraEventHandler {
 }
 
 fn capture_process_identity(
-    event: &SensorEvent,
+    event: &CanonicalEvent,
     fields: &ProcessCreationFields,
     pid: u32,
     image: &str,

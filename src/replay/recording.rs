@@ -15,7 +15,7 @@ use anyhow::{bail, Context};
 use sha2::{Digest, Sha256};
 
 use crate::capture::{manifest_path_for, CaptureManifest, CaptureStatus, CAPTURE_SCHEMA_VERSION};
-use crate::models::NormalizedEvent;
+use crate::models::{CanonicalEvent, NormalizedEvent};
 
 /// Bytes read per checksum pass over the payload.
 const CHECKSUM_CHUNK_BYTES: usize = 64 * 1024;
@@ -87,7 +87,7 @@ impl Recording {
     }
 }
 
-/// Iterator over the normalized events in a recording payload.
+/// Iterator over the canonical events in a recording payload.
 pub struct RecordedEvents {
     lines: std::io::Lines<BufReader<File>>,
     payload_path: PathBuf,
@@ -96,7 +96,7 @@ pub struct RecordedEvents {
 }
 
 impl Iterator for RecordedEvents {
-    type Item = anyhow::Result<NormalizedEvent>;
+    type Item = anyhow::Result<CanonicalEvent>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -137,7 +137,7 @@ impl Iterator for RecordedEvents {
                 )));
             }
             self.previous_ingest_seq = event.ingest_seq;
-            return Some(Ok(event));
+            return Some(Ok(CanonicalEvent::from_normalized(event)));
         }
     }
 }
@@ -290,8 +290,8 @@ mod tests {
         let sink = recorder.sink();
         let mut first = process_event("100");
         first.provenance.mark_derived("Image");
-        sink.record(&first);
-        sink.record(&process_event("200"));
+        sink.record(&CanonicalEvent::from_normalized(first));
+        sink.record(&CanonicalEvent::from_normalized(process_event("200")));
         drop(sink);
         recorder.finish().await.expect("capture finalizes");
         payload
@@ -316,18 +316,18 @@ mod tests {
         let payload = complete_recording(temp.path()).await;
 
         let recording = Recording::open(&payload).expect("recording opens");
-        let events: Vec<NormalizedEvent> = recording
+        let events: Vec<CanonicalEvent> = recording
             .events()
             .expect("payload opens")
             .collect::<anyhow::Result<Vec<_>>>()
             .expect("events parse");
 
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].get_field("ProcessId"), Some("100"));
-        assert_eq!(events[1].get_field("ProcessId"), Some("200"));
-        assert_eq!(events[0].provenance.entries()[0].field, "Image");
+        assert_eq!(events[0].normalized().get_field("ProcessId"), Some("100"));
+        assert_eq!(events[1].normalized().get_field("ProcessId"), Some("200"));
+        assert_eq!(events[0].provenance().entries()[0].field, "Image");
         assert_eq!(
-            events[0].provenance.entries()[0].fidelity,
+            events[0].provenance().entries()[0].fidelity,
             crate::models::Fidelity::Derived
         );
         assert_eq!(recording.manifest().platform, Platform::Windows);
@@ -341,7 +341,9 @@ mod tests {
             CaptureRecorder::start(payload.clone(), Platform::Windows).expect("capture starts");
         let sink = recorder.sink();
         for ingest_seq in 1..=1_000 {
-            sink.record(&process_event(&ingest_seq.to_string()));
+            sink.record(&CanonicalEvent::from_normalized(process_event(
+                &ingest_seq.to_string(),
+            )));
         }
         drop(sink);
         recorder.finish().await.expect("capture finalizes");
@@ -350,7 +352,7 @@ mod tests {
         let ingest_order: Vec<u64> = recording
             .events()
             .expect("payload opens")
-            .map(|event| event.map(|event| event.ingest_seq))
+            .map(|event| event.map(|event| event.normalized().ingest_seq))
             .collect::<anyhow::Result<_>>()
             .expect("events parse");
 

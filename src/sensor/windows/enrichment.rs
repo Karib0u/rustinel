@@ -61,32 +61,36 @@ mod tests {
         }
     }
 
-    fn process_fields(image: &str) -> ProcessCreationFields {
-        ProcessCreationFields {
-            linux_identity: Default::default(),
-            cgroup_id: None,
-            exec: Default::default(),
-            parent_process_id_derived: false,
-            windows: Default::default(),
-            image: Some(image.to_string()),
-            image_source: None,
-            image_truncated: None,
-            original_file_name: None,
-            product: None,
-            description: None,
-            company: None,
-            file_version: None,
-            target_image: None,
-            command_line: None,
-            process_id: Some("42".to_string()),
-            process_start_time: None,
-            parent_process_id: None,
-            parent_image: None,
-            parent_command_line: None,
-            current_directory: None,
-            integrity_level: None,
-            user: None,
-        }
+    fn process_fields(image: &str) -> crate::sensor::RawProcessEvent {
+        crate::sensor::RawProcessEvent::from_compatibility(
+            ProcessCreationFields {
+                linux_identity: Default::default(),
+                cgroup_id: None,
+                exec: Default::default(),
+                parent_process_id_derived: false,
+                windows: Default::default(),
+                image: Some(image.to_string()),
+                image_source: None,
+                image_truncated: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                target_image: None,
+                command_line: None,
+                process_id: Some("42".to_string()),
+                process_start_time: None,
+                parent_process_id: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+            },
+            Platform::Windows,
+            Some(42),
+        )
     }
 
     fn image_load_fields(image: &str) -> ImageLoadFields {

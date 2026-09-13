@@ -33,10 +33,10 @@ use endpoint_sec_sys::{es_event_type_t, NewClientError};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use crate::models::{ExecMetadata, FileEventFields, ProcessCreationFields};
+use crate::models::FileEventFields;
 use crate::sensor::{
-    Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
-    SensorPayload,
+    Platform, ProcessStartKey, RawMacOsExec, RawMacOsProcess, RawProcessEvent, RawProcessPlatform,
+    RawUserId, Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
 };
 
 /// Poll interval for the keepalive thread to observe the shutdown flag.
@@ -336,9 +336,9 @@ struct RawExec {
     parent_pid: i32,
     parent_process_start_key: Option<ProcessStartKey>,
     parent_derived: bool,
-    metadata: ExecMetadata,
+    metadata: RawMacOsExec,
     current_directory: Option<String>,
-    user: String,
+    user: u32,
     /// Process start time, as nanoseconds since the Unix epoch.
     start_time: u64,
     event_time: SystemTime,
@@ -400,16 +400,16 @@ fn build_exec_event(
         let value = osstr_to_string(value);
         (!value.is_empty()).then_some(value)
     };
-    let metadata = ExecMetadata {
-        signed: Some((flags & 0x2000_0000 != 0).to_string()),
+    let metadata = RawMacOsExec {
+        signed: Some(flags & 0x2000_0000 != 0),
         pre_exec_image: nonempty(msg.process().executable().path()),
-        real_user_id: Some(token.ruid().to_string()),
+        real_user_id: Some(token.ruid()),
         script: exec.script().and_then(|file| nonempty(file.path())),
         signature_status: Some(signature_status(flags).to_string()),
         signing_id: nonempty(target.signing_id()),
         team_id: nonempty(target.team_id()),
         cdhash: (flags & 0x2000_0000 != 0).then(|| hex::encode(target.cdhash())),
-        codesigning_flags: Some(flags.to_string()),
+        codesigning_flags: Some(flags),
         is_platform_binary: Some(target.is_platform_binary()),
         file_identity: Some(crate::utils::file_identity::from_stat(
             target.executable().stat(),
@@ -425,7 +425,7 @@ fn build_exec_event(
         parent_derived,
         metadata,
         current_directory,
-        user: token.euid().to_string(),
+        user: token.euid(),
         start_time,
         event_time,
         source_seq: msg.global_seq_num(),
@@ -434,7 +434,7 @@ fn build_exec_event(
 
 /// Assemble a process-start [`SensorEvent`] from FFI-free exec fields.
 fn process_start_event(raw: RawExec) -> SensorEvent {
-    let parent_process_id = (raw.parent_pid > 0).then(|| raw.parent_pid.to_string());
+    let parent_process_id = (raw.parent_pid > 0).then_some(raw.parent_pid as u32);
 
     SensorEvent {
         platform: Platform::MacOS,
@@ -452,32 +452,28 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             start_time: raw.start_time,
         }),
         parent_process_start_key: raw.parent_process_start_key,
-        payload: SensorPayload::Process(ProcessCreationFields {
-            linux_identity: Default::default(),
-            cgroup_id: None,
-            exec: Some(Box::new(raw.metadata)),
-            parent_process_id_derived: raw.parent_derived,
-            windows: Default::default(),
+        payload: SensorPayload::Process(RawProcessEvent {
+            process_id: raw.pid,
+            parent_process_id,
+            process_start_time: Some(raw.start_time),
             image: Some(raw.image),
-            image_source: None,
-            image_truncated: None,
+            command_line: raw.command_line,
+            parent_image: None,
+            // ESF exec events do not carry the parent's command line.
+            parent_command_line: None,
+            current_directory: raw.current_directory,
+            integrity_level: None,
+            user: Some(RawUserId::Unix(raw.user)),
             original_file_name: None,
             product: None,
             description: None,
             company: None,
             file_version: None,
             target_image: None,
-            command_line: raw.command_line,
-            process_id: Some(raw.pid.to_string()),
-            process_start_time: Some(raw.start_time),
-            parent_process_id,
-            parent_image: None,
-            // ESF exec events do not carry the parent's command line.
-            parent_command_line: None,
-            current_directory: raw.current_directory,
-            // Windows-specific; absent on macOS.
-            integrity_level: None,
-            user: Some(raw.user),
+            platform: Box::new(RawProcessPlatform::MacOS(RawMacOsProcess {
+                parent_process_id_derived: raw.parent_derived,
+                exec: Some(Box::new(raw.metadata)),
+            })),
         }),
     }
 }
@@ -491,7 +487,7 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
     let token = process.audit_token();
     Some(process_stop_event(
         token.pid() as u32,
-        token.euid().to_string(),
+        token.euid(),
         process.start_time().map(system_time_nanos),
         msg.time(),
         msg.global_seq_num(),
@@ -501,7 +497,7 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
 /// Assemble a process-stop [`SensorEvent`] from FFI-free fields.
 fn process_stop_event(
     pid: u32,
-    user: String,
+    user: u32,
     start_time: Option<u64>,
     event_time: SystemTime,
     source_seq: Option<u64>,
@@ -519,30 +515,24 @@ fn process_stop_event(
         source_seq,
         process_start_key: start_time.map(|start_time| ProcessStartKey { pid, start_time }),
         parent_process_start_key: None,
-        payload: SensorPayload::Process(ProcessCreationFields {
-            linux_identity: Default::default(),
-            cgroup_id: None,
-            exec: Default::default(),
-            parent_process_id_derived: false,
-            windows: Default::default(),
+        payload: SensorPayload::Process(RawProcessEvent {
+            process_id: pid,
+            parent_process_id: None,
+            process_start_time: None,
             image: None,
-            image_source: None,
-            image_truncated: None,
+            command_line: None,
+            parent_image: None,
+            parent_command_line: None,
+            current_directory: None,
+            integrity_level: None,
+            user: Some(RawUserId::Unix(user)),
             original_file_name: None,
             product: None,
             description: None,
             company: None,
             file_version: None,
             target_image: None,
-            command_line: None,
-            process_id: Some(pid.to_string()),
-            process_start_time: None,
-            parent_process_id: None,
-            parent_image: None,
-            parent_command_line: None,
-            current_directory: None,
-            integrity_level: None,
-            user: Some(user),
+            platform: Box::new(RawProcessPlatform::MacOS(RawMacOsProcess::default())),
         }),
     }
 }
@@ -819,7 +809,7 @@ mod tests {
 
     #[test]
     fn signature_absence_is_unknown_and_invalid_is_still_signed() {
-        assert!(ExecMetadata::default().signature_status.is_none());
+        assert!(RawMacOsExec::default().signature_status.is_none());
         assert_eq!(signature_status(0), "unsigned");
         assert_eq!(signature_status(0x2000_0000), "invalid");
         assert_eq!(signature_status(0x2000_0001), "valid");
@@ -834,11 +824,11 @@ mod tests {
             Arc::new(SidCache::new()),
             Arc::new(DnsCache::new()),
         );
-        let unsigned_metadata = || ExecMetadata {
-            real_user_id: Some("0".to_string()),
-            signed: Some("false".to_string()),
+        let unsigned_metadata = || RawMacOsExec {
+            real_user_id: Some(0),
+            signed: Some(false),
             signature_status: Some("unsigned".to_string()),
-            codesigning_flags: Some("0".to_string()),
+            codesigning_flags: Some(0),
             is_platform_binary: Some(false),
             ..Default::default()
         };
@@ -852,7 +842,7 @@ mod tests {
                 parent_derived: false,
                 metadata,
                 current_directory: None,
-                user: "0".to_string(),
+                user: 0,
                 start_time: u64::from(pid),
                 event_time: SystemTime::UNIX_EPOCH,
                 source_seq: None,
@@ -868,16 +858,16 @@ mod tests {
         normalizer
             .normalize(&make(42, "/bin/bash", parent, unsigned_metadata()))
             .unwrap();
-        let metadata = ExecMetadata {
-            signed: Some("true".to_string()),
+        let metadata = RawMacOsExec {
+            signed: Some(true),
             pre_exec_image: Some("/bin/bash".to_string()),
-            real_user_id: Some("501".to_string()),
+            real_user_id: Some(501),
             script: Some("/tmp/payload.sh".to_string()),
             signature_status: Some("valid".to_string()),
             signing_id: Some("com.apple.sh".to_string()),
             team_id: Some("TEAM".to_string()),
             cdhash: Some("abcd".to_string()),
-            codesigning_flags: Some("536870913".to_string()),
+            codesigning_flags: Some(536_870_913),
             is_platform_binary: Some(true),
             ..Default::default()
         };
@@ -903,14 +893,21 @@ mod tests {
             .any(|entry| entry.field == "ParentImage"));
         normalizer.normalize(&process_stop_event(
             40,
-            "0".to_string(),
+            0,
             Some(40),
             SystemTime::UNIX_EPOCH,
             None,
         ));
         let mut orphan = make(43, "/bin/sh", parent, unsigned_metadata());
         if let SensorPayload::Process(fields) = &mut orphan.payload {
-            fields.parent_process_id_derived = true;
+            let RawProcessPlatform::MacOS(RawMacOsProcess {
+                parent_process_id_derived,
+                ..
+            }) = fields.platform.as_mut()
+            else {
+                panic!("expected macOS process payload")
+            };
+            *parent_process_id_derived = true;
         }
         let orphan = normalizer.normalize(&orphan).unwrap();
         assert_eq!(orphan.get_field("ParentImage"), Some("/sbin/launchd"));
@@ -966,13 +963,18 @@ mod tests {
                 start_time: 100,
             }),
             parent_derived: false,
-            metadata: ExecMetadata {
+            metadata: RawMacOsExec {
                 pre_exec_image: Some("/bin/zsh".to_string()),
                 file_identity: identity.clone(),
+                real_user_id: Some(501),
+                signed: Some(false),
+                signature_status: Some("unsigned".to_string()),
+                codesigning_flags: Some(0),
+                is_platform_binary: Some(false),
                 ..Default::default()
             },
             current_directory: Some("/Users/alice".to_string()),
-            user: "alice".to_string(),
+            user: 501,
             start_time: 1_700_000_000_000_000_000,
             event_time: SystemTime::UNIX_EPOCH,
             source_seq: Some(77),
@@ -984,13 +986,20 @@ mod tests {
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_CREATE);
         assert_eq!(event.pid, Some(4242));
         assert_eq!(event.source_seq, Some(77));
+        let canonical = crate::state::HostState::new(
+            Arc::new(crate::state::ProcessCache::new()),
+            Arc::new(crate::state::SidCache::new()),
+            Arc::new(crate::state::DnsCache::new()),
+        )
+        .canonicalize(event.clone())
+        .unwrap();
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         crate::scanner::YaraEventHandler {
             tx,
             memory_tx: None,
             allowlist_paths: vec![],
         }
-        .handle_event(&event);
+        .handle_event(&canonical);
         assert_eq!(rx.try_recv().unwrap().identity, identity);
 
         assert_eq!(
@@ -1008,13 +1017,16 @@ mod tests {
                     fields.command_line.as_deref(),
                     Some("/usr/bin/curl https://example.test")
                 );
-                assert_eq!(fields.process_id.as_deref(), Some("4242"));
-                assert_eq!(fields.parent_process_id.as_deref(), Some("501"));
+                assert_eq!(fields.process_id, 4242);
+                assert_eq!(fields.parent_process_id, Some(501));
                 assert_eq!(fields.current_directory.as_deref(), Some("/Users/alice"));
-                assert_eq!(fields.user.as_deref(), Some("alice"));
+                assert_eq!(fields.user, Some(RawUserId::Unix(501)));
                 assert!(fields.parent_image.is_none());
+                let RawProcessPlatform::MacOS(source) = *fields.platform else {
+                    panic!("expected macOS process payload")
+                };
                 assert_eq!(
-                    fields.exec.as_ref().unwrap().pre_exec_image.as_deref(),
+                    source.exec.unwrap().pre_exec_image.as_deref(),
                     Some("/bin/zsh")
                 );
             }
@@ -1119,13 +1131,7 @@ mod tests {
 
     #[test]
     fn process_stop_event_maps_exit() {
-        let event = process_stop_event(
-            4242,
-            "alice".to_string(),
-            Some(123_456),
-            SystemTime::UNIX_EPOCH,
-            None,
-        );
+        let event = process_stop_event(4242, 501, Some(123_456), SystemTime::UNIX_EPOCH, None);
 
         assert_eq!(event.action, SensorAction::Stop);
         assert_eq!(event.normalization.event_id, EVENT_ID_PROCESS_TERMINATE);
@@ -1140,8 +1146,8 @@ mod tests {
 
         match event.payload {
             SensorPayload::Process(fields) => {
-                assert_eq!(fields.process_id.as_deref(), Some("4242"));
-                assert_eq!(fields.user.as_deref(), Some("alice"));
+                assert_eq!(fields.process_id, 4242);
+                assert_eq!(fields.user, Some(RawUserId::Unix(501)));
                 assert!(fields.image.is_none());
             }
             other => panic!("unexpected payload: {other:?}"),
@@ -1159,7 +1165,7 @@ mod tests {
             parent_derived: false,
             metadata: Default::default(),
             current_directory: None,
-            user: "root".to_string(),
+            user: 0,
             start_time: 0,
             event_time: SystemTime::UNIX_EPOCH,
             source_seq: None,

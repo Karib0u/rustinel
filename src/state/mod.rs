@@ -1,10 +1,15 @@
 mod dns;
+mod host;
 mod process;
 mod sid;
 
 pub use dns::{DnsCache, DnsEntry};
+pub use host::HostState;
 pub use process::{ProcessCache, ProcessMetadata};
 pub use sid::SidCache;
+
+#[cfg(all(windows, test))]
+pub(crate) use host::enrich_windows_command_line;
 
 #[cfg(test)]
 mod tests {

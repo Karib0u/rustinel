@@ -13,13 +13,12 @@ use crate::config::{AppConfig, ResponseConfig};
 use crate::engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
-use crate::normalizer::Normalizer;
 use crate::response::ResponseEngine;
 use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
 use crate::scanner::{YaraEventHandler, YaraMemoryJob};
 use crate::sensor::{Platform, SensorEventRouter};
-use crate::state::{DnsCache, ProcessCache, SidCache};
+use crate::state::{DnsCache, HostState, ProcessCache, SidCache};
 use crate::{reload, scanner};
 
 pub(super) struct SharedState {
@@ -40,6 +39,7 @@ impl SharedState {
 
 pub(super) struct LivePipeline {
     pub router: Arc<SensorEventRouter>,
+    pub host_state: Arc<HostState>,
     pub yara_worker_handle: Option<JoinHandle<()>>,
     pub yara_memory_worker_handle: Option<JoinHandle<()>>,
     pub ioc_hash_worker_handle: Option<JoinHandle<()>>,
@@ -241,8 +241,8 @@ impl LivePipeline {
             (None, None)
         };
 
-        // Normalizer
-        let normalizer = Arc::new(Normalizer::new(
+        // Host-state enrichment and canonicalization boundary.
+        let host_state = Arc::new(HostState::new(
             Arc::clone(&state.process_cache),
             Arc::clone(&state.sid_cache),
             Arc::clone(&state.dns_cache),
@@ -250,7 +250,7 @@ impl LivePipeline {
 
         // Detection handlers + router
         let sigma_handler = NormalizedEventHandler::detecting(
-            Arc::clone(&normalizer),
+            Arc::clone(&host_state),
             DetectionPipeline {
                 detectors: Arc::clone(&detectors),
                 ioc_hash_tx,
@@ -279,6 +279,7 @@ impl LivePipeline {
 
         Self {
             router,
+            host_state,
             yara_worker_handle,
             yara_memory_worker_handle,
             ioc_hash_worker_handle,

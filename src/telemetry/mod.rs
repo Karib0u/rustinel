@@ -39,7 +39,7 @@ pub use snapshot::{
 };
 
 use crate::models::EventCategory;
-use crate::sensor::SensorEvent;
+use crate::sensor::RawEvent;
 
 /// Tracing target for pipeline telemetry accounting.
 pub const TARGET_TELEMETRY: &str = "telemetry";
@@ -1258,9 +1258,9 @@ pub fn try_send<T>(channel: ChannelId, tx: &Sender<T>, value: T) -> Result<(), T
 /// Send one sensor event while retaining accepted and dropped counts by category.
 #[allow(clippy::result_large_err)]
 pub fn try_send_sensor_event(
-    tx: &Sender<SensorEvent>,
-    value: SensorEvent,
-) -> Result<(), TrySendError<SensorEvent>> {
+    tx: &Sender<RawEvent>,
+    value: RawEvent,
+) -> Result<(), TrySendError<RawEvent>> {
     let (index, _) = sensor_event_category(value.category());
     match try_send(ChannelId::SensorEvents, tx, value) {
         Ok(()) => {

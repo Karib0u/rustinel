@@ -23,12 +23,10 @@ use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, warn};
 
-use crate::models::{
-    DnsQueryFields, FileEventFields, NetworkConnectionFields, ProcessCreationFields,
-};
+use crate::models::{DnsQueryFields, FileEventFields, NetworkConnectionFields};
 use crate::sensor::{
-    Platform, ProcessStartKey, Sensor, SensorAction, SensorEvent, SensorNormalization,
-    SensorPayload,
+    Platform, ProcessStartKey, RawLinuxProcess, RawProcessEvent, RawProcessPlatform, RawUserId,
+    Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
 };
 use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 use crate::utils::lookup_username_by_uid;
@@ -631,31 +629,33 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                     ev.parent_pid,
                     ev.parent_process_start_time,
                 ),
-                payload: SensorPayload::Process(ProcessCreationFields {
+                payload: SensorPayload::Process(RawProcessEvent {
+                    process_id: ev.pid,
+                    parent_process_id: (ev.parent_pid != 0).then_some(ev.parent_pid),
+                    // Kept out of the Sigma-facing field view for compatibility;
+                    // the sensor-minted lifetime remains routing metadata above.
+                    process_start_time: None,
                     image: Some(image),
-                    image_source: Some("execve".to_string()),
-                    image_truncated: image_truncated.then_some(true),
+                    command_line: ev.kernel_command_line(),
+                    parent_image: None,
+                    parent_command_line: None,
+                    current_directory: None,
+                    integrity_level: None,
+                    user: ev.raw_effective_uid().map(RawUserId::Unix),
                     original_file_name: None,
                     product: None,
                     description: None,
                     company: None,
                     file_version: None,
                     target_image: None,
-                    command_line: ev.kernel_command_line(),
-                    process_id: Some(ev.pid.to_string()),
-                    process_start_time: None,
-                    linux_identity: ev.linux_identity(),
-                    cgroup_id: (ev.cgroup_id != 0).then(|| ev.cgroup_id.to_string()),
-                    parent_process_id: (ev.parent_pid != 0).then(|| ev.parent_pid.to_string()),
-                    parent_image: None,
-                    parent_command_line: None,
-                    current_directory: None,
-                    // Windows-specific; absent on Linux.
-                    integrity_level: None,
-                    user: ev.effective_uid(),
-                    exec: ev.exec_metadata(),
-                    parent_process_id_derived: ev.parent_pid_derived != 0,
-                    windows: Default::default(),
+                    platform: Box::new(RawProcessPlatform::Linux(RawLinuxProcess {
+                        real_user_id: Some(ev.uid),
+                        identity: ev.raw_linux_identity(),
+                        cgroup_id: (ev.cgroup_id != 0).then_some(ev.cgroup_id),
+                        parent_process_id_derived: ev.parent_pid_derived != 0,
+                        image_source: Some("execve".to_string()),
+                        image_truncated: image_truncated.then_some(true),
+                    })),
                 }),
             })
         }
@@ -672,30 +672,31 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
             source_seq: Some(ev.source_seq),
             process_start_key: process_start_key(ev.pid, ev.process_start_time),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(ProcessCreationFields {
+            payload: SensorPayload::Process(RawProcessEvent {
+                process_id: ev.pid,
+                parent_process_id: None,
+                process_start_time: None,
                 image: None,
-                image_source: None,
-                image_truncated: None,
+                command_line: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: ev.raw_effective_uid().map(RawUserId::Unix),
                 original_file_name: None,
                 product: None,
                 description: None,
                 company: None,
                 file_version: None,
                 target_image: None,
-                command_line: None,
-                process_id: Some(ev.pid.to_string()),
-                process_start_time: None,
-                linux_identity: ev.linux_identity(),
-                cgroup_id: (ev.cgroup_id != 0).then(|| ev.cgroup_id.to_string()),
-                parent_process_id: None,
-                parent_image: None,
-                parent_command_line: None,
-                current_directory: None,
-                integrity_level: None,
-                user: ev.effective_uid(),
-                exec: ev.exec_metadata(),
-                parent_process_id_derived: false,
-                windows: Default::default(),
+                platform: Box::new(RawProcessPlatform::Linux(RawLinuxProcess {
+                    real_user_id: Some(ev.uid),
+                    identity: ev.raw_linux_identity(),
+                    cgroup_id: (ev.cgroup_id != 0).then_some(ev.cgroup_id),
+                    parent_process_id_derived: false,
+                    image_source: None,
+                    image_truncated: None,
+                })),
             }),
         }),
         _ => None,
@@ -1103,12 +1104,13 @@ mod tests {
     use crate::config::IocConfig;
     use crate::engine::Engine;
     use crate::ioc::{IocEngine, IocKind};
-    use crate::models::EventFields;
+    use crate::models::{CanonicalEvent, EventFields};
     use crate::normalizer::Normalizer;
     use crate::sensor::linux::events::{
         ARGV_CAPACITY, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
     };
     use crate::sensor::linux::paths::AT_FDCWD;
+    use crate::sensor::{RawProcessPlatform, RawUserId};
     use crate::state::{DnsCache, ProcessCache, SidCache};
     use std::sync::Arc;
 
@@ -1302,11 +1304,8 @@ mod tests {
         match event.payload {
             SensorPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), Some("/usr/bin/bash"));
-                assert_eq!(fields.image_source.as_deref(), Some("execve"));
-                assert_eq!(
-                    fields.process_id.as_deref(),
-                    Some(DEAD_PID.to_string().as_str())
-                );
+                assert_eq!(fields.process_id, DEAD_PID);
+                assert!(matches!(*fields.platform, RawProcessPlatform::Linux(_)));
             }
             other => panic!("unexpected payload: {:?}", other),
         }
@@ -1328,10 +1327,13 @@ mod tests {
         );
         match event.payload {
             SensorPayload::Process(fields) => {
-                assert_eq!(fields.parent_process_id.as_deref(), Some("41"));
-                assert_eq!(fields.cgroup_id.as_deref(), Some("55"));
-                assert_eq!(fields.user.as_deref(), Some("1000"));
-                assert!(!fields.parent_process_id_derived);
+                assert_eq!(fields.parent_process_id, Some(41));
+                assert_eq!(fields.user, Some(RawUserId::Unix(1000)));
+                let RawProcessPlatform::Linux(source) = *fields.platform else {
+                    panic!("expected Linux process facts")
+                };
+                assert_eq!(source.cgroup_id, Some(55));
+                assert!(!source.parent_process_id_derived);
             }
             other => panic!("unexpected payload: {:?}", other),
         }
@@ -1407,7 +1409,7 @@ mod tests {
         match event.payload {
             SensorPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), Some("./rustinel"));
-                assert_eq!(fields.image_source.as_deref(), Some("execve"));
+                assert!(matches!(*fields.platform, RawProcessPlatform::Linux(_)));
             }
             other => panic!("unexpected payload: {:?}", other),
         }
@@ -1483,7 +1485,10 @@ mod tests {
         match event.payload {
             SensorPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref().map(str::len), Some(255));
-                assert_eq!(fields.image_truncated, Some(true));
+                let RawProcessPlatform::Linux(source) = *fields.platform else {
+                    panic!("expected Linux process facts")
+                };
+                assert_eq!(source.image_truncated, Some(true));
             }
             other => panic!("unexpected payload: {:?}", other),
         }
@@ -1506,7 +1511,7 @@ mod tests {
 
         match event.payload {
             SensorPayload::Process(fields) => {
-                assert_eq!(fields.process_id.as_deref(), Some("42"));
+                assert_eq!(fields.process_id, 42);
                 assert!(fields.image.is_none());
             }
             other => panic!("unexpected payload: {:?}", other),
@@ -2332,9 +2337,11 @@ level: high
 
         let sensor_event =
             build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("file event should build");
-        let event = test_normalizer()
-            .normalize(&sensor_event)
-            .expect("file event should normalize");
+        let event = CanonicalEvent::from_normalized(
+            test_normalizer()
+                .normalize(&sensor_event)
+                .expect("file event should normalize"),
+        );
 
         let matches = engine.check_event(&event);
         assert_eq!(matches.len(), 1);
@@ -2365,7 +2372,7 @@ level: high
             max_file_size_mb: 16,
             hash_allowlist_paths: Vec::new(),
         });
-        let event = normalized_raw_dns_query("sub.example.test");
+        let event = CanonicalEvent::from_normalized(normalized_raw_dns_query("sub.example.test"));
 
         let matches = engine.check_event(&event);
         assert_eq!(matches.len(), 1);

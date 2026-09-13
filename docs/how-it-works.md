@@ -42,10 +42,7 @@ If [active response](active-response.md) is on, alerts at or above its severity 
 
 ## Bounded queues
 
-Every step hands events to the next through a queue of fixed size.
-When a queue is full, new events are dropped instead of slowing the sensor.
-A burst therefore causes a gap in detection, never a slowdown.
-Rustinel counts every drop, see [Telemetry loss](telemetry-loss.md).
+See [Telemetry loss](telemetry-loss.md) for queue limits, drop behavior, and how to check for gaps in detection.
 
 ## Hot reload
 

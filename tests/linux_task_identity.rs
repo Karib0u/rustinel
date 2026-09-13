@@ -15,7 +15,8 @@ use rustinel::{
     runtime::yara::spawn_yara_memory_worker,
     scanner::{Scanner, YaraEventHandler},
     sensor::{
-        linux::EbpfSensor, Platform, Sensor, SensorAction, SensorEventHandler, SensorPayload,
+        linux::EbpfSensor, Platform, RawProcessPlatform, RawUserId, Sensor, SensorAction,
+        SensorEventHandler, SensorPayload,
     },
     state::ProcessCache,
     utils::query_process_identity,
@@ -130,7 +131,10 @@ async fn live_task_identity_matches_proc() {
                 let SensorPayload::Process(fields) = event.payload else {
                     continue;
                 };
-                let identity = &fields.linux_identity;
+                let RawProcessPlatform::Linux(source) = fields.platform.as_ref() else {
+                    panic!("expected Linux process facts");
+                };
+                let identity = &source.identity;
                 let status = std::fs::read_to_string(format!("/proc/{target_pid}/status")).unwrap();
                 let ids = |key: &str| -> Vec<String> {
                     status
@@ -146,19 +150,10 @@ async fn live_task_identity_matches_proc() {
                 let gid = ids("Gid:");
                 assert_eq!(uid[0], "1000");
                 assert_eq!(uid[1], "0");
-                assert_eq!(fields.user.as_deref(), Some(uid[1].as_str()));
-                assert_eq!(
-                    fields
-                        .exec
-                        .as_ref()
-                        .and_then(|exec| exec.real_user_id.as_deref()),
-                    Some(uid[0].as_str())
-                );
-                assert_eq!(identity.real_group_id.as_deref(), Some(gid[0].as_str()));
-                assert_eq!(
-                    identity.effective_group_id.as_deref(),
-                    Some(gid[1].as_str())
-                );
+                assert_eq!(fields.user, Some(RawUserId::Unix(uid[1].parse().unwrap())));
+                assert_eq!(source.real_user_id, Some(uid[0].parse::<u32>().unwrap()));
+                assert_eq!(identity.real_group_id, Some(gid[0].parse::<u32>().unwrap()));
+                assert_eq!(identity.effective_group_id, Some(gid[1].parse().unwrap()));
                 for (name, value) in [
                     ("mnt", &identity.mount_namespace),
                     ("pid", &identity.pid_namespace),
@@ -167,7 +162,7 @@ async fn live_task_identity_matches_proc() {
                     let inode = std::fs::metadata(format!("/proc/{target_pid}/ns/{name}"))
                         .unwrap()
                         .ino();
-                    assert_eq!(value.as_deref(), Some(inode.to_string().as_str()), "{name}");
+                    assert_eq!(*value, Some(inode), "{name}");
                 }
                 let active = std::fs::metadata(format!("/proc/{target_pid}/ns/pid"))
                     .unwrap()
@@ -187,14 +182,12 @@ async fn live_task_identity_matches_proc() {
                     .1
                     .split_whitespace()
                     .collect();
-                assert_eq!(identity.session_id.as_deref(), Some(tail[3]));
+                assert_eq!(identity.session_id, Some(tail[3].parse().unwrap()));
                 let tty = tail[4].parse::<u32>().unwrap() as u64;
                 let major = (tty >> 8) & 0xfff;
                 let minor = (tty & 0xff) | ((tty >> 12) & 0xfff00);
-                assert_eq!(
-                    identity.controlling_tty.as_deref(),
-                    Some(format!("{major}:{minor}").as_str())
-                );
+                let (raw_major, raw_minor, index) = identity.controlling_tty.unwrap();
+                assert_eq!((raw_major, raw_minor + index), (major, minor));
                 let start = identity.kernel_start_boottime.unwrap();
                 let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
                 assert_eq!(
@@ -227,7 +220,10 @@ async fn live_task_identity_matches_proc() {
                 let SensorPayload::Process(fields) = event.payload else {
                     continue;
                 };
-                let start = fields.linux_identity.kernel_start_boottime.unwrap();
+                let RawProcessPlatform::Linux(source) = *fields.platform else {
+                    panic!("expected Linux process facts");
+                };
+                let start = source.identity.kernel_start_boottime.unwrap();
                 let ticks = rustinel::utils::query_process_details(existing.0.id())
                     .unwrap()
                     .start_time
@@ -294,7 +290,10 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
     let SensorPayload::Process(fields) = &event.payload else {
         panic!("target exec did not carry process fields");
     };
-    assert!(fields.linux_identity.kernel_start_boottime.is_some());
+    let RawProcessPlatform::Linux(source) = fields.platform.as_ref() else {
+        panic!("expected Linux process facts");
+    };
+    assert!(source.identity.kernel_start_boottime.is_some());
 
     let (file_tx, mut file_rx) = tokio::sync::mpsc::channel(1);
     let (queued_tx, mut queued_rx) = tokio::sync::mpsc::channel(1);
@@ -303,7 +302,11 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
         memory_tx: Some(queued_tx),
         allowlist_paths: Vec::new(),
     };
-    handler.handle_event(&event);
+    let canonical = common::TestNormalizer::new()
+        .host_state
+        .canonicalize(event.clone())
+        .expect("event canonicalizes");
+    handler.handle_event(&canonical);
     assert!(
         file_rx.try_recv().is_ok(),
         "exec must also reach file scanning"
@@ -395,16 +398,13 @@ async fn live_without_btf_keeps_base_telemetry() {
                     continue;
                 };
                 assert!(fields.user.is_none());
-                assert!(fields.linux_identity.effective_user_id.is_none());
-                assert!(fields.linux_identity.mount_namespace.is_none());
-                assert!(fields.linux_identity.kernel_start_boottime.is_none());
-                assert_eq!(
-                    fields
-                        .exec
-                        .as_ref()
-                        .and_then(|exec| exec.real_user_id.as_deref()),
-                    Some("0")
-                );
+                let RawProcessPlatform::Linux(source) = *fields.platform else {
+                    panic!("expected Linux process facts");
+                };
+                assert!(source.identity.effective_user_id.is_none());
+                assert!(source.identity.mount_namespace.is_none());
+                assert!(source.identity.kernel_start_boottime.is_none());
+                assert_eq!(source.real_user_id, Some(0));
                 assert!(event.process_start_key.is_some());
                 sensor.shutdown();
                 return;
