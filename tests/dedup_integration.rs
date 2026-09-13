@@ -9,7 +9,7 @@ mod common;
 use rustinel::alerts::{AlertSink, Deduplicator};
 use rustinel::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
-    ProcessCreationFields,
+    ProcessCreationFields, SigmaRuleMetadata,
 };
 use rustinel::sensor::Platform;
 use serde_json::Value;
@@ -206,6 +206,39 @@ fn distinct_rules_tracked_and_flushed_independently() {
         4,
         "two occurrences per rule, four events in total"
     );
+}
+
+#[test]
+fn distinct_sigma_metadata_is_not_deduplicated() {
+    let dir = tempfile::tempdir().expect("tmpdir");
+    let out = dir.path().join("alerts.ndjson");
+    let (sink, dedup, _guard) = setup(&out, 60);
+
+    let mut a = make_alert("Reloaded Rule", "/usr/bin/curl");
+    a.sigma_metadata = Some(SigmaRuleMetadata {
+        author: Some("Author A".to_string()),
+        tags: vec!["attack.execution".to_string()],
+        ..Default::default()
+    });
+    let mut b = a.clone();
+    b.sigma_metadata = Some(SigmaRuleMetadata {
+        author: Some("Author B".to_string()),
+        tags: vec!["attack.persistence".to_string()],
+        ..Default::default()
+    });
+
+    sink.write_alert(&a);
+    sink.write_alert(&b);
+    dedup.flush_all(&sink);
+
+    drop(sink);
+    drop(_guard);
+
+    let lines = read_json_lines(&out);
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().all(|line| line.get("event.count").is_none()));
+    assert_eq!(lines[0]["rule.author"], serde_json::json!(["Author A"]));
+    assert_eq!(lines[1]["rule.author"], serde_json::json!(["Author B"]));
 }
 
 #[test]

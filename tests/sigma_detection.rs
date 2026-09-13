@@ -46,6 +46,9 @@ references:
 tags:
   - attack.execution
   - attack.t1059.001
+  - ATTACK.PERSISTENCE
+  - attack.T1027
+  - attack.initial-access
   - custom.operator-tag
 logsource:
   product: linux
@@ -80,6 +83,9 @@ level: informational
         [
             "attack.execution",
             "attack.t1059.001",
+            "ATTACK.PERSISTENCE",
+            "attack.T1027",
+            "attack.initial-access",
             "custom.operator-tag"
         ]
     );
@@ -98,6 +104,9 @@ level: informational
         json!([
             "attack.execution",
             "attack.t1059.001",
+            "ATTACK.PERSISTENCE",
+            "attack.T1027",
+            "attack.initial-access",
             "custom.operator-tag"
         ]),
     );
@@ -154,6 +163,108 @@ level: cataclysmic
         .sigma_metadata
         .as_ref()
         .is_none_or(|metadata| metadata.level.is_none()));
+}
+
+#[test]
+fn malformed_sigma_level_shapes_are_diagnostics_with_low_fallback() {
+    for (filename, level) in [("numeric_level.yml", "42"), ("list_level.yml", "[high]")] {
+        let fixture = SigmaFixture::new();
+        fixture.write_rule(
+            filename,
+            &format!(
+                r#"title: Malformed level process rule
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /curl
+  condition: selection
+level: {level}
+"#
+            ),
+        );
+        let mut engine =
+            Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off);
+        engine
+            .load_rules(fixture.rules_dir())
+            .expect("rule with malformed level should still load");
+
+        let diagnostics = &engine.stats().failed_rules;
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].0.ends_with(filename));
+        assert!(diagnostics[0].1.contains("invalid level"));
+        assert!(diagnostics[0].1.contains("expected a string"));
+
+        let harness = TestNormalizer::new();
+        let event = harness
+            .normalizer
+            .normalize(&process_start_event(Platform::Linux))
+            .expect("process event should normalize");
+        let alert = engine
+            .check_event(&event)
+            .into_iter()
+            .next()
+            .expect("rule with malformed level should match");
+        assert_eq!(alert.severity, AlertSeverity::Low);
+        assert!(alert
+            .sigma_metadata
+            .as_ref()
+            .is_none_or(|metadata| metadata.level.is_none()));
+    }
+}
+
+#[test]
+fn metadata_lookup_uses_complete_rule_identity() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "colliding_metadata.yml",
+        r#"title: Rule A
+id: shared
+author: Author A
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /curl
+  condition: selection
+level: high
+---
+title: shared
+id: rule-b
+author: Author B
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /never-matches
+  condition: selection
+level: high
+"#,
+    );
+    let harness = TestNormalizer::new();
+    let event = harness
+        .normalizer
+        .normalize(&process_start_event(Platform::Linux))
+        .expect("process event should normalize");
+
+    let engine = engine_with(&fixture, Platform::Linux);
+    let alert = engine
+        .check_event(&event)
+        .into_iter()
+        .next()
+        .expect("Rule A should match");
+
+    assert_eq!(alert.rule_name, "Rule A");
+    assert_eq!(
+        alert
+            .sigma_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.author.as_deref()),
+        Some("Author A")
+    );
 }
 
 #[test]

@@ -36,7 +36,7 @@ pub(crate) struct RuleStore {
     /// do not carry it, so it is captured for match-debug output.
     conditions: HashMap<String, String>,
     /// Bounded operator-facing metadata not carried by RSigma result headers.
-    metadata: HashMap<String, SigmaRuleMetadata>,
+    metadata: HashMap<(Option<String>, String), SigmaRuleMetadata>,
     /// `(effective_id, title)` pairs assigned to named rules that had no ID.
     /// RSigma uses the ID field to route detection results into correlations,
     /// so these IDs are removed again before Rustinel builds an alert.
@@ -216,10 +216,8 @@ impl RuleStore {
         if metadata.is_empty() {
             return;
         }
-        if let Some(id) = id {
-            self.metadata.insert(id.to_string(), metadata.clone());
-        }
-        self.metadata.insert(title.to_string(), metadata);
+        self.metadata
+            .insert((id.map(str::to_string), title.to_string()), metadata);
     }
 
     pub(crate) fn description_for(
@@ -245,9 +243,8 @@ impl RuleStore {
         rule_id: Option<&str>,
         rule_title: &str,
     ) -> Option<SigmaRuleMetadata> {
-        rule_id
-            .and_then(|id| self.metadata.get(id))
-            .or_else(|| self.metadata.get(rule_title))
+        self.metadata
+            .get(&(rule_id.map(str::to_string), rule_title.to_string()))
             .cloned()
     }
 

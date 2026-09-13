@@ -18,8 +18,7 @@ pub(super) fn attack_fields(tags: &[String]) -> AttackFields {
     let mut subtechniques = BTreeSet::new();
 
     for tag in tags {
-        let lower = tag.to_ascii_lowercase();
-        let Some(value) = lower.strip_prefix("attack.") else {
+        let Some(value) = tag.strip_prefix("attack.") else {
             continue;
         };
         if let Some((id, subtechnique)) = attack_technique(value) {
@@ -27,7 +26,7 @@ pub(super) fn attack_fields(tags: &[String]) -> AttackFields {
             if let Some(subtechnique) = subtechnique {
                 subtechniques.insert(subtechnique);
             }
-        } else if let Some(tactic) = attack_tactic(&value.replace('_', "-")) {
+        } else if let Some(tactic) = attack_tactic(value) {
             tactics.insert(tactic);
         }
     }
@@ -79,17 +78,17 @@ fn attack_technique(value: &str) -> Option<(String, Option<String>)> {
 fn attack_tactic(value: &str) -> Option<(&'static str, &'static str)> {
     match value {
         "reconnaissance" => Some(("TA0043", "Reconnaissance")),
-        "resource-development" => Some(("TA0042", "Resource Development")),
-        "initial-access" => Some(("TA0001", "Initial Access")),
+        "resource_development" => Some(("TA0042", "Resource Development")),
+        "initial_access" => Some(("TA0001", "Initial Access")),
         "execution" => Some(("TA0002", "Execution")),
         "persistence" => Some(("TA0003", "Persistence")),
-        "privilege-escalation" => Some(("TA0004", "Privilege Escalation")),
-        "defense-evasion" => Some(("TA0005", "Defense Evasion")),
-        "credential-access" => Some(("TA0006", "Credential Access")),
+        "privilege_escalation" => Some(("TA0004", "Privilege Escalation")),
+        "defense_evasion" => Some(("TA0005", "Defense Evasion")),
+        "credential_access" => Some(("TA0006", "Credential Access")),
         "discovery" => Some(("TA0007", "Discovery")),
-        "lateral-movement" => Some(("TA0008", "Lateral Movement")),
+        "lateral_movement" => Some(("TA0008", "Lateral Movement")),
         "collection" => Some(("TA0009", "Collection")),
-        "command-and-control" => Some(("TA0011", "Command and Control")),
+        "command_and_control" => Some(("TA0011", "Command and Control")),
         "exfiltration" => Some(("TA0010", "Exfiltration")),
         "impact" => Some(("TA0040", "Impact")),
         _ => None,
@@ -127,6 +126,9 @@ mod tests {
             "attack.t123".to_string(),
             "attack.t1059.01".to_string(),
             "attack.not-a-tactic".to_string(),
+            "ATTACK.EXECUTION".to_string(),
+            "attack.T1059".to_string(),
+            "attack.initial-access".to_string(),
         ]);
 
         assert!(fields.framework.is_none());

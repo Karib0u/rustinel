@@ -11,7 +11,7 @@ fn is_false(value: &bool) -> bool {
 /// custom attributes can contain large, backend-specific values; keeping the
 /// alert contract explicit prevents an individual rule from making every
 /// emitted alert unbounded.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SigmaRuleMetadata {
     /// Original valid Sigma level before mapping to [`AlertSeverity`].
     #[serde(skip_serializing_if = "Option::is_none")]
