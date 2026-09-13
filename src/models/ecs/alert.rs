@@ -113,7 +113,7 @@ pub struct EcsAlert {
     #[serde(rename = "tags", skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 
-    /// Detection severity (critical, high, medium, low)
+    /// Detection severity (informational, low, medium, high, critical)
     #[serde(rename = "edr.rule.severity")]
     pub edr_rule_severity: String,
 

@@ -72,12 +72,12 @@ impl DocumentSources {
         for document in yaml_serde::Deserializer::from_str(content) {
             let value = yaml_serde::Value::deserialize(document)
                 .context("Failed to inspect parsed Sigma document")?;
-            if let Some(level) = value.get("level")
-                && level.as_str().is_none()
-            {
-                diagnostics.push(format!(
-                    "invalid level {level:?}, expected a string containing one of: informational, low, medium, high, critical"
-                ));
+            if let Some(level) = value.get("level") {
+                if level.as_str().is_none() {
+                    diagnostics.push(format!(
+                        "invalid level {level:?}, expected a string containing one of: informational, low, medium, high, critical"
+                    ));
+                }
             }
             let Some(correlation) = value.get("correlation") else {
                 continue;

@@ -83,6 +83,10 @@ rule loading through alert construction and NDJSON serialization:
 | `attack.tNNNN` tags | ECS `threat.technique.*` |
 | `attack.tNNNN.NNN` tags | Parent `threat.technique.*` plus `threat.technique.subtechnique.*` |
 
+Only canonical lowercase Sigma ATT&CK tags are mapped into `threat.*` fields;
+tactic names use underscores, such as `attack.initial_access`. Other tags are
+still preserved in ECS `tags` but do not create ATT&CK fields.
+
 Metadata is available regardless of `alerts.match_debug`; that setting only
 controls match evidence. To keep one rule from producing unbounded alerts,
 Rustinel includes at most 64 tags (256 UTF-8 bytes each), 32 references (2,048
@@ -93,7 +97,7 @@ not copied into alerts.
 ## Deduplication
 
 Identical alerts within `dedup.window_secs` (60 by default) are collapsed.
-Two alerts are identical when they share the engine, rule, scan source, process executable, parent executable, and user.
+Two alerts are identical when they share the engine, rule, scan source, process executable, parent executable, user, and bounded Sigma metadata.
 The scan source applies to YARA alerts, so a file hit and a process-memory hit are never collapsed together.
 
 - The first alert is written immediately.

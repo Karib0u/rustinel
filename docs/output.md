@@ -49,12 +49,15 @@ One JSON object per line, following ECS 9.5.0.
 | `event.count` | Rollup alerts only: repeats suppressed by [deduplication](detection.md#deduplication) |
 | `rule.name` | Rule title |
 | `rule.id` | `sigma::<id>`, `yara::<id>`, or `ioc::<type>::<value>` |
-| `edr.rule.severity` | `Low`, `Medium`, `High`, or `Critical` |
+| `edr.rule.severity` | `Informational`, `Low`, `Medium`, `High`, or `Critical` |
 | `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
 | `edr.yara.scan_source` | YARA alerts only: `file` or `process_memory` |
 | `edr.event.ingest_seq` | Order in which Rustinel processed the event |
 | `edr.event.provenance` | Fields Rustinel reconstructed rather than measured, marked `derived` |
 | `edr.match` | Why the rule matched, when `alerts.match_debug` is on |
+
+Sigma alerts can also carry bounded rule metadata and ECS ATT&CK fields; see
+[Sigma metadata in alerts](detection.md#sigma-metadata-in-alerts).
 
 ### ECS version policy
 
