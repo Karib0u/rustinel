@@ -13,10 +13,11 @@ use crate::models::{
 
 pub(crate) fn severity_from_level(level: Option<RsLevel>) -> AlertSeverity {
     match level {
+        Some(RsLevel::Informational) => AlertSeverity::Informational,
         Some(RsLevel::Critical) => AlertSeverity::Critical,
         Some(RsLevel::High) => AlertSeverity::High,
         Some(RsLevel::Medium) => AlertSeverity::Medium,
-        _ => AlertSeverity::Low,
+        Some(RsLevel::Low) | None => AlertSeverity::Low,
     }
 }
 
@@ -69,12 +70,16 @@ impl Engine {
             .store
             .description_for(result.header.rule_id.as_deref(), &result.header.rule_title);
         let match_details = self.build_match_details(&result);
+        let sigma_metadata = self
+            .store
+            .metadata_for(result.header.rule_id.as_deref(), &result.header.rule_title);
 
         Alert {
             severity,
             rule_name: result.header.rule_title.clone(),
             rule_description,
             rule_id,
+            sigma_metadata,
             engine: DetectionEngine::Sigma,
             event: event.clone(),
             match_details,

@@ -10,6 +10,7 @@ When an alert's severity is at least `response.min_severity`, Rustinel kills the
 It acts after the event, so the process may already have done its work.
 
 Severity comes from the rule: the Sigma `level`, always `critical` for YARA, and `ioc.default_severity` for indicators.
+`low` is the least severe response threshold; Sigma `informational` alerts are written normally but never trigger active response.
 
 Rustinel never kills:
 

@@ -556,6 +556,7 @@ mod filter_tests {
                     rule_name: format!("{engine:?} test rule"),
                     rule_description: None,
                     rule_id: None,
+                    sigma_metadata: None,
                     engine,
                     event: event.clone(),
                     match_details: None,

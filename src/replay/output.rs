@@ -186,6 +186,7 @@ mod tests {
             rule_name: "Encoded PowerShell".to_string(),
             rule_description: None,
             rule_id: Some("sigma::encoded-powershell".to_string()),
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-08-16T10:00:01Z".to_string(),

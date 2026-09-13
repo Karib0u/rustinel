@@ -46,7 +46,8 @@ impl DocumentSources {
         source_path: &str,
         content: &str,
         collection: &SigmaCollection,
-    ) -> Result<()> {
+    ) -> Result<Vec<String>> {
+        let mut diagnostics = Vec::new();
         for rule in &collection.rules {
             self.rules.insert(
                 document_identity(rule.id.as_deref(), &rule.title),
@@ -71,6 +72,13 @@ impl DocumentSources {
         for document in yaml_serde::Deserializer::from_str(content) {
             let value = yaml_serde::Value::deserialize(document)
                 .context("Failed to inspect parsed Sigma document")?;
+            if let Some(level) = value.get("level") {
+                if level.as_str().is_none() {
+                    diagnostics.push(format!(
+                        "invalid level {level:?}, expected a string containing one of: informational, low, medium, high, critical"
+                    ));
+                }
+            }
             let Some(correlation) = value.get("correlation") else {
                 continue;
             };
@@ -88,7 +96,7 @@ impl DocumentSources {
                 .insert(document_identity(id, title));
         }
 
-        Ok(())
+        Ok(diagnostics)
     }
 
     fn rule_path(&self, rule: &SigmaRule) -> String {
@@ -208,6 +216,11 @@ impl Engine {
                     Ok(errors) => {
                         let path_str = path.display().to_string();
                         for error in errors {
+                            warn!(
+                                source = %path_str,
+                                diagnostic = %error,
+                                "Sigma rule loaded with a metadata diagnostic"
+                            );
                             self.failed_rules.push((path_str.clone(), error));
                         }
                         debug!("Parsed rule file: {:?}", path);
@@ -233,9 +246,9 @@ impl Engine {
         let content = fs::read_to_string(path).context("Failed to read rule file")?;
         let parsed = parse_sigma_yaml(&content).map_err(|err| anyhow::anyhow!("{err}"))?;
         let source_path = path.display().to_string();
-        let errors = parsed.errors.clone();
+        let mut errors = parsed.errors.clone();
 
-        sources.add_collection(&source_path, &content, &parsed)?;
+        errors.extend(sources.add_collection(&source_path, &content, &parsed)?);
         collection.rules.extend(parsed.rules);
         collection.correlations.extend(parsed.correlations);
         collection.filters.extend(parsed.filters);

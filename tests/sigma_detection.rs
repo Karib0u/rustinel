@@ -10,12 +10,13 @@
 mod common;
 
 use common::{
-    network_connect_event, powershell_module_event, process_start_event,
-    service_installation_event, SigmaFixture, TestNormalizer,
+    assert_ecs_field_eq, ecs_json, network_connect_event, powershell_module_event,
+    process_start_event, service_installation_event, SigmaFixture, TestNormalizer,
 };
 use rustinel::engine::Engine;
-use rustinel::models::MatchDebugLevel;
+use rustinel::models::{AlertSeverity, MatchDebugLevel};
 use rustinel::sensor::{Platform, SensorPayload};
+use serde_json::json;
 
 fn engine_with(fixture: &SigmaFixture, platform: Platform) -> Engine {
     let mut engine = Engine::new_for_platform_with_match_debug(platform, MatchDebugLevel::Off);
@@ -28,6 +29,242 @@ fn engine_with(fixture: &SigmaFixture, platform: Platform) -> Engine {
         "no rule should fail to load"
     );
     engine
+}
+
+#[test]
+fn sigma_metadata_survives_loading_alert_construction_and_ecs_serialization() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "metadata.yml",
+        r#"title: Metadata-rich process rule
+id: metadata-rule
+status: experimental
+description: Preserve operator context
+author: Example Detection Team
+references:
+  - https://example.test/rule
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - ATTACK.PERSISTENCE
+  - attack.T1027
+  - attack.initial-access
+  - custom.operator-tag
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /curl
+  condition: selection
+level: informational
+"#,
+    );
+    let harness = TestNormalizer::new();
+    let event = harness
+        .normalizer
+        .normalize(&process_start_event(Platform::Linux))
+        .expect("process event should normalize");
+
+    let engine = engine_with(&fixture, Platform::Linux);
+    let alert = engine
+        .check_event(&event)
+        .into_iter()
+        .next()
+        .expect("metadata rule should match");
+
+    assert_eq!(alert.severity, AlertSeverity::Informational);
+    let metadata = alert.sigma_metadata.as_ref().expect("Sigma metadata");
+    assert_eq!(metadata.level.as_deref(), Some("informational"));
+    assert_eq!(metadata.status.as_deref(), Some("experimental"));
+    assert_eq!(metadata.author.as_deref(), Some("Example Detection Team"));
+    assert_eq!(
+        metadata.tags,
+        [
+            "attack.execution",
+            "attack.t1059.001",
+            "ATTACK.PERSISTENCE",
+            "attack.T1027",
+            "attack.initial-access",
+            "custom.operator-tag"
+        ]
+    );
+    assert_eq!(metadata.references, ["https://example.test/rule"]);
+
+    let ecs = ecs_json(&alert);
+    assert_ecs_field_eq(&ecs, "event.severity", 1);
+    assert_ecs_field_eq(&ecs, "edr.rule.severity", "Informational");
+    assert_ecs_field_eq(&ecs, "edr.sigma.level", "informational");
+    assert_ecs_field_eq(&ecs, "edr.sigma.status", "experimental");
+    assert_ecs_field_eq(&ecs, "rule.author", json!(["Example Detection Team"]));
+    assert_ecs_field_eq(&ecs, "rule.reference", json!(["https://example.test/rule"]));
+    assert_ecs_field_eq(
+        &ecs,
+        "tags",
+        json!([
+            "attack.execution",
+            "attack.t1059.001",
+            "ATTACK.PERSISTENCE",
+            "attack.T1027",
+            "attack.initial-access",
+            "custom.operator-tag"
+        ]),
+    );
+    assert_ecs_field_eq(&ecs, "threat.framework", "MITRE ATT&CK");
+    assert_ecs_field_eq(&ecs, "threat.tactic.id", json!(["TA0002"]));
+    assert_ecs_field_eq(&ecs, "threat.technique.id", json!(["T1059"]));
+    assert_ecs_field_eq(
+        &ecs,
+        "threat.technique.subtechnique.id",
+        json!(["T1059.001"]),
+    );
+}
+
+#[test]
+fn unknown_sigma_level_is_a_load_diagnostic_and_falls_back_to_low() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "unknown_level.yml",
+        r#"title: Unknown level process rule
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /curl
+  condition: selection
+level: cataclysmic
+"#,
+    );
+    let mut engine =
+        Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off);
+    engine
+        .load_rules(fixture.rules_dir())
+        .expect("valid detection should still load");
+
+    let diagnostics = &engine.stats().failed_rules;
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].0.ends_with("unknown_level.yml"));
+    assert!(diagnostics[0].1.contains("invalid level"));
+    assert!(diagnostics[0].1.contains("cataclysmic"));
+
+    let harness = TestNormalizer::new();
+    let event = harness
+        .normalizer
+        .normalize(&process_start_event(Platform::Linux))
+        .expect("process event should normalize");
+    let alert = engine
+        .check_event(&event)
+        .into_iter()
+        .next()
+        .expect("rule with diagnostic should still match");
+    assert_eq!(alert.severity, AlertSeverity::Low);
+    assert!(alert
+        .sigma_metadata
+        .as_ref()
+        .is_none_or(|metadata| metadata.level.is_none()));
+}
+
+#[test]
+fn malformed_sigma_level_shapes_are_diagnostics_with_low_fallback() {
+    for (filename, level) in [("numeric_level.yml", "42"), ("list_level.yml", "[high]")] {
+        let fixture = SigmaFixture::new();
+        fixture.write_rule(
+            filename,
+            &format!(
+                r#"title: Malformed level process rule
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /curl
+  condition: selection
+level: {level}
+"#
+            ),
+        );
+        let mut engine =
+            Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off);
+        engine
+            .load_rules(fixture.rules_dir())
+            .expect("rule with malformed level should still load");
+
+        let diagnostics = &engine.stats().failed_rules;
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].0.ends_with(filename));
+        assert!(diagnostics[0].1.contains("invalid level"));
+        assert!(diagnostics[0].1.contains("expected a string"));
+
+        let harness = TestNormalizer::new();
+        let event = harness
+            .normalizer
+            .normalize(&process_start_event(Platform::Linux))
+            .expect("process event should normalize");
+        let alert = engine
+            .check_event(&event)
+            .into_iter()
+            .next()
+            .expect("rule with malformed level should match");
+        assert_eq!(alert.severity, AlertSeverity::Low);
+        assert!(alert
+            .sigma_metadata
+            .as_ref()
+            .is_none_or(|metadata| metadata.level.is_none()));
+    }
+}
+
+#[test]
+fn metadata_lookup_uses_complete_rule_identity() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "colliding_metadata.yml",
+        r#"title: Rule A
+id: shared
+author: Author A
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /curl
+  condition: selection
+level: high
+---
+title: shared
+id: rule-b
+author: Author B
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /never-matches
+  condition: selection
+level: high
+"#,
+    );
+    let harness = TestNormalizer::new();
+    let event = harness
+        .normalizer
+        .normalize(&process_start_event(Platform::Linux))
+        .expect("process event should normalize");
+
+    let engine = engine_with(&fixture, Platform::Linux);
+    let alert = engine
+        .check_event(&event)
+        .into_iter()
+        .next()
+        .expect("Rule A should match");
+
+    assert_eq!(alert.rule_name, "Rule A");
+    assert_eq!(
+        alert
+            .sigma_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.author.as_deref()),
+        Some("Author A")
+    );
 }
 
 #[test]

@@ -102,6 +102,7 @@ pub fn build_yara_alert(
         rule_name: rule_name.to_string(),
         rule_description: None,
         rule_id,
+        sigma_metadata: None,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: utils::now_timestamp_string(),
@@ -192,6 +193,7 @@ pub fn build_yara_memory_alert(
         rule_name: rule_name.to_string(),
         rule_description: None,
         rule_id,
+        sigma_metadata: None,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: utils::now_timestamp_string(),

@@ -37,7 +37,7 @@
 //! so dedup activity stays observable on a long-running agent.
 
 use crate::models::ecs::EcsAlert;
-use crate::models::{Alert, YaraScanSource};
+use crate::models::{Alert, SigmaRuleMetadata, YaraScanSource};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -49,6 +49,7 @@ use tracing::info;
 pub struct DedupKey {
     engine: String,
     rule_id_or_name: String,
+    sigma_metadata: Option<SigmaRuleMetadata>,
     subject: SubjectIdentity,
 }
 
@@ -103,13 +104,14 @@ struct SubjectIdentity {
 }
 
 impl DedupKey {
-    fn from_ecs(ecs: &EcsAlert) -> Self {
+    fn from_ecs(ecs: &EcsAlert, alert: &Alert) -> Self {
         Self {
             engine: ecs.edr_rule_engine.clone(),
             rule_id_or_name: ecs
                 .rule_id
                 .clone()
                 .unwrap_or_else(|| format!("name::{}", ecs.rule_name)),
+            sigma_metadata: alert.sigma_metadata.clone(),
             subject: SubjectIdentity {
                 event_dataset: ecs.event_dataset.clone(),
                 event_action: ecs.event_action.clone(),
@@ -209,7 +211,7 @@ impl Deduplicator {
     }
 
     fn record_at(&self, now: Instant, ecs: &EcsAlert, alert: &Alert) -> bool {
-        let key = DedupKey::from_ecs(ecs);
+        let key = DedupKey::from_ecs(ecs, alert);
         let mut table = self.table.lock().unwrap();
 
         if let Some(entry) = table.get_mut(&key) {
@@ -373,6 +375,7 @@ mod tests {
             rule_name: rule.to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-06-09T00:00:00Z".to_string(),

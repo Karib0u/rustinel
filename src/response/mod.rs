@@ -392,10 +392,11 @@ fn parse_min_severity(value: &str) -> AlertSeverity {
 
 fn severity_rank(severity: AlertSeverity) -> u8 {
     match severity {
-        AlertSeverity::Low => 0,
-        AlertSeverity::Medium => 1,
-        AlertSeverity::High => 2,
-        AlertSeverity::Critical => 3,
+        AlertSeverity::Informational => 0,
+        AlertSeverity::Low => 1,
+        AlertSeverity::Medium => 2,
+        AlertSeverity::High => 3,
+        AlertSeverity::Critical => 4,
     }
 }
 
@@ -655,6 +656,7 @@ mod tests {
             rule_name: "Test process rule".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-02-03T00:00:00Z".to_string(),
