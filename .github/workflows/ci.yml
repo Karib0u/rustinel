@@ -197,13 +197,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked --verbose
 
-  # Bootstrap only: keep pull request failures non-blocking while the short-lived
-  # process race is stabilized. Pushes to main remain blocking so the default
-  # branch is only green when the atomic suite passes.
   atomic:
     name: Atomic (${{ matrix.platform }})
     if: ${{ !inputs.skip_atomics }}
-    continue-on-error: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ matrix.os }}
     needs: ebpf-build
     strategy:
