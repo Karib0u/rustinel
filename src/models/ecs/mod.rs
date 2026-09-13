@@ -9,6 +9,7 @@ mod event;
 mod helpers;
 mod network;
 mod registry;
+mod threat;
 mod user;
 
 pub use alert::{DnsAnswer, EcsAlert, ReplayProvenance};
@@ -22,6 +23,7 @@ use event::{
 use helpers::{basename, file_extension_from_path, parse_bool, parse_u16, parse_u64};
 use network::{extract_ips, network_transport_from_opcode, network_type_from_ip};
 use registry::split_registry_path;
+use threat::attack_fields;
 use user::apply_user_fields;
 
 const ECS_VERSION: &str = "9.5.0";
@@ -39,6 +41,12 @@ impl From<&Alert> for EcsAlert {
         } else {
             Some(alert.event.event_id.to_string())
         };
+        let sigma_metadata = alert.sigma_metadata.as_ref();
+        let attack = attack_fields(
+            sigma_metadata
+                .map(|metadata| metadata.tags.as_slice())
+                .unwrap_or_default(),
+        );
 
         let mut ecs = EcsAlert {
             timestamp: alert.event.timestamp.clone(),
@@ -62,8 +70,30 @@ impl From<&Alert> for EcsAlert {
             rule_name: alert.rule_name.clone(),
             rule_description: alert.rule_description.clone(),
             rule_id: alert.rule_id.clone(),
+            rule_author: sigma_metadata
+                .and_then(|metadata| metadata.author.clone())
+                .map(|author| vec![author]),
+            rule_reference: sigma_metadata
+                .map(|metadata| metadata.references.clone())
+                .unwrap_or_default(),
+            tags: sigma_metadata
+                .map(|metadata| metadata.tags.clone())
+                .unwrap_or_default(),
             edr_rule_severity: format!("{:?}", alert.severity),
             edr_rule_engine: format!("{:?}", alert.engine),
+            edr_sigma_level: sigma_metadata.and_then(|metadata| metadata.level.clone()),
+            edr_sigma_status: sigma_metadata.and_then(|metadata| metadata.status.clone()),
+            edr_sigma_metadata_truncated: sigma_metadata
+                .filter(|metadata| metadata.truncated)
+                .map(|_| true),
+            threat_framework: attack.framework,
+            threat_tactic_id: attack.tactic_ids,
+            threat_tactic_name: attack.tactic_names,
+            threat_tactic_reference: attack.tactic_references,
+            threat_technique_id: attack.technique_ids,
+            threat_technique_reference: attack.technique_references,
+            threat_subtechnique_id: attack.subtechnique_ids,
+            threat_subtechnique_reference: attack.subtechnique_references,
             edr_yara_scan_source: None,
             process_executable: None,
             edr_process_image_source: None,
@@ -457,6 +487,7 @@ mod tests {
             rule_name: "Test Rule".to_string(),
             rule_description: None,
             rule_id: Some("sigma::test-rule-id".to_string()),
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -542,6 +573,7 @@ mod tests {
             rule_name: "Suspicious Service".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -602,6 +634,7 @@ mod tests {
             rule_name: "Context Test".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -671,6 +704,7 @@ mod tests {
             rule_name: "Registry Test".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -714,6 +748,7 @@ mod tests {
             rule_name: "Network Test".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -866,6 +901,7 @@ mod tests {
             rule_name: "DNS Test".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -916,6 +952,7 @@ mod tests {
             rule_name: "File Test".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-01-06T00:00:00Z".to_string(),
@@ -958,6 +995,7 @@ mod tests {
             rule_name: "Match Details".to_string(),
             rule_description: None,
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event: NormalizedEvent {
                 timestamp: "2026-02-04T00:00:00Z".to_string(),

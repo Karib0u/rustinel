@@ -4,6 +4,7 @@ use crate::sensor::Platform;
 
 pub(super) fn alert_severity_to_event_severity(severity: AlertSeverity) -> u8 {
     match severity {
+        AlertSeverity::Informational => 1,
         AlertSeverity::Low => 25,
         AlertSeverity::Medium => 50,
         AlertSeverity::High => 75,

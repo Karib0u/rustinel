@@ -188,6 +188,7 @@ impl IocEngine {
             rule_name: name,
             rule_description: ioc_rule_description(m),
             rule_id: Some(ioc_id),
+            sigma_metadata: None,
             engine: DetectionEngine::Ioc,
             event: event.normalized().clone(),
             match_details: None,
@@ -209,6 +210,7 @@ impl IocEngine {
             rule_name: name,
             rule_description: ioc_rule_description(m),
             rule_id: Some(ioc_id),
+            sigma_metadata: None,
             engine: DetectionEngine::Ioc,
             event: NormalizedEvent {
                 timestamp: crate::utils::now_timestamp_string(),

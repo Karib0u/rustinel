@@ -42,6 +42,7 @@ async fn check(prefix: &str, path: &str, expected: [bool; 3]) {
         rule_name: "allowlist contract".into(),
         rule_description: None,
         rule_id: None,
+        sigma_metadata: None,
         engine: DetectionEngine::Sigma,
         event,
         match_details: None,

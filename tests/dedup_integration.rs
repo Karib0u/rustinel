@@ -21,6 +21,7 @@ fn make_alert(rule: &str, image: &str) -> Alert {
         rule_name: rule.to_string(),
         rule_description: None,
         rule_id: None,
+        sigma_metadata: None,
         engine: DetectionEngine::Sigma,
         event: NormalizedEvent {
             timestamp: "2026-06-09T00:00:00Z".to_string(),

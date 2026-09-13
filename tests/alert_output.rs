@@ -38,6 +38,7 @@ fn alert_sink_writes_single_valid_ecs_ndjson_line() {
             rule_name: "Test Process Curl".to_string(),
             rule_description: Some("process test alert".to_string()),
             rule_id: None,
+            sigma_metadata: None,
             engine: DetectionEngine::Sigma,
             event,
             match_details: None,

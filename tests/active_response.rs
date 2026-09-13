@@ -36,6 +36,7 @@ fn build_yara_alert(pid: u32, image: &str) -> Alert {
         rule_name: "ExampleMarkerString".to_string(),
         rule_description: None,
         rule_id: None,
+        sigma_metadata: None,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -199,6 +200,20 @@ fn response_decision_outcomes_are_testable() {
         ResponseDecision::BelowSeverity {
             severity: AlertSeverity::Low,
             min_severity: AlertSeverity::Critical,
+        }
+    );
+
+    let mut informational_sigma = alert.clone();
+    informational_sigma.engine = DetectionEngine::Sigma;
+    informational_sigma.severity = AlertSeverity::Informational;
+    assert_eq!(
+        decision_for(
+            response_config(true, false, "low", vec![], vec![]),
+            &informational_sigma
+        ),
+        ResponseDecision::BelowSeverity {
+            severity: AlertSeverity::Informational,
+            min_severity: AlertSeverity::Low,
         }
     );
 

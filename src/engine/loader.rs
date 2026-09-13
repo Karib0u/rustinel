@@ -208,6 +208,11 @@ impl Engine {
                     Ok(errors) => {
                         let path_str = path.display().to_string();
                         for error in errors {
+                            warn!(
+                                source = %path_str,
+                                diagnostic = %error,
+                                "Sigma rule loaded with a metadata diagnostic"
+                            );
                             self.failed_rules.push((path_str.clone(), error));
                         }
                         debug!("Parsed rule file: {:?}", path);

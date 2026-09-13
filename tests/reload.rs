@@ -688,6 +688,7 @@ fn build_critical_process_alert(pid: u32, image: &str) -> rustinel::models::Aler
         rule_name: "TestCriticalRule".to_string(),
         rule_description: None,
         rule_id: None,
+        sigma_metadata: None,
         engine: DetectionEngine::Yara,
         event: NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".to_string(),

@@ -101,6 +101,18 @@ pub struct EcsAlert {
     #[serde(rename = "rule.id", skip_serializing_if = "Option::is_none")]
     pub rule_id: Option<String>,
 
+    /// Sigma rule author. ECS models authors as a multi-value field.
+    #[serde(rename = "rule.author", skip_serializing_if = "Option::is_none")]
+    pub rule_author: Option<Vec<String>>,
+
+    /// References supplied by the Sigma rule author.
+    #[serde(rename = "rule.reference", skip_serializing_if = "Vec::is_empty")]
+    pub rule_reference: Vec<String>,
+
+    /// Original Sigma tags, including ATT&CK classifications.
+    #[serde(rename = "tags", skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+
     /// Detection severity (critical, high, medium, low)
     #[serde(rename = "edr.rule.severity")]
     pub edr_rule_severity: String,
@@ -108,6 +120,50 @@ pub struct EcsAlert {
     /// Detection engine (Sigma, Yara, Ioc)
     #[serde(rename = "edr.rule.engine")]
     pub edr_rule_engine: String,
+
+    /// Original Sigma level before normalization to Rustinel severity.
+    #[serde(rename = "edr.sigma.level", skip_serializing_if = "Option::is_none")]
+    pub edr_sigma_level: Option<String>,
+
+    /// Sigma rule lifecycle status.
+    #[serde(rename = "edr.sigma.status", skip_serializing_if = "Option::is_none")]
+    pub edr_sigma_status: Option<String>,
+
+    /// Present only when a rule exceeded fixed metadata size limits.
+    #[serde(
+        rename = "edr.sigma.metadata_truncated",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_sigma_metadata_truncated: Option<bool>,
+
+    #[serde(rename = "threat.framework", skip_serializing_if = "Option::is_none")]
+    pub threat_framework: Option<String>,
+    #[serde(rename = "threat.tactic.id", skip_serializing_if = "Vec::is_empty")]
+    pub threat_tactic_id: Vec<String>,
+    #[serde(rename = "threat.tactic.name", skip_serializing_if = "Vec::is_empty")]
+    pub threat_tactic_name: Vec<String>,
+    #[serde(
+        rename = "threat.tactic.reference",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub threat_tactic_reference: Vec<String>,
+    #[serde(rename = "threat.technique.id", skip_serializing_if = "Vec::is_empty")]
+    pub threat_technique_id: Vec<String>,
+    #[serde(
+        rename = "threat.technique.reference",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub threat_technique_reference: Vec<String>,
+    #[serde(
+        rename = "threat.technique.subtechnique.id",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub threat_subtechnique_id: Vec<String>,
+    #[serde(
+        rename = "threat.technique.subtechnique.reference",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub threat_subtechnique_reference: Vec<String>,
 
     /// Artifact inspected for a YARA detection. This remains present regardless
     /// of match-debug verbosity and does not replace the originating provider.

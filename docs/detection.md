@@ -21,7 +21,7 @@ Rustinel counts these rules and `rustinel doctor` reports them as `sigma_rules_i
 **One alert per event.**
 When several rules match the same event, Rustinel keeps one:
 
-1. the highest severity (`critical`, `high`, `medium`, then `low`; a missing or unknown level counts as `low`),
+1. the highest severity (`critical`, `high`, `medium`, `low`, then `informational`; a missing or unknown level counts as `low`),
 2. then a rule with an `id` over one without,
 3. then the smallest `id`, then the smallest `title`.
 
@@ -55,9 +55,40 @@ The file format is in [Write and test rules](rule-development.md#add-indicators)
 
 | Engine | Alert severity |
 | --- | --- |
-| Sigma | The rule's `level`. Anything other than `critical`, `high`, or `medium` becomes `low` |
+| Sigma | The rule's `level`: `informational`, `low`, `medium`, `high`, or `critical`. A missing or invalid level falls back to `low` |
 | YARA | Always `critical` |
 | IOC | `ioc.default_severity` |
+
+An informational Sigma alert has `event.severity: 1` and
+`edr.rule.severity: Informational`; low remains `25` and `Low`. Active response
+accepts `low` as its least severe threshold, so informational alerts are always
+reported but never terminate a process. An unrecognized Sigma level does not
+silently become a valid low level: rule loading logs a warning and
+`rustinel doctor` reports the parser diagnostic under `sigma_rules_parse`. The
+rule continues to load with the explicit low fallback.
+
+## Sigma metadata in alerts
+
+Rustinel preserves this bounded, operator-facing subset of Sigma metadata from
+rule loading through alert construction and NDJSON serialization:
+
+| Sigma metadata | Alert field |
+| --- | --- |
+| `level` | `edr.sigma.level` (the original valid level, before normalization) |
+| `status` | `edr.sigma.status` |
+| `author` | ECS `rule.author` |
+| `references` | ECS `rule.reference` |
+| `tags` | ECS `tags` |
+| `attack.<tactic>` tags | ECS `threat.framework` and `threat.tactic.*` |
+| `attack.tNNNN` tags | ECS `threat.technique.*` |
+| `attack.tNNNN.NNN` tags | Parent `threat.technique.*` plus `threat.technique.subtechnique.*` |
+
+Metadata is available regardless of `alerts.match_debug`; that setting only
+controls match evidence. To keep one rule from producing unbounded alerts,
+Rustinel includes at most 64 tags (256 UTF-8 bytes each), 32 references (2,048
+bytes each), and 512 bytes of author text. `edr.sigma.metadata_truncated: true`
+marks an alert where a limit was applied. Arbitrary Sigma custom attributes are
+not copied into alerts.
 
 ## Deduplication
 
