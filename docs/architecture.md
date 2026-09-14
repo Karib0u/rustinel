@@ -107,7 +107,7 @@ Signature revocation freshness can invalidate the signature store independently 
 
 ## Linux sensor
 
-eBPF programs attach to tracepoints for exec, exit, fork, file syscalls, and DNS sends, and to socket `fexit` hooks when kernel BTF allows it.
+eBPF programs attach to tracepoints for exec, exit, fork, file syscalls, and DNS sends and receives, and to socket `fexit` hooks when kernel BTF allows it.
 File syscall tracepoints remain the event source; optional BTF-planned probes add inode and device identity without changing path or completion semantics.
 Hook availability and struct offsets are discovered at startup from tracefs and BTF; nothing depends on the build machine's kernel.
 A missing hook degrades only its feature.

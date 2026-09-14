@@ -50,6 +50,15 @@ pub(super) struct DnsTracepointOffsets {
     pub sendmmsg_fd: u32,
     pub sendmmsg_msgvec: u32,
     pub sendmmsg_vlen: u32,
+    pub connect_fd: u32,
+    pub connect_addr: u32,
+    pub recvfrom_fd: u32,
+    pub recvfrom_buf: u32,
+    pub recvfrom_size: u32,
+    pub recvfrom_ret: u32,
+    pub recvmsg_fd: u32,
+    pub recvmsg_msg: u32,
+    pub recvmsg_ret: u32,
 }
 
 #[repr(C)]
@@ -273,6 +282,54 @@ impl TracepointLayouts {
             self.dns.sendmmsg_fd = v[0];
             self.dns.sendmmsg_msgvec = v[1];
             self.dns.sendmmsg_vlen = v[2];
+        }
+        if let Some(v) = self.fields(
+            "handle_dns_connect",
+            "syscalls",
+            "sys_enter_connect",
+            &[FieldSpec::one("fd", 8), FieldSpec::one("uservaddr", 8)],
+        ) {
+            self.dns.connect_fd = v[0];
+            self.dns.connect_addr = v[1];
+        }
+        if let Some(v) = self.fields(
+            "handle_dns_recvfrom",
+            "syscalls",
+            "sys_enter_recvfrom",
+            &[
+                FieldSpec::one("fd", 8),
+                FieldSpec::either(&["ubuf", "buf"], 8),
+                FieldSpec::one("size", 8),
+            ],
+        ) {
+            self.dns.recvfrom_fd = v[0];
+            self.dns.recvfrom_buf = v[1];
+            self.dns.recvfrom_size = v[2];
+        }
+        if let Some(v) = self.fields(
+            "handle_dns_recvfrom_exit",
+            "syscalls",
+            "sys_exit_recvfrom",
+            &[FieldSpec::one("ret", 8)],
+        ) {
+            self.dns.recvfrom_ret = v[0];
+        }
+        if let Some(v) = self.fields(
+            "handle_dns_recvmsg",
+            "syscalls",
+            "sys_enter_recvmsg",
+            &[FieldSpec::one("fd", 8), FieldSpec::one("msg", 8)],
+        ) {
+            self.dns.recvmsg_fd = v[0];
+            self.dns.recvmsg_msg = v[1];
+        }
+        if let Some(v) = self.fields(
+            "handle_dns_recvmsg_exit",
+            "syscalls",
+            "sys_exit_recvmsg",
+            &[FieldSpec::one("ret", 8)],
+        ) {
+            self.dns.recvmsg_ret = v[0];
         }
     }
 

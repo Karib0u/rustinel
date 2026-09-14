@@ -3696,7 +3696,7 @@
       "event_id": 22,
       "action": "query",
       "provider": "ebpf",
-      "source": "socket send tracepoints",
+      "source": "DNS socket syscall hooks",
       "field": "RecordType",
       "since": null,
       "availability": "always"
@@ -3707,7 +3707,7 @@
       "event_id": 22,
       "action": "query",
       "provider": "ebpf",
-      "source": "socket send tracepoints",
+      "source": "DNS socket syscall hooks",
       "field": "ProcessId",
       "since": null,
       "availability": "always"
@@ -3718,11 +3718,11 @@
       "event_id": 22,
       "action": "query",
       "provider": "ebpf",
-      "source": "socket send tracepoints",
+      "source": "DNS socket syscall hooks",
       "field": "QueryName",
       "since": null,
       "availability": "conditional",
-      "reason": "the DNS question can be parsed or the kernel fallback is non-empty"
+      "reason": "the DNS question can be parsed"
     },
     {
       "platform": "linux",
@@ -3730,11 +3730,11 @@
       "event_id": 22,
       "action": "query",
       "provider": "ebpf",
-      "source": "socket send tracepoints",
+      "source": "DNS socket syscall hooks",
       "field": "QueryResults",
-      "since": null,
-      "availability": "never",
-      "reason": "the eBPF DNS probe emits outbound queries and does not parse responses"
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "the event is a response carrying A, AAAA, or CNAME answers"
     },
     {
       "platform": "linux",
@@ -3742,7 +3742,7 @@
       "event_id": 22,
       "action": "query",
       "provider": "ebpf",
-      "source": "socket send tracepoints",
+      "source": "DNS socket syscall hooks",
       "field": "Image",
       "since": null,
       "availability": "conditional",
@@ -3754,11 +3754,11 @@
       "event_id": 22,
       "action": "query",
       "provider": "ebpf",
-      "source": "socket send tracepoints",
+      "source": "DNS socket syscall hooks",
       "field": "QueryStatus",
-      "since": null,
-      "availability": "never",
-      "reason": "the eBPF DNS probe does not parse response status"
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "the event is a response; the value is the DNS RCODE"
     },
     {
       "platform": "macos",

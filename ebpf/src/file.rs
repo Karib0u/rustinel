@@ -595,6 +595,7 @@ unsafe fn current_dir_token(pid: u32, fd: i32) -> u64 {
 #[inline(always)]
 unsafe fn invalidate_fd(pid: u32, fd: i32) {
     invalidate_dir_token(pid, fd);
+    crate::dns::forget_socket(pid, fd);
 }
 
 #[inline(always)]
@@ -907,7 +908,10 @@ unsafe fn try_handle_open_exit(ctx: &TracePointContext, ret_offset: usize) -> Re
         // Check the existing pending map first so ordinary read-only opens do
         // not pay for the task -> fdtable -> file -> inode pointer walk.
         let pending_kind = FILE_PENDING.get(&tid).map(|pending| pending.kind);
-        if matches!(pending_kind, Some(FILE_KIND_CREATE) | Some(FILE_KIND_CHANGE)) {
+        if matches!(
+            pending_kind,
+            Some(FILE_KIND_CREATE) | Some(FILE_KIND_CHANGE)
+        ) {
             let _ = try_capture_open_identity(fd, pending_kind.unwrap_or(0));
         }
         let pid = (bpf_get_current_pid_tgid() >> 32) as u32;

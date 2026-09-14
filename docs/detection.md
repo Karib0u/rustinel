@@ -67,7 +67,7 @@ Each event is read once for the domains, IPs, and paths it carries, and every in
 The text fields are `CommandLine`, registry `Details`, PowerShell `ScriptBlockText`, WMI `Query`, and `ServiceFileName`.
 In them, a URL yields its host, `host:port` and `user@host` yield the host, and an absolute path yields the path.
 `ServiceFileName` yields hosts and IPs only, because the whole value is already matched as a path.
-Only Windows DNS events carry answers, so matching DNS answers is Windows-only.
+Windows and Linux DNS events carry answers; macOS DNS events do not, so matching DNS answers does not apply there.
 
 ### Command-line paths
 
