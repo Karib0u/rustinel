@@ -44,9 +44,13 @@ impl AlertSink {
     /// Write a raw ECS alert directly (bypasses dedup — used by the flush path).
     pub fn write_ecs(&self, ecs: &EcsAlert) {
         match serde_json::to_string(ecs) {
-            Ok(line) => {
+            Ok(mut line) => {
+                // NonBlocking queues every write() as its own message, so the
+                // newline must travel in the same write as the object: with
+                // writeln! two concurrent alerts can land as `{A}{B}\n\n`.
+                line.push('\n');
                 let mut writer = self.writer.clone();
-                if let Err(err) = writeln!(writer, "{}", line) {
+                if let Err(err) = writer.write_all(line.as_bytes()) {
                     error!(error = %err, "Failed to write ECS alert");
                     return;
                 }
@@ -96,5 +100,95 @@ impl AlertSink {
         } else {
             self.write_ecs(&ecs);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{AlertSeverity, DetectionEngine, NormalizedEvent};
+    use std::sync::{Barrier, Mutex};
+
+    #[derive(Clone)]
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn concurrent_writers_emit_one_alert_per_line() {
+        const THREADS: usize = 4;
+        const ALERTS_PER_THREAD: usize = 2_000;
+
+        let output = SharedWriter(Arc::new(Mutex::new(Vec::new())));
+        let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+            .lossy(false)
+            .finish(output.clone());
+        let sink = AlertSink::new(writer);
+        let event: NormalizedEvent = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-09-13T20:29:41Z",
+            "platform": "linux",
+            "provider": "ebpf",
+            "category": "Process",
+            "event_id": 1,
+            "opcode": 1,
+            "fields": { "Image": "/tmp/rustinel_atomic_canary/canary-exec", "ProcessId": "3051" }
+        }))
+        .unwrap();
+        let barrier = Arc::new(Barrier::new(THREADS));
+
+        let handles: Vec<_> = [
+            DetectionEngine::Sigma,
+            DetectionEngine::Ioc,
+            DetectionEngine::Yara,
+            DetectionEngine::Sigma,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(thread, engine)| {
+            let sink = sink.clone();
+            let barrier = Arc::clone(&barrier);
+            let alert = Alert {
+                severity: AlertSeverity::High,
+                rule_name: format!("concurrent writer {thread}"),
+                rule_description: None,
+                rule_id: None,
+                sigma_metadata: None,
+                engine,
+                event: event.clone(),
+                match_details: None,
+            };
+            std::thread::spawn(move || {
+                barrier.wait();
+                for _ in 0..ALERTS_PER_THREAD {
+                    sink.write_alert(&alert);
+                }
+            })
+        })
+        .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        drop(sink);
+        drop(guard);
+
+        let json = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+        let mut per_thread = [0usize; THREADS];
+        for line in json.lines() {
+            let alert: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|err| panic!("unparsable NDJSON line ({err}): {line:?}"));
+            let rule = alert["rule.name"].as_str().unwrap();
+            let thread: usize = rule.rsplit(' ').next().unwrap().parse().unwrap();
+            per_thread[thread] += 1;
+        }
+        assert_eq!(per_thread, [ALERTS_PER_THREAD; THREADS]);
     }
 }
