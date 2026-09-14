@@ -27,6 +27,7 @@ fn event(
         event_id_string: event_id.to_string(),
         opcode,
         fields,
+        process_name: None,
         provenance: Default::default(),
         process_context: None,
     }

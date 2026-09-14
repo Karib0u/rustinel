@@ -53,10 +53,30 @@ One JSON object per line, following ECS 9.5.0.
 | `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
 | `edr.yara.scan_source` | YARA alerts only: `file` or `process_memory` |
 | `edr.event.ingest_seq` | Order in which Rustinel processed the event |
-| `edr.event.provenance` | Fields Rustinel reconstructed rather than measured, marked `derived` |
+| `edr.event.provenance` | Populated fields with fidelity limitations, see below |
 | `edr.match` | Why the rule matched, when `alerts.match_debug` is on |
 
 Sigma alerts can also carry bounded rule metadata and ECS ATT&CK fields; see [Sigma metadata in alerts](detection.md#sigma-metadata-in-alerts).
+
+### Field provenance
+
+`edr.event.provenance` lists `{ "field": "Image", "fidelity": "derived" }` entries using the recorded field names.
+It is omitted when no populated event field has a known fidelity limitation.
+A missing value stays absent; provenance never supplies a value or turns unknown into `false`.
+
+| Fidelity | Meaning |
+| --- | --- |
+| `derived` | Reconstructed from a process cache, account lookup, filesystem, or `/proc` |
+| `best_effort` | Inferred, for example a connection event inferred from a captured SYN |
+| `truncated` | Incomplete because a capture limit cut the value |
+| `stale` | Retained evidence whose freshness is limited |
+
+A field can have multiple entries, such as a truncated image copied from the process cache.
+YARA and hash IOC alerts keep the entries for the image and PID of the process start that queued the scan.
+A dedup rollup keeps every entry seen on a suppressed repeat, for fields the rollup reports.
+Recordings retain these entries; Sigma matching does not expose them as fields or keywords.
+`ImageSource`, `ImageTruncated`, and `PathTruncated` remain available to Sigma with their existing values.
+A Linux short process name is carried as `process.name`, separately from `process.executable`, and does not fill a missing executable path.
 
 ### ECS version policy
 

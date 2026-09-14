@@ -13,6 +13,7 @@ fn now_secs() -> u64 {
 /// Metadata associated with a process
 #[derive(Debug, Clone)]
 pub struct ProcessMetadata {
+    pub provenance: crate::models::Provenance,
     pub image_name: String,
     pub command_line: Option<String>,
     pub user: Option<String>,
@@ -108,6 +109,46 @@ impl ProcessCache {
         current_directory: Option<String>,
         integrity_level: Option<String>,
     ) {
+        self.add_with_provenance(
+            pid,
+            creation_time,
+            image,
+            cmd,
+            user,
+            parent_pid,
+            parent_image,
+            parent_command_line,
+            original_filename,
+            product,
+            description,
+            company,
+            file_version,
+            current_directory,
+            integrity_level,
+            Default::default(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_with_provenance(
+        &self,
+        pid: u32,
+        creation_time: u64,
+        image: String,
+        cmd: Option<String>,
+        user: Option<String>,
+        parent_pid: Option<u32>,
+        parent_image: Option<String>,
+        parent_command_line: Option<String>,
+        original_filename: Option<String>,
+        product: Option<String>,
+        description: Option<String>,
+        company: Option<String>,
+        file_version: Option<String>,
+        current_directory: Option<String>,
+        integrity_level: Option<String>,
+        provenance: crate::models::Provenance,
+    ) {
         {
             let mut cache = self.cache.write().unwrap();
             let mut eviction_order = self.eviction_order.write().unwrap();
@@ -115,6 +156,7 @@ impl ProcessCache {
             cache.insert(
                 (pid, creation_time),
                 ProcessMetadata {
+                    provenance,
                     image_name: image,
                     command_line: cmd,
                     user,

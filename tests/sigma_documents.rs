@@ -53,6 +53,7 @@ fn process_event(timestamp: &str, user: &str) -> NormalizedEvent {
             integrity_level: None,
             user: Some(user.to_string()),
         }),
+        process_name: None,
         provenance: Default::default(),
         process_context: None,
     }
@@ -81,6 +82,7 @@ fn network_event(timestamp: &str, user: &str) -> NormalizedEvent {
             protocol: Some("tcp".to_string()),
             initiated: Some(true),
         }),
+        process_name: None,
         provenance: Default::default(),
         process_context: None,
     }

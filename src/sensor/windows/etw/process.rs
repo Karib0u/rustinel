@@ -353,6 +353,8 @@ mod tests {
         }))
         .unwrap();
         SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Windows,
             provider: "etw",
             action: SensorAction::Start,

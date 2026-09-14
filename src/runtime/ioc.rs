@@ -114,8 +114,14 @@ pub fn spawn_ioc_hash_worker(
             let matches = ioc_engine.match_hashes(&hashes);
             if !matches.is_empty() {
                 for ioc_match in matches {
-                    let alert = ioc_engine
-                        .build_alert_for_hash_match(&ioc_match, &path, pid, platform, provider);
+                    let alert = ioc_engine.build_alert_for_hash_match(
+                        &ioc_match,
+                        &path,
+                        pid,
+                        &crate::models::Provenance::default(),
+                        platform,
+                        provider,
+                    );
                     alert_sink.write_alert(&alert);
                     response_engine.handle_alert(&alert);
                 }

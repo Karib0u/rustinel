@@ -443,6 +443,7 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             enqueued_at: Instant::now(),
             pe_ready,
             process_start_key: event.process_start_key,
+            provenance: scanner::scan_subject_provenance(event.provenance()),
             platform: event.normalized().platform,
             provider: event.normalized().provider.clone(),
         };
@@ -666,6 +667,8 @@ struct ArtifactJob {
     /// Present while admission waits on PE metadata for this artifact.
     pe_ready: Option<PeSender>,
     process_start_key: Option<crate::sensor::ProcessStartKey>,
+    /// Fidelity limitations on the image and PID the scan alerts report.
+    provenance: crate::models::Provenance,
     platform: Platform,
     provider: String,
 }
@@ -812,6 +815,7 @@ impl ArtifactResolver {
             enqueued_at: Instant::now(),
             pe_ready: None,
             process_start_key: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: "test".to_string(),
         };
@@ -1079,6 +1083,7 @@ impl ArtifactResolver {
                     &ioc_match,
                     &job.target.display_path,
                     job.target.pid,
+                    &job.provenance,
                     job.platform,
                     &job.provider,
                 );
@@ -1102,6 +1107,7 @@ impl ArtifactResolver {
                     rule_match.metadata_id.clone(),
                     &job.target.display_path,
                     job.target.pid,
+                    &job.provenance,
                     details,
                     job.platform,
                     &job.provider,
@@ -1463,6 +1469,7 @@ mod tests {
                 parent_process_id_derived: false,
                 windows: Default::default(),
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         })
@@ -1492,6 +1499,7 @@ mod tests {
                 signature: None,
                 user: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         })
@@ -1736,6 +1744,7 @@ mod tests {
                 file_identity: None,
                 path_truncated: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         })
@@ -1937,6 +1946,7 @@ mod tests {
             enqueued_at: Instant::now() - ARTIFACT_DEADLINE,
             pe_ready: Some(pe_tx),
             process_start_key: None,
+            provenance: Default::default(),
             platform: Platform::Windows,
             provider: "test".into(),
         })
@@ -1983,6 +1993,7 @@ mod tests {
                 enqueued_at: Instant::now(),
                 pe_ready: None,
                 process_start_key: None,
+                provenance: Default::default(),
                 platform: Platform::Windows,
                 provider: "test".into(),
             })
@@ -2079,6 +2090,45 @@ level: high
         );
         assert_eq!(state.snapshot().cache_hits, 1);
         assert_eq!(state.snapshot().admission_budget_exceeded, 0);
+    }
+
+    /// Scan alerts are built on another thread from the job, not the event,
+    /// so the job must carry the fidelity of the image and PID it reports.
+    #[test]
+    fn queued_jobs_carry_the_scan_subject_provenance() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("derived.exe");
+        std::fs::write(&image, b"artifact").unwrap();
+        let ResolverParts {
+            ingress,
+            admission,
+            mut resolve_rx,
+            ..
+        } = ResolverParts::new(
+            Arc::new(SensorEventRouter::new()),
+            Arc::new(HostState::default()),
+            ArtifactRuntime::capture(Platform::Windows),
+            Arc::new(ResolverState::new()),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        let admitted = std::thread::spawn(move || admission.run());
+
+        let mut normalized = process_event(&image, Platform::Windows).into_normalized();
+        normalized.provenance.mark_derived("Image");
+        normalized
+            .provenance
+            .mark("ProcessId", crate::models::Fidelity::BestEffort);
+        normalized.provenance.mark_derived("OriginalFileName");
+        ingress.handle_event(&CanonicalEvent::from_normalized(normalized));
+
+        let job = resolve_rx.try_recv().expect("artifact job queued");
+        let mut expected = crate::models::Provenance::default();
+        expected.mark_derived("Image");
+        expected.mark("ProcessId", crate::models::Fidelity::BestEffort);
+        assert_eq!(job.provenance, expected);
+        drop(job);
+        drop(ingress);
+        admitted.join().unwrap();
     }
 
     #[test]

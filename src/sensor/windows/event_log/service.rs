@@ -77,6 +77,8 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .context("service event XML has an invalid EventRecordID")?;
 
     Ok(SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Windows,
         provider: "windows_event_log",
         action: SensorAction::Register,

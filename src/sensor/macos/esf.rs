@@ -437,6 +437,8 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
     let parent_process_id = (raw.parent_pid > 0).then_some(raw.parent_pid as u32);
 
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::MacOS,
         provider: "esf",
         action: SensorAction::Start,
@@ -503,6 +505,8 @@ fn process_stop_event(
     source_seq: Option<u64>,
 ) -> SensorEvent {
     SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::MacOS,
         provider: "esf",
         action: SensorAction::Stop,
@@ -704,6 +708,8 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
     let (action, event_id, action_code) = raw.action.normalization();
 
     Some(SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::MacOS,
         provider: "esf",
         action,

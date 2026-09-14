@@ -109,6 +109,10 @@ pub struct ProcessStartKey {
 /// a time.
 #[derive(Debug, Clone)]
 pub struct RawEvent {
+    /// Native short process name, never an executable path or Sigma field.
+    pub process_name: Option<String>,
+    /// Sparse evidence for fields reconstructed or limited by this decoder.
+    pub provenance: crate::models::Provenance,
     pub platform: Platform,
     pub provider: &'static str,
     pub action: SensorAction,
@@ -397,6 +401,8 @@ mod tests {
         });
 
         let event = SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
             platform: Platform::Linux,
             provider: "ebpf",
             action: SensorAction::Connect,

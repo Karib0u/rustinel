@@ -53,6 +53,7 @@ pub(crate) fn telemetry_results(
     results.extend(event_log_results(&snapshot));
 
     results.extend(process_correlation_results(&snapshot));
+    results.extend(field_fidelity_results(&snapshot));
     let dropping = snapshot.dropping_channels();
     if dropping.is_empty() {
         results.insert(
@@ -179,6 +180,26 @@ fn host_state_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
         } else {
             DiagnosticResult::pass("process_inventory", detail)
         });
+    }
+    results
+}
+
+fn field_fidelity_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+    if !snapshot.field_fidelity.is_empty() {
+        results.push(
+            DiagnosticResult::pass("field_fidelity", "Field fidelity limitations recorded")
+                .with_detail(
+                    snapshot
+                        .field_fidelity
+                        .iter()
+                        .map(|entry| {
+                            format!("{}: {:?} ({})", entry.field, entry.fidelity, entry.count)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ),
+        );
     }
     results
 }
@@ -726,6 +747,30 @@ mod tests {
         assert_eq!(json["windows_process_correlation"]["unmatched"], 0);
     }
 
+    #[test]
+    fn field_fidelity_survives_snapshots_and_reaches_doctor() {
+        let mut report = snapshot(Vec::new());
+        assert!(field_fidelity_results(&report).is_empty());
+        report
+            .field_fidelity
+            .push(crate::telemetry::FieldFidelitySnapshot {
+                field: "Image".into(),
+                fidelity: crate::models::Fidelity::Truncated,
+                count: 3,
+            });
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["field_fidelity"][0]["fidelity"], "truncated");
+        let decoded: TelemetrySnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded.field_fidelity, report.field_fidelity);
+        let results = field_fidelity_results(&decoded);
+        assert_eq!(results[0].id, "field_fidelity");
+        assert!(results[0]
+            .detail
+            .as_ref()
+            .unwrap()
+            .contains("Image: Truncated (3)"));
+    }
+
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         TelemetrySnapshot {
             host_state: None,
@@ -734,6 +779,7 @@ mod tests {
             pid: 7,
             captured_at: "2026-08-24T12:00:00Z".to_string(),
             uptime_secs: 3600,
+            field_fidelity: Vec::new(),
             channels,
             sensor_events_by_category: Vec::new(),
             linux_ebpf: None,

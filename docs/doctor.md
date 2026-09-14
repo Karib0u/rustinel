@@ -52,6 +52,7 @@ Run it with `sudo` or as Administrator to check platform prerequisites.
 
 These read `telemetry.json` from a running or stopped agent.
 See [Telemetry loss](telemetry-loss.md).
+The informational `field_fidelity` result lists counts of populated fields with [fidelity limitations](output.md#field-provenance); JSON includes the same counts under `telemetry.field_fidelity`.
 
 | Check | Warns when |
 | --- | --- |

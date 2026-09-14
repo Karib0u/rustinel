@@ -109,6 +109,7 @@ fn build_yara_alert(
                 integrity_level: None,
                 user: None,
             }),
+            process_name: None,
             provenance: Default::default(),
             process_context: None,
         },

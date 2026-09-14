@@ -25,7 +25,7 @@ pub struct EcsAlert {
     #[serde(rename = "edr.event.ingest_seq")]
     pub event_ingest_seq: u64,
 
-    /// Fidelity markers for event fields reconstructed after collection.
+    /// Known fidelity limitations on populated event fields.
     #[serde(
         rename = "edr.event.provenance",
         skip_serializing_if = "Provenance::is_empty"

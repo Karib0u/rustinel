@@ -185,6 +185,8 @@ pub(super) fn decode_single_record(
     let normalization = mapper::normalization_for_record(category, action, record);
 
     Some(SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
         platform: Platform::Windows,
         provider: "etw",
         action,
@@ -448,6 +450,7 @@ pub(super) fn decode_kernel_file_record(
     // A file event with no path cannot match a rule - essentially every file
     // rule keys on TargetFilename - so an unresolvable event is dropped rather
     // than sent on to occupy space in a bounded channel.
+    let path_derived = named_path.is_none();
     let raw_path = match named_path {
         Some(path) => {
             WINDOWS_FILE_ATTRIBUTION.record_resolved(false);
@@ -488,6 +491,14 @@ pub(super) fn decode_kernel_file_record(
     let normalization = mapper::normalization_for_record(EventCategory::File, action, record);
 
     Some(SensorEvent {
+        process_name: None,
+        provenance: {
+            let mut provenance = crate::models::Provenance::default();
+            if path_derived {
+                provenance.mark_derived("TargetFilename");
+            }
+            provenance
+        },
         platform: Platform::Windows,
         provider: "etw",
         action,
@@ -610,8 +621,15 @@ pub(super) fn decode_kernel_registry_record(
             // `registry_add`.
             let primary = if creates && refine_registry_create_action(&parser).is_some() {
                 path.and_then(|path| {
-                    pending_registry_event(&parser, record, SensorAction::Create, None)
-                        .map(|event| event.into_sensor_event(&path))
+                    pending_registry_event(&parser, record, SensorAction::Create, None).map(
+                        |event| {
+                            let mut event = event.into_sensor_event(&path);
+                            if !base_name.is_empty() || relative_name.starts_with('\\') {
+                                event.provenance = Default::default();
+                            }
+                            event
+                        },
+                    )
                 })
             } else {
                 None
@@ -637,6 +655,7 @@ pub(super) fn decode_kernel_registry_record(
             // `KeyName` is declared on these events but measured empty on
             // Windows 11, so the index is the real source of the path.
             let mut source = RegistryPathSource::Session;
+            let mut path_derived = false;
             let path = try_get_string(&parser, "KeyName")
                 .filter(|name| !name.is_empty())
                 .or_else(|| {
@@ -644,6 +663,7 @@ pub(super) fn decode_kernel_registry_record(
                         .registry_paths()
                         .resolve_at(key_object, event_at)
                         .map(|resolved| {
+                            path_derived = true;
                             source = registry_path_source(resolved.source);
                             resolved.path.to_string()
                         })
@@ -657,7 +677,11 @@ pub(super) fn decode_kernel_registry_record(
             match path.as_deref() {
                 Some(path) => {
                     crate::telemetry::REGISTRY.record_resolved(source);
-                    DecodedEtwEvents::single(Some(event.into_sensor_event(path)))
+                    let mut event = event.into_sensor_event(path);
+                    if !path_derived {
+                        event.provenance = Default::default();
+                    }
+                    DecodedEtwEvents::single(Some(event))
                 }
                 None => {
                     if let Some(object) = key_object.filter(|object| *object != 0) {

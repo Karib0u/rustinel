@@ -216,6 +216,12 @@ impl Deduplicator {
 
         if let Some(entry) = table.get_mut(&key) {
             entry.count += 1;
+            // The rollup speaks for every suppressed repeat, so it carries each
+            // fidelity limitation any of them had on a field the sample reports.
+            entry
+                .sample
+                .event
+                .inherit_populated_provenance(&alert.event.provenance);
             self.counters
                 .suppressed_total
                 .fetch_add(1, Ordering::Relaxed);
@@ -412,6 +418,7 @@ mod tests {
                     file_version: None,
                     target_image: None,
                 }),
+                process_name: None,
                 provenance: Default::default(),
                 process_context: None,
             },
@@ -624,6 +631,32 @@ mod tests {
             dedup.counters.aggregated_total.load(Ordering::Relaxed),
             1,
             "one rollup alert should have been emitted"
+        );
+    }
+
+    #[test]
+    fn rollup_carries_fidelity_limitations_of_suppressed_repeats() {
+        let dedup = Deduplicator::new(0, 1000);
+        let measured = make_alert("Rule A", "/usr/bin/curl");
+        let mut derived = measured.clone();
+        derived.event.provenance.mark_derived("Image");
+        derived.event.provenance.mark_derived("CommandLine");
+        let ecs = EcsAlert::from(&measured);
+
+        assert!(dedup.record(&ecs, &measured));
+        assert!(
+            !dedup.record(&EcsAlert::from(&derived), &derived),
+            "fidelity alone does not split the dedup key"
+        );
+        assert!(!dedup.record(&ecs, &measured));
+
+        let expired = dedup.drain_expired(Instant::now() + Duration::from_millis(1));
+        let rollup = rollup_alert(&expired[0]).expect("rollup for repeated alerts");
+        let json = serde_json::to_value(&rollup).unwrap();
+        assert_eq!(
+            json["edr.event.provenance"],
+            serde_json::json!([{ "field": "Image", "fidelity": "derived" }]),
+            "a limitation seen on any repeat survives; one on an absent field does not"
         );
     }
 
