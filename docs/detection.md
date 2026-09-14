@@ -76,11 +76,16 @@ A path operand in `CommandLine` is matched in absolute form.
 The alert still reports `CommandLine` exactly as it was run, and Sigma rules never see the resolved form.
 
 - Relative operands are joined to the process start's `CurrentDirectory`, then `.` and `..` are folded without reading the file system, so a symlink before a `..` is not followed.
-- The directory is the one the sensor recorded when the process started. A process that changes directory before it opens the file is still resolved against its starting directory, and replay resolves against the recorded directory, never the replaying host's.
-- When the event has no `CurrentDirectory`, or it is not absolute, relative operands are not matched. Absolute operands still are.
-- Today only macOS process starts carry `CurrentDirectory` (Endpoint Security reports it at exec). Windows Kernel-Process never reports it, and Linux exec events do not yet capture it, so on those platforms only absolute operands are matched.
-- The program itself, flags (`-x`, `--flag`, and `/flag` on Windows), `chmod` modes, numbers, globs, variables, shell operators, and `user:group` or `host:port` forms are never treated as paths. A flag's attached value, as in `--output=payload`, is.
-- Shape alone cannot tell a file operand from a subcommand, so `git status` run from `/tmp` also yields `/tmp/status`. Anchor path regexes to the file they describe rather than to a whole directory.
+- The directory is the one the sensor recorded when the process started.
+  A process that changes directory before it opens the file is still resolved against its starting directory, and replay resolves against the recorded directory, never the replaying host's.
+- When the event has no `CurrentDirectory`, or it is not absolute, relative operands are not matched.
+  Absolute operands still are.
+- Today only macOS process starts carry `CurrentDirectory` (Endpoint Security reports it at exec).
+  Windows Kernel-Process never reports it, and Linux exec events do not yet capture it, so on those platforms only absolute operands are matched.
+- The program itself, flags (`-x`, `--flag`, and `/flag` on Windows), `chmod` modes, numbers, globs, variables, shell operators, and `user:group` or `host:port` forms are never treated as paths.
+  A flag's attached value, as in `--output=payload`, is.
+- Shape alone cannot tell a file operand from a subcommand, so `git status` run from `/tmp` also yields `/tmp/status`.
+  Anchor path regexes to the file they describe rather than to a whole directory.
 - Text fields other than `CommandLine` have no working directory, so only their absolute paths are matched.
 
 The file format is in [Write and test rules](rule-development.md#add-indicators).
