@@ -1,6 +1,7 @@
 //! Yara scanner module
 //!
-//! Handles compiling rules, listening for process events, and scanning files.
+//! Compiles rules and runs YARA scans. Live on-disk targets are resolved by
+//! `crate::artifact`; this module queues process-memory scans.
 
 use anyhow::{Context, Result};
 use std::collections::{HashMap, VecDeque};
@@ -358,74 +359,6 @@ impl Scanner {
         })
     }
 
-    /// Scan only the file measured at exec, reading bytes from the validated handle.
-    pub(crate) fn scan_target(
-        &self,
-        target: &FileScanTarget,
-        match_debug: MatchDebugLevel,
-    ) -> ScanResult {
-        use std::io::Read;
-        if target.identity.is_none() && target.file_identity.is_none() {
-            return self.scan_file(&target.path, match_debug);
-        }
-        let path = Path::new(&target.path);
-        let mut file = fs::File::open(path).map_err(|err| ScanError::Failed(err.into()))?;
-        let measured = file_identity::from_file(&file).ok_or_else(|| {
-            ScanError::Failed(anyhow::anyhow!(
-                "file identity unavailable before YARA scan"
-            ))
-        })?;
-        let expected = target.identity.as_ref().unwrap_or(&measured);
-        let exact_mismatch = target
-            .identity
-            .as_ref()
-            .is_some_and(|identity| identity != &measured);
-        let object_mismatch = target
-            .file_identity
-            .as_ref()
-            .is_some_and(|identity| !measured.matches_object(identity));
-        if exact_mismatch || object_mismatch {
-            return Err(ScanError::Failed(anyhow::anyhow!(
-                "file identity changed before YARA scan"
-            )));
-        }
-        let size = file
-            .metadata()
-            .map_err(|err| ScanError::Failed(err.into()))?
-            .len();
-        let limit = self.limits.max_file_bytes;
-        if limit != 0 && size > limit {
-            return Err(ScanError::TooLarge { size, limit });
-        }
-        let cache_key = YaraFileIdentity {
-            file: expected.clone(),
-            match_debug,
-        };
-        if let Ok(mut cache) = self.cache.lock() {
-            if let Some(matches) = cache.get(&cache_key) {
-                if file_identity::unchanged(&file, path, expected) {
-                    return Ok(matches);
-                }
-            }
-        }
-        let mut bytes = Vec::new();
-        // Bound the read even if another writer grows the file after metadata.
-        (&mut file)
-            .take(size.saturating_add(1))
-            .read_to_end(&mut bytes)
-            .map_err(|err| ScanError::Failed(err.into()))?;
-        if !file_identity::unchanged(&file, path, expected) {
-            return Err(ScanError::Failed(anyhow::anyhow!(
-                "file identity changed during YARA read"
-            )));
-        }
-        let matches = self.scan_bytes(&bytes, match_debug)?;
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.insert(cache_key, matches.clone());
-        }
-        Ok(matches)
-    }
-
     /// Reject targets above the configured maximum file size.
     fn check_file_size(&self, path: &str) -> std::result::Result<(), ScanError> {
         let limit = self.limits.max_file_bytes;
@@ -614,131 +547,14 @@ fn collect_yara_matches(
     matches
 }
 
-/// Executable scan target with optional identity measured by the sensor.
-#[derive(Debug, Clone)]
-pub struct FileScanTarget {
-    pub path: String,
-    pub pid: u32,
-    pub(crate) identity: Option<FileIdentity>,
-    #[doc(hidden)]
-    pub file_identity: Option<crate::models::FileObjectIdentity>,
-}
-
-impl FileScanTarget {
-    pub(crate) fn new(path: &str, pid: u32, fields: &ProcessCreationFields) -> Self {
-        Self {
-            path: path.to_string(),
-            pid,
-            identity: fields
-                .exec
-                .as_ref()
-                .and_then(|exec| exec.file_identity.clone()),
-            file_identity: None,
-        }
-    }
-
-    /// Build a target from identity measured on a canonical file event.
-    pub fn from_file_event(path: &str, pid: u32, fields: &crate::models::FileEventFields) -> Self {
-        Self {
-            path: path.to_string(),
-            pid,
-            identity: None,
-            file_identity: fields.file_identity,
-        }
-    }
-}
-
-/// Sensor-event handler that sends file paths to the background worker.
-pub struct YaraEventHandler {
-    pub tx: Sender<FileScanTarget>,
-    pub memory_tx: Option<Sender<YaraMemoryJob>>,
-    pub allowlist_paths: Vec<String>,
-}
-
-impl CanonicalEventHandler for YaraEventHandler {
-    fn handle_event(&self, event: &CanonicalEvent) {
-        if event.action != SensorAction::Start {
-            return;
-        }
-
-        let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
-            return;
-        };
-
-        let Some(path) = fields.image.as_deref() else {
-            tracing::trace!(
-                target: "scanner",
-                pid = event.pid,
-                "YARA process-start event missing executable path"
-            );
-            return;
-        };
-
-        let pid = event.pid.unwrap_or(0);
-
-        if is_path_allowlisted(path, &self.allowlist_paths) {
-            tracing::trace!(
-                target: "scanner",
-                pid = pid,
-                file = path,
-                "YARA skipping allowlisted path"
-            );
-            return;
-        }
-
-        match crate::telemetry::try_send(
-            crate::telemetry::ChannelId::YaraFileScan,
-            &self.tx,
-            FileScanTarget::new(path, pid, fields),
-        ) {
-            Ok(_) => tracing::trace!(
-                target: "scanner",
-                pid = pid,
-                file = path,
-                "YARA queued file for scan"
-            ),
-            Err(err) => warn!(
-                target: "scanner",
-                pid = pid,
-                file = path,
-                error = %err,
-                "YARA queue full; dropping scan job"
-            ),
-        }
-
-        if let Some(memory_tx) = &self.memory_tx {
-            let expected_identity = capture_process_identity(event, fields, pid, path);
-            match crate::telemetry::try_send(
-                crate::telemetry::ChannelId::YaraMemoryScan,
-                memory_tx,
-                YaraMemoryJob {
-                    expected_identity,
-                    provenance: scan_subject_provenance(event.provenance()),
-                    enqueued_at: Instant::now(),
-                },
-            ) {
-                Ok(_) => tracing::trace!(
-                    target: "scanner",
-                    pid = pid,
-                    file = path,
-                    "YARA queued process for memory scan"
-                ),
-                Err(err) => warn!(
-                    target: "scanner",
-                    pid = pid,
-                    file = path,
-                    error = %err,
-                    "YARA memory queue full; dropping scan job"
-                ),
-            }
-        }
-    }
-}
-
-/// Runtime handler for YARA process-memory jobs only. On-disk scans are owned
-/// by `ArtifactResolver`, so registering the legacy combined handler would
-/// reintroduce a second executable open.
-pub(crate) struct YaraMemoryEventHandler {
+/// Queues canonical process starts for YARA memory scanning.
+///
+/// On-disk scans belong to `ArtifactResolver`. Memory scans stay a separate
+/// worker by design: they read a live process keyed by [`ProcessIdentity`]
+/// rather than a file keyed by `FileIdentity`, wait `yara_memory_delay_ms`
+/// before reading, and share one budget across regions, none of which fits
+/// the resolver's bounded single-read file I/O slots.
+pub struct YaraMemoryEventHandler {
     pub tx: Sender<YaraMemoryJob>,
     pub allowlist_paths: Vec<String>,
 }
@@ -852,64 +668,6 @@ mod tests {
         )
         .expect("write rule");
         Scanner::new(&rules_dir).expect("compile scanner")
-    }
-
-    #[test]
-    fn measured_scan_target_rejects_replaced_executable() {
-        let dir = tempfile::tempdir().unwrap();
-        let scanner = scanner_with_marker_rule(dir.path());
-        let path = dir.path().join("sample.bin");
-        fs::write(&path, b"evil!!").unwrap();
-        let target = FileScanTarget {
-            path: path.to_string_lossy().into_owned(),
-            pid: 42,
-            identity: file_identity::from_path(&path),
-            file_identity: None,
-        };
-        assert_eq!(
-            scanner
-                .scan_target(&target, MatchDebugLevel::Off)
-                .unwrap()
-                .len(),
-            1
-        );
-        let replacement = dir.path().join("replacement");
-        fs::write(&replacement, b"clean!").unwrap();
-        fs::rename(replacement, &path).unwrap();
-        assert!(scanner.scan_target(&target, MatchDebugLevel::Off).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn event_object_identity_rejects_replaced_file() {
-        use std::os::unix::fs::MetadataExt;
-
-        let dir = tempfile::tempdir().unwrap();
-        let scanner = scanner_with_marker_rule(dir.path());
-        let path = dir.path().join("sample.bin");
-        fs::write(&path, b"evil!!").unwrap();
-        let metadata = fs::metadata(&path).unwrap();
-        let target = FileScanTarget {
-            path: path.to_string_lossy().into_owned(),
-            pid: 42,
-            identity: None,
-            file_identity: Some(crate::models::FileObjectIdentity {
-                device: metadata.dev(),
-                inode: metadata.ino(),
-            }),
-        };
-        assert_eq!(
-            scanner
-                .scan_target(&target, MatchDebugLevel::Off)
-                .unwrap()
-                .len(),
-            1
-        );
-
-        let replacement = dir.path().join("replacement");
-        fs::write(&replacement, b"clean!").unwrap();
-        fs::rename(replacement, &path).unwrap();
-        assert!(scanner.scan_target(&target, MatchDebugLevel::Off).is_err());
     }
 
     #[test]

@@ -1,9 +1,9 @@
-//! Bounded, single-open resolution of executable artifacts.
+//! Bounded, single-open resolution of file artifacts.
 //!
-//! Process-image consumers used to open the same immutable file independently:
-//! Windows PE enrichment on the routing worker, then IOC hashing and YARA in
-//! separate workers.  This module reads an identity-validated handle once and
-//! fans the bytes out to each requested consumer.
+//! Every on-disk consumer (Windows PE enrichment, IOC hashing, and YARA) reads
+//! the same identity-validated handle once, and the bytes fan out to each
+//! requested consumer. Targets are process images, loaded images, and, when a
+//! [`WrittenFileSelector`] chooses them, files named by canonical file events.
 //!
 //! Admission to detection and capture follows ingest order. Only enrichment
 //! that Sigma can match, PE metadata today, may hold an event, and for at most
@@ -26,7 +26,10 @@ use tracing::{debug, info};
 use crate::alerts::AlertSink;
 use crate::engine::DetectorStore;
 use crate::ioc::{ComputedHashes, HashRequirements};
-use crate::models::{CanonicalEvent, EventFields, MatchDebugLevel, YaraRuleMatch, YaraScanSource};
+use crate::models::{
+    Alert, CanonicalEvent, EventFields, FileEventFields, FileObjectIdentity, MatchDebugLevel,
+    NormalizedEvent, YaraRuleMatch, YaraScanSource,
+};
 use crate::response::ResponseEngine;
 use crate::scanner::{self, ScanError, Scanner};
 use crate::sensor::{CanonicalEventHandler, Platform, SensorAction, SensorEventRouter};
@@ -129,6 +132,10 @@ pub struct ArtifactResolverSnapshot {
     pub admission_backpressure: u64,
     pub open_failed: u64,
     pub identity_mismatch: u64,
+    /// Selected written files skipped because the sensor supplied no
+    /// event-time identity to validate the opened file against.
+    #[serde(default)]
+    pub identity_unavailable: u64,
     pub read_failed: u64,
     pub consumer_failed: u64,
     pub oversized: u64,
@@ -154,6 +161,7 @@ struct ResolverCounters {
     admission_backpressure: AtomicU64,
     open_failed: AtomicU64,
     identity_mismatch: AtomicU64,
+    identity_unavailable: AtomicU64,
     read_failed: AtomicU64,
     consumer_failed: AtomicU64,
     oversized: AtomicU64,
@@ -195,6 +203,7 @@ impl ResolverState {
             admission_backpressure: self.counters.admission_backpressure.load(Ordering::Relaxed),
             open_failed: self.counters.open_failed.load(Ordering::Relaxed),
             identity_mismatch: self.counters.identity_mismatch.load(Ordering::Relaxed),
+            identity_unavailable: self.counters.identity_unavailable.load(Ordering::Relaxed),
             read_failed: self.counters.read_failed.load(Ordering::Relaxed),
             consumer_failed: self.counters.consumer_failed.load(Ordering::Relaxed),
             oversized: self.counters.oversized.load(Ordering::Relaxed),
@@ -250,6 +259,15 @@ impl ArtifactResolverHandle {
     }
 }
 
+/// Chooses which canonical file events become written-file artifact targets.
+///
+/// This is the whole of the written-file scan policy (#324): settle,
+/// extension, magic-byte, and size gates decide here. Identity validation,
+/// allowlists, scan limits, caching, and outcome counters come from the
+/// resolver for every selected target.
+pub(crate) type WrittenFileSelector =
+    Arc<dyn Fn(&CanonicalEvent, &FileEventFields) -> bool + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) struct ArtifactRuntime {
     pub detectors: Option<Arc<DetectorStore>>,
@@ -258,6 +276,9 @@ pub(crate) struct ArtifactRuntime {
     pub match_debug: MatchDebugLevel,
     pub yara_allowlist_paths: Vec<String>,
     pub pe_metadata: bool,
+    /// `None` selects no file events, so only process and loaded images are
+    /// resolved.
+    pub written_files: Option<WrittenFileSelector>,
 }
 
 impl ArtifactRuntime {
@@ -269,6 +290,7 @@ impl ArtifactRuntime {
             match_debug: MatchDebugLevel::Off,
             yara_allowlist_paths: Vec::new(),
             pe_metadata: platform == Platform::Windows,
+            written_files: None,
         }
     }
 }
@@ -420,11 +442,22 @@ impl ArtifactEventHandler {
 
 impl CanonicalEventHandler for ArtifactEventHandler {
     fn handle_event(&self, event: &CanonicalEvent) {
-        let Some(target) = ArtifactTarget::from_event(event) else {
+        let Some(target) = ArtifactTarget::from_event(event, self.runtime.written_files.as_ref())
+        else {
             self.admit(event, None);
             return;
         };
-        let plan = ResolvePlan::snapshot(&self.runtime, event, &target.path);
+        if target.kind == ArtifactKind::WrittenFile && target.expected.is_none() {
+            // Without an event-time identity the resolver could scan whatever
+            // replaced the file and report it as the file this event wrote.
+            self.state
+                .counters
+                .identity_unavailable
+                .fetch_add(1, Ordering::Relaxed);
+            self.admit(event, None);
+            return;
+        }
+        let plan = ResolvePlan::snapshot(&self.runtime, event, &target);
         if plan.needs.is_empty() {
             self.admit(event, None);
             return;
@@ -437,6 +470,8 @@ impl CanonicalEventHandler for ArtifactEventHandler {
         } else {
             (None, None)
         };
+        let written_file = (target.kind == ArtifactKind::WrittenFile)
+            .then(|| Box::new(event.normalized().clone()));
         let job = ArtifactJob {
             target,
             plan,
@@ -446,6 +481,7 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             provenance: scanner::scan_subject_provenance(event.provenance()),
             platform: event.normalized().platform,
             provider: event.normalized().provider.clone(),
+            written_file,
         };
         match crate::telemetry::try_send(
             crate::telemetry::ChannelId::ArtifactResolution,
@@ -523,45 +559,85 @@ impl Admission {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArtifactKind {
+    /// The executable of a process start.
+    ProcessImage,
+    /// A module loaded into a process. Only PE metadata is resolved.
+    LoadedImage,
+    /// A file named by a canonical file event and chosen by the
+    /// [`WrittenFileSelector`].
+    WrittenFile,
+}
+
+/// What the opened file must still be for its bytes to belong to the event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ExpectedIdentity {
+    /// Object, size, and timestamps measured at exec. Any change rejects it.
+    Exact(FileIdentity),
+    /// The filesystem object a file event touched. Its content may have grown
+    /// since the event, but a replacement at the same path is rejected.
+    Object(FileObjectIdentity),
+}
+
+impl ExpectedIdentity {
+    fn matches(&self, opened: &FileIdentity) -> bool {
+        match self {
+            Self::Exact(expected) => expected == opened,
+            Self::Object(expected) => opened.matches_object(expected),
+        }
+    }
+}
+
 #[derive(Clone)]
-struct ArtifactTarget {
+pub(crate) struct ArtifactTarget {
+    pub kind: ArtifactKind,
     path: PathBuf,
     display_path: String,
     pid: u32,
-    expected: Option<FileIdentity>,
+    pub expected: Option<ExpectedIdentity>,
 }
 
 impl ArtifactTarget {
-    fn from_event(event: &CanonicalEvent) -> Option<Self> {
-        match &event.normalized().fields {
-            EventFields::ProcessCreation(fields) if event.action == SensorAction::Start => {
-                let display_path = fields.image.clone().filter(|path| !path.is_empty())?;
-                let path = normalize_path(event.normalized().platform, &display_path);
-                Some(Self {
-                    path,
-                    display_path,
-                    pid: event.pid.unwrap_or(0),
-                    expected: fields
-                        .exec
-                        .as_ref()
-                        .and_then(|exec| exec.file_identity.clone()),
-                })
-            }
+    pub(crate) fn from_event(
+        event: &CanonicalEvent,
+        written_files: Option<&WrittenFileSelector>,
+    ) -> Option<Self> {
+        let (kind, display_path, expected) = match &event.normalized().fields {
+            EventFields::ProcessCreation(fields) if event.action == SensorAction::Start => (
+                ArtifactKind::ProcessImage,
+                fields.image.clone(),
+                fields
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.file_identity.clone())
+                    .map(ExpectedIdentity::Exact),
+            ),
             EventFields::ImageLoad(fields) => {
-                let display_path = fields
-                    .image_loaded
-                    .clone()
-                    .filter(|path| !path.is_empty())?;
-                let path = normalize_path(event.normalized().platform, &display_path);
-                Some(Self {
-                    path,
-                    display_path,
-                    pid: event.pid.unwrap_or(0),
-                    expected: None,
-                })
+                (ArtifactKind::LoadedImage, fields.image_loaded.clone(), None)
             }
-            _ => None,
-        }
+            EventFields::FileEvent(fields)
+                if matches!(
+                    event.action,
+                    SensorAction::Create | SensorAction::Modify | SensorAction::Rename
+                ) && written_files.is_some_and(|select| select(event, fields)) =>
+            {
+                (
+                    ArtifactKind::WrittenFile,
+                    fields.target_filename.clone(),
+                    fields.file_identity.map(ExpectedIdentity::Object),
+                )
+            }
+            _ => return None,
+        };
+        let display_path = display_path.filter(|path| !path.is_empty())?;
+        Some(Self {
+            kind,
+            path: normalize_path(event.normalized().platform, &display_path),
+            display_path,
+            pid: event.pid.unwrap_or(0),
+            expected,
+        })
     }
 }
 
@@ -588,9 +664,13 @@ struct ResolvePlan {
 }
 
 impl ResolvePlan {
-    fn snapshot(runtime: &ArtifactRuntime, event: &CanonicalEvent, path: &Path) -> Self {
-        let is_process_start = matches!(event.normalized().fields, EventFields::ProcessCreation(_))
-            && event.action == SensorAction::Start;
+    fn snapshot(
+        runtime: &ArtifactRuntime,
+        event: &CanonicalEvent,
+        target: &ArtifactTarget,
+    ) -> Self {
+        let path = &target.path;
+        let scans_content = target.kind != ArtifactKind::LoadedImage;
         let pe_metadata = runtime.pe_metadata
             && event.normalized().platform == Platform::Windows
             && matches!(
@@ -609,7 +689,7 @@ impl ResolvePlan {
         let mut ioc = None;
         let mut yara = None;
 
-        if is_process_start {
+        if scans_content {
             if let Some(detectors) = &runtime.detectors {
                 let current_ioc = detectors.ioc().clone();
                 if current_ioc.wants_hashing()
@@ -671,9 +751,24 @@ struct ArtifactJob {
     provenance: crate::models::Provenance,
     platform: Platform,
     provider: String,
+    /// The file event a written-file target came from, reported as the alert
+    /// subject instead of a process image.
+    written_file: Option<Box<NormalizedEvent>>,
 }
 
 impl ArtifactJob {
+    /// Alerts on a written file describe that file and its writer, the way
+    /// the file event did, rather than presenting it as a process image.
+    fn describe_subject(&self, alert: &mut Alert) {
+        if let Some(event) = &self.written_file {
+            let mut subject = (**event).clone();
+            subject.timestamp = std::mem::take(&mut alert.event.timestamp);
+            subject.source_seq = None;
+            subject.ingest_seq = 0;
+            alert.event = subject;
+        }
+    }
+
     /// Release admission as soon as PE metadata is known, or known absent.
     fn publish_pe(&mut self, metadata: Option<PeMetadata>) {
         if let Some(ready) = self.pe_ready.take() {
@@ -818,6 +913,7 @@ impl ArtifactResolver {
             provenance: Default::default(),
             platform: Platform::Linux,
             provider: "test".to_string(),
+            written_file: None,
         };
         self.resolve_until_with_opener(
             target,
@@ -858,7 +954,7 @@ impl ArtifactResolver {
         if target
             .expected
             .as_ref()
-            .is_some_and(|expected| expected != &identity)
+            .is_some_and(|expected| !expected.matches(&identity))
         {
             self.state
                 .counters
@@ -1079,7 +1175,7 @@ impl ArtifactResolver {
     fn apply(&self, job: &ArtifactJob, artifact: &Artifact) {
         if let (Some(ioc), Some(hashes)) = (&job.plan.ioc, &artifact.hashes) {
             for ioc_match in ioc.match_hashes(hashes) {
-                let alert = ioc.build_alert_for_hash_match(
+                let mut alert = ioc.build_alert_for_hash_match(
                     &ioc_match,
                     &job.target.display_path,
                     job.target.pid,
@@ -1087,6 +1183,7 @@ impl ArtifactResolver {
                     job.platform,
                     &job.provider,
                 );
+                job.describe_subject(&mut alert);
                 if let Some(sink) = &self.runtime.alert_sink {
                     sink.write_alert(&alert);
                 }
@@ -1102,7 +1199,7 @@ impl ArtifactResolver {
                     self.runtime.match_debug,
                     rule_match,
                 );
-                let alert = crate::runtime::yara::build_yara_alert(
+                let mut alert = crate::runtime::yara::build_yara_alert(
                     &rule_match.rule,
                     rule_match.metadata_id.clone(),
                     &job.target.display_path,
@@ -1112,6 +1209,7 @@ impl ArtifactResolver {
                     job.platform,
                     &job.provider,
                 );
+                job.describe_subject(&mut alert);
                 if let Some(sink) = &self.runtime.alert_sink {
                     sink.write_yara_alert(&alert, YaraScanSource::File);
                 }
@@ -1548,6 +1646,7 @@ mod tests {
             match_debug: MatchDebugLevel::Off,
             yara_allowlist_paths: Vec::new(),
             pe_metadata: false,
+            written_files: None,
         }
     }
 
@@ -1559,7 +1658,7 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let runtime = runtime_with_consumers(temp.path(), bytes);
         let event = process_event(&path, Platform::Linux);
-        let target = ArtifactTarget::from_event(&event).unwrap();
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
         let state = Arc::new(ResolverState::new());
         let worker = ArtifactResolver::new(
             Arc::new(HostState::default()),
@@ -1568,7 +1667,7 @@ mod tests {
         );
         let opens = AtomicUsize::new(0);
 
-        let first_plan = ResolvePlan::snapshot(&runtime, &event, &path);
+        let first_plan = ResolvePlan::snapshot(&runtime, &event, &target);
         let first = worker
             .resolve_with_opener(&target, &first_plan, |path| {
                 opens.fetch_add(1, Ordering::Relaxed);
@@ -1591,7 +1690,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .swap_yara(Arc::new(Scanner::new(&clean_rules).unwrap()));
-        let second_plan = ResolvePlan::snapshot(&runtime, &event, &path);
+        let second_plan = ResolvePlan::snapshot(&runtime, &event, &target);
         let second = worker
             .resolve_with_opener(&target, &second_plan, |path| {
                 opens.fetch_add(1, Ordering::Relaxed);
@@ -1936,8 +2035,8 @@ mod tests {
         let state = Arc::new(ResolverState::new());
         let runtime = ArtifactRuntime::capture(Platform::Windows);
         let event = image_event(Path::new("definitely-missing.exe"));
-        let target = ArtifactTarget::from_event(&event).unwrap();
-        let plan = ResolvePlan::snapshot(&runtime, &event, &target.path);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
         let (pe_tx, pe_rx) = std::sync::mpsc::sync_channel(1);
         let (tx, mut rx) = mpsc::channel(1);
         tx.blocking_send(ArtifactJob {
@@ -1949,6 +2048,7 @@ mod tests {
             provenance: Default::default(),
             platform: Platform::Windows,
             provider: "test".into(),
+            written_file: None,
         })
         .unwrap();
         drop(tx);
@@ -1982,8 +2082,8 @@ mod tests {
         let state = Arc::new(ResolverState::new());
         let runtime = ArtifactRuntime::capture(Platform::Windows);
         let event = image_event(&path);
-        let target = ArtifactTarget::from_event(&event).unwrap();
-        let mut plan = ResolvePlan::snapshot(&runtime, &event, &target.path);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let mut plan = ResolvePlan::snapshot(&runtime, &event, &target);
         plan.deadline = Duration::from_millis(50);
         let (tx, mut rx) = mpsc::channel(ARTIFACT_IO_ISOLATION_LIMIT + 1);
         for _ in 0..=ARTIFACT_IO_ISOLATION_LIMIT {
@@ -1996,6 +2096,7 @@ mod tests {
                 provenance: Default::default(),
                 platform: Platform::Windows,
                 provider: "test".into(),
+                written_file: None,
             })
             .unwrap();
         }
@@ -2063,8 +2164,8 @@ level: high
             ARTIFACT_QUEUE_CAPACITY,
         );
         // Seed the PE store so the rule does not depend on a Windows parser.
-        let target = ArtifactTarget::from_event(&event).unwrap();
-        let plan = ResolvePlan::snapshot(&runtime, &event, &target.path);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
         harness.state.stores.lock().unwrap().insert(
             file_identity::from_path(&image).unwrap(),
             &plan,
@@ -2129,6 +2230,224 @@ level: high
         drop(job);
         drop(ingress);
         admitted.join().unwrap();
+    }
+
+    const FILE_CREATE_OPCODE: u8 = 64;
+    const FILE_DELETE_OPCODE: u8 = 70;
+    const WRITER_IMAGE: &str = "/usr/bin/curl";
+
+    fn file_event(path: &Path, opcode: u8, identity: Option<FileObjectIdentity>) -> CanonicalEvent {
+        let mut normalized = windows_file_event(1).into_normalized();
+        normalized.platform = Platform::Linux;
+        normalized.provider = "ebpf".into();
+        normalized.opcode = opcode;
+        normalized.fields = EventFields::FileEvent(crate::models::FileEventFields {
+            source_filename: None,
+            target_filename: Some(path.to_string_lossy().into_owned()),
+            process_id: Some("43".into()),
+            image: Some(WRITER_IMAGE.into()),
+            creation_utc_time: None,
+            previous_creation_utc_time: None,
+            user: None,
+            file_identity: identity,
+            path_truncated: None,
+        });
+        CanonicalEvent::from_normalized(normalized)
+    }
+
+    fn select_all() -> WrittenFileSelector {
+        Arc::new(|_, _| true)
+    }
+
+    #[cfg(unix)]
+    fn object_identity(path: &Path) -> FileObjectIdentity {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(path).unwrap();
+        FileObjectIdentity {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        }
+    }
+
+    #[test]
+    fn file_events_become_targets_only_through_the_selector() {
+        let path = Path::new("/tmp/dropped.bin");
+        let created = file_event(path, FILE_CREATE_OPCODE, None);
+        assert!(ArtifactTarget::from_event(&created, None).is_none());
+        let reject: WrittenFileSelector = Arc::new(|_, _| false);
+        assert!(ArtifactTarget::from_event(&created, Some(&reject)).is_none());
+
+        let target = ArtifactTarget::from_event(&created, Some(&select_all())).unwrap();
+        assert_eq!(target.kind, ArtifactKind::WrittenFile);
+        assert_eq!(target.display_path, "/tmp/dropped.bin");
+        assert_eq!(target.pid, 43);
+
+        let deleted = file_event(path, FILE_DELETE_OPCODE, None);
+        assert!(ArtifactTarget::from_event(&deleted, Some(&select_all())).is_none());
+    }
+
+    #[test]
+    fn selected_written_file_without_event_identity_is_skipped_and_counted() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("dropped.bin");
+        std::fs::write(&path, b"evil!!").unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), b"evil!!");
+        runtime.written_files = Some(select_all());
+        let seen = Seen::default();
+        let opens = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&opens);
+        let harness = Harness::start(
+            router_with(seen.clone()),
+            runtime,
+            Arc::new(move |path| {
+                counted.fetch_add(1, Ordering::Relaxed);
+                File::open(path)
+            }),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness
+            .ingress
+            .handle_event(&file_event(&path, FILE_CREATE_OPCODE, None));
+        let state = harness.finish();
+
+        assert_eq!(seen.ingest_seqs(), vec![1], "the event is still admitted");
+        assert_eq!(opens.load(Ordering::Relaxed), 0);
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.identity_unavailable, 1);
+        assert_eq!(snapshot.queued, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn written_file_scans_its_validated_handle_and_rejects_a_replacement() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("dropped.bin");
+        std::fs::write(&path, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.written_files = Some(select_all());
+        let event = file_event(&path, FILE_CREATE_OPCODE, Some(object_identity(&path)));
+        let target = ArtifactTarget::from_event(&event, runtime.written_files.as_ref()).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        assert!(plan.needs.yara && plan.needs.hashes.sha256 && !plan.needs.pe_metadata);
+        let state = Arc::new(ResolverState::new());
+        let worker = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::clone(&state),
+        );
+
+        let artifact = worker
+            .resolve_with_opener(&target, &plan, open_artifact)
+            .unwrap();
+        assert_eq!(artifact.yara.unwrap().len(), 1);
+        assert!(artifact.hashes.unwrap().sha256.is_some());
+
+        let replacement = temp.path().join("replacement.bin");
+        std::fs::write(&replacement, bytes).unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        let error = worker
+            .resolve_with_opener(&target, &plan, open_artifact)
+            .expect_err("a replacement must not be scanned as the written file");
+        assert!(matches!(error, ResolveError::Identity));
+        assert_eq!(state.snapshot().identity_mismatch, 1);
+    }
+
+    #[test]
+    fn process_image_replaced_after_exec_is_an_identity_mismatch() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("sample.bin");
+        std::fs::write(&path, bytes).unwrap();
+        let runtime = runtime_with_consumers(temp.path(), bytes);
+        let mut normalized = process_event(&path, Platform::Linux).into_normalized();
+        let EventFields::ProcessCreation(fields) = &mut normalized.fields else {
+            unreachable!();
+        };
+        fields.exec = Some(Box::new(crate::models::ExecMetadata {
+            file_identity: file_identity::from_path(&path),
+            ..Default::default()
+        }));
+        let event = CanonicalEvent::from_normalized(normalized);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        let state = Arc::new(ResolverState::new());
+        let worker = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::clone(&state),
+        );
+        assert_eq!(
+            worker
+                .resolve_with_opener(&target, &plan, open_artifact)
+                .unwrap()
+                .yara
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let replacement = temp.path().join("replacement.bin");
+        std::fs::write(&replacement, b"clean!").unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        assert!(matches!(
+            worker.resolve_with_opener(&target, &plan, open_artifact),
+            Err(ResolveError::Identity)
+        ));
+        assert_eq!(state.snapshot().identity_mismatch, 1);
+    }
+
+    /// A written file is reported as the file its event named, with the
+    /// writing process, never as a process image of that path.
+    #[cfg(unix)]
+    #[test]
+    fn written_file_alerts_describe_the_file_and_its_writer() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("dropped.bin");
+        std::fs::write(&path, bytes).unwrap();
+        let alerts_path = temp.path().join("alerts.ndjson");
+        let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.written_files = Some(select_all());
+        runtime.alert_sink = Some(AlertSink::new(writer));
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness.ingress.handle_event(&file_event(
+            &path,
+            FILE_CREATE_OPCODE,
+            Some(object_identity(&path)),
+        ));
+        let state = harness.finish();
+        drop(guard);
+
+        assert_eq!(state.snapshot().resolved, 1);
+        let alerts: Vec<serde_json::Value> = std::fs::read_to_string(&alerts_path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let engines: Vec<&str> = alerts
+            .iter()
+            .map(|alert| alert["edr.rule.engine"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            engines.len(),
+            2,
+            "one IOC hash and one YARA alert: {alerts:?}"
+        );
+        assert!(engines.contains(&"Ioc") && engines.contains(&"Yara"));
+        for alert in &alerts {
+            assert_eq!(alert["file.path"], path.to_string_lossy().as_ref());
+            assert_eq!(alert["process.executable"], WRITER_IMAGE);
+            assert_eq!(alert["process.pid"], 43);
+        }
     }
 
     #[test]
