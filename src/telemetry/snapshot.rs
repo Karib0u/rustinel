@@ -727,9 +727,9 @@ mod tests {
     #[test]
     fn dropping_channels_are_ranked_worst_first() {
         let snapshot = snapshot(vec![
-            channel("yara_file_scan", 10, 5),
+            channel("artifact_resolution", 10, 5),
             channel("sensor_events", 1000, 900),
-            channel("ioc_hash", 10, 0),
+            channel("yara_memory_scan", 10, 0),
         ]);
 
         let dropping: Vec<&str> = snapshot
@@ -738,7 +738,7 @@ mod tests {
             .map(|channel| channel.channel.as_str())
             .collect();
 
-        assert_eq!(dropping, vec!["sensor_events", "yara_file_scan"]);
+        assert_eq!(dropping, vec!["sensor_events", "artifact_resolution"]);
         assert_eq!(snapshot.total_dropped(), 905);
         assert_eq!(snapshot.total_accepted(), 1020);
     }
@@ -980,7 +980,7 @@ mod tests {
         let path = snapshot_path(temp.path());
 
         snapshot(vec![]).write_to(&path).expect("first write");
-        snapshot(vec![channel("ioc_hash", 1, 0)])
+        snapshot(vec![channel("yara_memory_scan", 1, 0)])
             .write_to(&path)
             .expect("second write");
 

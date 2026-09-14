@@ -106,11 +106,12 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         .saturating_add(resolver.admission_budget_exceeded)
         .saturating_add(resolver.open_failed)
         .saturating_add(resolver.identity_mismatch)
+        .saturating_add(resolver.identity_unavailable)
         .saturating_add(resolver.read_failed)
         .saturating_add(resolver.consumer_failed)
         .saturating_add(resolver.oversized);
     let detail = format!(
-        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} read, {} consumer, {} oversized",
+        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} identity unavailable, {} read, {} consumer, {} oversized",
         resolver.queued,
         resolver.resolved,
         resolver.cache_hits,
@@ -130,6 +131,7 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         resolver.deadline_exceeded,
         resolver.open_failed,
         resolver.identity_mismatch,
+        resolver.identity_unavailable,
         resolver.read_failed,
         resolver.consumer_failed,
         resolver.oversized,
@@ -811,6 +813,7 @@ mod tests {
             admission_backpressure: 9,
             open_failed: 0,
             identity_mismatch: 0,
+            identity_unavailable: 4,
             read_failed: 0,
             consumer_failed: 0,
             oversized: 0,
@@ -827,10 +830,11 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].status, DiagnosticStatus::Warn);
-        assert!(results[0].message.contains("3 artifact-resolution failure"));
+        assert!(results[0].message.contains("7 artifact-resolution failure"));
         let detail = results[0].detail.as_deref().expect("resolver detail");
         assert!(detail.contains("PE 4, hashes 5, imphashes 6, signatures 7, YARA 8"));
         assert!(detail.contains("1 queue saturated"));
+        assert!(detail.contains("0 identity, 4 identity unavailable"));
         assert!(detail.contains("2 past the 100 ms budget, 9 backpressured sends"));
     }
 
@@ -960,7 +964,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         snapshot(vec![
             channel("sensor_events", 9_000, 1_000),
-            channel("yara_file_scan", 100, 25),
+            channel("artifact_resolution", 100, 25),
         ])
         .write_to(&snapshot_path(temp.path()))
         .expect("write snapshot");
@@ -975,7 +979,7 @@ mod tests {
         let detail = results[0].detail.as_deref().expect("detail");
         // Worst channel first, so the summary leads with the real gap.
         assert!(detail.starts_with("sensor_events: 1000 dropped of 10000 offered (10.00%)"));
-        assert!(detail.contains("yara_file_scan: 25 dropped of 125 offered"));
+        assert!(detail.contains("artifact_resolution: 25 dropped of 125 offered"));
         assert!(results[0].fix.is_some());
     }
 

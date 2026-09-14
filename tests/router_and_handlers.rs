@@ -10,7 +10,7 @@ use rustinel::{
     config::ResponseConfig,
     engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler},
     ioc::IocEngine,
-    scanner::{normalize_allowlist_paths, Scanner, YaraEventHandler},
+    scanner::{normalize_allowlist_paths, Scanner, YaraMemoryEventHandler},
     sensor::{Platform, SensorAction, SensorEventHandler, SensorEventRouter},
 };
 use tokio::sync::mpsc;
@@ -71,12 +71,10 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
 }
 
 #[tokio::test]
-async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_starts() {
-    let (file_tx, mut file_rx) = mpsc::channel(8);
+async fn yara_memory_handler_queues_only_process_starts() {
     let (memory_tx, mut memory_rx) = mpsc::channel(8);
-    let handler = YaraEventHandler {
-        tx: file_tx,
-        memory_tx: Some(memory_tx),
+    let handler = YaraMemoryEventHandler {
+        tx: memory_tx,
         allowlist_paths: Vec::new(),
     };
 
@@ -92,10 +90,6 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     let host_state = TestNormalizer::new().host_state;
     let start = host_state.canonicalize(start).expect("start canonicalizes");
     handler.handle_event(&start);
-    let target = file_rx.try_recv().expect("disk job queued");
-    let (path, pid) = (target.path, target.pid);
-    assert_eq!(path, common::image_for(Platform::Linux));
-    assert_eq!(pid, TEST_PID);
     let memory = memory_rx.try_recv().expect("memory job queued");
     assert!(memory.enqueued_at >= before_enqueue);
     assert!(memory.enqueued_at <= std::time::Instant::now());
@@ -120,7 +114,6 @@ async fn yara_event_handler_queues_disk_and_memory_only_for_non_allowlisted_star
     let mut stop = process_start_event(Platform::Linux);
     stop.action = SensorAction::Stop;
     assert!(host_state.canonicalize(stop).is_none());
-    assert!(file_rx.try_recv().is_err());
     assert!(memory_rx.try_recv().is_err());
 }
 
@@ -139,11 +132,10 @@ fn expected_linux_start_time(event_start_time: u64) -> u64 {
 }
 
 #[tokio::test]
-async fn yara_event_handler_respects_disabled_memory_and_allowlisted_paths() {
-    let (file_tx, mut file_rx) = mpsc::channel(8);
-    let handler = YaraEventHandler {
-        tx: file_tx,
-        memory_tx: None,
+async fn yara_memory_handler_respects_allowlisted_paths() {
+    let (memory_tx, mut memory_rx) = mpsc::channel(8);
+    let handler = YaraMemoryEventHandler {
+        tx: memory_tx,
         allowlist_paths: Vec::new(),
     };
     let host_state = TestNormalizer::new().host_state;
@@ -151,20 +143,19 @@ async fn yara_event_handler_respects_disabled_memory_and_allowlisted_paths() {
         .canonicalize(process_start_event(Platform::Linux))
         .expect("start canonicalizes");
     handler.handle_event(&start);
-    assert!(file_rx.try_recv().is_ok());
+    assert!(memory_rx.try_recv().is_ok());
 
-    let (allow_file_tx, mut allow_file_rx) = mpsc::channel(8);
-    let allowlisted = YaraEventHandler {
-        tx: allow_file_tx,
-        memory_tx: None,
+    let (allow_memory_tx, mut allow_memory_rx) = mpsc::channel(8);
+    let allowlisted = YaraMemoryEventHandler {
+        tx: allow_memory_tx,
         allowlist_paths: normalize_allowlist_paths(&["/usr/bin".to_string()]),
     };
     allowlisted.handle_event(&start);
-    assert!(allow_file_rx.try_recv().is_err());
+    assert!(allow_memory_rx.try_recv().is_err());
 
     let network = host_state
         .canonicalize(common::network_connect_event(Platform::Linux))
         .expect("network canonicalizes");
     allowlisted.handle_event(&network);
-    assert!(allow_file_rx.try_recv().is_err());
+    assert!(allow_memory_rx.try_recv().is_err());
 }
