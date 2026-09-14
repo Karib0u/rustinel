@@ -120,6 +120,10 @@ impl SuffixIndex {
         self.entries.len()
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Every indicator registered for `suffix`, in feed order, paired with its
     /// feed position.
     pub(crate) fn lookup(&self, suffix: &str) -> SuffixChain<'_> {
