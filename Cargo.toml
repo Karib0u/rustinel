@@ -116,6 +116,11 @@ harness = false
 name = "ioc_domains"
 harness = false
 
+# Per-event inline IOC matching, measured with `cargo bench --bench ioc_observables`.
+[[bench]]
+name = "ioc_observables"
+harness = false
+
 # Bounded-cache eviction cost, measured with `cargo bench --bench cache_eviction`.
 [[bench]]
 name = "cache_eviction"
