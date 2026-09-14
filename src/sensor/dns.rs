@@ -1,8 +1,14 @@
 //! Shared DNS wire-format parsing used by platform sensors.
 //!
 //! Both the Linux eBPF sensor and the macOS `/dev/bpf` sensor observe raw DNS
-//! query payloads and need to extract the queried name. This module holds the
-//! single, defensive parser they share.
+//! payloads and need to extract the queried name. This module holds the
+//! single, defensive parser they share; the `response` submodule decodes the
+//! answers the Linux sensor also sees.
+
+#[cfg(any(target_os = "linux", test))]
+mod response;
+#[cfg(target_os = "linux")]
+pub(crate) use response::{format_query_results, parse_response};
 
 /// DNS message header length in bytes.
 pub(crate) const HEADER_LEN: usize = 12;
@@ -10,6 +16,8 @@ pub(crate) const HEADER_LEN: usize = 12;
 const LABEL_POINTER_MASK: u8 = 0xc0;
 /// Maximum length of a single DNS label.
 const LABEL_MAX_LEN: usize = 63;
+/// QR bit of the header flags: set on responses.
+const QR_RESPONSE: u16 = 0x8000;
 
 /// Parse the first question (QNAME and QTYPE) from a raw DNS query payload.
 ///
@@ -25,11 +33,40 @@ pub(crate) fn parse_question(payload: &[u8]) -> Option<(String, u16)> {
 
     let flags = u16::from_be_bytes([payload[2], payload[3]]);
     let qdcount = u16::from_be_bytes([payload[4], payload[5]]);
-    if flags & 0x8000 != 0 || qdcount == 0 {
+    if flags & QR_RESPONSE != 0 || qdcount == 0 {
         return None;
     }
 
-    let mut pos = HEADER_LEN;
+    let (name, pos) = read_question_name(payload, HEADER_LEN)?;
+    let qtype = match (payload.get(pos), payload.get(pos + 1)) {
+        (Some(hi), Some(lo)) => u16::from_be_bytes([*hi, *lo]),
+        _ => 0,
+    };
+    Some((name, qtype))
+}
+
+/// Map a DNS QTYPE to its record-type name, for the common types.
+pub(crate) fn record_type_name(qtype: u16) -> Option<&'static str> {
+    let name = match qtype {
+        1 => "A",
+        2 => "NS",
+        5 => "CNAME",
+        6 => "SOA",
+        12 => "PTR",
+        15 => "MX",
+        16 => "TXT",
+        28 => "AAAA",
+        33 => "SRV",
+        255 => "ANY",
+        _ => return None,
+    };
+    Some(name)
+}
+
+/// Read an uncompressed question name starting at `pos`.
+///
+/// Returns the dotted name and the offset just past its root label.
+fn read_question_name(payload: &[u8], mut pos: usize) -> Option<(String, usize)> {
     let mut labels: Vec<String> = Vec::new();
     while pos < payload.len() {
         let label_len = payload[pos];
@@ -41,11 +78,7 @@ pub(crate) fn parse_question(payload: &[u8]) -> Option<(String, u16)> {
             } else {
                 labels.join(".")
             };
-            let qtype = match (payload.get(pos), payload.get(pos + 1)) {
-                (Some(hi), Some(lo)) => u16::from_be_bytes([*hi, *lo]),
-                _ => 0,
-            };
-            return Some((name, qtype));
+            return Some((name, pos));
         }
 
         if label_len & LABEL_POINTER_MASK != 0 {
@@ -69,7 +102,7 @@ mod tests {
     use super::*;
 
     /// Build a minimal single-question DNS query payload for `name`.
-    fn query_payload(name: &str) -> Vec<u8> {
+    pub(super) fn query_payload(name: &str) -> Vec<u8> {
         let mut payload = vec![0u8; HEADER_LEN];
         payload[5] = 1; // qdcount = 1
         for label in name.split('.') {
@@ -136,5 +169,12 @@ mod tests {
         payload.push(10); // claims a 10-byte label
         payload.extend_from_slice(b"abc"); // but only 3 bytes follow
         assert_eq!(parse_question(&payload), None);
+    }
+
+    #[test]
+    fn record_type_name_maps_known_types() {
+        assert_eq!(record_type_name(1), Some("A"));
+        assert_eq!(record_type_name(28), Some("AAAA"));
+        assert_eq!(record_type_name(64000), None);
     }
 }

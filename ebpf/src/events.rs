@@ -246,16 +246,28 @@ pub struct FileIndexEvent {
     pub _pad: u32,
 }
 
-/// DNS query/response event.
+/// Bytes of one DNS message copied into a [`DnsEvent`].
 ///
-/// - kind 1 = query (`sendto`)
-/// - kind 2 = response (`recvfrom`)
+/// 512 is the classic UDP DNS limit, which holds the answer section of an
+/// ordinary A, AAAA, or CNAME response. A power of two keeps the copy length
+/// trivially bounded for the verifier.
+pub const DNS_PAYLOAD_CAPACITY: usize = 512;
+
+/// [`DnsEvent::kind`] for an outbound query.
+pub const DNS_EVENT_QUERY: u32 = 1;
+/// [`DnsEvent::kind`] for an inbound response.
+pub const DNS_EVENT_RESPONSE: u32 = 2;
+
+/// Raw DNS message observed on a DNS socket.
+///
+/// The kernel copies the message and nothing else; userspace parses the
+/// question and answers from `payload`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct DnsEvent {
     pub event_time_ns: u64,
     pub source_seq: u64,
-    /// Event kind: 1 = query, 2 = response.
+    /// [`DNS_EVENT_QUERY`] or [`DNS_EVENT_RESPONSE`].
     pub kind: u32,
     /// Thread group ID.
     pub pid: u32,
@@ -266,14 +278,11 @@ pub struct DnsEvent {
     /// Number of valid bytes in `payload`.
     pub payload_len: u16,
     pub _pad0: u16,
-    /// Null-terminated DNS query name (up to 95 chars).
-    pub query_name: [u8; 96],
-    /// Null-terminated DNS answer/result summary (up to 95 chars).
-    pub query_results: [u8; 96],
-    /// Null-terminated query type string (up to 15 chars).
-    pub record_type: [u8; 16],
-    /// Raw DNS payload copied from userspace for userspace parsing.
-    pub payload: [u8; 256],
-    /// Sensor-minted identity for the process that sent the query.
+    pub _pad1: u32,
+    /// Sensor-minted identity for the process that owns the socket.
     pub process_start_time: u64,
+    /// DNS message copied from userspace, truncated to the capacity.
+    pub payload: [u8; DNS_PAYLOAD_CAPACITY],
 }
+
+const _: () = assert!(core::mem::size_of::<DnsEvent>() == 560);

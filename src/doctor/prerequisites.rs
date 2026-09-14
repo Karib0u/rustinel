@@ -39,7 +39,7 @@ fn linux_prerequisite_results() -> Vec<DiagnosticResult> {
         linux_systemd_result(),
         DiagnosticResult::pass(
             "linux_dns_hooks",
-            "DNS hooks include sendto, sendmsg, and sendmmsg coverage",
+            "DNS hooks cover queries from sendto, sendmsg, sendmmsg, and write, and responses from recvfrom, recvmsg, and read",
         ),
         DiagnosticResult::pass(
             "telemetry_prerequisites",

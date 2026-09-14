@@ -74,7 +74,7 @@ See [macOS permissions](macos-permissions.md#start-up-errors).
 - **Registry rules use `HKLM` or `HKCU`.**
   Rustinel reports `\REGISTRY\MACHINE\...` paths.
 - **DNS rules match answers.**
-  Only Windows fills `QueryResults`.
+  Windows and Linux fill `QueryResults` on response events, not on the query event.
   Linux and macOS see plain DNS queries on port 53, not DNS over HTTPS or TLS, and not lookups answered from a local cache.
 - **The event was dropped.**
   Check `pipeline_telemetry`, and on Windows `registry_path_resolution` and `file_path_attribution`.

@@ -319,26 +319,32 @@ pub struct FileIndexEvent {
     pub _pad: u32,
 }
 
-/// DNS event. Produced by send/receive DNS syscall hooks.
-///
-/// `kind`: 1 = query, 2 = response.
+/// Bytes of one DNS message carried by [`DnsEvent`]. Mirrors
+/// `DNS_PAYLOAD_CAPACITY` in `ebpf/src/events.rs`.
+pub const DNS_PAYLOAD_CAPACITY: usize = 512;
+
+/// [`DnsEvent::kind`] for an outbound query.
+pub const DNS_EVENT_QUERY: u32 = 1;
+/// [`DnsEvent::kind`] for an inbound response.
+pub const DNS_EVENT_RESPONSE: u32 = 2;
+
+/// Raw DNS message observed on a DNS socket. Userspace parses `payload`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct DnsEvent {
     pub event_time_ns: u64,
     pub source_seq: u64,
+    /// [`DNS_EVENT_QUERY`] or [`DNS_EVENT_RESPONSE`].
     pub kind: u32,
     pub pid: u32,
     pub uid: u32,
     pub fd: i32,
     pub payload_len: u16,
     pub _pad0: u16,
-    pub query_name: [u8; 96],
-    pub query_results: [u8; 96],
-    pub record_type: [u8; 16],
-    pub payload: [u8; 256],
-    /// Sensor-minted identity for the process that sent the query.
+    pub _pad1: u32,
+    /// Sensor-minted identity for the process that owns the socket.
     pub process_start_time: u64,
+    pub payload: [u8; DNS_PAYLOAD_CAPACITY],
 }
 
 // ── Size assertions ──────────────────────────────────────────────────────────
@@ -376,7 +382,9 @@ const _: () = assert!(
 const _: () = assert!(core::mem::size_of::<FileEventHeader>() == 8);
 const _: () = assert!(core::mem::size_of::<FileIndexEvent>() == 16);
 const _: () = assert!(
-    core::mem::size_of::<DnsEvent>() == 512,
+    core::mem::size_of::<DnsEvent>() == 560
+        && core::mem::offset_of!(DnsEvent, process_start_time) == 40
+        && core::mem::offset_of!(DnsEvent, payload) == 48,
     "DnsEvent layout changed — update ebpf/src/events.rs to match"
 );
 
@@ -404,9 +412,7 @@ pub fn bytes_to_string(buf: &[u8]) -> String {
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod mapping {
-    use crate::models::{
-        DnsQueryFields, FileEventFields, NetworkConnectionFields, ProcessCreationFields,
-    };
+    use crate::models::{FileEventFields, NetworkConnectionFields, ProcessCreationFields};
     use crate::sensor::{
         Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorNormalization,
         SensorPayload,
@@ -592,32 +598,9 @@ pub mod mapping {
         })
     }
 
-    pub fn dns_event_to_sensor(event: &DnsEvent) -> SensorEvent {
-        SensorEvent {
-            process_name: None,
-            provenance: Default::default(),
-            platform: Platform::Linux,
-            provider: PROVIDER,
-            action: SensorAction::Query,
-            normalization: SensorNormalization {
-                event_id: 22,
-                action_code: event.kind as u8,
-            },
-            pid: Some(event.pid),
-            timestamp: system_time_from_boot_ns(event.event_time_ns),
-            source_seq: Some(event.source_seq),
-            process_start_key: process_start_key(event.pid, event.process_start_time),
-            parent_process_start_key: None,
-            payload: SensorPayload::Dns(DnsQueryFields {
-                user: None,
-                query_name: Some(bytes_to_string(&event.query_name)),
-                query_results: Some(bytes_to_string(&event.query_results)),
-                record_type: Some(bytes_to_string(&event.record_type)),
-                query_status: None,
-                process_id: Some(event.pid.to_string()),
-                image: None,
-            }),
-        }
+    /// Decode a raw DNS message. `None` when the question does not parse.
+    pub fn dns_event_to_sensor(event: &DnsEvent) -> Option<SensorEvent> {
+        super::super::ebpf::build_dns_event(event)
     }
 
     fn ip_to_string(af: u16, bytes: &[u8; 16]) -> String {

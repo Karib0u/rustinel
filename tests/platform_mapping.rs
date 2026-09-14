@@ -22,8 +22,8 @@ fn write_cstr<const N: usize>(dst: &mut [u8; N], value: &str) {
 #[test]
 fn linux_ebpf_raw_events_map_to_sensor_events() {
     use rustinel::sensor::linux::events::{
-        mapping, DnsEvent, FileEvent, NetworkEvent, ProcessEvent, ARGV_CAPACITY, FILE_PATH_LEN,
-        PROCESS_IMAGE_CAPACITY,
+        mapping, DnsEvent, FileEvent, NetworkEvent, ProcessEvent, ARGV_CAPACITY,
+        DNS_EVENT_RESPONSE, DNS_PAYLOAD_CAPACITY, FILE_PATH_LEN, PROCESS_IMAGE_CAPACITY,
     };
     use rustinel::sensor::linux::paths::{DirFdIndex, AT_FDCWD};
     use rustinel::sensor::{SensorAction, SensorPayload};
@@ -263,29 +263,29 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     write_cstr(&mut orphan.path, "payload.sh");
     assert!(mapping::file_event_to_sensor(&DirFdIndex::new(), &orphan).is_none());
 
+    // A response to an A query for example.test with one answer.
+    let mut message = vec![0x2a, 0x2a, 0x81, 0x80, 0, 1, 0, 1, 0, 0, 0, 0];
+    message.extend_from_slice(b"\x07example\x04test\x00\x00\x01\x00\x01");
+    message.extend_from_slice(&[0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 198, 51, 100, 10]);
     let mut dns = DnsEvent {
         event_time_ns: 0,
         source_seq: 0,
-        kind: 1,
+        kind: DNS_EVENT_RESPONSE,
         pid: 42,
         uid: 1000,
         fd: 3,
-        payload_len: 0,
+        payload_len: message.len() as u16,
         _pad0: 0,
-        query_name: [0; 96],
-        query_results: [0; 96],
-        record_type: [0; 16],
-        payload: [0; 256],
+        _pad1: 0,
         process_start_time: 123_456,
+        payload: [0; DNS_PAYLOAD_CAPACITY],
     };
-    write_cstr(&mut dns.query_name, "example.test");
-    write_cstr(&mut dns.query_results, "198.51.100.10");
-    write_cstr(&mut dns.record_type, "A");
-    let mapped = mapping::dns_event_to_sensor(&dns);
+    dns.payload[..message.len()].copy_from_slice(&message);
+    let mapped = mapping::dns_event_to_sensor(&dns).expect("dns response should map");
     match mapped.payload {
         SensorPayload::Dns(fields) => {
             assert_eq!(fields.query_name.as_deref(), Some("example.test"));
-            assert_eq!(fields.query_results.as_deref(), Some("198.51.100.10"));
+            assert_eq!(fields.query_results.as_deref(), Some("198.51.100.10;"));
             assert_eq!(fields.record_type.as_deref(), Some("A"));
         }
         _ => panic!("expected dns payload"),

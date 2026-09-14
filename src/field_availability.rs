@@ -22,6 +22,12 @@ const SINCE_1_4_0: Option<&str> = Some("1.4.0");
 const SINCE_1_4_1: Option<&str> = Some("1.4.1");
 const SINCE_1_6_0: Option<&str> = Some("1.6.0");
 const SINCE_1_7_0: Option<&str> = Some("1.7.0");
+/// Linux DNS response decoding (#439).
+///
+/// TODO(release): set to the release that ships it. `validate_since_versions`
+/// rejects a version newer than the crate, so this cannot name the next
+/// release before the version bump.
+const SINCE_DNS_RESPONSES: Option<&str> = Some("1.7.1");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -888,22 +894,22 @@ const LINUX_DNS: &[FieldContract] = &[
     conditional(
         "QueryName",
         SINCE_BASELINE,
-        "the DNS question can be parsed or the kernel fallback is non-empty",
+        "the DNS question can be parsed",
     ),
-    never(
+    conditional(
         "QueryResults",
-        SINCE_BASELINE,
-        "the eBPF DNS probe emits outbound queries and does not parse responses",
+        SINCE_DNS_RESPONSES,
+        "the event is a response carrying A, AAAA, or CNAME answers",
     ),
     conditional(
         "Image",
         SINCE_BASELINE,
         "the process identity is still present in the process cache",
     ),
-    never(
+    conditional(
         "QueryStatus",
-        SINCE_BASELINE,
-        "the eBPF DNS probe does not parse response status",
+        SINCE_DNS_RESPONSES,
+        "the event is a response; the value is the DNS RCODE",
     ),
 ];
 
@@ -1434,7 +1440,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         Some(22),
         Query,
         "ebpf",
-        "socket send tracepoints",
+        "DNS socket syscall hooks",
         LINUX_DNS
     ),
     contract!(

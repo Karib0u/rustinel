@@ -29,6 +29,11 @@
 //! | `handle_sendto`       | `syscalls/sys_enter_sendto`  | emit DNS query |
 //! | `handle_sendmsg`      | `syscalls/sys_enter_sendmsg` | emit DNS query |
 //! | `handle_sendmmsg`     | `syscalls/sys_enter_sendmmsg`| emit DNS query |
+//! | `handle_dns_write`    | `fentry/ksys_write`          | emit DNS query |
+//! | `handle_dns_connect`  | `syscalls/sys_enter_connect` | track DNS socket |
+//! | `handle_dns_recvfrom*`| `sys_enter/exit_recvfrom`    | emit DNS response |
+//! | `handle_dns_recvmsg*` | `sys_enter/exit_recvmsg`     | emit DNS response |
+//! | `handle_dns_read`     | `fexit/ksys_read`            | emit DNS response |
 //!
 //! Requirements: Linux 5.8+; runtime BTF enables task identity fields.
 
@@ -55,7 +60,7 @@ pub mod telemetry;
 /// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
 #[used]
 #[no_mangle]
-pub static RUSTINEL_ABI_VERSION: u32 = 4;
+pub static RUSTINEL_ABI_VERSION: u32 = 5;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

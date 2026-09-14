@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use aya::maps::{Array, MapData, PerCpuArray, RingBuf};
-use aya::programs::{FExit, KProbe, TracePoint};
+use aya::programs::{FEntry, FExit, KProbe, TracePoint};
 use aya::{Ebpf, EbpfLoader};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
@@ -33,7 +33,8 @@ use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 use super::abi::validate_object_abi;
 use super::events::{
     bytes_to_string, connect_result_is_connection, parse_event, system_time_from_boot_ns, DnsEvent,
-    FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent,
+    FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent, DNS_EVENT_QUERY,
+    DNS_EVENT_RESPONSE,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 use super::tracepoint_format::{tracepoint_exists, TracepointLayouts};
@@ -299,6 +300,27 @@ impl Sensor for EbpfSensor {
             "syscalls",
             "sys_enter_sendmmsg",
         )?;
+        // Connected DNS sockets: `connect` marks the descriptor, after which
+        // `write` and every receive on it are captured. Receives are copied at
+        // exit, so each entry hook is useless without its exit hook.
+        attach_tracepoint(
+            &mut bpf,
+            "handle_dns_connect",
+            "syscalls",
+            "sys_enter_connect",
+        )?;
+        attach_dns_socket_io(&mut bpf);
+        for (entry, exit, syscall) in [
+            (
+                "handle_dns_recvfrom",
+                "handle_dns_recvfrom_exit",
+                "recvfrom",
+            ),
+            ("handle_dns_recvmsg", "handle_dns_recvmsg_exit", "recvmsg"),
+        ] {
+            attach_tracepoint(&mut bpf, exit, "syscalls", &format!("sys_exit_{syscall}"))?;
+            attach_tracepoint(&mut bpf, entry, "syscalls", &format!("sys_enter_{syscall}"))?;
+        }
 
         info!("eBPF tracepoints attached");
 
@@ -412,6 +434,10 @@ async fn run_ring_poll(
             }
 
             Ok(mut guard) = network_fd.readable_mut() => {
+                // A DNS answer is submitted before the connection that uses
+                // it, but lives in another ring. Drain DNS first so the answer
+                // reaches the DNS cache before the connection is normalized.
+                drain_dns_ring(dns_fd.get_mut(), &tx);
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
                 drain_network_ring(rb, &tx);
                 guard.clear_ready();
@@ -889,21 +915,32 @@ fn build_file_event(
     })
 }
 
-fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
-    let record_type = bytes_to_string(&ev.record_type);
-    // Drop events with no record type — they carry no detection signal.
-    if record_type.is_empty() {
-        return None;
-    }
+/// Decode a raw DNS message into a DNS event.
+///
+/// Queries carry the question; responses also carry the answers and the
+/// response code. `None` when the question does not parse, which also sheds
+/// non-DNS traffic that happened to pass the kernel's header check.
+pub(crate) fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
+    let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
+    let payload = &ev.payload[..payload_len];
 
-    let query_name = parse_dns_query_name(ev).or_else(|| {
-        let value = bytes_to_string(&ev.query_name);
-        (!value.is_empty()).then_some(value)
-    });
-    let query_results = {
-        let value = bytes_to_string(&ev.query_results);
-        (!value.is_empty()).then_some(value)
+    let (query_name, qtype, query_results, query_status) = match ev.kind {
+        DNS_EVENT_QUERY => {
+            let (name, qtype) = crate::sensor::dns::parse_question(payload)?;
+            (name, qtype, None, None)
+        }
+        DNS_EVENT_RESPONSE => {
+            let response = crate::sensor::dns::parse_response(payload)?;
+            (
+                response.name,
+                response.qtype,
+                crate::sensor::dns::format_query_results(&response.answers),
+                Some(response.rcode.to_string()),
+            )
+        }
+        _ => return None,
     };
+    let record_type = crate::sensor::dns::record_type_name(qtype).unwrap_or("OTHER");
 
     Some(SensorEvent {
         process_name: None,
@@ -922,20 +959,14 @@ fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
         parent_process_start_key: None,
         payload: SensorPayload::Dns(DnsQueryFields {
             user: None,
-            query_name,
+            query_name: Some(query_name),
             query_results,
-            record_type: Some(record_type),
-            query_status: None,
+            record_type: Some(record_type.to_string()),
+            query_status,
             process_id: Some(ev.pid.to_string()),
             image: None,
         }),
     })
-}
-
-fn parse_dns_query_name(ev: &DnsEvent) -> Option<String> {
-    let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
-    let payload = ev.payload.get(..payload_len)?;
-    crate::sensor::dns::parse_question(payload).map(|(name, _qtype)| name)
 }
 
 fn process_start_key(pid: u32, start_time: u64) -> Option<ProcessStartKey> {
@@ -1012,6 +1043,57 @@ fn attach_socket_tuple(bpf: &mut Ebpf) -> Result<bool> {
         LINUX_EBPF.record_hook("network", name, true, None);
     }
     Ok(true)
+}
+
+/// Attach the `read`/`write` DNS hooks to `ksys_read`/`ksys_write`.
+///
+/// There is deliberately no syscall-tracepoint fallback: those two syscalls
+/// dominate every workload, and the tracepoints cost several times more per
+/// call (see `ebpf/src/dns.rs`). Without kernel BTF the hooks are reported
+/// unavailable and DNS over `read`/`write` is not captured; the socket
+/// syscalls are unaffected.
+fn attach_dns_socket_io(bpf: &mut Ebpf) {
+    let btf = match aya::Btf::from_sys_fs() {
+        Ok(btf) => btf,
+        Err(error) => {
+            let reason = format!("kernel BTF unavailable: {error}");
+            for program in ["handle_dns_write", "handle_dns_read"] {
+                record_unavailable_hook(program, &reason);
+            }
+            warn!(%reason, "DNS over read/write is not captured");
+            return;
+        }
+    };
+    let write = (|| -> Result<()> {
+        let program: &mut FEntry = bpf
+            .program_mut("handle_dns_write")
+            .context("missing DNS write program")?
+            .try_into()?;
+        program
+            .load("ksys_write", &btf)
+            .context("load ksys_write")?;
+        program.attach().context("attach ksys_write")?;
+        Ok(())
+    })();
+    let read = (|| -> Result<()> {
+        let program: &mut FExit = bpf
+            .program_mut("handle_dns_read")
+            .context("missing DNS read program")?
+            .try_into()?;
+        program.load("ksys_read", &btf).context("load ksys_read")?;
+        program.attach().context("attach ksys_read")?;
+        Ok(())
+    })();
+    for (program, result) in [("handle_dns_write", write), ("handle_dns_read", read)] {
+        match result {
+            Ok(()) => LINUX_EBPF.record_hook("dns", program, true, None),
+            Err(error) => {
+                let reason = format!("{error:#}");
+                record_unavailable_hook(program, &reason);
+                warn!(program, %reason, "eBPF hook failed to attach");
+            }
+        }
+    }
 }
 
 fn attach_optional_tracepoint(
@@ -1128,7 +1210,16 @@ fn features_for_program(program: &str) -> &'static [&'static str] {
         | "handle_process_fork"
         | "handle_process_vfork" => &["process"],
         "handle_connect" | "handle_connect_exit" => &["network"],
-        "handle_sendto" | "handle_sendmsg" | "handle_sendmmsg" => &["dns"],
+        "handle_sendto"
+        | "handle_sendmsg"
+        | "handle_sendmmsg"
+        | "handle_dns_write"
+        | "handle_dns_connect"
+        | "handle_dns_recvfrom"
+        | "handle_dns_recvfrom_exit"
+        | "handle_dns_recvmsg"
+        | "handle_dns_recvmsg_exit"
+        | "handle_dns_read" => &["dns"],
         "handle_vfs_unlink_identity1"
         | "handle_vfs_unlink_identity2"
         | "handle_vfs_rmdir_identity1"
@@ -1150,7 +1241,8 @@ mod tests {
     use crate::models::{CanonicalEvent, EventFields};
     use crate::normalizer::Normalizer;
     use crate::sensor::linux::events::{
-        ARGV_CAPACITY, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
+        ARGV_CAPACITY, DNS_PAYLOAD_CAPACITY, FILE_FLAG_AUX_PATH_TRUNCATED,
+        FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
     };
     use crate::sensor::linux::paths::AT_FDCWD;
     use crate::sensor::{RawProcessPlatform, RawUserId};
@@ -1257,8 +1349,8 @@ mod tests {
         }
     }
 
-    fn dns_query_payload(name: &str, qtype: u16) -> ([u8; 256], u16) {
-        let mut payload = [0u8; 256];
+    fn dns_query_payload(name: &str, qtype: u16) -> ([u8; DNS_PAYLOAD_CAPACITY], u16) {
+        let mut payload = [0u8; DNS_PAYLOAD_CAPACITY];
         payload[4] = 0;
         payload[5] = 1;
 
@@ -1280,30 +1372,54 @@ mod tests {
         (payload, pos as u16)
     }
 
-    fn raw_dns_query(name: &str, record_type: &str) -> DnsEvent {
-        let qtype = match record_type {
-            "AAAA" => 28,
-            "CNAME" => 5,
-            "PTR" => 12,
-            "TXT" => 16,
-            _ => 1,
-        };
-        let (payload, payload_len) = dns_query_payload(name, qtype);
+    /// A response to an A query for `name` carrying one A record per address,
+    /// each owner name compressed back to the question.
+    fn dns_response_payload(
+        name: &str,
+        addresses: &[[u8; 4]],
+    ) -> ([u8; DNS_PAYLOAD_CAPACITY], u16) {
+        let (mut payload, len) = dns_query_payload(name, 1);
+        let mut pos = usize::from(len);
+        payload[2] = 0x81;
+        payload[3] = 0x80;
+        payload[6..8].copy_from_slice(&(addresses.len() as u16).to_be_bytes());
+        for address in addresses {
+            let record: Vec<u8> = [
+                &[0xc0, crate::sensor::dns::HEADER_LEN as u8][..],
+                &1u16.to_be_bytes()[..],
+                &1u16.to_be_bytes()[..],
+                &60u32.to_be_bytes()[..],
+                &4u16.to_be_bytes()[..],
+                &address[..],
+            ]
+            .concat();
+            payload[pos..pos + record.len()].copy_from_slice(&record);
+            pos += record.len();
+        }
+        (payload, pos as u16)
+    }
+
+    fn raw_dns_event(
+        kind: u32,
+        (payload, payload_len): ([u8; DNS_PAYLOAD_CAPACITY], u16),
+    ) -> DnsEvent {
         DnsEvent {
             event_time_ns: 0,
             source_seq: 0,
-            kind: 1,
+            kind,
             pid: 4242,
             uid: 1000,
             fd: 5,
             payload_len,
             _pad0: 0,
-            query_name: [0u8; 96],
-            query_results: [0u8; 96],
-            record_type: fixed(record_type),
-            payload,
+            _pad1: 0,
             process_start_time: 123_456,
+            payload,
         }
+    }
+
+    fn raw_dns_query(name: &str, qtype: u16) -> DnsEvent {
+        raw_dns_event(DNS_EVENT_QUERY, dns_query_payload(name, qtype))
     }
 
     fn test_normalizer() -> Normalizer {
@@ -1311,7 +1427,7 @@ mod tests {
     }
 
     fn normalized_raw_dns_query(name: &str) -> crate::models::NormalizedEvent {
-        let raw = raw_dns_query(name, "A");
+        let raw = raw_dns_query(name, 1);
         let event = build_dns_event(&raw).expect("raw dns event should build");
         test_normalizer()
             .normalize(&event)
@@ -2166,22 +2282,7 @@ mod tests {
 
     #[test]
     fn build_dns_event_maps_linux_dns_payload() {
-        let (payload, payload_len) = dns_query_payload("example.test", 1);
-        let raw = DnsEvent {
-            event_time_ns: 0,
-            source_seq: 0,
-            kind: 1,
-            pid: 4242,
-            uid: 1000,
-            fd: 5,
-            payload_len,
-            _pad0: 0,
-            query_name: [0u8; 96],
-            query_results: [0u8; 96],
-            record_type: fixed("A"),
-            payload,
-            process_start_time: 123_456,
-        };
+        let raw = raw_dns_query("example.test", 1);
 
         let event = build_dns_event(&raw).expect("dns event should build");
         assert_eq!(event.action, SensorAction::Query);
@@ -2198,6 +2299,7 @@ mod tests {
             SensorPayload::Dns(fields) => {
                 assert_eq!(fields.query_name.as_deref(), Some("example.test"));
                 assert_eq!(fields.query_results, None);
+                assert_eq!(fields.query_status, None);
                 assert_eq!(fields.record_type.as_deref(), Some("A"));
             }
             other => panic!("unexpected payload: {:?}", other),
@@ -2205,54 +2307,123 @@ mod tests {
     }
 
     #[test]
-    fn build_dns_event_falls_back_to_query_name_field() {
-        let raw = DnsEvent {
-            event_time_ns: 0,
-            source_seq: 0,
-            kind: 1,
-            pid: 4242,
-            uid: 1000,
-            fd: 5,
-            payload_len: 0,
-            _pad0: 0,
-            query_name: fixed("fallback.test"),
-            query_results: [0u8; 96],
-            record_type: fixed("AAAA"),
-            payload: [0u8; 256],
-            process_start_time: 123_456,
-        };
+    fn build_dns_event_decodes_response_answers_and_status() {
+        let raw = raw_dns_event(
+            DNS_EVENT_RESPONSE,
+            dns_response_payload("example.test", &[[198, 51, 100, 10], [198, 51, 100, 11]]),
+        );
 
-        let event = build_dns_event(&raw).expect("dns event should build");
-
-        match event.payload {
+        match build_dns_event(&raw)
+            .expect("response should build")
+            .payload
+        {
             SensorPayload::Dns(fields) => {
-                assert_eq!(fields.query_name.as_deref(), Some("fallback.test"));
-                assert_eq!(fields.record_type.as_deref(), Some("AAAA"));
+                assert_eq!(fields.query_name.as_deref(), Some("example.test"));
+                assert_eq!(fields.record_type.as_deref(), Some("A"));
+                assert_eq!(
+                    fields.query_results.as_deref(),
+                    Some("198.51.100.10;198.51.100.11;")
+                );
+                assert_eq!(fields.query_status.as_deref(), Some("0"));
             }
             other => panic!("unexpected payload: {:?}", other),
         }
     }
 
     #[test]
-    fn parse_dns_query_name_rejects_truncated_payload() {
-        let (payload, payload_len) = dns_query_payload("example.test", 1);
-        let raw = DnsEvent {
+    fn build_dns_event_rejects_a_direction_that_does_not_match_the_message() {
+        let query = dns_query_payload("example.test", 1);
+        let response = dns_response_payload("example.test", &[[192, 0, 2, 1]]);
+        assert!(build_dns_event(&raw_dns_event(DNS_EVENT_RESPONSE, query)).is_none());
+        assert!(build_dns_event(&raw_dns_event(DNS_EVENT_QUERY, response)).is_none());
+        assert!(build_dns_event(&raw_dns_event(7, query)).is_none());
+    }
+
+    #[test]
+    fn build_dns_event_drops_a_truncated_question() {
+        let mut raw = raw_dns_query("example.test", 1);
+        raw.payload_len = (crate::sensor::dns::HEADER_LEN + 4) as u16;
+        assert!(build_dns_event(&raw).is_none());
+    }
+
+    #[test]
+    fn build_dns_event_names_unlisted_record_types_other() {
+        let raw = raw_dns_query("example.test", 65);
+        match build_dns_event(&raw).expect("query should build").payload {
+            SensorPayload::Dns(fields) => assert_eq!(fields.record_type.as_deref(), Some("OTHER")),
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    /// The acceptance path for issue #439: an answer observed on Linux names
+    /// the connection that follows it, and a domain IOC fires on that
+    /// connection rather than only on the lookup.
+    #[test]
+    fn dns_response_names_the_following_connection_for_domain_iocs() {
+        let tempdir = tempfile::tempdir().expect("create ioc tempdir");
+        let root = tempdir.path().join("ioc");
+        std::fs::create_dir_all(&root).expect("create ioc dir");
+        let hashes_path = root.join("hashes.txt");
+        let ips_path = root.join("ips.txt");
+        let domains_path = root.join("domains.txt");
+        let paths_regex_path = root.join("paths_regex.txt");
+        std::fs::write(&hashes_path, "").expect("write hashes");
+        std::fs::write(&ips_path, "").expect("write ips");
+        std::fs::write(&domains_path, "c2.example.test; beacon").expect("write domains");
+        std::fs::write(&paths_regex_path, "").expect("write path regexes");
+        let engine = IocEngine::load(&IocConfig {
+            enabled: true,
+            hashes_path,
+            ips_path,
+            domains_path,
+            paths_regex_path,
+            default_severity: "high".to_string(),
+            max_file_size_mb: 16,
+            hash_allowlist_paths: Vec::new(),
+        });
+
+        let host = Arc::new(HostState::default());
+        let normalizer = Normalizer::new(Arc::clone(&host));
+        let response = raw_dns_event(
+            DNS_EVENT_RESPONSE,
+            dns_response_payload("C2.example.test", &[[203, 0, 113, 9]]),
+        );
+        normalizer
+            .normalize(&build_dns_event(&response).unwrap())
+            .expect("response should normalize");
+        assert_eq!(host.dns.count(), 1);
+
+        let mut daddr = [0u8; 16];
+        daddr[..4].copy_from_slice(&[203, 0, 113, 9]);
+        let connection = NetworkEvent {
             event_time_ns: 0,
             source_seq: 0,
-            kind: 1,
             pid: 4242,
             uid: 1000,
-            fd: 5,
-            payload_len: payload_len.min((crate::sensor::dns::HEADER_LEN + 4) as u16),
-            _pad0: 0,
-            query_name: [0u8; 96],
-            query_results: [0u8; 96],
-            record_type: fixed("A"),
-            payload,
+            fd: -1,
+            ret: 0,
+            dport: 443,
+            sport: 40000,
+            af: 2,
+            protocol: 6,
+            tuple_flags: super::super::socket_tuple_abi::TUPLE_MEASURED,
+            daddr,
+            saddr: [0u8; 16],
             process_start_time: 123_456,
         };
+        let event = normalizer
+            .normalize(&build_network_event(&connection).unwrap())
+            .expect("connection should normalize");
+        assert_eq!(
+            event.get_field("DestinationHostname"),
+            Some("C2.example.test")
+        );
 
-        assert_eq!(parse_dns_query_name(&raw), None);
+        let event = CanonicalEvent::from_normalized(event);
+        let matches = engine.check_event(&event);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, IocKind::Domain);
+        assert_eq!(matches[0].observed, "c2.example.test");
     }
 
     #[test]
@@ -2421,22 +2592,8 @@ level: high
     }
 
     #[test]
-    fn build_dns_event_drops_empty_record_type() {
-        let raw = DnsEvent {
-            event_time_ns: 0,
-            source_seq: 0,
-            kind: 1,
-            pid: 1,
-            uid: 0,
-            fd: 3,
-            payload_len: 0,
-            _pad0: 0,
-            query_name: [0u8; 96],
-            query_results: [0u8; 96],
-            record_type: [0u8; 16],
-            payload: [0u8; 256],
-            process_start_time: 123_456,
-        };
+    fn build_dns_event_drops_a_payload_that_is_not_dns() {
+        let raw = raw_dns_event(DNS_EVENT_QUERY, ([0u8; DNS_PAYLOAD_CAPACITY], 64));
         assert!(build_dns_event(&raw).is_none());
     }
 }

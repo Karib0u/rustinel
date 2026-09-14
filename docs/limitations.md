@@ -103,8 +103,12 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Without it, file events still use syscall paths and success checks, but inode and device identity are unavailable.
   `doctor` reports the unavailable `file_identity` hook.
 - **Parent identity** is derived for `CLONE_PARENT`, and can be missing for processes that started before Rustinel.
-- **DNS:** plain UDP on port 53 only, no answers, and long names are dropped.
-  `RecordType` is `OTHER` for anything but A, NS, CNAME, PTR, TXT, and AAAA.
+- **DNS:** plain UDP on port 53 only, and long names are dropped.
+  Answers are decoded for A, AAAA, and CNAME records within the first 512 bytes of a response.
+  A socket connected to port 53 before Rustinel started is missed until it is reopened.
+  Responses read with `recvmmsg` are not captured, and without kernel BTF neither are queries and responses carried by `write` and `read`, as the pure-Go resolver does.
+  `RecordType` is `OTHER` for anything but A, NS, CNAME, SOA, PTR, MX, TXT, AAAA, SRV, and ANY.
+  `QueryStatus` is the DNS response code, such as `0` for success and `3` for NXDOMAIN, not a Windows status code.
 - **No telemetry** for library loads, kernel module loads, ptrace, or file timestamp changes (`file_change`).
 
 ## macOS

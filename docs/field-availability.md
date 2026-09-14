@@ -17,8 +17,6 @@ Edit that table and run `cargo run --bin generate-docs`.
 
 | Platform | Category | Event / action | Source | Unavailable field | Reason |
 | --- | --- | --- | --- | --- | --- |
-| linux | `dns_query` | `22 / query` | `socket send tracepoints` | `QueryResults` | the eBPF DNS probe emits outbound queries and does not parse responses |
-| linux | `dns_query` | `22 / query` | `socket send tracepoints` | `QueryStatus` | the eBPF DNS probe does not parse response status |
 | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
 | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
 | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |

@@ -8,7 +8,7 @@
 | Network connections | ✓ | ✓ | ✓ ¹ |
 | File create, modify, rename, delete | ✓ | ✓ | ✓ |
 | DNS queries | ✓ | ✓ ² | ✓ ² |
-| DNS answers | ✓ | | |
+| DNS answers | ✓ | ✓ ² | |
 | Registry | ✓ | | |
 | Image (DLL) load | ✓ | | |
 | PowerShell script blocks and modules | ✓ ³ | | |
@@ -55,7 +55,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 | Platform | Always | Conditional | Never |
 | --- | ---: | ---: | ---: |
 | windows | 19 | 189 | 41 |
-| linux | 19 | 40 | 17 |
+| linux | 19 | 42 | 15 |
 | macos | 27 | 24 | 26 |
 
 The complete machine-readable baseline is [`compatibility/field-availability.json`](https://github.com/Karib0u/rustinel/blob/main/compatibility/field-availability.json).

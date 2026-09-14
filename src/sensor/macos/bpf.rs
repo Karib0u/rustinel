@@ -814,30 +814,12 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<Sens
             user: None,
             query_name: Some(query_name),
             query_results: None,
-            record_type: record_type_name(qtype).map(str::to_string),
+            record_type: crate::sensor::dns::record_type_name(qtype).map(str::to_string),
             query_status: None,
             process_id: None,
             image: None,
         }),
     })
-}
-
-/// Map a DNS QTYPE to its record-type name, for the common types.
-fn record_type_name(qtype: u16) -> Option<&'static str> {
-    let name = match qtype {
-        1 => "A",
-        2 => "NS",
-        5 => "CNAME",
-        6 => "SOA",
-        12 => "PTR",
-        15 => "MX",
-        16 => "TXT",
-        28 => "AAAA",
-        33 => "SRV",
-        255 => "ANY",
-        _ => return None,
-    };
-    Some(name)
 }
 
 /// Queue a decoded event, accounting for a drop rather than blocking.
@@ -1080,13 +1062,6 @@ mod tests {
             SystemTime::UNIX_EPOCH,
         )
         .is_none());
-    }
-
-    #[test]
-    fn record_type_name_maps_known_types() {
-        assert_eq!(record_type_name(1), Some("A"));
-        assert_eq!(record_type_name(28), Some("AAAA"));
-        assert_eq!(record_type_name(64000), None);
     }
 
     fn test_normalizer() -> crate::normalizer::Normalizer {

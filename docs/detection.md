@@ -62,7 +62,7 @@ Every YARA alert carries `edr.yara.scan_source: file` or `edr.yara.scan_source: 
 | Domains | DNS queries and destination host names |
 | Path regexes | `Image`, `TargetImage`, `TargetFilename`, `ImageLoaded`, PowerShell `Path`, `ServiceFileName` |
 
-Only Windows DNS events carry answers, so IP matching on DNS answers is Windows-only.
+Windows and Linux DNS events carry answers; macOS DNS events do not, so IP matching on DNS answers does not apply there.
 The file format is in [Write and test rules](rule-development.md#add-indicators).
 
 ## Severity
