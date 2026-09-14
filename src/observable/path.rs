@@ -144,7 +144,7 @@ fn fold(
         match component {
             "" | "." => {}
             ".." => {
-                let parent = out[root_len..].rfind(separator).map_or(0, |index| index);
+                let parent = out[root_len..].rfind(separator).unwrap_or(0);
                 out.truncate(root_len + parent);
             }
             component => {
