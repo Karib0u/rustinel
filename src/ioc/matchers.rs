@@ -1,9 +1,8 @@
-use super::alert::{build_match, push_match_unique};
+use super::alert::push_match;
 use super::types::{IocKind, IocMatch, IocMeta};
 use super::IocEngine;
 use crate::observable::Observable;
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::net::IpAddr;
 
 impl IocEngine {
@@ -14,16 +13,15 @@ impl IocEngine {
     /// always yields the same alert sequence.
     pub(crate) fn match_observables(&self, observables: &[Observable<'_>]) -> Vec<IocMatch> {
         let mut matches = Vec::new();
-        let mut seen = HashSet::new();
 
         for observable in observables {
             if let Observable::Domain(host) = observable {
-                self.match_domain(host, &mut matches, &mut seen);
+                self.match_domain(host, &mut matches);
             }
         }
         for observable in observables {
             if let Observable::Ip(ip) = observable {
-                self.match_ip(*ip, &mut matches, &mut seen);
+                self.match_ip(*ip, &mut matches);
             }
         }
         if let Some(regex_set) = &self.path_iocs.regex_set {
@@ -36,36 +34,44 @@ impl IocEngine {
                     }
                     for idx in regex_set.matches(path).iter() {
                         if let Some((pattern, meta)) = self.path_iocs.patterns.get(idx) {
-                            push_match_unique(
-                                &mut matches,
-                                &mut seen,
-                                build_match(IocKind::PathRegex, pattern, path, meta),
-                            );
+                            push_match(&mut matches, IocKind::PathRegex, pattern, path, meta);
                         }
                     }
                 }
             }
         }
         for observable in observables {
-            let (kind, value, table) = match observable {
-                Observable::Md5(value) => (IocKind::Md5, value, &self.hash_iocs.md5),
-                Observable::Sha1(value) => (IocKind::Sha1, value, &self.hash_iocs.sha1),
-                Observable::Sha256(value) => (IocKind::Sha256, value, &self.hash_iocs.sha256),
-                _ => continue,
-            };
-            if let Some(meta) = table.get(*value) {
-                push_match_unique(
-                    &mut matches,
-                    &mut seen,
-                    build_match(kind, value, value, meta),
-                );
-            }
+            self.match_hash(observable, &mut matches);
         }
 
         matches
     }
 
-    fn match_domain(&self, host: &str, matches: &mut Vec<IocMatch>, seen: &mut HashSet<String>) {
+    fn match_hash(&self, observable: &Observable<'_>, matches: &mut Vec<IocMatch>) {
+        let hit = match observable {
+            Observable::Md5(value) => self
+                .hash_iocs
+                .md5
+                .get(*value)
+                .map(|m| (IocKind::Md5, *value, m)),
+            Observable::Sha1(value) => self
+                .hash_iocs
+                .sha1
+                .get(*value)
+                .map(|m| (IocKind::Sha1, *value, m)),
+            Observable::Sha256(value) => self
+                .hash_iocs
+                .sha256
+                .get(*value)
+                .map(|m| (IocKind::Sha256, *value, m)),
+            _ => None,
+        };
+        if let Some((kind, value, meta)) = hit {
+            push_match(matches, kind, value, value, meta);
+        }
+    }
+
+    fn match_domain(&self, host: &str, matches: &mut Vec<IocMatch>) {
         if self.domain_iocs.exact.is_empty() && self.domain_iocs.suffix.is_empty() {
             return;
         }
@@ -76,11 +82,7 @@ impl IocEngine {
         };
 
         if let Some(meta) = self.domain_iocs.exact.get(host.as_ref()) {
-            push_match_unique(
-                matches,
-                seen,
-                build_match(IocKind::Domain, &host, &host, meta),
-            );
+            push_match(matches, IocKind::Domain, &host, &host, meta);
         }
 
         // Wildcard indicators are indexed by suffix, so only the hostname's own
@@ -110,15 +112,11 @@ impl IocEngine {
 
         for (_, suffix, meta) in hits {
             let indicator = format!(".{}", suffix);
-            push_match_unique(
-                matches,
-                seen,
-                build_match(IocKind::Domain, &indicator, &host, meta),
-            );
+            push_match(matches, IocKind::Domain, &indicator, &host, meta);
         }
     }
 
-    fn match_ip(&self, ip: IpAddr, matches: &mut Vec<IocMatch>, seen: &mut HashSet<String>) {
+    fn match_ip(&self, ip: IpAddr, matches: &mut Vec<IocMatch>) {
         if self.ip_iocs.exact.is_empty() && self.ip_iocs.cidr.is_empty() {
             return;
         }
@@ -126,21 +124,13 @@ impl IocEngine {
 
         if let Some(meta) = self.ip_iocs.exact.get(&ip) {
             let observed = observed();
-            push_match_unique(
-                matches,
-                seen,
-                build_match(IocKind::Ip, &observed, &observed, meta),
-            );
+            push_match(matches, IocKind::Ip, &observed, &observed, meta);
         }
 
         for (network, meta) in &self.ip_iocs.cidr {
             if network.contains(ip) {
                 let indicator = network.to_string();
-                push_match_unique(
-                    matches,
-                    seen,
-                    build_match(IocKind::Ip, &indicator, &observed(), meta),
-                );
+                push_match(matches, IocKind::Ip, &indicator, &observed(), meta);
             }
         }
     }

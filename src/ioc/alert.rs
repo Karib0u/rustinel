@@ -1,5 +1,4 @@
 use super::types::{IocKind, IocMatch, IocMeta};
-use std::collections::HashSet;
 
 pub(crate) fn ioc_rule_name(m: &IocMatch) -> String {
     format!("ioc:{}:{}", m.kind.as_str(), m.indicator)
@@ -33,20 +32,27 @@ pub(crate) fn build_match(
     }
 }
 
-pub(crate) fn push_match_unique(
+/// Append a match unless an identical one (same kind, indicator, observed
+/// value, and feed line) is already present.
+///
+/// An event yields a handful of matches at most, so comparing against them
+/// directly is cheaper than hashing a formatted key, and a duplicate is
+/// rejected before any of its strings are allocated.
+pub(crate) fn push_match(
     matches: &mut Vec<IocMatch>,
-    seen: &mut HashSet<String>,
-    m: IocMatch,
+    kind: IocKind,
+    indicator: &str,
+    observed: &str,
+    meta: &IocMeta,
 ) {
-    let key = format!(
-        "{}:{}:{}:{}:{}",
-        m.kind.as_str(),
-        m.indicator,
-        m.observed,
-        m.source,
-        m.line
-    );
-    if seen.insert(key) {
-        matches.push(m);
+    let duplicate = matches.iter().any(|m| {
+        m.kind == kind
+            && m.line == meta.line
+            && m.indicator == indicator
+            && m.observed == observed
+            && *m.source == *meta.source
+    });
+    if !duplicate {
+        matches.push(build_match(kind, indicator, observed, meta));
     }
 }

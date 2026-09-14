@@ -143,16 +143,24 @@ pub fn extract(event: &NormalizedEvent) -> Observables<'_> {
 }
 
 /// Observables for hashes computed from the file behind an event.
+///
+/// At most one per algorithm, so the list is sized for exactly that.
 pub fn hashes<'a>(
     md5: Option<&'a str>,
     sha1: Option<&'a str>,
     sha256: Option<&'a str>,
-) -> Observables<'a> {
-    md5.map(Observable::Md5)
-        .into_iter()
-        .chain(sha1.map(Observable::Sha1))
-        .chain(sha256.map(Observable::Sha256))
-        .collect()
+) -> SmallVec<[Observable<'a>; 3]> {
+    let mut out = SmallVec::new();
+    if let Some(value) = md5 {
+        out.push(Observable::Md5(value));
+    }
+    if let Some(value) = sha1 {
+        out.push(Observable::Sha1(value));
+    }
+    if let Some(value) = sha256 {
+        out.push(Observable::Sha256(value));
+    }
+    out
 }
 
 fn push_path<'a>(out: &mut Observables<'a>, value: Option<&'a str>) {
