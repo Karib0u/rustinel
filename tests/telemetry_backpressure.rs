@@ -14,7 +14,7 @@ use std::sync::{Mutex, MutexGuard};
 use common::{process_start_event, TestNormalizer};
 use rustinel::config::AppConfig;
 use rustinel::runtime::telemetry::TelemetryReporter;
-use rustinel::scanner::YaraEventHandler;
+use rustinel::scanner::YaraMemoryEventHandler;
 use rustinel::sensor::{Platform, SensorEventRouter};
 use rustinel::telemetry::{snapshot_path, ChannelId, ChannelSnapshot, TelemetrySnapshot};
 
@@ -33,19 +33,18 @@ fn totals(channel: ChannelId) -> (u64, u64) {
     (counters.accepted(), counters.dropped())
 }
 
-/// A YARA scan queue is bounded, so a burst of process starts beyond its
-/// capacity is shed. Every shed event is a file that is never scanned, and the
-/// count is the only way to know how many.
+/// The YARA memory scan queue is bounded, so a burst of process starts beyond
+/// its capacity is shed. Every shed event is a process that is never scanned,
+/// and the count is the only way to know how many.
 #[test]
 fn a_saturated_scan_queue_counts_every_shed_event() {
     let _guard = counters_guard();
-    let (accepted_before, dropped_before) = totals(ChannelId::YaraFileScan);
+    let (accepted_before, dropped_before) = totals(ChannelId::YaraMemoryScan);
 
-    let (tx, _rx) = tokio::sync::mpsc::channel::<rustinel::scanner::FileScanTarget>(2);
+    let (tx, _rx) = tokio::sync::mpsc::channel::<rustinel::scanner::YaraMemoryJob>(2);
     let mut router = SensorEventRouter::new();
-    router.register_handler(Box::new(YaraEventHandler {
+    router.register_handler(Box::new(YaraMemoryEventHandler {
         tx,
-        memory_tx: None,
         allowlist_paths: Vec::new(),
     }));
 
@@ -57,7 +56,7 @@ fn a_saturated_scan_queue_counts_every_shed_event() {
         router.route_event(&event);
     }
 
-    let (accepted_after, dropped_after) = totals(ChannelId::YaraFileScan);
+    let (accepted_after, dropped_after) = totals(ChannelId::YaraMemoryScan);
     assert_eq!(
         accepted_after - accepted_before,
         2,
@@ -69,7 +68,7 @@ fn a_saturated_scan_queue_counts_every_shed_event() {
         "every event past capacity is a scan that never happens"
     );
 
-    let counters = ChannelId::YaraFileScan.counters();
+    let counters = ChannelId::YaraMemoryScan.counters();
     assert_eq!(counters.capacity(), 2);
     assert!(counters.high_water_mark() >= 2, "the queue filled up");
 }
@@ -79,13 +78,12 @@ fn a_saturated_scan_queue_counts_every_shed_event() {
 #[test]
 fn accepted_events_are_counted_after_the_queue_drains() {
     let _guard = counters_guard();
-    let (accepted_before, dropped_before) = totals(ChannelId::YaraFileScan);
+    let (accepted_before, dropped_before) = totals(ChannelId::YaraMemoryScan);
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<rustinel::scanner::FileScanTarget>(1);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<rustinel::scanner::YaraMemoryJob>(1);
     let mut router = SensorEventRouter::new();
-    router.register_handler(Box::new(YaraEventHandler {
+    router.register_handler(Box::new(YaraMemoryEventHandler {
         tx,
-        memory_tx: None,
         allowlist_paths: Vec::new(),
     }));
 
@@ -98,7 +96,7 @@ fn accepted_events_are_counted_after_the_queue_drains() {
     rx.try_recv().expect("the queued job is readable");
     router.route_event(&event);
 
-    let (accepted_after, dropped_after) = totals(ChannelId::YaraFileScan);
+    let (accepted_after, dropped_after) = totals(ChannelId::YaraMemoryScan);
     assert_eq!(accepted_after - accepted_before, 2);
     assert_eq!(dropped_after - dropped_before, 1);
 }
@@ -187,7 +185,7 @@ fn doctor_quantifies_dropped_telemetry_without_reading_logs() {
     let config_path = write_config(temp.path());
     snapshot_with(vec![
         channel("sensor_events", 400_000, 12_500),
-        channel("ioc_hash", 900, 100),
+        channel("yara_memory_scan", 900, 100),
     ])
     .write_to(&snapshot_path(&temp.path().join("logs")))
     .expect("write snapshot");
@@ -203,7 +201,7 @@ fn doctor_quantifies_dropped_telemetry_without_reading_logs() {
     );
     let detail = check["detail"].as_str().expect("detail");
     assert!(detail.contains("sensor_events: 12500 dropped of 412500 offered"));
-    assert!(detail.contains("ioc_hash: 100 dropped of 1000 offered"));
+    assert!(detail.contains("yara_memory_scan: 100 dropped of 1000 offered"));
 
     // The per-channel numbers travel in the report itself, not only in prose.
     let channels = report["telemetry"]["channels"]

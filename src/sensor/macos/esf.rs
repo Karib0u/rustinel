@@ -952,7 +952,6 @@ mod tests {
 
     #[test]
     fn process_start_event_maps_exec_fields() {
-        use crate::sensor::SensorEventHandler;
         let file = tempfile::NamedTempFile::new().unwrap();
         let identity = crate::utils::file_identity::from_file(file.as_file());
         let event = process_start_event(RawExec {
@@ -991,14 +990,12 @@ mod tests {
         let canonical = Arc::new(crate::state::HostState::default())
             .canonicalize(event.clone())
             .unwrap();
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        crate::scanner::YaraEventHandler {
-            tx,
-            memory_tx: None,
-            allowlist_paths: vec![],
-        }
-        .handle_event(&canonical);
-        assert_eq!(rx.try_recv().unwrap().identity, identity);
+        let target = crate::artifact::ArtifactTarget::from_event(&canonical, None)
+            .expect("process start is an artifact target");
+        assert_eq!(
+            target.expected,
+            identity.map(crate::artifact::ExpectedIdentity::Exact)
+        );
 
         assert_eq!(
             event.process_start_key,

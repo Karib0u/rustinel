@@ -42,11 +42,13 @@ ebpf/src/            Linux eBPF programs and the event ABI
 1. A platform sensor emits a `RawEvent` into the bounded `sensor_events` channel.
    Process records retain native numeric identities and source-specific facts; the other categories are migrated independently.
 2. `HostState` performs host-dependent enrichment after that channel and creates a provenance-carrying `CanonicalEvent`.
-3. Artifact-bearing events are queued for the bounded `artifact_resolution` resolver.
-   It opens the image once, validates its `FileIdentity`, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.
+3. Artifact-bearing events are queued for the bounded `artifact_resolution` resolver: process starts, image loads, and any file events a written-file selector chooses.
+   It opens the file once, validates it against the identity captured at event time, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.
+   A written file without an event-time identity is skipped and counted, never scanned by path alone.
 4. Admission routes every event to the downstream `SensorEventRouter` exactly once and in `ingest_seq` order, for Sigma/IOC detection or capture.
    Only PE metadata, which Sigma can match, may hold an event, for at most a 100 ms admission budget; later events wait behind it.
-   YARA file and IOC hash alerts come from the same resolver result after admission; YARA memory scanning remains a separate worker.
+   YARA file and IOC hash alerts come from the same resolver result after admission.
+   YARA memory scanning remains a separate worker by design: it reads a live process keyed by process identity, after a delay, under one budget shared across regions.
 5. Hits go to `AlertSink` (ECS NDJSON) and, when enabled, `ResponseEngine`.
 
 Capture also receives `CanonicalEvent`.

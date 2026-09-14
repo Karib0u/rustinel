@@ -58,6 +58,14 @@ impl CanonicalEvent {
     pub fn provenance(&self) -> &Provenance {
         &self.normalized.provenance
     }
+
+    /// Every indicator-shaped value this event carries, extracted in one pass.
+    ///
+    /// Relative command-line operands are resolved against the process
+    /// working directory here, without rewriting any field of the event.
+    pub fn observables(&self) -> crate::observable::Observables<'_> {
+        crate::observable::extract(&self.normalized)
+    }
 }
 
 fn process_id_from_view(event: &NormalizedEvent) -> Option<u32> {

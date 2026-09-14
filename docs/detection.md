@@ -55,14 +55,39 @@ Every YARA alert carries `edr.yara.scan_source: file` or `edr.yara.scan_source: 
 
 ## IOC
 
+Each event is read once for the domains, IPs, and paths it carries, and every indicator of a kind is matched against all of them.
+
 | Indicator | Matched against |
 | --- | --- |
 | Hashes | Executables of new processes (MD5, SHA1, or SHA256) |
-| IPs and CIDRs | Source and destination IPs, and IPs in DNS answers |
-| Domains | DNS queries and destination host names |
-| Path regexes | `Image`, `TargetImage`, `TargetFilename`, `ImageLoaded`, PowerShell `Path`, `ServiceFileName` |
+| IPs and CIDRs | `DestinationIp`, `SourceIp`, DNS `QueryResults`, and IPs in text fields |
+| Domains | `QueryName`, `DestinationHostname`, host names in DNS `QueryResults`, and host names in text fields |
+| Path regexes | `Image`, `ParentImage`, `TargetImage`, `TargetFilename`, rename `SourceFilename`, `ImageLoaded`, PowerShell `Path`, `ServiceFileName`, and paths in text fields |
 
-Windows and Linux DNS events carry answers; macOS DNS events do not, so IP matching on DNS answers does not apply there.
+The text fields are `CommandLine`, registry `Details`, PowerShell `ScriptBlockText`, WMI `Query`, and `ServiceFileName`.
+In them, a URL yields its host, `host:port` and `user@host` yield the host, and an absolute path yields the path.
+`ServiceFileName` yields hosts and IPs only, because the whole value is already matched as a path.
+Windows and Linux DNS events carry answers; macOS DNS events do not, so matching DNS answers does not apply there.
+
+### Command-line paths
+
+A path operand in `CommandLine` is matched in absolute form.
+`chmod +x malware` run from `/tmp` is matched as `/tmp/malware`, exactly like `chmod +x /tmp/malware`.
+The alert still reports `CommandLine` exactly as it was run, and Sigma rules never see the resolved form.
+
+- Relative operands are joined to the process start's `CurrentDirectory`, then `.` and `..` are folded without reading the file system, so a symlink before a `..` is not followed.
+- The directory is the one the sensor recorded when the process started.
+  A process that changes directory before it opens the file is still resolved against its starting directory, and replay resolves against the recorded directory, never the replaying host's.
+- When the event has no `CurrentDirectory`, or it is not absolute, relative operands are not matched.
+  Absolute operands still are.
+- Today only macOS process starts carry `CurrentDirectory` (Endpoint Security reports it at exec).
+  Windows Kernel-Process never reports it, and Linux exec events do not yet capture it, so on those platforms only absolute operands are matched.
+- The program itself, flags (`-x`, `--flag`, and `/flag` on Windows), `chmod` modes, numbers, globs, variables, shell operators, and `user:group` or `host:port` forms are never treated as paths.
+  A flag's attached value, as in `--output=payload`, is.
+- Shape alone cannot tell a file operand from a subcommand, so `git status` run from `/tmp` also yields `/tmp/status`.
+  Anchor path regexes to the file they describe rather than to a whole directory.
+- Text fields other than `CommandLine` have no working directory, so only their absolute paths are matched.
+
 The file format is in [Write and test rules](rule-development.md#add-indicators).
 
 ## Severity

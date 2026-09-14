@@ -13,7 +13,7 @@ use rustinel::{
     models::MatchDebugLevel,
     response::ResponseEngine,
     runtime::yara::spawn_yara_memory_worker,
-    scanner::{Scanner, YaraEventHandler},
+    scanner::{Scanner, YaraMemoryEventHandler},
     sensor::{
         linux::EbpfSensor, Platform, RawProcessPlatform, RawUserId, Sensor, SensorAction,
         SensorEventHandler, SensorPayload,
@@ -295,11 +295,9 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
     };
     assert!(source.identity.kernel_start_boottime.is_some());
 
-    let (file_tx, mut file_rx) = tokio::sync::mpsc::channel(1);
     let (queued_tx, mut queued_rx) = tokio::sync::mpsc::channel(1);
-    let handler = YaraEventHandler {
-        tx: file_tx,
-        memory_tx: Some(queued_tx),
+    let handler = YaraMemoryEventHandler {
+        tx: queued_tx,
         allowlist_paths: Vec::new(),
     };
     let canonical = common::TestNormalizer::new()
@@ -307,10 +305,6 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
         .canonicalize(event.clone())
         .expect("event canonicalizes");
     handler.handle_event(&canonical);
-    assert!(
-        file_rx.try_recv().is_ok(),
-        "exec must also reach file scanning"
-    );
     let job = queued_rx.try_recv().expect("exec must queue a memory scan");
     let proc_identity = query_process_identity(target_pid).expect("live target identity");
     assert_eq!(
