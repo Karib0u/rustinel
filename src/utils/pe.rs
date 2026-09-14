@@ -12,29 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use tracing::debug;
 
+use crate::artifact::PeMetadata;
 use crate::utils::file_identity::{self, FileIdentity};
 
 const PE_CACHE_MAX_ENTRIES: usize = 1024;
-
-/// PE metadata extracted from version resources
-#[derive(Debug, Clone)]
-pub struct PeMetadata {
-    /// OriginalFilename from version info (e.g., "cmd.exe")
-    /// This is the primary indicator for masquerading detection
-    pub original_filename: Option<String>,
-
-    /// Product name (e.g., "Microsoft® Windows® Operating System")
-    pub product: Option<String>,
-
-    /// File description (e.g., "Windows Command Processor")
-    pub description: Option<String>,
-
-    /// Company name (e.g., "Microsoft Corporation")
-    pub company: Option<String>,
-
-    /// File version string (e.g., "10.0.22621.1 (WinBuild.160101.0800)")
-    pub file_version: Option<String>,
-}
 
 /// The version-resource fields in the order the event structs and the process
 /// cache take them: original filename, product, description, company, version.
@@ -203,21 +184,26 @@ fn parse_metadata_impl(path: &Path, file: &File) -> Option<PeMetadata> {
         }
     };
 
-    let pe = match PE::parse(&mmap) {
-        Ok(pe) => pe,
-        Err(error) => {
-            // Not a valid PE file or corrupted
-            debug!("Failed to parse PE file: {} - {:?}", path.display(), error);
-            return None;
-        }
-    };
-    let metadata = extract_version_info(&pe);
+    let metadata = parse_metadata_bytes(&mmap);
 
     if metadata.is_some() {
         debug!("Successfully parsed PE metadata: {}", path.display());
     }
 
     metadata
+}
+
+/// Parse PE version metadata from bytes already read by the artifact resolver.
+///
+/// This is deliberately separate from [`parse_metadata`]: artifact consumers
+/// must not reopen an executable after the resolver has established its file
+/// identity and read the shared bytes.
+pub(crate) fn parse_metadata_bytes(bytes: &[u8]) -> Option<PeMetadata> {
+    let pe = match PE::parse(bytes) {
+        Ok(pe) => pe,
+        Err(_) => return None,
+    };
+    extract_version_info(&pe)
 }
 
 /// Extract version info from Goblin's unified PE32/PE32+ representation.

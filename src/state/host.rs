@@ -243,7 +243,6 @@ impl HostState {
         #[cfg(windows)]
         {
             enrich_windows_process(event);
-            crate::sensor::windows::enrich_event(event);
         }
 
         #[cfg(not(windows))]

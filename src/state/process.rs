@@ -203,6 +203,33 @@ impl ProcessCache {
         Some(entry.metadata.clone())
     }
 
+    /// Attach asynchronously resolved PE metadata to the exact process
+    /// generation, including one that exited while resolution was in flight.
+    pub(crate) fn enrich_pe_metadata(
+        &self,
+        pid: u32,
+        creation_time: u64,
+        metadata: &crate::artifact::PeMetadata,
+    ) {
+        if let Some(process) = self
+            .cache
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get_mut(&(pid, creation_time))
+        {
+            apply_pe_metadata(process, metadata);
+            return;
+        }
+        if let Some(process) = self
+            .graveyard
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get_mut(&(pid, creation_time))
+        {
+            apply_pe_metadata(&mut process.metadata, metadata);
+        }
+    }
+
     /// Get the current count of cached processes
     pub fn count(&self) -> usize {
         let cache = self.cache.read().unwrap();
@@ -231,6 +258,14 @@ impl ProcessCache {
             graveyard.retain(|_, entry| now.saturating_sub(entry.death_time) <= GRAVEYARD_TTL_SECS);
         }
     }
+}
+
+fn apply_pe_metadata(process: &mut ProcessMetadata, metadata: &crate::artifact::PeMetadata) {
+    process.original_filename = metadata.original_filename.clone();
+    process.product = metadata.product.clone();
+    process.description = metadata.description.clone();
+    process.company = metadata.company.clone();
+    process.file_version = metadata.file_version.clone();
 }
 
 impl Default for ProcessCache {

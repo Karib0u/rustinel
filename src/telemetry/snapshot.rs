@@ -460,6 +460,9 @@ impl RegistrySnapshot {
 pub struct TelemetrySnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_state: Option<crate::state::HostStateSnapshot>,
+    /// Shared artifact stores and resolver outcomes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_resolver: Option<crate::artifact::ArtifactResolverSnapshot>,
     /// Agent version that produced the snapshot.
     pub version: String,
     /// PID of the agent that produced it, to spot a snapshot from a prior run.
@@ -506,6 +509,7 @@ impl TelemetrySnapshot {
     pub fn capture() -> Self {
         Self {
             host_state: crate::state::active_snapshot(),
+            artifact_resolver: crate::artifact::active_snapshot(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             pid: std::process::id(),
             captured_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -687,6 +691,7 @@ mod tests {
     fn snapshot(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         TelemetrySnapshot {
             host_state: None,
+            artifact_resolver: None,
             version: "1.3.0".to_string(),
             pid: 42,
             captured_at: "2026-08-24T00:00:00Z".to_string(),

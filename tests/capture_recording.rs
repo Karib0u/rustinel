@@ -174,7 +174,6 @@ async fn live_protection_does_not_write_a_recording() {
         Arc::clone(&harness.host_state),
         DetectionPipeline {
             detectors,
-            ioc_hash_tx: None,
             alert_sink: AlertSink::new(writer),
             response_engine: response,
         },

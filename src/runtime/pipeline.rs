@@ -9,14 +9,15 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use crate::alerts::AlertSink;
+use crate::artifact::{spawn_artifact_resolver, ArtifactRuntime};
 use crate::config::{AppConfig, ResponseConfig};
 use crate::engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
 use crate::response::ResponseEngine;
 use crate::runtime::logging::TARGET_CONSOLE;
-use crate::runtime::{ioc as runtime_ioc, yara as runtime_yara};
-use crate::scanner::{YaraEventHandler, YaraMemoryJob};
+use crate::runtime::yara as runtime_yara;
+use crate::scanner::{YaraMemoryEventHandler, YaraMemoryJob};
 use crate::sensor::{Platform, SensorEventRouter};
 use crate::state::HostState;
 use crate::{reload, scanner};
@@ -35,9 +36,9 @@ impl SharedState {
 pub(super) struct LivePipeline {
     pub router: Arc<SensorEventRouter>,
     pub host_state: Arc<HostState>,
-    pub yara_worker_handle: Option<JoinHandle<()>>,
+    pub artifact_worker_handle: JoinHandle<()>,
+    pub artifact_resolver_handle: crate::artifact::ArtifactResolverHandle,
     pub yara_memory_worker_handle: Option<JoinHandle<()>>,
-    pub ioc_hash_worker_handle: Option<JoinHandle<()>>,
     pub reload_poller: Option<reload::ReloadPoller>,
     pub reload_worker_handle: Option<JoinHandle<()>>,
     pub reload_tx: Option<mpsc::UnboundedSender<reload::ReloadTarget>>,
@@ -53,11 +54,6 @@ impl LivePipeline {
         response_config: Arc<ArcSwap<ResponseConfig>>,
         response_engine: ResponseEngine,
     ) -> Self {
-        let provider = match platform {
-            Platform::Linux => "ebpf",
-            Platform::MacOS => "esf",
-            Platform::Windows => "etw",
-        };
         // Sigma engine
         let mut sigma_engine =
             Engine::new_for_platform_with_match_debug(platform, cfg.alerts.match_debug);
@@ -169,24 +165,6 @@ impl LivePipeline {
             reload_tx = Some(tx);
         }
 
-        // YARA background worker
-        let (yara_tx, yara_worker_handle) = if cfg.scanner.yara_enabled {
-            let (tx, rx) = mpsc::channel::<crate::scanner::FileScanTarget>(1000);
-            let handle = runtime_yara::spawn_yara_file_worker(
-                Arc::clone(&detectors),
-                alert_sink.clone(),
-                response_engine.clone(),
-                cfg.alerts.match_debug,
-                rx,
-                yara_allowlist_paths.clone(),
-                platform,
-                provider,
-            );
-            (Some(tx), Some(handle))
-        } else {
-            (None, None)
-        };
-
         let (yara_memory_tx, yara_memory_rx) =
             if cfg.scanner.yara_enabled && cfg.scanner.yara_memory_enabled {
                 let capacity = cfg.scanner.yara_memory_queue_capacity.max(1);
@@ -220,22 +198,6 @@ impl LivePipeline {
             None
         };
 
-        // IOC hash background worker
-        let (ioc_hash_tx, ioc_hash_worker_handle) = if ioc_engine.is_enabled() {
-            let (hash_tx, hash_rx) = mpsc::channel::<crate::scanner::FileScanTarget>(1000);
-            let handle = runtime_ioc::spawn_ioc_hash_worker(
-                Arc::clone(&detectors),
-                alert_sink.clone(),
-                response_engine.clone(),
-                hash_rx,
-                platform,
-                provider,
-            );
-            (Some(hash_tx), Some(handle))
-        } else {
-            (None, None)
-        };
-
         // Host-state enrichment and canonicalization boundary.
         let host_state = state.host;
 
@@ -244,36 +206,42 @@ impl LivePipeline {
             Arc::clone(&host_state),
             DetectionPipeline {
                 detectors: Arc::clone(&detectors),
-                ioc_hash_tx,
                 alert_sink: alert_sink.clone(),
                 response_engine: response_engine.clone(),
             },
         );
 
-        let yara_handler = if cfg.scanner.yara_enabled {
-            let yara_handler = YaraEventHandler {
-                tx: yara_tx.expect("yara_tx exists when enabled"),
-                memory_tx: yara_memory_tx,
-                allowlist_paths: yara_allowlist_paths,
-            };
-            Some(yara_handler)
-        } else {
-            None
-        };
+        let yara_memory_handler = yara_memory_tx.map(|tx| YaraMemoryEventHandler {
+            tx,
+            allowlist_paths: yara_allowlist_paths,
+        });
 
-        let mut router_inner = SensorEventRouter::new();
-        router_inner.register_handler(Box::new(sigma_handler));
-        if let Some(yh) = yara_handler {
-            router_inner.register_handler(Box::new(yh));
+        let mut downstream = SensorEventRouter::new();
+        downstream.register_handler(Box::new(sigma_handler));
+        if let Some(handler) = yara_memory_handler {
+            downstream.register_handler(Box::new(handler));
         }
-        let router = Arc::new(router_inner);
+        let (router, artifact_worker_handle, artifact_resolver_handle) = spawn_artifact_resolver(
+            Arc::new(downstream),
+            Arc::clone(&host_state),
+            ArtifactRuntime {
+                detectors: Some(Arc::clone(&detectors)),
+                alert_sink: Some(alert_sink),
+                response_engine: Some(response_engine),
+                match_debug: cfg.alerts.match_debug,
+                yara_allowlist_paths: scanner::normalize_allowlist_paths(
+                    &cfg.scanner.yara_allowlist_paths,
+                ),
+                pe_metadata: platform == Platform::Windows,
+            },
+        );
 
         Self {
             router,
             host_state,
-            yara_worker_handle,
+            artifact_worker_handle,
+            artifact_resolver_handle,
             yara_memory_worker_handle,
-            ioc_hash_worker_handle,
             reload_poller,
             reload_worker_handle,
             reload_tx,
@@ -315,9 +283,8 @@ mod tests {
                 response_config,
                 response.clone(),
             );
-            assert_eq!(pipeline.yara_worker_handle.is_some(), enabled);
+            assert!(!pipeline.artifact_worker_handle.is_finished());
             assert_eq!(pipeline.yara_memory_worker_handle.is_some(), enabled);
-            assert_eq!(pipeline.ioc_hash_worker_handle.is_some(), enabled);
             assert_eq!(pipeline.reload_poller.is_some(), enabled);
             assert_eq!(pipeline.reload_worker_handle.is_some(), enabled);
             assert_eq!(pipeline.reload_tx.is_some(), enabled);

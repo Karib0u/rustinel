@@ -393,6 +393,8 @@ static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 pub enum ChannelId {
     /// Sensor decode threads to the detection router.
     SensorEvents,
+    /// Canonical events queued for single-open artifact resolution.
+    ArtifactResolution,
     /// Process/file events queued for on-disk YARA scanning.
     YaraFileScan,
     /// Processes queued for YARA memory scanning.
@@ -407,8 +409,9 @@ pub enum ChannelId {
 
 impl ChannelId {
     /// Every channel, in the order snapshots report them.
-    pub const ALL: [ChannelId; 6] = [
+    pub const ALL: [ChannelId; 7] = [
         ChannelId::SensorEvents,
+        ChannelId::ArtifactResolution,
         ChannelId::YaraFileScan,
         ChannelId::YaraMemoryScan,
         ChannelId::IocHash,
@@ -420,6 +423,7 @@ impl ChannelId {
     pub const fn as_str(self) -> &'static str {
         match self {
             ChannelId::SensorEvents => "sensor_events",
+            ChannelId::ArtifactResolution => "artifact_resolution",
             ChannelId::YaraFileScan => "yara_file_scan",
             ChannelId::YaraMemoryScan => "yara_memory_scan",
             ChannelId::IocHash => "ioc_hash",
@@ -431,11 +435,12 @@ impl ChannelId {
     const fn index(self) -> usize {
         match self {
             ChannelId::SensorEvents => 0,
-            ChannelId::YaraFileScan => 1,
-            ChannelId::YaraMemoryScan => 2,
-            ChannelId::IocHash => 3,
-            ChannelId::ActiveResponse => 4,
-            ChannelId::CaptureWriter => 5,
+            ChannelId::ArtifactResolution => 1,
+            ChannelId::YaraFileScan => 2,
+            ChannelId::YaraMemoryScan => 3,
+            ChannelId::IocHash => 4,
+            ChannelId::ActiveResponse => 5,
+            ChannelId::CaptureWriter => 6,
         }
     }
 
@@ -449,8 +454,9 @@ impl ChannelId {
 ///
 /// A static array rather than a registry map: the set of channels is fixed at
 /// compile time, so lookups need no lock and no allocation on the send path.
-static CHANNELS: [ChannelCounters; 6] = [
+static CHANNELS: [ChannelCounters; 7] = [
     ChannelCounters::new(ChannelId::SensorEvents),
+    ChannelCounters::new(ChannelId::ArtifactResolution),
     ChannelCounters::new(ChannelId::YaraFileScan),
     ChannelCounters::new(ChannelId::YaraMemoryScan),
     ChannelCounters::new(ChannelId::IocHash),

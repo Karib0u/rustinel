@@ -85,7 +85,7 @@ See [macOS permissions](macos-permissions.md#start-up-errors).
   A file that never runs is not scanned.
 - The path is under a trusted prefix (`scanner.yara_allowlist_paths`).
 - The file is larger than `scanner.yara_max_file_mb`, or the scan hit `scanner.yara_scan_timeout_ms`.
-- The queue was full: the log says `YARA queue full; dropping scan job`.
+- The shared artifact queue was full: `rustinel doctor` reports `artifact_resolution` drops and an `artifact_resolver` queue-saturation outcome.
 
 For memory scans, also check that `scanner.yara_memory_enabled` is `true` and that the process did not exit before `yara_memory_delay_ms`.
 Reading another process's memory can be refused: protected processes on Windows, missing `CAP_SYS_PTRACE` or a strict `ptrace_scope` on Linux, and most processes on macOS.

@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
+use crate::artifact::{spawn_artifact_resolver, ArtifactRuntime};
 use crate::capture::{CaptureRecorder, CaptureStatus};
 use crate::config::AppConfig;
 use crate::engine::NormalizedEventHandler;
@@ -93,11 +94,16 @@ impl CaptureContext {
         let host_state = HostState::for_runtime(self.config.process.max_entries);
 
         // The only handler: no detectors, no alert sink, no response engine.
-        let mut router = SensorEventRouter::new();
-        router.register_handler(Box::new(NormalizedEventHandler::recording(
+        let mut downstream = SensorEventRouter::new();
+        downstream.register_handler(Box::new(NormalizedEventHandler::recording(
             Arc::clone(&host_state),
             recorder.sink(),
         )));
+        let (router, artifact_worker, artifact_resolver) = spawn_artifact_resolver(
+            Arc::new(downstream),
+            Arc::clone(&host_state),
+            ArtifactRuntime::capture(platform),
+        );
 
         eprintln!("Recording to {}", recorder.payload_path().display());
         eprintln!("Start the activity you want to record, then press Ctrl+C to finish.");
@@ -107,8 +113,10 @@ impl CaptureContext {
         Ok(CaptureSession {
             _context: self,
             recorder,
-            router: Arc::new(router),
+            router,
             host_state,
+            artifact_worker,
+            artifact_resolver,
             progress,
         })
     }
@@ -121,6 +129,8 @@ pub(crate) struct CaptureSession {
     recorder: CaptureRecorder,
     router: Arc<SensorEventRouter>,
     host_state: Arc<HostState>,
+    artifact_worker: JoinHandle<()>,
+    artifact_resolver: crate::artifact::ArtifactResolverHandle,
     progress: JoinHandle<()>,
 }
 
@@ -167,6 +177,8 @@ impl CaptureSession {
     pub(crate) async fn abandon(self, sensor_worker: JoinHandle<()>) {
         drop(self.router);
         let _ = sensor_worker.await;
+        let _ = self.artifact_worker.await;
+        drop(self.artifact_resolver);
         self.progress.abort();
         let _ = self.progress.await;
 
@@ -195,6 +207,8 @@ impl CaptureSession {
     ) -> anyhow::Result<()> {
         drop(self.router);
         let _ = sensor_worker.await;
+        let _ = self.artifact_worker.await;
+        drop(self.artifact_resolver);
         self.progress.abort();
         let _ = self.progress.await;
 

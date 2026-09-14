@@ -19,13 +19,11 @@ impl LivePipeline {
         alert_sink: &AlertSink,
         telemetry_reporter: Option<TelemetryReporter>,
     ) {
+        let artifact_resolver_handle = self.artifact_resolver_handle;
         drop(self.router);
         join_worker("sensor event", sensor_worker).await;
-        for (name, handle) in [
-            ("YARA file", self.yara_worker_handle),
-            ("YARA memory", self.yara_memory_worker_handle),
-            ("IOC hash", self.ioc_hash_worker_handle),
-        ] {
+        join_worker("artifact resolver", self.artifact_worker_handle).await;
+        for (name, handle) in [("YARA memory", self.yara_memory_worker_handle)] {
             if let Some(handle) = handle {
                 join_worker(name, handle).await;
             }
@@ -51,6 +49,7 @@ impl LivePipeline {
         if let Some(reporter) = telemetry_reporter {
             reporter.finish().await;
         }
+        drop(artifact_resolver_handle);
     }
 }
 
@@ -87,7 +86,7 @@ mod tests {
             jobs.send(1).await.unwrap();
             drop(worker_router);
         });
-        let yara = tokio::spawn(async move {
+        let artifact = tokio::spawn(async move {
             while let Some(job) = job_rx.recv().await {
                 responses.send(job).await.unwrap();
             }
@@ -119,9 +118,9 @@ mod tests {
         let pipeline = LivePipeline {
             router,
             host_state: Arc::new(crate::state::HostState::default()),
-            yara_worker_handle: Some(yara),
+            artifact_worker_handle: artifact,
+            artifact_resolver_handle: crate::artifact::ArtifactResolverHandle::empty(),
             yara_memory_worker_handle: None,
-            ioc_hash_worker_handle: None,
             reload_poller: None,
             reload_worker_handle: Some(reload),
             reload_tx: Some(reload_tx),

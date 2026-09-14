@@ -18,6 +18,7 @@ src/
 ├── models/          CanonicalEvent, the generated NormalizedEvent view, alert, and ECS models
 ├── normalizer/      builds the stable NormalizedEvent compatibility view
 ├── state/           HostState, bounded attribution indexes and inventory
+├── artifact.rs      single-open executable resolution and bounded result stores
 ├── engine/          Sigma loading, logsource routing, evaluation (RSigma)
 ├── scanner/         YARA compilation and scanning
 ├── memory/          per-platform process memory reads for YARA
@@ -41,15 +42,21 @@ ebpf/src/            Linux eBPF programs and the event ABI
 1. A platform sensor emits a `RawEvent` into the bounded `sensor_events` channel.
    Process records retain native numeric identities and source-specific facts; the other categories are migrated independently.
 2. `HostState` performs host-dependent enrichment after that channel and creates a provenance-carrying `CanonicalEvent`.
-3. `SensorEventRouter` hands only canonical events to detection, YARA, and capture.
-4. Sigma and IOC evaluate the canonical event's generated `NormalizedEvent` view; `YaraEventHandler` queues process-start executables.
+3. Artifact-bearing events are queued for the bounded `artifact_resolution` resolver.
+   It opens the image once, validates its `FileIdentity`, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.
+4. Admission routes every event to the downstream `SensorEventRouter` exactly once and in `ingest_seq` order, for Sigma/IOC detection or capture.
+   Only PE metadata, which Sigma can match, may hold an event, for at most a 100 ms admission budget; later events wait behind it.
+   YARA file and IOC hash alerts come from the same resolver result after admission; YARA memory scanning remains a separate worker.
 5. Hits go to `AlertSink` (ECS NDJSON) and, when enabled, `ResponseEngine`.
 
 Capture also receives `CanonicalEvent`.
 Recording schema v2 deliberately serializes its unchanged `NormalizedEvent` view, and replay wraps that same view back in a canonical event, so existing recordings remain compatible.
 
 Sensor and background-worker queues are bounded channels that drop instead of blocking, with counters in `src/telemetry`.
-Canonicalization and detector dispatch run synchronously in the sensor-channel worker.
+Canonicalization runs synchronously in the sensor-channel worker, but file opening, reading, PE parsing, hashing, and YARA file scanning do not.
+A slow artifact delays routing by at most the admission budget, never more, because order is kept and the budget is measured from each event's own arrival.
+If the artifact queue is full, a job exceeds its deadline, or PE metadata misses the budget, the event is admitted without that enrichment and the outcome is counted.
+Opens and reads run on at most four I/O threads; a thread blocked in the OS keeps its slot until the call returns, and non-regular Unix files are opened nonblocking and rejected.
 Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
 
 `runtime/pipeline.rs` builds this pipeline for all three platforms.
@@ -72,6 +79,9 @@ The inventory reports scanned, seeded, skipped, duration, and failure informatio
 Live detectors sit behind `engine::DetectorStore` (`src/engine/detectors.rs`).
 `reload/watcher.rs` watches files, falling back to polling; `reload/worker.rs` debounces, rebuilds only the changed detector, validates it, and swaps it atomically.
 Readers keep the previous instance until they finish.
+Artifact stores are separate by consumer and keyed by the same `FileIdentity`, with one shared eviction policy.
+A YARA reload advances its generation and invalidates only YARA results; PE metadata, hashes, and imphashes remain valid for that identity.
+Signature revocation freshness can invalidate the signature store independently without reopening the file.
 
 ## Path allowlists
 

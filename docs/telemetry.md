@@ -12,6 +12,7 @@ All counters start at zero when the agent starts.
 | `version`, `pid`, `captured_at`, `uptime_secs` | Which agent wrote the snapshot, and when |
 | `channels` | One entry per queue, see below |
 | `sensor_events_by_category` | Accepted and dropped sensor events by category (process, network, file, ...) |
+| `artifact_resolver` | Single-open executable resolution outcomes and store occupancy |
 | `linux_ebpf` | Linux kernel and userspace counters |
 | `macos_collectors` | macOS Endpoint Security and packet capture loss |
 | `windows_event_log` | Windows System and Security subscription health |
@@ -43,6 +44,25 @@ Windows keeps separate bounded indexes for file objects, file keys, file startup
 The recently closed registry index is capped at 4,096 entries.
 A process skipped because it vanished, was inaccessible, or exceeded the entry ceiling contributes to `inventory.skipped`.
 Linux startup attribution also requires kernel process birth-time support.
+
+## `artifact_resolver`
+
+The resolver opens each process image at most once per submitted event and shares the bytes between PE metadata, IOC hashing, signature/imphash extension points, and YARA.
+Its consumer results remain in separate `FileIdentity`-keyed stores under one eviction ceiling.
+
+| Field | Meaning |
+| --- | --- |
+| `queue_capacity`, `deadline_ms` | Fixed pending-work bound and maximum resolver time budget; a smaller configured YARA timeout can shorten a job |
+| `admission_budget_ms` | Longest PE metadata may hold an event before it is admitted without it |
+| `admission_budget_exceeded` | Events admitted without PE metadata because resolution missed the budget |
+| `admission_backpressure` | Events that waited for room in the ordered admission queue; each wait is bounded by the budget |
+| `queued`, `resolved` | Jobs admitted and completed |
+| `cache_hits`, `cache_misses` | Whole-job cache outcomes after the identity was measured |
+| `queue_saturated`, `worker_saturated`, `deadline_exceeded` | Enrichment shed because the resolver queue was full, an I/O thread could not be started, or no I/O slot freed before the job's deadline; the event is still admitted |
+| `open_failed`, `identity_mismatch`, `read_failed`, `consumer_failed`, `oversized` | Explicit unavailable outcomes by cause |
+| `pe_entries`, `hash_entries`, `imphash_entries`, `signature_entries`, `yara_entries` | Occupancy of every separate result store |
+| `yara_generation` | Active cache generation; only YARA entries invalidate on a successful YARA reload |
+| `evicted` | File identities removed from all stores by the shared eviction policy |
 
 ## `channels`
 
