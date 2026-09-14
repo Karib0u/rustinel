@@ -397,12 +397,8 @@ pub enum ChannelId {
     SensorEvents,
     /// Canonical events queued for single-open artifact resolution.
     ArtifactResolution,
-    /// Process/file events queued for on-disk YARA scanning.
-    YaraFileScan,
     /// Processes queued for YARA memory scanning.
     YaraMemoryScan,
-    /// Process images queued for IOC hash lookup.
-    IocHash,
     /// Alerts queued for active response.
     ActiveResponse,
     /// Normalized events queued for the capture recording writer.
@@ -411,12 +407,10 @@ pub enum ChannelId {
 
 impl ChannelId {
     /// Every channel, in the order snapshots report them.
-    pub const ALL: [ChannelId; 7] = [
+    pub const ALL: [ChannelId; 5] = [
         ChannelId::SensorEvents,
         ChannelId::ArtifactResolution,
-        ChannelId::YaraFileScan,
         ChannelId::YaraMemoryScan,
-        ChannelId::IocHash,
         ChannelId::ActiveResponse,
         ChannelId::CaptureWriter,
     ];
@@ -426,9 +420,7 @@ impl ChannelId {
         match self {
             ChannelId::SensorEvents => "sensor_events",
             ChannelId::ArtifactResolution => "artifact_resolution",
-            ChannelId::YaraFileScan => "yara_file_scan",
             ChannelId::YaraMemoryScan => "yara_memory_scan",
-            ChannelId::IocHash => "ioc_hash",
             ChannelId::ActiveResponse => "active_response",
             ChannelId::CaptureWriter => "capture_writer",
         }
@@ -438,11 +430,9 @@ impl ChannelId {
         match self {
             ChannelId::SensorEvents => 0,
             ChannelId::ArtifactResolution => 1,
-            ChannelId::YaraFileScan => 2,
-            ChannelId::YaraMemoryScan => 3,
-            ChannelId::IocHash => 4,
-            ChannelId::ActiveResponse => 5,
-            ChannelId::CaptureWriter => 6,
+            ChannelId::YaraMemoryScan => 2,
+            ChannelId::ActiveResponse => 3,
+            ChannelId::CaptureWriter => 4,
         }
     }
 
@@ -456,12 +446,10 @@ impl ChannelId {
 ///
 /// A static array rather than a registry map: the set of channels is fixed at
 /// compile time, so lookups need no lock and no allocation on the send path.
-static CHANNELS: [ChannelCounters; 7] = [
+static CHANNELS: [ChannelCounters; 5] = [
     ChannelCounters::new(ChannelId::SensorEvents),
     ChannelCounters::new(ChannelId::ArtifactResolution),
-    ChannelCounters::new(ChannelId::YaraFileScan),
     ChannelCounters::new(ChannelId::YaraMemoryScan),
-    ChannelCounters::new(ChannelId::IocHash),
     ChannelCounters::new(ChannelId::ActiveResponse),
     ChannelCounters::new(ChannelId::CaptureWriter),
 ];
@@ -1702,10 +1690,10 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::channel::<u8>(4);
 
         for value in 0..3u8 {
-            try_send(ChannelId::IocHash, &tx, value).expect("channel has room");
+            try_send(ChannelId::YaraMemoryScan, &tx, value).expect("channel has room");
         }
 
-        let counters = ChannelId::IocHash.counters();
+        let counters = ChannelId::YaraMemoryScan.counters();
         assert_eq!(counters.accepted(), 3);
         assert_eq!(counters.dropped(), 0);
         assert_eq!(counters.capacity(), 4);
@@ -1717,14 +1705,15 @@ mod tests {
         let _guard = counter_guard();
         let (tx, _rx) = tokio::sync::mpsc::channel::<u8>(2);
 
-        try_send(ChannelId::YaraFileScan, &tx, 1).expect("channel has room");
-        try_send(ChannelId::YaraFileScan, &tx, 2).expect("channel has room");
+        try_send(ChannelId::ArtifactResolution, &tx, 1).expect("channel has room");
+        try_send(ChannelId::ArtifactResolution, &tx, 2).expect("channel has room");
         for value in 3..8u8 {
-            let err = try_send(ChannelId::YaraFileScan, &tx, value).expect_err("channel is full");
+            let err =
+                try_send(ChannelId::ArtifactResolution, &tx, value).expect_err("channel is full");
             assert!(matches!(err, TrySendError::Full(_)));
         }
 
-        let counters = ChannelId::YaraFileScan.counters();
+        let counters = ChannelId::ArtifactResolution.counters();
         assert_eq!(counters.accepted(), 2);
         assert_eq!(counters.dropped(), 5);
         assert_eq!(counters.dropped_closed(), 0);
@@ -1773,11 +1762,11 @@ mod tests {
 
         try_send(ChannelId::CaptureWriter, &full_tx, 1).expect("channel has room");
         let _ = try_send(ChannelId::CaptureWriter, &full_tx, 2);
-        try_send(ChannelId::IocHash, &open_tx, 3).expect("channel has room");
+        try_send(ChannelId::YaraMemoryScan, &open_tx, 3).expect("channel has room");
 
         assert_eq!(ChannelId::CaptureWriter.counters().dropped(), 1);
-        assert_eq!(ChannelId::IocHash.counters().dropped(), 0);
-        assert_eq!(ChannelId::IocHash.counters().accepted(), 1);
+        assert_eq!(ChannelId::YaraMemoryScan.counters().dropped(), 0);
+        assert_eq!(ChannelId::YaraMemoryScan.counters().accepted(), 1);
     }
 
     /// The warning is the only live signal while a channel is shedding, so

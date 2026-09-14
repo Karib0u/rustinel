@@ -7,7 +7,7 @@ use crate::models::{
     YaraRuleMatch, YaraScanSource,
 };
 use crate::response::ResponseEngine;
-use crate::scanner::{self, ScanError, ScanResult, YaraMemoryJob};
+use crate::scanner::{ScanError, ScanResult, YaraMemoryJob};
 use crate::sensor::Platform;
 use crate::utils::{self, validate_process_identity, LogRateLimiter};
 use std::ops::ControlFlow;
@@ -245,110 +245,6 @@ pub fn build_yara_memory_alert(
     };
     alert.event.inherit_populated_provenance(provenance);
     alert
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn spawn_yara_file_worker(
-    detectors: Arc<DetectorStore>,
-    alert_sink: AlertSink,
-    response_engine: ResponseEngine,
-    match_debug: MatchDebugLevel,
-    mut rx: mpsc::Receiver<crate::scanner::FileScanTarget>,
-    allowlist_paths: Vec<String>,
-    platform: Platform,
-    provider: &'static str,
-) -> tokio::task::JoinHandle<()> {
-    tokio::task::spawn_blocking(move || {
-        info!(
-            target: "scanner",
-            "YARA worker thread started and waiting for files to scan"
-        );
-        let mut scan_error_limiter =
-            LogRateLimiter::new(Duration::from_secs(WORKER_LOG_WINDOW_SECS));
-        let mut counters = YaraScanCounters::default();
-
-        while let Some(target) = rx.blocking_recv() {
-            let path = target.path.clone();
-            let pid = target.pid;
-            if scanner::is_path_allowlisted(&path, &allowlist_paths) {
-                counters.record_skip();
-                tracing::trace!(
-                    target: "scanner",
-                    pid = pid,
-                    file = %path,
-                    "YARA worker skipping allowlisted path"
-                );
-                continue;
-            }
-
-            tracing::trace!(
-                target: "scanner",
-                pid = pid,
-                file = %path,
-                "YARA worker received file for scan"
-            );
-
-            let scanner = detectors.yara();
-            let scan_result = scanner.scan_target(&target, match_debug);
-            counters.record_result(&scan_result);
-            match scan_result {
-                Ok(matches) => {
-                    if !matches.is_empty() {
-                        for rule_match in &matches {
-                            let match_details = build_yara_match_details(match_debug, rule_match);
-                            let alert = build_yara_alert(
-                                &rule_match.rule,
-                                rule_match.metadata_id.clone(),
-                                &path,
-                                pid,
-                                &Provenance::default(),
-                                match_details,
-                                platform,
-                                provider,
-                            );
-                            alert_sink.write_yara_alert(&alert, YaraScanSource::File);
-                            response_engine.handle_alert(&alert);
-                        }
-                    } else {
-                        tracing::trace!(
-                            target: "scanner",
-                            pid = pid,
-                            file = %path,
-                            "YARA worker no matches"
-                        );
-                    }
-                }
-                Err(err) => {
-                    let decision = scan_error_limiter.should_emit(err.kind());
-                    if decision.should_emit {
-                        warn!(
-                            target: "scanner",
-                            pid = pid,
-                            file = %path,
-                            outcome = err.kind(),
-                            error = %err,
-                            suppressed = decision.suppressed_since_last_emit,
-                            failed_scans_total = counters.failed,
-                            timed_out_scans_total = counters.timed_out,
-                            oversized_scans_total = counters.oversized,
-                            "YARA worker scan not completed"
-                        );
-                    }
-                }
-            }
-        }
-
-        info!(
-            target: "scanner",
-            failed_scans_total = counters.failed,
-            skipped_scans_total = counters.skipped,
-            clean_scans_total = counters.clean,
-            matched_scans_total = counters.matched,
-            timed_out_scans_total = counters.timed_out,
-            oversized_scans_total = counters.oversized,
-            "YARA worker thread shutting down"
-        );
-    })
 }
 
 fn wait_for_memory_scan(

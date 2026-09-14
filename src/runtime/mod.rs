@@ -1,5 +1,4 @@
 pub mod capture;
-pub mod ioc;
 #[cfg(target_os = "linux")]
 mod linux;
 pub mod logging;

@@ -61,6 +61,7 @@ Its consumer results remain in separate `FileIdentity`-keyed stores under one ev
 | `cache_hits`, `cache_misses` | Whole-job cache outcomes after the identity was measured |
 | `queue_saturated`, `worker_saturated`, `deadline_exceeded` | Enrichment shed because the resolver queue was full, an I/O thread could not be started, or no I/O slot freed before the job's deadline; the event is still admitted |
 | `open_failed`, `identity_mismatch`, `read_failed`, `consumer_failed`, `oversized` | Explicit unavailable outcomes by cause |
+| `identity_unavailable` | Selected written files skipped because the sensor supplied no event-time identity to validate the opened file against |
 | `pe_entries`, `hash_entries`, `imphash_entries`, `signature_entries`, `yara_entries` | Occupancy of every separate result store |
 | `yara_generation` | Active cache generation; only YARA entries invalidate on a successful YARA reload |
 | `evicted` | File identities removed from all stores by the shared eviction policy |
@@ -69,7 +70,7 @@ Its consumer results remain in separate `FileIdentity`-keyed stores under one ev
 
 | Field | Meaning |
 | --- | --- |
-| `channel` | Queue name, such as `sensor_events` or `yara_file_scan` |
+| `channel` | Queue name, such as `sensor_events` or `artifact_resolution` |
 | `capacity` | Queue size |
 | `accepted` | Items that entered the queue |
 | `dropped` | Items dropped because the queue was full. This is the detection gap |
