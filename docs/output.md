@@ -138,6 +138,7 @@ The file is written first and does not depend on delivery: a slow, failing, or u
 | `X-Rustinel-Signature` | `sha256=` and the hex HMAC-SHA256 of `<timestamp>.<body>` keyed with `secret`, when `secret` is set |
 
 Configured `headers` are added to every request.
+Configuration syntax errors report the file without source excerpts, and invalid values are omitted from type errors, so diagnostics cannot expose credentials.
 
 ### Delivery
 

@@ -556,6 +556,10 @@ fn malformed_webhook_destinations_fail_at_load() {
             "queue_capacity",
         ),
         (
+            "url = \"https://example.com/\"\nqueue_capacity = 9223372036854775807",
+            "queue_capacity",
+        ),
+        (
             "url = \"https://example.com/\"\nmax_attempts = 0",
             "max_attempts",
         ),
@@ -631,5 +635,39 @@ timeout_ms = 0
             assert!(!rendered.contains(secret), "{rendered}");
         }
         assert!(rendered.contains("https://hooks.example"), "{rendered}");
+    }
+}
+
+#[test]
+fn configuration_parse_errors_never_carry_source_credentials() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for content in [
+        "[[alerts.webhook]]\nurl = \"https://hooks.example/URL-TOKEN\" invalid\n",
+        "[[alerts.webhook]]\nurl = \"https://hooks.example/\"\nheaders = { Authorization = \"Bearer HEADER-TOKEN\" invalid }\n",
+        "[[alerts.webhook]]\nurl = \"https://hooks.example/\"\nsecret = \"HMAC-KEY\" invalid\n",
+    ] {
+        let error = load_config_file(&temp, content).expect_err("invalid TOML");
+        for rendered in [error.to_string(), format!("{error:?}")] {
+            assert!(rendered.contains("invalid configuration syntax"), "{rendered}");
+            assert!(rendered.contains("config.toml"), "{rendered}");
+            for secret in ["URL-TOKEN", "HEADER-TOKEN", "HMAC-KEY"] {
+                assert!(!rendered.contains(secret), "{rendered}");
+            }
+        }
+    }
+}
+
+#[test]
+fn configuration_type_and_enum_errors_never_carry_input_values() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (content, key) in [
+        ("[[alerts.webhook]]\nurl = \"https://hooks.example/\"\ntimeout_ms = \"PRIVATE-VALUE\"\n", "timeout_ms"),
+        ("[alerts]\nmatch_debug = \"PRIVATE-VALUE\"\n", "match_debug"),
+    ] {
+        let error = load_config_file(&temp, content).expect_err("invalid value");
+        for rendered in [error.to_string(), format!("{error:?}")] {
+            assert!(!rendered.contains("PRIVATE-VALUE"), "{rendered}");
+            assert!(rendered.contains(key), "{rendered}");
+        }
     }
 }

@@ -25,8 +25,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use hmac::{Hmac, KeyInit, Mac};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, RETRY_AFTER};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
@@ -499,28 +500,13 @@ pub fn signature(secret: &[u8], timestamp: &str, body: &[u8]) -> String {
     format!("sha256={}", hex::encode(mac))
 }
 
-/// HMAC-SHA256 (RFC 2104) over the concatenation of `message`.
+/// HMAC-SHA256 over the concatenation of `message`.
 fn hmac_sha256(key: &[u8], message: &[&[u8]]) -> [u8; 32] {
-    const BLOCK: usize = 64;
-    let mut block = [0u8; BLOCK];
-    if key.len() > BLOCK {
-        block[..32].copy_from_slice(&Sha256::digest(key));
-    } else {
-        block[..key.len()].copy_from_slice(key);
-    }
-
-    let mut inner = Sha256::new();
-    inner.update(block.map(|byte| byte ^ 0x36));
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts keys of any length");
     for part in message {
-        inner.update(part);
+        mac.update(part);
     }
-    let mut outer = Sha256::new();
-    outer.update(block.map(|byte| byte ^ 0x5c));
-    outer.update(inner.finalize());
-
-    let mut mac = [0u8; 32];
-    mac.copy_from_slice(&outer.finalize());
-    mac
+    mac.finalize().into_bytes().into()
 }
 
 fn is_retryable_status(status: u16) -> bool {

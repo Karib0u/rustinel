@@ -187,6 +187,12 @@ impl WebhookConfig {
         if self.queue_capacity == 0 {
             return Err(format!("{context}: queue_capacity must be greater than 0"));
         }
+        if self.queue_capacity > tokio::sync::Semaphore::MAX_PERMITS {
+            return Err(format!(
+                "{context}: queue_capacity must not exceed {}",
+                tokio::sync::Semaphore::MAX_PERMITS
+            ));
+        }
         if !(1..=MAX_ATTEMPTS_LIMIT).contains(&self.max_attempts) {
             return Err(format!(
                 "{context}: max_attempts must be between 1 and {MAX_ATTEMPTS_LIMIT}"
