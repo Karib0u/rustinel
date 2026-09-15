@@ -303,7 +303,7 @@ impl ContainerResolver {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn cached_cgroups(&self) -> usize {
         self.cgroups.len()
     }
