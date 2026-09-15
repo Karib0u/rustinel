@@ -156,6 +156,10 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             fields.linux_identity.effective_user_id.as_deref(),
             provenance,
         );
+        #[cfg(target_os = "linux")]
+        if event.platform == Platform::Linux && event.action == SensorAction::Start {
+            self.resolve_container(raw, &mut fields, provenance);
+        }
         if fields.process_start_time.is_none() {
             fields.process_start_time = event.process_start_key.map(|key| key.start_time);
             if fields.process_start_time.is_some()
@@ -406,6 +410,26 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         Some(EventFields::TaskCreation(fields))
     }
 
+    /// Container lookup reads cgroupfs, so it stays downstream of the ring drain.
+    #[cfg(target_os = "linux")]
+    fn resolve_container(
+        &self,
+        raw: &RawProcessEvent,
+        fields: &mut ProcessCreationFields,
+        provenance: &mut Provenance,
+    ) {
+        let crate::sensor::RawProcessPlatform::Linux(source) = raw.platform.as_ref() else {
+            return;
+        };
+        let resolution = self.state.resolve_container(
+            raw.process_id,
+            raw.parent_process_id,
+            source.cgroup_id,
+            source.identity.pid_namespace,
+        );
+        apply_container_resolution(fields, resolution, provenance);
+    }
+
     fn enrich_image(
         &self,
         event: &SensorEvent,
@@ -531,6 +555,31 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn apply_container_resolution(
+    fields: &mut ProcessCreationFields,
+    resolution: crate::state::container::ContainerResolution,
+    provenance: &mut Provenance,
+) {
+    let container = resolution.container;
+    if resolution.via_namespace && container.is_some() {
+        // The process never joined the container's cgroup; its identity is
+        // inferred from a PID namespace shared with one that did.
+        provenance.mark_derived("ContainerId");
+        if container.as_ref().is_some_and(|c| c.runtime.is_some()) {
+            provenance.mark_derived("ContainerRuntime");
+        }
+    }
+    *fields.container = LinuxContainerContext {
+        cgroup_path: resolution.cgroup_path,
+        container_runtime: container
+            .as_ref()
+            .and_then(|c| c.runtime)
+            .map(str::to_string),
+        container_id: container.map(|c| c.id),
+    };
+}
+
 fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
     value.and_then(|value| value.parse::<u32>().ok())
 }
@@ -603,6 +652,56 @@ mod tests {
 
     fn build_normalizer() -> Normalizer {
         Normalizer::new(Arc::new(HostState::default()))
+    }
+
+    #[test]
+    fn container_resolution_marks_only_namespace_attribution_as_derived() {
+        use crate::state::container::{ContainerIdentity, ContainerResolution};
+        const ID: &str = "4f0a3c1b2d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
+        let event = process_start_event(Platform::Linux, "ebpf", 4242);
+        let SensorPayload::Process(raw) = &event.payload else {
+            unreachable!()
+        };
+        let container = ContainerIdentity {
+            id: ID.to_string(),
+            runtime: Some("docker"),
+        };
+
+        let mut fields = raw.compatibility_fields();
+        let mut provenance = Provenance::default();
+        apply_container_resolution(
+            &mut fields,
+            ContainerResolution {
+                cgroup_path: Some(format!("/system.slice/docker-{ID}.scope")),
+                container: Some(container.clone()),
+                via_namespace: false,
+            },
+            &mut provenance,
+        );
+        assert_eq!(fields.container.container_id.as_deref(), Some(ID));
+        assert_eq!(
+            fields.container.container_runtime.as_deref(),
+            Some("docker")
+        );
+        assert!(provenance.is_empty());
+
+        let mut fields = raw.compatibility_fields();
+        apply_container_resolution(
+            &mut fields,
+            ContainerResolution {
+                cgroup_path: Some("/user.slice/session-2.scope".to_string()),
+                container: Some(container),
+                via_namespace: true,
+            },
+            &mut provenance,
+        );
+        assert_eq!(
+            fields.container.cgroup_path.as_deref(),
+            Some("/user.slice/session-2.scope")
+        );
+        assert!(provenance.has("ContainerId", Fidelity::Derived));
+        assert!(provenance.has("ContainerRuntime", Fidelity::Derived));
+        assert!(!provenance.has("CgroupPath", Fidelity::Derived));
     }
 
     #[test]
@@ -936,6 +1035,7 @@ mod tests {
                 ProcessCreationFields {
                     hashes: None,
                     imphash: None,
+                    container: Default::default(),
                     linux_identity: Box::new(LinuxProcessIdentity {
                         real_group_id: Some("1000".to_string()),
                         ..Default::default()
@@ -1000,6 +1100,7 @@ mod tests {
                 ProcessCreationFields {
                     hashes: None,
                     imphash: None,
+                    container: Default::default(),
                     linux_identity: Default::default(),
                     cgroup_id: None,
                     exec: Default::default(),
@@ -1152,6 +1253,7 @@ mod tests {
                 ProcessCreationFields {
                     hashes: None,
                     imphash: None,
+                    container: Default::default(),
                     linux_identity: Default::default(),
                     cgroup_id: None,
                     exec: Default::default(),

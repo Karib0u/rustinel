@@ -461,6 +461,7 @@ pub mod mapping {
                 ProcessCreationFields {
                     hashes: None,
                     imphash: None,
+                    container: Default::default(),
                     linux_identity: event.linux_identity(),
                     cgroup_id: (event.cgroup_id != 0).then(|| event.cgroup_id.to_string()),
                     exec: event.exec_metadata(),

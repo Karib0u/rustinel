@@ -1990,6 +1990,7 @@ mod tests {
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 hashes: None,
                 imphash: None,
+                container: Default::default(),
                 exec: Default::default(),
                 linux_identity: Box::<LinuxProcessIdentity>::default(),
                 image: Some(path.to_string_lossy().into_owned()),

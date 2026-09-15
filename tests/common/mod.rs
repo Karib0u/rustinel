@@ -134,6 +134,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             ProcessCreationFields {
                 hashes: None,
                 imphash: None,
+                container: Default::default(),
                 linux_identity: Box::new(rustinel::models::LinuxProcessIdentity {
                     real_group_id: (platform == Platform::Linux).then(|| "1000".to_string()),
                     ..Default::default()

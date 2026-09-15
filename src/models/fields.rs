@@ -117,6 +117,22 @@ pub struct LinuxProcessIdentity {
     pub kernel_start_boottime: Option<u64>,
 }
 
+/// Linux cgroup and container context resolved from the measured cgroup
+/// identifier and PID namespace. Absent fields mean unresolved.
+///
+/// `CgroupPath` present with `ContainerId` absent is a host process;
+/// `CgroupPath` absent means the event could not be classified either way.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxContainerContext {
+    /// Cgroup v2 path relative to the cgroup2 mount, as in `/proc/PID/cgroup`.
+    #[serde(rename = "CgroupPath", skip_serializing_if = "Option::is_none")]
+    pub cgroup_path: Option<String>,
+    #[serde(rename = "ContainerId", skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+    #[serde(rename = "ContainerRuntime", skip_serializing_if = "Option::is_none")]
+    pub container_runtime: Option<String>,
+}
+
 /// Windows creation source evidence, retained through recording and ECS output.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WindowsProcessMetadata {
@@ -138,6 +154,8 @@ pub struct ProcessCreationFields {
     pub exec: Option<Box<ExecMetadata>>,
     #[serde(flatten, default)]
     pub linux_identity: Box<LinuxProcessIdentity>,
+    #[serde(flatten, default)]
+    pub container: Box<LinuxContainerContext>,
     #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 

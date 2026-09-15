@@ -36,6 +36,7 @@ fn make_alert(rule: &str, image: &str) -> Alert {
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 hashes: None,
                 imphash: None,
+                container: Default::default(),
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

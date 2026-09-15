@@ -231,6 +231,7 @@ impl RawProcessEvent {
         ProcessCreationFields {
             hashes: None,
             imphash: None,
+            container: Default::default(),
             linux_identity,
             cgroup_id,
             exec,

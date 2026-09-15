@@ -101,6 +101,9 @@ impl From<&Alert> for EcsAlert {
             edr_process_image_source: None,
             edr_process_image_truncated: None,
             edr_process_cgroup_id: None,
+            edr_process_cgroup_path: None,
+            container_id: None,
+            container_runtime: None,
             edr_process_real_user_id: None,
             edr_process_real_group_id: None,
             edr_process_effective_user_id: None,
@@ -210,6 +213,9 @@ impl From<&Alert> for EcsAlert {
                 ecs.edr_process_image_source = f.image_source.clone();
                 ecs.edr_process_image_truncated = f.image_truncated;
                 ecs.edr_process_cgroup_id = f.cgroup_id.clone();
+                ecs.edr_process_cgroup_path = f.container.cgroup_path.clone();
+                ecs.container_id = f.container.container_id.clone();
+                ecs.container_runtime = f.container.container_runtime.clone();
                 ecs.edr_process_real_user_id =
                     f.exec.as_ref().and_then(|exec| exec.real_user_id.clone());
                 ecs.edr_process_real_group_id = f.linux_identity.real_group_id.clone();
@@ -530,6 +536,7 @@ mod tests {
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
                     hashes: None,
                     imphash: None,
+                    container: Default::default(),
                     linux_identity: Default::default(),
                     cgroup_id: Some("123456".to_string()),
                     exec: Default::default(),
@@ -595,6 +602,76 @@ mod tests {
 
         let json = serde_json::to_value(&ecs).expect("ECS alert serializes");
         assert!(json.get("edr.process.target_image").is_none());
+    }
+
+    #[test]
+    fn test_ecs_linux_container_context() {
+        const ID: &str = "4f0a3c1b2d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
+        let event = NormalizedEvent {
+            timestamp: "2026-01-06T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 1,
+            platform: Platform::Linux,
+            provider: "ebpf".to_string(),
+            category: EventCategory::Process,
+            event_id: 1,
+            event_id_string: "1".to_string(),
+            opcode: 1,
+            fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
+                container: Box::new(crate::models::LinuxContainerContext {
+                    cgroup_path: Some(format!("/system.slice/docker-{ID}.scope")),
+                    container_id: Some(ID.to_string()),
+                    container_runtime: Some("docker".to_string()),
+                }),
+                linux_identity: Default::default(),
+                cgroup_id: Some("8812".to_string()),
+                exec: Default::default(),
+                parent_process_id_derived: false,
+                windows: Default::default(),
+                image: Some("/bin/sh".to_string()),
+                image_source: Some("execve".to_string()),
+                image_truncated: None,
+                command_line: Some("sh -c id".to_string()),
+                process_id: Some("4321".to_string()),
+                process_start_time: None,
+                parent_image: None,
+                user: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                target_image: None,
+                parent_process_id: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+            }),
+            process_name: None,
+            provenance: Default::default(),
+            process_context: None,
+        };
+        let alert = Alert {
+            severity: AlertSeverity::High,
+            rule_name: "Container".to_string(),
+            rule_description: None,
+            rule_id: None,
+            sigma_metadata: None,
+            engine: DetectionEngine::Sigma,
+            event,
+            match_details: None,
+        };
+
+        let json = serde_json::to_value(EcsAlert::from(&alert)).expect("ECS alert serializes");
+        assert_eq!(json["container.id"], ID);
+        assert_eq!(json["container.runtime"], "docker");
+        assert_eq!(
+            json["edr.process.cgroup_path"],
+            format!("/system.slice/docker-{ID}.scope")
+        );
+        assert_eq!(json["edr.process.cgroup_id"], "8812");
     }
 
     #[test]

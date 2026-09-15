@@ -462,6 +462,9 @@ impl NormalizedEvent {
                 "CommandLine" => f.command_line.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
                 "CgroupId" => f.cgroup_id.as_deref(),
+                "CgroupPath" => f.container.cgroup_path.as_deref(),
+                "ContainerId" => f.container.container_id.as_deref(),
+                "ContainerRuntime" => f.container.container_runtime.as_deref(),
                 "RealGroupId" => f.linux_identity.real_group_id.as_deref(),
                 "EffectiveUserId" => f.linux_identity.effective_user_id.as_deref(),
                 "EffectiveGroupId" => f.linux_identity.effective_group_id.as_deref(),
@@ -823,6 +826,7 @@ mod round_trip_tests {
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 hashes: None,
                 imphash: None,
+                container: Default::default(),
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
@@ -1090,6 +1094,7 @@ mod round_trip_tests {
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 hashes: None,
                 imphash: None,
+                container: Default::default(),
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
@@ -1143,6 +1148,7 @@ mod round_trip_tests {
         event.fields = EventFields::ProcessCreation(ProcessCreationFields {
             hashes: None,
             imphash: None,
+            container: Default::default(),
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
