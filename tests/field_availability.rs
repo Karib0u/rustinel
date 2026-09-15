@@ -216,6 +216,7 @@ fn missing_always_fields_detect_decoder_contract_drift() {
         EventFields::ProcessCreation(ProcessCreationFields {
             hashes: None,
             imphash: None,
+            container: Default::default(),
             linux_identity: Default::default(),
             image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
             image_source: None,

@@ -118,6 +118,8 @@ Adding that product behavior is separate from tracking the schema version.
 | `edr.process.real_user_id`, `edr.process.real_group_id` | Linux | Real credentials |
 | `edr.process.effective_user_id`, `edr.process.effective_group_id` | Linux | Effective credentials. `user.name` resolves the effective UID |
 | `edr.process.cgroup_id` | Linux | Kernel cgroup ID at exec |
+| `edr.process.cgroup_path` | Linux | Cgroup v2 path of `edr.process.cgroup_id`. Present without `container.id` on a host process |
+| `container.id`, `container.runtime` | Linux | Container named by the process cgroup. The runtime is `docker`, `containerd`, `cri-o`, `podman`, or `lxc`, and is absent when the cgroup layout does not name one |
 | `edr.process.mount_namespace`, `edr.process.pid_namespace`, `edr.process.network_namespace` | Linux | Namespace inode numbers |
 | `edr.process.session_id`, `edr.process.controlling_tty` | Linux | Session ID and terminal as `major:minor` |
 | `edr.process.kernel_start_boottime` | Linux | Process start time in nanoseconds since boot |

@@ -142,6 +142,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 EventFields::ProcessCreation(ProcessCreationFields {
                     hashes: None,
                     imphash: None,
+                    container: Default::default(),
                     linux_identity: Default::default(),
                     cgroup_id: None,
                     exec: Default::default(),
@@ -516,6 +517,7 @@ fn ecs_version_matches_the_documented_target() {
         EventFields::ProcessCreation(ProcessCreationFields {
             hashes: None,
             imphash: None,
+            container: Default::default(),
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
@@ -579,6 +581,7 @@ fn ecs_process_image_truncation_marker_is_preserved() {
         EventFields::ProcessCreation(ProcessCreationFields {
             hashes: None,
             imphash: None,
+            container: Default::default(),
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
@@ -631,6 +634,7 @@ fn test_rule_id_mapping_and_omit_behavior() {
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 hashes: None,
                 imphash: None,
+                container: Default::default(),
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

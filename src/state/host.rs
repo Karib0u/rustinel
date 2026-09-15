@@ -55,6 +55,10 @@ pub struct HostState {
     pub dns: Arc<DnsCache>,
     #[cfg(target_os = "linux")]
     pub(crate) dir_fds: Mutex<crate::sensor::linux::paths::DirFdIndex>,
+    /// Built on the first Linux process event, so hosts and tests that never
+    /// see one never read mountinfo.
+    #[cfg(target_os = "linux")]
+    pub(crate) containers: std::sync::OnceLock<Mutex<super::container::ContainerResolver>>,
     #[cfg(windows)]
     pub(crate) file_paths: Mutex<crate::sensor::windows::file_paths::FilePathCache>,
     #[cfg(windows)]
@@ -86,6 +90,8 @@ impl HostState {
             dir_fds: Mutex::new(crate::sensor::linux::paths::DirFdIndex::with_capacity(
                 limits.paths,
             )),
+            #[cfg(target_os = "linux")]
+            containers: std::sync::OnceLock::new(),
             #[cfg(windows)]
             file_paths: Mutex::new(
                 crate::sensor::windows::file_paths::FilePathCache::with_capacity(limits.paths),
@@ -117,6 +123,20 @@ impl HostState {
         #[cfg(target_os = "macos")]
         state.inventory_macos();
         state
+    }
+    /// Resolve the cgroup path and container of a Linux process event.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn resolve_container(
+        &self,
+        pid: u32,
+        parent_pid: Option<u32>,
+        cgroup_id: Option<u64>,
+    ) -> super::container::ContainerResolution {
+        self.containers
+            .get_or_init(|| Mutex::new(super::container::ContainerResolver::for_host()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .resolve(pid, parent_pid, cgroup_id)
     }
     pub fn limits(&self) -> &StateLimits {
         &self.limits

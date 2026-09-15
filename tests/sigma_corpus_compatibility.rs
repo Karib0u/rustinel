@@ -262,6 +262,7 @@ fn process_event(timestamp: &str) -> NormalizedEvent {
         fields: EventFields::ProcessCreation(ProcessCreationFields {
             hashes: None,
             imphash: None,
+            container: Default::default(),
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),

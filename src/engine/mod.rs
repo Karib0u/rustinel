@@ -604,6 +604,75 @@ detection:
         assert!(!engine.check_event(&event).is_empty());
     }
 
+    fn with_container(
+        mut event: NormalizedEvent,
+        container: crate::models::LinuxContainerContext,
+    ) -> NormalizedEvent {
+        if let EventFields::ProcessCreation(fields) = &mut event.fields {
+            *fields.container = container;
+        }
+        event
+    }
+
+    #[test]
+    fn linux_process_rules_select_container_and_host_processes() {
+        const ID: &str = "4f0a3c1b2d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
+        let in_container = engine_with_rule(
+            Platform::Linux,
+            r#"title: Shell In Docker Container
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /sh
+    ContainerRuntime: docker
+    ContainerId|startswith: 4f0a3c1b2d5e
+  condition: selection
+"#,
+        );
+        let on_host = engine_with_rule(
+            Platform::Linux,
+            r#"title: Shell On Host
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: /sh
+    CgroupPath|exists: true
+  container:
+    ContainerId|exists: true
+  condition: selection and not container
+"#,
+        );
+
+        let container = with_container(
+            process_event(Platform::Linux, "/bin/sh", "sh -c id"),
+            crate::models::LinuxContainerContext {
+                cgroup_path: Some(format!("/system.slice/docker-{ID}.scope")),
+                container_id: Some(ID.to_string()),
+                container_runtime: Some("docker".to_string()),
+            },
+        );
+        let host = with_container(
+            process_event(Platform::Linux, "/bin/sh", "sh -c id"),
+            crate::models::LinuxContainerContext {
+                cgroup_path: Some("/user.slice/user-1000.slice/session-2.scope".to_string()),
+                ..Default::default()
+            },
+        );
+        // Unresolved context is neither host nor container.
+        let unresolved = process_event(Platform::Linux, "/bin/sh", "sh -c id");
+
+        assert!(!in_container.check_event(&container).is_empty());
+        assert!(in_container.check_event(&host).is_empty());
+        assert!(in_container.check_event(&unresolved).is_empty());
+        assert!(!on_host.check_event(&host).is_empty());
+        assert!(on_host.check_event(&container).is_empty());
+        assert!(on_host.check_event(&unresolved).is_empty());
+    }
+
     #[test]
     fn generic_network_rule_matches_a_linux_network_event() {
         let engine = engine_with_rule(
@@ -881,6 +950,7 @@ detection:
             fields: EventFields::ProcessCreation(ProcessCreationFields {
                 hashes: None,
                 imphash: None,
+                container: Default::default(),
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

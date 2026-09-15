@@ -109,6 +109,21 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Without it, file events still use syscall paths and success checks, but inode and device identity are unavailable.
   `doctor` reports the unavailable `file_identity` hook.
 - **Parent identity** is derived for `CLONE_PARENT`, and can be missing for processes that started before Rustinel.
+- **Container context is on process start events only**, and needs cgroup v2.
+  File, network, and DNS events do not carry `ContainerId`.
+  On a cgroup v1 host, `CgroupPath`, `ContainerId`, and `ContainerRuntime` are always empty.
+- **Silent: unrecognized container layouts look like host processes.**
+  Docker, containerd, CRI-O, Podman, and LXC cgroup layouts are recognized.
+  A process in any other runtime, such as systemd-nspawn, has a `CgroupPath` and no `ContainerId`.
+- **Container name, image, and labels are not reported.**
+  Rustinel reads only what the cgroup path carries and never queries a runtime socket.
+- **A cgroup removed before enrichment leaves the event unresolved, never reported as the host.**
+  Enrichment runs moments after the exec, so this needs a backlogged pipeline and a container that is already gone.
+  The fallback scan checks at most 65536 directory entries and stops after a 10 ms work budget, with 8192 cached cgroups and a maximum depth of 32.
+  A cgroup outside the scanned part of the hierarchy can also remain unresolved.
+- **Namespace membership alone does not determine container identity.**
+  Containers can share namespaces, and namespace inode numbers are recycled.
+  `nsenter` without a cgroup change keeps the caller's cgroup attribution.
 - **DNS:** plain UDP on port 53 only, and long names are dropped.
   Answers are decoded for A, AAAA, and CNAME records within the first 512 bytes of a response.
   A socket connected to port 53 before Rustinel started is missed until it is reopened.
