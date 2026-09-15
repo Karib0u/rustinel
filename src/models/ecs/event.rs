@@ -30,13 +30,92 @@ pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<
         // than by the category. Object-access events name the kind of object
         // they touched in `ObjectType`, which the field mapper reads to refine
         // this default.
-        EventCategory::Security => match event_id {
-            4624 => vec!["authentication".to_string(), "session".to_string()],
-            4697 => vec!["configuration".to_string()],
-            5136 => vec!["iam".to_string()],
-            _ => vec!["file".to_string()],
-        },
+        EventCategory::Security => strings(security_event_shape(event_id).category),
     }
+}
+
+/// ECS classification of one Security audit event ID.
+struct SecurityEventShape {
+    category: &'static [&'static str],
+    kind: &'static [&'static str],
+    action: &'static str,
+}
+
+const fn shape(
+    category: &'static [&'static str],
+    kind: &'static [&'static str],
+    action: &'static str,
+) -> SecurityEventShape {
+    SecurityEventShape {
+        category,
+        kind,
+        action,
+    }
+}
+
+/// One row per collected Security event ID, so an ID's category, type and
+/// action are reviewed together. Action names follow Winlogbeat's Security
+/// module where it has one.
+const fn security_event_shape(event_id: u16) -> SecurityEventShape {
+    const AUTHENTICATION: &[&str] = &["authentication"];
+    const CONFIGURATION: &[&str] = &["configuration"];
+    const IAM: &[&str] = &["iam"];
+    const NETWORK: &[&str] = &["network"];
+    match event_id {
+        4624 => shape(&["authentication", "session"], &["start"], "logged-in"),
+        4625 => shape(AUTHENTICATION, &["start"], "logon-failed"),
+        4648 => shape(AUTHENTICATION, &["start"], "logged-in-explicit"),
+        4771 => shape(AUTHENTICATION, &["start"], "kerberos-preauth-failed"),
+        4776 => shape(AUTHENTICATION, &["start"], "credential-validated"),
+        4656 => shape(&["file"], &["access"], "handle-requested"),
+        4663 => shape(&["file"], &["access"], "object-access-attempted"),
+        5145 => shape(&["file"], &["access"], "network-share-object-checked"),
+        4657 => shape(&["registry"], &["change"], "registry-value-modified"),
+        4697 => shape(CONFIGURATION, &["creation"], "service-installed"),
+        4698 => shape(CONFIGURATION, &["creation"], "scheduled-task-created"),
+        4699 => shape(CONFIGURATION, &["deletion"], "scheduled-task-deleted"),
+        4700 => shape(CONFIGURATION, &["change"], "scheduled-task-enabled"),
+        4701 => shape(CONFIGURATION, &["change"], "scheduled-task-disabled"),
+        4702 => shape(CONFIGURATION, &["change"], "scheduled-task-updated"),
+        1102 => shape(CONFIGURATION, &["deletion"], "audit-log-cleared"),
+        4719 => shape(CONFIGURATION, &["change"], "changed-audit-config"),
+        4817 => shape(CONFIGURATION, &["change"], "object-audit-settings-changed"),
+        5447 => shape(
+            CONFIGURATION,
+            &["change"],
+            "filtering-platform-filter-changed",
+        ),
+        4720 => shape(IAM, &["user", "creation"], "added-user-account"),
+        4722 => shape(IAM, &["user", "change"], "enabled-user-account"),
+        4724 => shape(IAM, &["user", "change"], "reset-password"),
+        4726 => shape(IAM, &["user", "deletion"], "deleted-user-account"),
+        4738 => shape(IAM, &["user", "change"], "modified-user-account"),
+        4781 => shape(IAM, &["user", "change"], "renamed-user-account"),
+        4794 => shape(IAM, &["user", "change"], "set-dsrm-password"),
+        4765 => shape(IAM, &["user", "change"], "added-sid-history"),
+        4766 => shape(IAM, &["user", "change"], "failed-sid-history-addition"),
+        4728 | 4732 | 4756 => shape(IAM, &["group", "change"], "added-member-to-group"),
+        4741 => shape(IAM, &["admin", "creation"], "added-computer-account"),
+        4743 => shape(IAM, &["admin", "deletion"], "deleted-computer-account"),
+        5136 => shape(IAM, &["change"], "directory-service-object-modified"),
+        5156 => shape(
+            NETWORK,
+            &["connection", "allowed"],
+            "network-connection-allowed",
+        ),
+        5157 => shape(
+            NETWORK,
+            &["connection", "denied"],
+            "network-connection-blocked",
+        ),
+        5152 => shape(NETWORK, &["denied"], "packet-dropped"),
+        6416 => shape(&["host"], &["info"], "device-recognized"),
+        _ => shape(&["file"], &["access"], "security-audit"),
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| value.to_string()).collect()
 }
 
 /// ECS `event.category` for an object-access audit event, from its `ObjectType`.
@@ -98,12 +177,7 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
                 vec!["change".to_string()]
             }
         }
-        EventCategory::Security => match event_id {
-            4624 => vec!["start".to_string()],
-            4697 => vec!["creation".to_string()],
-            5136 => vec!["change".to_string()],
-            _ => vec!["access".to_string()],
-        },
+        EventCategory::Security => strings(security_event_shape(event_id).kind),
     }
 }
 
@@ -150,15 +224,7 @@ pub(super) fn ecs_event_action(
                 "task-change"
             }
         }
-        EventCategory::Security => match event_id {
-            4624 => "logged-in",
-            4656 => "handle-requested",
-            4663 => "object-access-attempted",
-            4697 => "service-installed",
-            5136 => "directory-service-object-modified",
-            5145 => "network-share-object-checked",
-            _ => "security-audit",
-        },
+        EventCategory::Security => security_event_shape(event_id).action,
     };
     Some(action.to_string())
 }

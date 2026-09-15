@@ -65,8 +65,12 @@ impl EventLogSubscriptions {
         tx: Sender<SensorEvent>,
         shutdown: Arc<AtomicBool>,
         directory: &Path,
+        security_filtering_platform_connections: bool,
     ) -> Result<Self> {
-        let sources = [service::source(), security::source()];
+        let sources = [
+            service::source(),
+            security::source(security_filtering_platform_connections),
+        ];
         let mut workers = Vec::with_capacity(sources.len());
 
         for source in sources {

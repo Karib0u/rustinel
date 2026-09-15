@@ -128,9 +128,16 @@ snapshot_interval_secs = 30 # a snapshot is also written at shutdown
 #   16.6% captured, because the session falls back to ETW's one-second timer),
 #   and with them every Sigma process_creation rule that matches on CommandLine
 #   (78% of them). Raise it only if you have measured that you can afford to.
+#
+#   `security_filtering_platform_connections` adds Security events 5156, 5157,
+#   and 5152: one record per allowed connection, blocked connection, and
+#   dropped packet. They are off by default because they are the Security
+#   channel's highest-volume events. The host must also audit the Filtering
+#   Platform Connection and Packet Drop subcategories.
 [windows]
 etw_flush_interval_ms = 20
 etw_process_flush_interval_ms = 5
+security_filtering_platform_connections = false
 
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]

@@ -28,6 +28,11 @@ const SINCE_1_7_0: Option<&str> = Some("1.7.0");
 /// rejects a version newer than the crate, so this cannot name the next
 /// release before the version bump.
 const SINCE_DNS_RESPONSES: Option<&str> = Some("1.7.1");
+/// Additional Windows Security audit event families (#479).
+///
+/// TODO(release): set to the release that ships it, as for
+/// [`SINCE_DNS_RESPONSES`].
+const SINCE_SECURITY_FAMILIES: Option<&str> = Some("1.7.1");
 /// Windows `Hashes` and `Imphash` from artifact resolution (#319).
 ///
 /// TODO(release): set to the release that ships it, as for
@@ -622,6 +627,27 @@ macro_rules! security_fields {
     };
 }
 
+/// A Security event family added by #479. The field names are the event
+/// template's own, read from the provider manifest on Windows 11 (all template
+/// versions merged), not from documentation.
+macro_rules! security_family {
+    // The template opens with the `Subject*` identity block.
+    (subject: $($field:literal),+ $(,)?) => {
+        &[
+            conditional("SubjectUserSid", SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON),
+            conditional("SubjectUserName", SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON),
+            conditional("SubjectDomainName", SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON),
+            conditional("SubjectLogonId", SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON),
+            $(conditional($field, SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON)),+
+        ]
+    };
+    // Credential validation and Windows Filtering Platform templates name no
+    // subject.
+    (no_subject: $($field:literal),+ $(,)?) => {
+        &[$(conditional($field, SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON)),+]
+    };
+}
+
 const WINDOWS_SECURITY_4624: &[FieldContract] = security_fields!(
     "TargetUserSid" => SINCE_1_4_1,
     "TargetUserName" => SINCE_1_4_1,
@@ -696,6 +722,149 @@ const WINDOWS_SECURITY_5145: &[FieldContract] = security_fields!(
     "AccessMask" => SINCE_1_4_1,
     "AccessList" => SINCE_1_4_1,
     "AccessReason" => SINCE_1_4_1,
+);
+
+// Logon failure and explicit credentials.
+const WINDOWS_SECURITY_4625: &[FieldContract] = security_family!(subject:
+    "TargetUserSid", "TargetUserName", "TargetDomainName", "Status", "FailureReason",
+    "SubStatus", "LogonType", "LogonProcessName", "AuthenticationPackageName",
+    "WorkstationName", "TransmittedServices", "LmPackageName", "KeyLength", "ProcessId",
+    "ProcessName", "IpAddress", "IpPort",
+);
+const WINDOWS_SECURITY_4648: &[FieldContract] = security_family!(subject:
+    "LogonGuid", "TargetUserName", "TargetDomainName", "TargetLogonGuid", "TargetServerName",
+    "TargetInfo", "ProcessId", "ProcessName", "IpAddress", "IpPort",
+);
+const WINDOWS_SECURITY_4771: &[FieldContract] = security_family!(no_subject:
+    "TargetUserName", "TargetSid", "ServiceName", "TicketOptions", "Status", "PreAuthType",
+    "IpAddress", "IpPort", "CertIssuerName", "CertSerialNumber", "CertThumbprint",
+);
+const WINDOWS_SECURITY_4776: &[FieldContract] = security_family!(no_subject:
+    "PackageName", "TargetUserName", "Workstation", "Status",
+);
+
+// Registry value modification.
+const WINDOWS_SECURITY_4657: &[FieldContract] = security_family!(subject:
+    "ObjectName", "ObjectValueName", "HandleId", "OperationType", "OldValueType", "OldValue",
+    "NewValueType", "NewValue", "ProcessId", "ProcessName",
+);
+
+// Scheduled tasks. 4702 carries the new definition as `TaskContentNew`.
+const WINDOWS_SECURITY_TASK: &[FieldContract] = security_family!(subject:
+    "TaskName", "TaskContent", "ClientProcessStartKey", "ClientProcessId", "ParentProcessId",
+    "RpcCallClientLocality", "FQDN",
+);
+const WINDOWS_SECURITY_4702: &[FieldContract] = security_family!(subject:
+    "TaskName", "TaskContentNew", "ClientProcessStartKey", "ClientProcessId", "ParentProcessId",
+    "RpcCallClientLocality", "FQDN",
+);
+
+// Audit and log tampering. 1102 is written to the Security channel by the
+// Event Log service itself, under its own provider.
+const WINDOWS_SECURITY_1102: &[FieldContract] = &[
+    always("Provider_Name", SINCE_SECURITY_FAMILIES),
+    conditional(
+        "SubjectUserSid",
+        SINCE_SECURITY_FAMILIES,
+        SECURITY_FIELD_REASON,
+    ),
+    conditional(
+        "SubjectUserName",
+        SINCE_SECURITY_FAMILIES,
+        SECURITY_FIELD_REASON,
+    ),
+    conditional(
+        "SubjectDomainName",
+        SINCE_SECURITY_FAMILIES,
+        SECURITY_FIELD_REASON,
+    ),
+    conditional(
+        "SubjectLogonId",
+        SINCE_SECURITY_FAMILIES,
+        SECURITY_FIELD_REASON,
+    ),
+    conditional(
+        "ClientProcessId",
+        SINCE_SECURITY_FAMILIES,
+        SECURITY_FIELD_REASON,
+    ),
+    conditional(
+        "ClientProcessStartKey",
+        SINCE_SECURITY_FAMILIES,
+        SECURITY_FIELD_REASON,
+    ),
+];
+const WINDOWS_SECURITY_4719: &[FieldContract] = security_family!(subject:
+    "CategoryId", "SubcategoryId", "SubcategoryGuid", "AuditPolicyChanges", "ClientProcessId",
+    "ClientProcessStartKey",
+);
+const WINDOWS_SECURITY_4817: &[FieldContract] = security_family!(subject:
+    "ObjectServer", "ObjectType", "ObjectName", "OldSd", "NewSd",
+);
+
+// Account management.
+const WINDOWS_SECURITY_USER_ACCOUNT: &[FieldContract] = security_family!(subject:
+    "TargetUserName", "TargetDomainName", "TargetSid", "PrivilegeList", "SamAccountName",
+    "DisplayName", "UserPrincipalName", "HomeDirectory", "HomePath", "ScriptPath",
+    "ProfilePath", "UserWorkstations", "PasswordLastSet", "AccountExpires", "PrimaryGroupId",
+    "AllowedToDelegateTo", "OldUacValue", "NewUacValue", "UserAccountControl",
+    "UserParameters", "SidHistory", "LogonHours",
+);
+const WINDOWS_SECURITY_4741: &[FieldContract] = security_family!(subject:
+    "TargetUserName", "TargetDomainName", "TargetSid", "PrivilegeList", "SamAccountName",
+    "DisplayName", "UserPrincipalName", "HomeDirectory", "HomePath", "ScriptPath",
+    "ProfilePath", "UserWorkstations", "PasswordLastSet", "AccountExpires", "PrimaryGroupId",
+    "AllowedToDelegateTo", "OldUacValue", "NewUacValue", "UserAccountControl",
+    "UserParameters", "SidHistory", "LogonHours", "DnsHostName", "ServicePrincipalNames",
+);
+const WINDOWS_SECURITY_ACCOUNT_TARGET: &[FieldContract] = security_family!(subject:
+    "TargetUserName", "TargetDomainName", "TargetSid",
+);
+const WINDOWS_SECURITY_ACCOUNT_REMOVED: &[FieldContract] = security_family!(subject:
+    "TargetUserName", "TargetDomainName", "TargetSid", "PrivilegeList",
+);
+const WINDOWS_SECURITY_GROUP_MEMBER_ADDED: &[FieldContract] = security_family!(subject:
+    "MemberName", "MemberSid", "TargetUserName", "TargetDomainName", "TargetSid",
+    "PrivilegeList", "MembershipExpirationTime",
+);
+const WINDOWS_SECURITY_4765: &[FieldContract] = security_family!(subject:
+    "SourceUserName", "SourceSid", "TargetUserName", "TargetDomainName", "TargetSid",
+    "PrivilegeList", "SidList",
+);
+const WINDOWS_SECURITY_4766: &[FieldContract] = security_family!(subject:
+    "SourceUserName", "TargetUserName", "TargetDomainName", "TargetSid", "PrivilegeList",
+);
+const WINDOWS_SECURITY_4781: &[FieldContract] = security_family!(subject:
+    "OldTargetUserName", "NewTargetUserName", "TargetDomainName", "TargetSid", "PrivilegeList",
+);
+const WINDOWS_SECURITY_4794: &[FieldContract] = security_family!(subject:
+    "Workstation", "Status",
+);
+
+// Windows Filtering Platform and Plug and Play. The connection templates
+// changed the process ID's spelling between versions (`ProcessID` in v0 and
+// v2, `ProcessId` in v1), so both are allowed and rules see whichever the
+// host writes.
+const WINDOWS_SECURITY_WFP_CONNECTION: &[FieldContract] = security_family!(no_subject:
+    "ProcessID", "ProcessId", "Application", "Direction", "SourceAddress", "SourcePort",
+    "DestAddress", "DestPort", "Protocol", "InterfaceIndex", "FilterName", "FilterOrigin",
+    "FilterRTID", "LayerName", "LayerRTID", "SublayerInformation", "RemoteUserID",
+    "RemoteMachineID", "OriginalProfile", "CurrentProfile", "IsLoopback",
+    "HasRemoteDynamicKeywordAddress", "FilterAction",
+);
+const WINDOWS_SECURITY_5152: &[FieldContract] = security_family!(no_subject:
+    "ProcessId", "Application", "Direction", "SourceAddress", "SourcePort", "DestAddress",
+    "DestPort", "Protocol", "FilterName", "FilterOrigin", "FilterRTID", "LayerName",
+    "LayerRTID", "SublayerInformation", "FilterAction",
+);
+const WINDOWS_SECURITY_5447: &[FieldContract] = security_family!(no_subject:
+    "ProcessId", "UserSid", "UserName", "ProviderKey", "ProviderName", "ChangeType",
+    "FilterKey", "FilterName", "FilterType", "FilterId", "LayerKey", "LayerName", "LayerId",
+    "Weight", "Conditions", "Action", "CalloutKey", "CalloutName",
+);
+const WINDOWS_SECURITY_6416: &[FieldContract] = security_family!(subject:
+    "DeviceId", "DeviceDescription", "ClassId", "ClassName", "VendorIds", "CompatibleIds",
+    "LocationInformation",
 );
 
 const LINUX_PROCESS: &[FieldContract] = &[
@@ -1367,6 +1536,294 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "Microsoft-Windows-Security-Auditing",
         WINDOWS_SECURITY_5145
     ),
+    contract!(
+        Windows,
+        "security",
+        Some(1102),
+        Delete,
+        "windows_event_log",
+        "Microsoft-Windows-Eventlog",
+        WINDOWS_SECURITY_1102
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4625),
+        Start,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4625
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4648),
+        Start,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4648
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4657),
+        Set,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4657
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4698),
+        Register,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_TASK
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4699),
+        Delete,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_TASK
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4700),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_TASK
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4701),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_TASK
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4702),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4702
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4719),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4719
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4720),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_USER_ACCOUNT
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4722),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_ACCOUNT_TARGET
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4724),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_ACCOUNT_TARGET
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4726),
+        Delete,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_ACCOUNT_REMOVED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4728),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_GROUP_MEMBER_ADDED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4732),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_GROUP_MEMBER_ADDED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4738),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_USER_ACCOUNT
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4741),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4741
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4743),
+        Delete,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_ACCOUNT_REMOVED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4756),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_GROUP_MEMBER_ADDED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4765),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4765
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4766),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4766
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4771),
+        Start,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4771
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4776),
+        Start,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4776
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4781),
+        Rename,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4781
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4794),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4794
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4817),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4817
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(5152),
+        Connect,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_5152
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(5156),
+        Connect,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_WFP_CONNECTION
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(5157),
+        Connect,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_WFP_CONNECTION
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(5447),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_5447
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(6416),
+        Register,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_6416
+    ),
     EventFieldContract {
         platform: Platform::Windows,
         category: "pipe_created",
@@ -1531,6 +1988,62 @@ pub const fn category_name(category: EventCategory) -> &'static str {
     }
 }
 
+const fn same_platform(left: Platform, right: Platform) -> bool {
+    matches!(
+        (left, right),
+        (Platform::Windows, Platform::Windows)
+            | (Platform::Linux, Platform::Linux)
+            | (Platform::MacOS, Platform::MacOS)
+    )
+}
+
+/// The half-open range of one platform's rows in [`FIELD_AVAILABILITY`].
+///
+/// The table is grouped by platform, so a lookup scans only its own platform's
+/// rows. Without this, every field a Sigma rule reads from a Linux or macOS
+/// event walks past every Windows contract first, and adding Windows event
+/// families slows down the other platforms' detection hot path.
+const fn platform_range(platform: Platform) -> (usize, usize) {
+    let mut start = 0;
+    while start < FIELD_AVAILABILITY.len()
+        && !same_platform(FIELD_AVAILABILITY[start].platform, platform)
+    {
+        start += 1;
+    }
+    let mut end = start;
+    while end < FIELD_AVAILABILITY.len()
+        && same_platform(FIELD_AVAILABILITY[end].platform, platform)
+    {
+        end += 1;
+    }
+    (start, end)
+}
+
+const WINDOWS_RANGE: (usize, usize) = platform_range(Platform::Windows);
+const LINUX_RANGE: (usize, usize) = platform_range(Platform::Linux);
+const MACOS_RANGE: (usize, usize) = platform_range(Platform::MacOS);
+
+/// Each platform's rows must be one contiguous run, or [`platform_range`] would
+/// silently hide the rows after a second run and their contracts would stop
+/// being found.
+const _: () = assert!(
+    (WINDOWS_RANGE.1 - WINDOWS_RANGE.0)
+        + (LINUX_RANGE.1 - LINUX_RANGE.0)
+        + (MACOS_RANGE.1 - MACOS_RANGE.0)
+        == FIELD_AVAILABILITY.len(),
+    "FIELD_AVAILABILITY must be grouped by platform: keep each platform's contracts contiguous"
+);
+
+/// The contracts for one platform, as a subslice of [`FIELD_AVAILABILITY`].
+fn platform_contracts(platform: Platform) -> &'static [EventFieldContract] {
+    let (start, end) = match platform {
+        Platform::Windows => WINDOWS_RANGE,
+        Platform::Linux => LINUX_RANGE,
+        Platform::MacOS => MACOS_RANGE,
+    };
+    &FIELD_AVAILABILITY[start..end]
+}
+
 /// Find an event contract when the native decoder has not yet assigned an
 /// action. Event ID must make the key unique; this is used by the Security
 /// channel decoder as its field allowlist.
@@ -1540,18 +2053,16 @@ pub fn contract_for_event_id(
     event_id: u16,
     provider: &str,
 ) -> Option<&'static EventFieldContract> {
-    FIELD_AVAILABILITY.iter().find(|contract| {
-        contract.platform == platform
-            && contract.category == category
+    platform_contracts(platform).iter().find(|contract| {
+        contract.category == category
             && contract.event_id == Some(event_id)
             && contract.provider == provider
     })
 }
 
 fn event_contract(event: &NormalizedEvent) -> Option<&'static EventFieldContract> {
-    FIELD_AVAILABILITY.iter().find(|contract| {
-        contract.platform == event.platform
-            && contract.category == category_name(event.category)
+    platform_contracts(event.platform).iter().find(|contract| {
+        contract.category == category_name(event.category)
             && contract.provider == event.provider
             && contract.event_id.is_none_or(|id| id == event.event_id)
             // Event Log records identify their schema by event ID and do not

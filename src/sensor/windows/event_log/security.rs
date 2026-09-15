@@ -10,9 +10,9 @@
 //! of what this collector populates. Adding an event family is adding a keyed
 //! row there and extending the kernel subscription below.
 //!
-//! Only 4624 is audited by default. The other five need their audit
-//! subcategory enabled, and the two object-access families additionally need a
-//! SACL on the object; the required policy is in `docs/windows-logging.md`.
+//! Most families need their audit subcategory enabled, and the object-access
+//! families additionally need a SACL on the object; the required policy for
+//! each event is in `docs/windows-logging.md`.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -25,28 +25,93 @@ use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, Se
 
 use super::EventLogSource;
 
-const PROVIDER: &str = "Microsoft-Windows-Security-Auditing";
+/// One `Select` of the structured subscription query: the listed event IDs,
+/// from one provider.
+///
+/// The Event Log query parser rejects an XPath expression with more than 23
+/// terms. Measured on Windows 11: a provider test and 22 `EventID` comparisons
+/// is the largest accepted, one more fails with "the specified query is
+/// invalid". The families together are well past that, so each gets its own
+/// `Select`, and a test holds every one of them under the limit.
+macro_rules! select {
+    ($provider:literal; $first:literal $(, $rest:literal)* $(,)?) => {
+        concat!(
+            "<Select Path=\"Security\">*[System[Provider[@Name='",
+            $provider,
+            "'] and (EventID=",
+            $first,
+            $(" or EventID=", $rest,)*
+            ")]]</Select>"
+        )
+    };
+}
 
-/// XPath filter scoping the subscription to the event IDs in the field
+/// Every family subscribed unconditionally.
+macro_rules! default_selects {
+    () => {
+        concat!(
+            // Logon, logon failure, explicit credentials, credential validation.
+            select!("Microsoft-Windows-Security-Auditing"; 4624, 4625, 4648, 4771, 4776),
+            // Object access, registry values, shares, directory service changes.
+            select!("Microsoft-Windows-Security-Auditing"; 4656, 4657, 4663, 5136, 5145),
+            // Service installation and scheduled tasks.
+            select!("Microsoft-Windows-Security-Auditing"; 4697, 4698, 4699, 4700, 4701, 4702),
+            // Account management.
+            select!(
+                "Microsoft-Windows-Security-Auditing";
+                4720, 4722, 4724, 4726, 4728, 4732, 4738, 4741, 4743, 4756, 4765, 4766, 4781,
+                4794
+            ),
+            // Audit policy, filtering platform policy, and device changes.
+            select!("Microsoft-Windows-Security-Auditing"; 4719, 4817, 5447, 6416),
+            // The Event Log service writes the log-cleared record itself.
+            select!("Microsoft-Windows-Eventlog"; 1102),
+        )
+    };
+}
+
+/// Structured query scoping the subscription to the event IDs in the field
 /// availability table.
 ///
 /// Written out rather than built at runtime: the query is what the kernel
 /// filters on, so an event family is only reachable if it appears both here and
-/// in the table above, and a reviewer can see the two agree.
-const QUERY: &str = "*[System[Provider[@Name='Microsoft-Windows-Security-Auditing'] \
-     and (EventID=4624 or EventID=4656 or EventID=4663 or EventID=4697 \
-     or EventID=5136 or EventID=5145)]]";
+/// in the table, and a reviewer can see the two agree.
+const QUERY: &str = concat!(
+    "<QueryList><Query Id=\"0\" Path=\"Security\">",
+    default_selects!(),
+    "</Query></QueryList>"
+);
 
-pub(super) const fn source() -> EventLogSource {
-    EventLogSource::new("security-audit", "Security", QUERY, decode)
+/// [`QUERY`] plus the per-connection Windows Filtering Platform events, for
+/// `windows.security_filtering_platform_connections`.
+const QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS: &str = concat!(
+    "<QueryList><Query Id=\"0\" Path=\"Security\">",
+    default_selects!(),
+    select!("Microsoft-Windows-Security-Auditing"; 5152, 5156, 5157),
+    "</Query></QueryList>"
+);
+
+pub(super) const fn source(filtering_platform_connections: bool) -> EventLogSource {
+    let query = if filtering_platform_connections {
+        QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS
+    } else {
+        QUERY
+    };
+    EventLogSource::new("security-audit", "Security", query, decode)
 }
 
 /// The action an audit event reports, for logging and downstream routing.
 fn action_for_event(event_id: u16) -> SensorAction {
     match event_id {
-        4624 => SensorAction::Start,
-        4697 => SensorAction::Register,
-        5136 => SensorAction::Modify,
+        4624 | 4625 | 4648 | 4771 | 4776 => SensorAction::Start,
+        4697 | 4698 | 6416 => SensorAction::Register,
+        4720 | 4741 => SensorAction::Create,
+        1102 | 4699 | 4726 | 4743 => SensorAction::Delete,
+        4781 => SensorAction::Rename,
+        4657 => SensorAction::Set,
+        5152 | 5156 | 5157 => SensorAction::Connect,
+        4700 | 4701 | 4702 | 4719 | 4722 | 4724 | 4728 | 4732 | 4738 | 4756 | 4765 | 4766
+        | 4794 | 4817 | 5136 | 5447 => SensorAction::Modify,
         _ => SensorAction::Access,
     }
 }
@@ -63,35 +128,35 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .parse::<u16>()
         .context("security event XML has an invalid EventID")?;
 
+    let contract =
+        contract_for_event_id(Platform::Windows, "security", event_id, "windows_event_log")
+            .ok_or_else(|| anyhow!("unsupported Security event ID {event_id}"))?;
+
+    // The contract names the provider that writes each event ID, so an ID
+    // reused by another provider in the channel is not mistaken for it.
     let provider = system
         .children()
         .find(|node| node.has_tag_name("Provider"))
         .and_then(|node| node.attribute("Name"));
-    if provider != Some(PROVIDER) {
-        return Err(anyhow!("unexpected Security event provider {provider:?}"));
+    if provider != Some(contract.source) {
+        return Err(anyhow!(
+            "unexpected provider {provider:?} for Security event {event_id}"
+        ));
     }
-
-    let allowed =
-        contract_for_event_id(Platform::Windows, "security", event_id, "windows_event_log")
-            .map(|contract| contract.fields)
-            .ok_or_else(|| anyhow!("unsupported Security event ID {event_id}"))?;
+    let allowed = |name: &str| contract.fields.iter().any(|field| field.field == name);
 
     let mut fields = SecurityAuditFields::default();
-    for node in document.descendants() {
-        if !node.has_tag_name("Data") {
-            continue;
+    for (name, value) in event_properties(&document) {
+        if allowed(name) {
+            fields.insert(name, value);
         }
-        let Some(name) = node.attribute("Name") else {
-            continue;
-        };
-        if !allowed.iter().any(|field| field.field == name) {
-            continue;
-        }
-        fields.insert(name, node.text().unwrap_or_default());
     }
 
     if fields.fields.is_empty() {
         return Err(anyhow!("Security event {event_id} carried no decoded data"));
+    }
+    if allowed("Provider_Name") {
+        fields.insert("Provider_Name", contract.source);
     }
 
     let timestamp = system
@@ -129,6 +194,28 @@ fn decode(xml: &str) -> Result<SensorEvent> {
     })
 }
 
+/// The event's named properties, in document order.
+///
+/// Manifest-based audit events render them as `<EventData><Data Name=...>`.
+/// The Event Log service's own events, such as 1102, use a `UserData` template
+/// instead: one wrapper element whose leaf children are the properties.
+fn event_properties<'a, 'input>(
+    document: &'a roxmltree::Document<'input>,
+) -> impl Iterator<Item = (&'a str, &'a str)> {
+    let event_data = document
+        .descendants()
+        .filter(|node| node.has_tag_name("Data"))
+        .filter_map(|node| Some((node.attribute("Name")?, node.text().unwrap_or_default())));
+    let user_data = document
+        .descendants()
+        .filter(|node| node.has_tag_name("UserData"))
+        .flat_map(|node| node.descendants())
+        .filter(|node| node.is_element() && !node.children().any(|child| child.is_element()))
+        .filter(|node| !node.has_tag_name("UserData"))
+        .map(|node| (node.tag_name().name(), node.text().unwrap_or_default()));
+    event_data.chain(user_data)
+}
+
 fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Option<&'a str> {
     node.children()
         .find(|child| child.has_tag_name(name))
@@ -147,7 +234,7 @@ fn parse_system_time(value: &str) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, PROVIDER, QUERY};
+    use super::{decode, source, QUERY, QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS};
     use crate::engine::Engine;
     use crate::field_availability::FIELD_AVAILABILITY;
     use crate::normalizer::Normalizer;
@@ -468,31 +555,461 @@ level: high
     #[test]
     fn rejects_a_different_provider() {
         let xml = security_event(4697, r#"    <Data Name="ServiceName">svc</Data>"#)
-            .replace(PROVIDER, "Other Provider");
+            .replace("Microsoft-Windows-Security-Auditing", "Other Provider");
         assert!(decode(&xml).is_err());
     }
 
+    /// The provider is checked per event ID: 1102 is only the Event Log
+    /// service's, and the Security auditing IDs are never its.
+    #[test]
+    fn each_event_id_is_accepted_only_from_its_own_provider() {
+        let audit_1102 = security_event(1102, SUBJECT);
+        assert!(decode(&audit_1102).is_err());
+
+        let eventlog_4624 = security_event(4624, r#"    <Data Name="LogonType">3</Data>"#).replace(
+            "Microsoft-Windows-Security-Auditing",
+            "Microsoft-Windows-Eventlog",
+        );
+        assert!(decode(&eventlog_4624).is_err());
+    }
+
+    fn scheduled_task_xml(command: &str, arguments: &str) -> String {
+        // The task definition is XML escaped inside the event XML, exactly as
+        // the channel renders it.
+        format!(
+            "&lt;?xml version=\"1.0\" encoding=\"UTF-16\"?&gt;\r\n\
+             &lt;Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"&gt;\r\n\
+             &lt;Actions Context=\"Author\"&gt;\r\n\
+             &lt;Exec&gt;\r\n\
+             &lt;Command&gt;{command}&lt;/Command&gt;\r\n\
+             &lt;Arguments&gt;{arguments}&lt;/Arguments&gt;\r\n\
+             &lt;/Exec&gt;\r\n\
+             &lt;/Actions&gt;\r\n\
+             &lt;/Task&gt;"
+        )
+    }
+
+    #[test]
+    fn decodes_a_scheduled_task_registration_with_its_action() {
+        let content = scheduled_task_xml("cmd.exe", r"/c C:\Users\Public\stage.bat");
+        let xml = security_event(
+            4698,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="TaskName">\RustinelIssue479</Data>
+    <Data Name="TaskContent">{content}</Data>
+    <Data Name="ClientProcessStartKey">6192449487634712</Data>
+    <Data Name="ClientProcessId">7424</Data>
+    <Data Name="ParentProcessId">6044</Data>
+    <Data Name="RpcCallClientLocality">0</Data>
+    <Data Name="FQDN">lab-windows</Data>"#
+            ),
+        );
+
+        let event = decode(&xml).expect("4698 should decode");
+        assert_eq!(event.action, SensorAction::Register);
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("TaskName"), Some(r"\RustinelIssue479"));
+        let task = fields.get("TaskContent").expect("TaskContent is decoded");
+        // Unescaped once by the XML parser: rules match the task XML itself.
+        assert!(task.contains("<Command>cmd.exe</Command>"), "{task}");
+        assert!(
+            task.contains(r"<Arguments>/c C:\Users\Public\stage.bat</Arguments>"),
+            "{task}"
+        );
+        assert_eq!(fields.get("ClientProcessId"), Some("7424"));
+    }
+
+    #[test]
+    fn decodes_a_scheduled_task_update_as_its_new_content() {
+        let content = scheduled_task_xml("powershell.exe", r"-File C:\ProgramData\u.ps1");
+        let xml = security_event(
+            4702,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="TaskName">\RustinelIssue479</Data>
+    <Data Name="TaskContentNew">{content}</Data>"#
+            ),
+        );
+
+        let event = decode(&xml).expect("4702 should decode");
+        assert_eq!(event.action, SensorAction::Modify);
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert!(fields
+            .get("TaskContentNew")
+            .is_some_and(|task| task.contains("<Command>powershell.exe</Command>")));
+        assert_eq!(fields.get("TaskContent"), None);
+    }
+
+    #[test]
+    fn decodes_a_failed_logon_with_its_status_codes() {
+        let xml = security_event(
+            4625,
+            r#"    <Data Name="SubjectUserSid">S-1-0-0</Data>
+    <Data Name="SubjectUserName">-</Data>
+    <Data Name="SubjectDomainName">-</Data>
+    <Data Name="SubjectLogonId">0x0</Data>
+    <Data Name="TargetUserSid">S-1-0-0</Data>
+    <Data Name="TargetUserName">rustinel479$</Data>
+    <Data Name="TargetDomainName">LAB-WINDOWS</Data>
+    <Data Name="Status">0xc000006e</Data>
+    <Data Name="FailureReason">%%2310</Data>
+    <Data Name="SubStatus">0xc0000072</Data>
+    <Data Name="LogonType">3</Data>
+    <Data Name="LogonProcessName">NtLmSsp </Data>
+    <Data Name="AuthenticationPackageName">NTLM</Data>
+    <Data Name="WorkstationName">LAB-WINDOWS</Data>
+    <Data Name="TransmittedServices">-</Data>
+    <Data Name="LmPackageName">-</Data>
+    <Data Name="KeyLength">0</Data>
+    <Data Name="ProcessId">0x0</Data>
+    <Data Name="ProcessName">-</Data>
+    <Data Name="IpAddress">198.51.100.10</Data>
+    <Data Name="IpPort">49712</Data>"#,
+        );
+
+        let event = decode(&xml).expect("4625 should decode");
+        assert_eq!(event.action, SensorAction::Start);
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("Status"), Some("0xc000006e"));
+        assert_eq!(fields.get("SubStatus"), Some("0xc0000072"));
+        assert_eq!(fields.get("FailureReason"), Some("%%2310"));
+        assert_eq!(fields.get("IpAddress"), Some("198.51.100.10"));
+        assert_eq!(fields.get("SubjectUserSid"), Some("S-1-0-0"));
+    }
+
+    /// Credential validation names no subject; its template has none.
+    #[test]
+    fn decodes_a_credential_validation_without_a_subject() {
+        let xml = security_event(
+            4776,
+            r#"    <Data Name="PackageName">MICROSOFT_AUTHENTICATION_PACKAGE_V1_0</Data>
+    <Data Name="TargetUserName">rustinel479$</Data>
+    <Data Name="Workstation">LAB-WINDOWS</Data>
+    <Data Name="Status">0xc0000072</Data>"#,
+        );
+
+        let fields = fields(&xml);
+        assert_eq!(fields.get("Workstation"), Some("LAB-WINDOWS"));
+        assert_eq!(fields.get("Status"), Some("0xc0000072"));
+        assert_eq!(fields.get("SubjectUserSid"), None);
+    }
+
+    #[test]
+    fn decodes_account_management_events() {
+        let created = security_event(
+            4720,
+            &format!(
+                r#"    <Data Name="TargetUserName">rustinel479$</Data>
+    <Data Name="TargetDomainName">LAB-WINDOWS</Data>
+    <Data Name="TargetSid">S-1-5-21-1-2-3-1010</Data>
+{SUBJECT}
+    <Data Name="PrivilegeList">-</Data>
+    <Data Name="SamAccountName">rustinel479$</Data>
+    <Data Name="OldUacValue">0x0</Data>
+    <Data Name="NewUacValue">0x15</Data>
+    <Data Name="SidHistory">-</Data>"#
+            ),
+        );
+        let event = decode(&created).expect("4720 should decode");
+        assert_eq!(event.action, SensorAction::Create);
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("SamAccountName"), Some("rustinel479$"));
+        assert_eq!(fields.get("NewUacValue"), Some("0x15"));
+        assert_eq!(fields.get("SidHistory"), Some("-"));
+
+        let added = security_event(
+            4732,
+            &format!(
+                r#"    <Data Name="MemberName">-</Data>
+    <Data Name="MemberSid">S-1-5-21-1-2-3-1010</Data>
+    <Data Name="TargetUserName">Administrators</Data>
+    <Data Name="TargetDomainName">Builtin</Data>
+    <Data Name="TargetSid">S-1-5-32-544</Data>
+{SUBJECT}
+    <Data Name="PrivilegeList">-</Data>"#
+            ),
+        );
+        let event = decode(&added).expect("4732 should decode");
+        assert_eq!(event.action, SensorAction::Modify);
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("TargetSid"), Some("S-1-5-32-544"));
+        assert_eq!(fields.get("MemberSid"), Some("S-1-5-21-1-2-3-1010"));
+
+        let renamed = security_event(
+            4781,
+            &format!(
+                r#"    <Data Name="OldTargetUserName">rustinel479$</Data>
+    <Data Name="NewTargetUserName">rustinel479renamed$</Data>
+    <Data Name="TargetDomainName">LAB-WINDOWS</Data>
+    <Data Name="TargetSid">S-1-5-21-1-2-3-1010</Data>
+{SUBJECT}"#
+            ),
+        );
+        let event = decode(&renamed).expect("4781 should decode");
+        assert_eq!(event.action, SensorAction::Rename);
+    }
+
+    #[test]
+    fn decodes_audit_policy_changes() {
+        let xml = security_event(
+            4719,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="CategoryId">%%8274</Data>
+    <Data Name="SubcategoryId">%%12804</Data>
+    <Data Name="SubcategoryGuid">{{0CCE9227-69AE-11D9-BED3-505054503030}}</Data>
+    <Data Name="AuditPolicyChanges">%%8448</Data>"#
+            ),
+        );
+
+        let fields = fields(&xml);
+        assert_eq!(
+            fields.get("SubcategoryGuid"),
+            Some("{0CCE9227-69AE-11D9-BED3-505054503030}")
+        );
+        assert_eq!(fields.get("AuditPolicyChanges"), Some("%%8448"));
+    }
+
+    /// 1102 is rendered with a `UserData` template, not `EventData`, and
+    /// SigmaHQ selects it by `Provider_Name`.
+    #[test]
+    fn decodes_a_security_log_clear_from_its_user_data() {
+        let xml = r#"
+<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+  <System>
+    <Provider Name="Microsoft-Windows-Eventlog" Guid="{fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}"/>
+    <EventID>1102</EventID>
+    <TimeCreated SystemTime="2026-09-15T12:34:56.1234567Z"/>
+    <EventRecordID>1</EventRecordID>
+    <Channel>Security</Channel>
+    <Computer>lab-windows</Computer>
+  </System>
+  <UserData>
+    <LogFileCleared xmlns="http://manifests.microsoft.com/win/2004/08/windows/eventlog">
+      <SubjectUserSid>S-1-5-21-1-2-3-1001</SubjectUserSid>
+      <SubjectUserName>alice</SubjectUserName>
+      <SubjectDomainName>ACME</SubjectDomainName>
+      <SubjectLogonId>0x3e4</SubjectLogonId>
+    </LogFileCleared>
+  </UserData>
+</Event>"#;
+
+        let event = decode(xml).expect("1102 should decode");
+        assert_eq!(event.action, SensorAction::Delete);
+        assert_eq!(event.source_seq, Some(1));
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(
+            fields.get("Provider_Name"),
+            Some("Microsoft-Windows-Eventlog")
+        );
+        assert_eq!(fields.get("SubjectUserName"), Some("alice"));
+        assert_eq!(fields.get("SubjectLogonId"), Some("0x3e4"));
+        // The wrapper element is structure, not a property.
+        assert_eq!(fields.get("LogFileCleared"), None);
+    }
+
+    #[test]
+    fn decodes_a_registry_value_modification() {
+        let xml = security_event(
+            4657,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="ObjectName">\REGISTRY\MACHINE\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths</Data>
+    <Data Name="ObjectValueName">C:\Users\Public</Data>
+    <Data Name="HandleId">0x2a8</Data>
+    <Data Name="OperationType">%%1904</Data>
+    <Data Name="OldValueType">-</Data>
+    <Data Name="OldValue">-</Data>
+    <Data Name="NewValueType">%%1876</Data>
+    <Data Name="NewValue">0</Data>
+    <Data Name="ProcessId">0x1a2c</Data>
+    <Data Name="ProcessName">C:\Windows\regedit.exe</Data>"#
+            ),
+        );
+
+        let event = decode(&xml).expect("4657 should decode");
+        assert_eq!(event.action, SensorAction::Set);
+        assert_eq!(event.pid, Some(0x1a2c));
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("ObjectValueName"), Some(r"C:\Users\Public"));
+        assert_eq!(fields.get("NewValue"), Some("0"));
+    }
+
+    /// The connection template spells the process ID `ProcessID`, in decimal.
+    #[test]
+    fn decodes_a_filtering_platform_connection() {
+        let xml = security_event(
+            5156,
+            r#"    <Data Name="ProcessID">5104</Data>
+    <Data Name="Application">\device\harddiskvolume3\windows\system32\windowspowershell\v1.0\powershell.exe</Data>
+    <Data Name="Direction">%%14593</Data>
+    <Data Name="SourceAddress">192.168.1.28</Data>
+    <Data Name="SourcePort">50112</Data>
+    <Data Name="DestAddress">93.184.215.14</Data>
+    <Data Name="DestPort">88</Data>
+    <Data Name="Protocol">6</Data>
+    <Data Name="FilterRTID">0</Data>
+    <Data Name="LayerName">%%14611</Data>
+    <Data Name="LayerRTID">48</Data>"#,
+        );
+
+        let event = decode(&xml).expect("5156 should decode");
+        assert_eq!(event.action, SensorAction::Connect);
+        assert_eq!(event.pid, Some(5104));
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("ProcessID"), Some("5104"));
+        assert_eq!(fields.get("DestPort"), Some("88"));
+        assert_eq!(fields.get("LayerRTID"), Some("48"));
+    }
+
+    #[test]
+    fn decodes_a_filtering_platform_filter_change_and_a_device() {
+        let filter = security_event(
+            5447,
+            r#"    <Data Name="ProcessId">1204</Data>
+    <Data Name="UserSid">S-1-5-19</Data>
+    <Data Name="UserName">AUTORITE NT\SERVICE LOCAL</Data>
+    <Data Name="ChangeType">%%16385</Data>
+    <Data Name="FilterName">Custom Outbound Filter</Data>
+    <Data Name="LayerName">ALE Connect v4 Layer</Data>"#,
+        );
+        let fields_5447 = fields(&filter);
+        assert_eq!(
+            fields_5447.get("FilterName"),
+            Some("Custom Outbound Filter")
+        );
+        assert_eq!(fields_5447.get("ChangeType"), Some("%%16385"));
+
+        let device = security_event(
+            6416,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="DeviceId">USBSTOR\Disk&amp;Ven_Rustinel&amp;Prod_Issue479\0001</Data>
+    <Data Name="DeviceDescription">USB Mass Storage Device</Data>
+    <Data Name="ClassName">DiskDrive</Data>"#
+            ),
+        );
+        let event = decode(&device).expect("6416 should decode");
+        assert_eq!(event.action, SensorAction::Register);
+        let SensorPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("ClassName"), Some("DiskDrive"));
+        assert_eq!(
+            fields.get("DeviceId"),
+            Some(r"USBSTOR\Disk&Ven_Rustinel&Prod_Issue479\0001")
+        );
+    }
+
+    /// `(provider, event IDs)` for each `Select` of a structured query.
+    fn selects(query: &str) -> Vec<(String, Vec<u16>)> {
+        let document = roxmltree::Document::parse(query).expect("the query is valid XML");
+        document
+            .descendants()
+            .filter(|node| node.has_tag_name("Select"))
+            .map(|node| {
+                assert_eq!(node.attribute("Path"), Some("Security"));
+                let xpath = node.text().expect("a Select holds an XPath");
+                let provider = xpath
+                    .split("@Name='")
+                    .nth(1)
+                    .and_then(|rest| rest.split('\'').next())
+                    .expect("each Select names its provider")
+                    .to_string();
+                let ids = xpath
+                    .split("EventID=")
+                    .skip(1)
+                    .map(|rest| {
+                        let digits: String =
+                            rest.chars().take_while(char::is_ascii_digit).collect();
+                        digits
+                            .parse()
+                            .expect("an EventID comparison holds a number")
+                    })
+                    .collect();
+                (provider, ids)
+            })
+            .collect()
+    }
+
+    /// Every `(provider, event ID)` a query subscribes to.
+    fn subscribed(query: &str) -> std::collections::BTreeSet<(String, u16)> {
+        selects(query)
+            .into_iter()
+            .flat_map(|(provider, ids)| ids.into_iter().map(move |id| (provider.clone(), id)))
+            .collect()
+    }
+
+    const FILTERING_PLATFORM_CONNECTION_EVENTS: [u16; 3] = [5152, 5156, 5157];
+
     #[test]
     fn the_subscription_query_covers_exactly_the_supported_events() {
-        let supported: Vec<u16> = FIELD_AVAILABILITY
+        let supported: std::collections::BTreeSet<(String, u16)> = FIELD_AVAILABILITY
             .iter()
             .filter(|contract| {
                 contract.platform == crate::sensor::Platform::Windows
                     && contract.category == "security"
                     && contract.provider == "windows_event_log"
             })
-            .filter_map(|contract| contract.event_id)
+            .map(|contract| {
+                (
+                    contract.source.to_string(),
+                    contract
+                        .event_id
+                        .expect("Security contracts are keyed by ID"),
+                )
+            })
             .collect();
-        for event_id in &supported {
-            assert!(
-                QUERY.contains(&format!("EventID={event_id}")),
-                "event {event_id} is decoded but not subscribed to"
-            );
-        }
+
+        let full = subscribed(QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS);
         assert_eq!(
-            QUERY.matches("EventID=").count(),
-            supported.len(),
+            full, supported,
             "the subscription query and the decoder table must agree"
         );
+
+        let default = subscribed(QUERY);
+        let gated: std::collections::BTreeSet<_> = full.difference(&default).collect();
+        assert_eq!(
+            gated.iter().map(|(_, id)| *id).collect::<Vec<_>>(),
+            FILTERING_PLATFORM_CONNECTION_EVENTS,
+            "only the per-connection events are behind the option"
+        );
+        assert_eq!(source(false).query, QUERY);
+        assert_eq!(
+            source(true).query,
+            QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS
+        );
+    }
+
+    /// The Event Log query parser rejects an XPath of more than 23 terms; see
+    /// `select!`.
+    #[test]
+    fn every_select_stays_within_the_event_log_term_limit() {
+        for query in [QUERY, QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS] {
+            for (provider, ids) in selects(query) {
+                assert!(
+                    ids.len() <= 22,
+                    "a {provider} Select with {} event IDs exceeds the parser's limit",
+                    ids.len()
+                );
+            }
+        }
     }
 }

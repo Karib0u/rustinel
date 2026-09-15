@@ -104,7 +104,7 @@ Signature revocation freshness can invalidate the signature store independently 
   Inspect them with `Get-EtwTraceSession -Name rustinel-etw-trace` (or `rustinel-etw-process`).
 - A classic kernel logger supplies creation-time command lines and SIDs, joined to Kernel-Process events by PID, parent PID, and time.
 - At startup, key and file name snapshots let registry and file writes through pre-existing handles be named.
-- Event Log subscriptions read System event 7045 and six Security events, filtered by an XPath query.
+- Event Log subscriptions read System event 7045 and the Security audit events in [Sigma rules](sigma.md#windows-security-events), filtered by a structured query with one `Select` per family: an event is only reachable if it is in both the query and the [`FIELD_AVAILABILITY`](field-availability.md) table.
   Read positions are saved under `logging.directory/event-log`.
 
 ## Linux sensor
