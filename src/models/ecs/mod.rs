@@ -385,6 +385,14 @@ impl From<&Alert> for EcsAlert {
                 ecs.edr_service_account_name =
                     f.get_non_placeholder("ServiceAccount").map(str::to_string);
 
+                // 4698-4701 carry the task definition as `TaskContent`; an
+                // update (4702) carries the new one as `TaskContentNew`.
+                ecs.edr_task_name = f.get_non_placeholder("TaskName").map(str::to_string);
+                ecs.edr_task_content = f
+                    .get_non_placeholder("TaskContent")
+                    .or_else(|| f.get_non_placeholder("TaskContentNew"))
+                    .map(str::to_string);
+
                 if matches!(
                     f.get_non_placeholder("ObjectType"),
                     Some("File") | Some("Directory")
