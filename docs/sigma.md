@@ -72,7 +72,7 @@ Things that differ from Sysmon:
   Cutting removes the end of the path, which is what `|endswith` matches.
 - **Linux container fields** come from the process cgroup, checked against the kernel's cgroup ID.
   `ContainerId` is the full ID, and `ContainerRuntime` is `docker`, `containerd`, `cri-o`, `podman`, or `lxc`.
-  A process that entered a container's PID namespace without joining its cgroup, as `nsenter` does, gets that container's ID marked `derived`.
+  Namespace membership alone does not identify a container: `nsenter` without a cgroup change keeps the caller's cgroup attribution.
   A host process has `CgroupPath` and no `ContainerId`.
   An event without `CgroupPath` is unresolved, not a host process, so select host processes with `CgroupPath|exists: true` and exclude `ContainerId|exists: true`.
 - **`ParentImage` and `ParentCommandLine`** on Linux and macOS come from Rustinel's process cache.

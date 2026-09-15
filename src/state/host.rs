@@ -131,13 +131,12 @@ impl HostState {
         pid: u32,
         parent_pid: Option<u32>,
         cgroup_id: Option<u64>,
-        pid_ns: Option<u64>,
     ) -> super::container::ContainerResolution {
         self.containers
             .get_or_init(|| Mutex::new(super::container::ContainerResolver::for_host()))
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .resolve(pid, parent_pid, cgroup_id, pid_ns)
+            .resolve(pid, parent_pid, cgroup_id)
     }
     pub fn limits(&self) -> &StateLimits {
         &self.limits

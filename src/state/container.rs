@@ -8,10 +8,8 @@
 //! Resolution runs on the host-state worker, after the event has left the ring
 //! drain, and every answer is checked against the kernel's own identifier: a
 //! cgroup path is accepted only when its cgroupfs inode equals the measured
-//! `cgroup_id`. Processes that entered a container's namespaces without joining
-//! its cgroup (`nsenter`, `setns`) are attributed through the PID namespace of
-//! a container process seen earlier, and only while that container's cgroup
-//! still exists.
+//! `cgroup_id`. Namespace membership alone does not identify a container:
+//! containers can share namespaces, and namespace inode numbers are recycled.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -101,39 +99,28 @@ pub struct ContainerResolution {
     /// Cgroup v2 path, relative to the cgroup2 mount, for the measured id.
     pub cgroup_path: Option<String>,
     pub container: Option<ContainerIdentity>,
-    /// The container was attributed through the PID namespace rather than
-    /// the process's own cgroup.
-    pub via_namespace: bool,
-}
-
-#[derive(Debug, Clone)]
-struct NamespaceEntry {
-    cgroup_id: u64,
-    cgroup_path: String,
-    container: ContainerIdentity,
 }
 
 const MAX_CGROUPS: usize = 8192;
-const MAX_NAMESPACES: usize = 4096;
 const MAX_WALK_DEPTH: usize = 32;
+const MAX_WALK_ENTRIES: usize = MAX_CGROUPS * 8;
+const MAX_WALK_DURATION: Duration = Duration::from_millis(10);
 /// A cgroupfs walk is the fallback for a process that exited before its
-/// `/proc` entry could be read. One walk indexes every live cgroup, so later
-/// events in the same cgroups hit the cache. The interval caps a stream of
-/// unresolvable identifiers (cgroups already removed) at four walks a second.
+/// `/proc` entry could be read. Each walk indexes a bounded part of the live
+/// hierarchy, so later events in those cgroups hit the cache. The interval caps
+/// a stream of unresolvable identifiers at four walks a second.
 const MIN_WALK_INTERVAL: Duration = Duration::from_millis(250);
 
-/// Bounded cgroup-id and namespace index for one host.
+/// Bounded cgroup-id index for one host.
 pub struct ContainerResolver {
     cgroup_root: Option<PathBuf>,
     proc_root: PathBuf,
-    host_pid_ns: Option<u64>,
     cgroups: HashMap<u64, String>,
-    namespaces: HashMap<u64, NamespaceEntry>,
     last_walk: Option<Instant>,
 }
 
 impl ContainerResolver {
-    /// Resolver for the live host: the first cgroup2 mount and init's namespaces.
+    /// Resolver for the live host: the first cgroup2 mount.
     pub fn for_host() -> Self {
         let proc_root = PathBuf::from("/proc");
         let cgroup_root = std::fs::read_to_string(proc_root.join("self/mountinfo"))
@@ -144,17 +131,14 @@ impl ContainerResolver {
                 "No cgroup2 mount found; Linux container context is unavailable on this host"
             );
         }
-        let host_pid_ns = namespace_inode(&proc_root.join("1/ns/pid"));
-        Self::new(cgroup_root, proc_root, host_pid_ns)
+        Self::new(cgroup_root, proc_root)
     }
 
-    pub fn new(cgroup_root: Option<PathBuf>, proc_root: PathBuf, host_pid_ns: Option<u64>) -> Self {
+    pub fn new(cgroup_root: Option<PathBuf>, proc_root: PathBuf) -> Self {
         Self {
             cgroup_root,
             proc_root,
-            host_pid_ns,
             cgroups: HashMap::new(),
-            namespaces: HashMap::new(),
             last_walk: None,
         }
     }
@@ -167,66 +151,13 @@ impl ContainerResolver {
         pid: u32,
         parent_pid: Option<u32>,
         cgroup_id: Option<u64>,
-        pid_ns: Option<u64>,
     ) -> ContainerResolution {
         let cgroup_path = cgroup_id.and_then(|id| self.cgroup_path(pid, parent_pid, id));
         let container = cgroup_path.as_deref().and_then(parse_container_cgroup);
 
-        if let (Some(container), Some(id), Some(path)) = (&container, cgroup_id, &cgroup_path) {
-            if let Some(pid_ns) = pid_ns.filter(|ns| self.is_foreign_pid_ns(*ns)) {
-                if self.namespaces.len() >= MAX_NAMESPACES && !self.namespaces.contains_key(&pid_ns)
-                {
-                    self.namespaces.clear();
-                }
-                self.namespaces.insert(
-                    pid_ns,
-                    NamespaceEntry {
-                        cgroup_id: id,
-                        cgroup_path: path.clone(),
-                        container: container.clone(),
-                    },
-                );
-            }
-        }
-
-        let mut resolution = ContainerResolution {
+        ContainerResolution {
             cgroup_path,
             container,
-            via_namespace: false,
-        };
-        if resolution.container.is_none() {
-            if let Some(container) = pid_ns
-                .filter(|ns| self.is_foreign_pid_ns(*ns))
-                .and_then(|ns| self.container_for_namespace(ns))
-            {
-                resolution.container = Some(container);
-                resolution.via_namespace = true;
-            }
-        }
-        resolution
-    }
-
-    /// A namespace is only evidence of a container when it is known to differ
-    /// from the host's. Without the host's inode no namespace is attributed.
-    fn is_foreign_pid_ns(&self, ns: u64) -> bool {
-        self.host_pid_ns.is_some_and(|host| host != ns)
-    }
-
-    fn container_for_namespace(&mut self, pid_ns: u64) -> Option<ContainerIdentity> {
-        let entry = self.namespaces.get(&pid_ns)?;
-        // Namespace inodes are recycled once the namespace dies. The entry is
-        // trusted only while the container's own cgroup is still present, which
-        // it is for as long as any process holds the namespace open.
-        let live = self
-            .cgroup_root
-            .as_ref()
-            .and_then(|root| directory_inode(&join_cgroup(root, &entry.cgroup_path)))
-            == Some(entry.cgroup_id);
-        if live {
-            Some(entry.container.clone())
-        } else {
-            self.namespaces.remove(&pid_ns);
-            None
         }
     }
 
@@ -258,7 +189,7 @@ impl ContainerResolver {
             return None;
         }
         self.last_walk = Some(Instant::now());
-        self.walk(&root);
+        self.walk(&root, MAX_WALK_ENTRIES);
         self.cgroups.get(&id).cloned()
     }
 
@@ -269,38 +200,56 @@ impl ContainerResolver {
         self.cgroups.insert(id, path);
     }
 
-    fn walk(&mut self, root: &Path) {
+    fn walk(&mut self, root: &Path, max_entries: usize) -> usize {
         self.cgroups.clear();
-        let mut stack = vec![(root.to_path_buf(), String::from("/"), 0usize)];
-        while let Some((dir, relative, depth)) = stack.pop() {
-            if self.cgroups.len() >= MAX_CGROUPS {
-                break;
-            }
-            if let Some(inode) = directory_inode(&dir) {
-                self.cgroups.insert(inode, relative.clone());
-            }
-            if depth >= MAX_WALK_DEPTH {
-                continue;
-            }
-            let Ok(entries) = std::fs::read_dir(&dir) else {
+        if let Some(inode) = directory_inode(root) {
+            self.cgroups.insert(inode, String::from("/"));
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return 0;
+        };
+        let started = Instant::now();
+        // Keep one iterator per ancestor instead of preloading every child.
+        // Memory and open directories are bounded by MAX_WALK_DEPTH, even
+        // when a directory has more children than the cache can hold.
+        let mut stack = vec![(entries, String::from("/"))];
+        let mut inspected = 0;
+        while !stack.is_empty()
+            && self.cgroups.len() < MAX_CGROUPS
+            && inspected < max_entries
+            && started.elapsed() < MAX_WALK_DURATION
+        {
+            let (entries, relative) = stack.last_mut().unwrap();
+            let Some(entry) = entries.next() else {
+                stack.pop();
                 continue;
             };
-            for entry in entries.flatten() {
-                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                    continue;
+            inspected += 1;
+            let Ok(entry) = entry else {
+                continue;
+            };
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            let child = if relative == "/" {
+                format!("/{name}")
+            } else {
+                format!("{relative}/{name}")
+            };
+            if let Some(inode) = directory_inode(&entry.path()) {
+                self.cgroups.insert(inode, child.clone());
+            }
+            if stack.len() < MAX_WALK_DEPTH {
+                if let Ok(entries) = std::fs::read_dir(entry.path()) {
+                    stack.push((entries, child));
                 }
-                let name = entry.file_name();
-                let Some(name) = name.to_str() else {
-                    continue;
-                };
-                let child = if relative == "/" {
-                    format!("/{name}")
-                } else {
-                    format!("{relative}/{name}")
-                };
-                stack.push((entry.path(), child, depth + 1));
             }
         }
+        inspected
     }
 
     #[cfg(all(test, unix))]
@@ -324,17 +273,6 @@ fn directory_inode(path: &Path) -> Option<u64> {
 
 #[cfg(not(unix))]
 fn directory_inode(_path: &Path) -> Option<u64> {
-    None
-}
-
-#[cfg(unix)]
-fn namespace_inode(path: &Path) -> Option<u64> {
-    use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(path).ok().map(|metadata| metadata.ino())
-}
-
-#[cfg(not(unix))]
-fn namespace_inode(_path: &Path) -> Option<u64> {
     None
 }
 
@@ -548,20 +486,9 @@ mod tests {
                 std::fs::write(dir.join("cgroup"), format!("0::{relative}\n")).unwrap();
             }
 
-            fn resolver(&self, host_pid_ns: Option<u64>) -> ContainerResolver {
-                ContainerResolver::new(
-                    Some(self.cgroup.clone()),
-                    self.proc_root.clone(),
-                    host_pid_ns,
-                )
+            fn resolver(&self) -> ContainerResolver {
+                ContainerResolver::new(Some(self.cgroup.clone()), self.proc_root.clone())
             }
-        }
-
-        const HOST_PID_NS: u64 = 4026531836;
-        const CONTAINER_PID_NS: u64 = 4026532500;
-
-        fn in_ns(pid_ns: u64) -> Option<u64> {
-            Some(pid_ns)
         }
 
         #[test]
@@ -570,30 +497,21 @@ mod tests {
             let scope = format!("/system.slice/docker-{ID}.scope");
             let id = fixture.cgroup(&scope);
             fixture.process(42, &scope);
-            let mut resolver = fixture.resolver(Some(HOST_PID_NS));
+            let mut resolver = fixture.resolver();
 
-            let resolution = resolver.resolve(42, None, Some(id), in_ns(CONTAINER_PID_NS));
+            let resolution = resolver.resolve(42, None, Some(id));
             assert_eq!(resolution.cgroup_path.as_deref(), Some(scope.as_str()));
             assert_eq!(resolution.container.unwrap().id, ID);
-            assert!(!resolution.via_namespace);
 
             // A reused PID now sits in another cgroup: the measured id no longer
             // matches the path /proc reports, so that path must not be adopted.
             let other = fixture.cgroup("/user.slice/session-1.scope");
             fixture.process(43, "/user.slice/session-1.scope");
-            let mut fresh = fixture.resolver(Some(HOST_PID_NS));
+            let mut fresh = fixture.resolver();
             fresh.last_walk = Some(Instant::now());
+            assert_eq!(fresh.resolve(43, None, Some(id)).cgroup_path, None);
             assert_eq!(
-                fresh
-                    .resolve(43, None, Some(id), in_ns(HOST_PID_NS))
-                    .cgroup_path,
-                None
-            );
-            assert_eq!(
-                fresh
-                    .resolve(43, None, Some(other), in_ns(HOST_PID_NS))
-                    .cgroup_path
-                    .as_deref(),
+                fresh.resolve(43, None, Some(other)).cgroup_path.as_deref(),
                 Some("/user.slice/session-1.scope")
             );
         }
@@ -604,10 +522,10 @@ mod tests {
             let scope = format!("/system.slice/docker-{ID}.scope");
             let id = fixture.cgroup(&scope);
             fixture.process(50, &scope);
-            let mut resolver = fixture.resolver(Some(HOST_PID_NS));
+            let mut resolver = fixture.resolver();
             resolver.last_walk = Some(Instant::now());
 
-            let resolution = resolver.resolve(51, Some(50), Some(id), in_ns(CONTAINER_PID_NS));
+            let resolution = resolver.resolve(51, Some(50), Some(id));
             assert_eq!(resolution.cgroup_path.as_deref(), Some(scope.as_str()));
             assert_eq!(resolution.container.unwrap().runtime, Some("docker"));
         }
@@ -618,10 +536,7 @@ mod tests {
             let session = "/user.slice/user-1000.slice/session-915.scope";
             let id = fixture.cgroup(session);
             fixture.process(7, session);
-            let resolution =
-                fixture
-                    .resolver(Some(HOST_PID_NS))
-                    .resolve(7, None, Some(id), in_ns(HOST_PID_NS));
+            let resolution = fixture.resolver().resolve(7, None, Some(id));
             assert_eq!(resolution.cgroup_path.as_deref(), Some(session));
             assert_eq!(resolution.container, None);
         }
@@ -632,88 +547,51 @@ mod tests {
             let scope = format!("/system.slice/docker-{ID}.scope");
             let id = fixture.cgroup(&scope);
             fixture.cgroup("/init.scope");
-            let mut resolver = fixture.resolver(Some(HOST_PID_NS));
+            let mut resolver = fixture.resolver();
 
-            let resolution = resolver.resolve(99, None, Some(id), in_ns(HOST_PID_NS));
+            let resolution = resolver.resolve(99, None, Some(id));
             assert_eq!(resolution.cgroup_path.as_deref(), Some(scope.as_str()));
             assert!(resolver.cached_cgroups() >= 3);
 
             let late = fixture.cgroup(&format!("/system.slice/docker-{INNER}.scope"));
-            assert_eq!(
-                resolver
-                    .resolve(100, None, Some(late), in_ns(HOST_PID_NS))
-                    .cgroup_path,
-                None
-            );
+            assert_eq!(resolver.resolve(100, None, Some(late)).cgroup_path, None);
         }
 
         #[test]
-        fn namespace_attribution_follows_a_live_container_cgroup() {
+        fn walk_limits_directory_entries_in_a_wide_hierarchy() {
             let fixture = Fixture::new();
-            let scope = format!("/system.slice/docker-{ID}.scope");
-            let container_cgroup = fixture.cgroup(&scope);
-            fixture.process(10, &scope);
-            let session = "/user.slice/session-2.scope";
-            let host_cgroup = fixture.cgroup(session);
-            fixture.process(11, session);
-            let mut resolver = fixture.resolver(Some(HOST_PID_NS));
-
-            resolver.resolve(10, None, Some(container_cgroup), in_ns(CONTAINER_PID_NS));
-            // nsenter from a host session into the container's PID namespace.
-            let entered = resolver.resolve(11, None, Some(host_cgroup), in_ns(CONTAINER_PID_NS));
-            assert_eq!(entered.cgroup_path.as_deref(), Some(session));
-            assert_eq!(entered.container.as_ref().unwrap().id, ID);
-            assert!(entered.via_namespace);
-
-            // Once the container's cgroup is gone the recycled inode is not trusted.
-            std::fs::remove_dir(join_cgroup(&fixture.cgroup, &scope)).unwrap();
-            let after = resolver.resolve(11, None, Some(host_cgroup), in_ns(CONTAINER_PID_NS));
-            assert_eq!(after.container, None);
+            for index in 0..20 {
+                fixture.cgroup(&format!("/child-{index}"));
+            }
+            let mut resolver = fixture.resolver();
+            resolver.walk(&fixture.cgroup, 4);
+            // The root plus at most four inspected children. The cache's own
+            // limit is much larger, so it cannot mask an unbounded scan.
+            assert!(resolver.cached_cgroups() <= 5);
         }
 
         #[test]
-        fn host_pid_namespace_and_unknown_host_are_never_indexed() {
+        fn walk_counts_files_against_the_entry_budget() {
             let fixture = Fixture::new();
-            let scope = format!("/system.slice/docker-{ID}.scope");
-            let container_cgroup = fixture.cgroup(&scope);
-            fixture.process(10, &scope);
-            let session = "/user.slice/session-2.scope";
-            let host_cgroup = fixture.cgroup(session);
-            fixture.process(11, session);
-
-            // `docker run --pid=host`: the container is still reported from its
-            // cgroup, but the host PID namespace must not point at it.
-            let mut resolver = fixture.resolver(Some(HOST_PID_NS));
-            let shared = resolver.resolve(10, None, Some(container_cgroup), in_ns(HOST_PID_NS));
-            assert_eq!(shared.container.unwrap().id, ID);
-            assert_eq!(
-                resolver
-                    .resolve(11, None, Some(host_cgroup), in_ns(HOST_PID_NS))
-                    .container,
-                None
-            );
-
-            let mut blind = fixture.resolver(None);
-            blind.resolve(10, None, Some(container_cgroup), in_ns(CONTAINER_PID_NS));
-            assert_eq!(
-                blind
-                    .resolve(11, None, Some(host_cgroup), in_ns(CONTAINER_PID_NS))
-                    .container,
-                None
-            );
+            for index in 0..20 {
+                std::fs::write(fixture.cgroup.join(format!("file-{index}")), "").unwrap();
+            }
+            let mut resolver = fixture.resolver();
+            assert_eq!(resolver.walk(&fixture.cgroup, 4), 4);
+            assert_eq!(resolver.cached_cgroups(), 1);
         }
 
         #[test]
         fn missing_cgroup2_or_id_resolves_nothing() {
             let fixture = Fixture::new();
-            let mut resolver = ContainerResolver::new(None, fixture.proc_root.clone(), None);
+            let mut resolver = ContainerResolver::new(None, fixture.proc_root.clone());
             assert_eq!(
-                resolver.resolve(1, None, Some(1), None),
+                resolver.resolve(1, None, Some(1)),
                 ContainerResolution::default()
             );
-            let mut resolver = fixture.resolver(Some(HOST_PID_NS));
+            let mut resolver = fixture.resolver();
             assert_eq!(
-                resolver.resolve(1, None, None, in_ns(HOST_PID_NS)),
+                resolver.resolve(1, None, None),
                 ContainerResolution::default()
             );
         }

@@ -966,7 +966,7 @@ const LINUX_PROCESS: &[FieldContract] = &[
     conditional(
         "ContainerId",
         SINCE_CONTAINER_CONTEXT,
-        "the cgroup path names a recognized container layout, or the PID namespace is shared with a live container seen earlier",
+        "the cgroup path names a recognized container layout",
     ),
     conditional(
         "ContainerRuntime",

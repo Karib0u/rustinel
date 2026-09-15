@@ -8123,7 +8123,7 @@
       "field": "ContainerId",
       "since": "1.7.1",
       "availability": "conditional",
-      "reason": "the cgroup path names a recognized container layout, or the PID namespace is shared with a live container seen earlier"
+      "reason": "the cgroup path names a recognized container layout"
     },
     {
       "platform": "linux",

@@ -158,7 +158,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         );
         #[cfg(target_os = "linux")]
         if event.platform == Platform::Linux && event.action == SensorAction::Start {
-            self.resolve_container(raw, &mut fields, provenance);
+            self.resolve_container(raw, &mut fields);
         }
         if fields.process_start_time.is_none() {
             fields.process_start_time = event.process_start_key.map(|key| key.start_time);
@@ -412,22 +412,14 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     /// Container lookup reads cgroupfs, so it stays downstream of the ring drain.
     #[cfg(target_os = "linux")]
-    fn resolve_container(
-        &self,
-        raw: &RawProcessEvent,
-        fields: &mut ProcessCreationFields,
-        provenance: &mut Provenance,
-    ) {
+    fn resolve_container(&self, raw: &RawProcessEvent, fields: &mut ProcessCreationFields) {
         let crate::sensor::RawProcessPlatform::Linux(source) = raw.platform.as_ref() else {
             return;
         };
-        let resolution = self.state.resolve_container(
-            raw.process_id,
-            raw.parent_process_id,
-            source.cgroup_id,
-            source.identity.pid_namespace,
-        );
-        apply_container_resolution(fields, resolution, provenance);
+        let resolution =
+            self.state
+                .resolve_container(raw.process_id, raw.parent_process_id, source.cgroup_id);
+        apply_container_resolution(fields, resolution);
     }
 
     fn enrich_image(
@@ -559,17 +551,8 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 fn apply_container_resolution(
     fields: &mut ProcessCreationFields,
     resolution: crate::state::container::ContainerResolution,
-    provenance: &mut Provenance,
 ) {
     let container = resolution.container;
-    if resolution.via_namespace && container.is_some() {
-        // The process never joined the container's cgroup; its identity is
-        // inferred from a PID namespace shared with one that did.
-        provenance.mark_derived("ContainerId");
-        if container.as_ref().is_some_and(|c| c.runtime.is_some()) {
-            provenance.mark_derived("ContainerRuntime");
-        }
-    }
     *fields.container = LinuxContainerContext {
         cgroup_path: resolution.cgroup_path,
         container_runtime: container
@@ -655,53 +638,83 @@ mod tests {
     }
 
     #[test]
-    fn container_resolution_marks_only_namespace_attribution_as_derived() {
+    fn container_resolution_maps_cgroup_identity_and_clears_unresolved_context() {
         use crate::state::container::{ContainerIdentity, ContainerResolution};
         const ID: &str = "4f0a3c1b2d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
         let event = process_start_event(Platform::Linux, "ebpf", 4242);
         let SensorPayload::Process(raw) = &event.payload else {
             unreachable!()
         };
-        let container = ContainerIdentity {
-            id: ID.to_string(),
-            runtime: Some("docker"),
-        };
-
         let mut fields = raw.compatibility_fields();
-        let mut provenance = Provenance::default();
         apply_container_resolution(
             &mut fields,
             ContainerResolution {
                 cgroup_path: Some(format!("/system.slice/docker-{ID}.scope")),
-                container: Some(container.clone()),
-                via_namespace: false,
+                container: Some(ContainerIdentity {
+                    id: ID.to_string(),
+                    runtime: Some("docker"),
+                }),
             },
-            &mut provenance,
         );
         assert_eq!(fields.container.container_id.as_deref(), Some(ID));
         assert_eq!(
             fields.container.container_runtime.as_deref(),
             Some("docker")
         );
-        assert!(provenance.is_empty());
+        apply_container_resolution(&mut fields, ContainerResolution::default());
+        assert_eq!(*fields.container, LinuxContainerContext::default());
+    }
 
-        let mut fields = raw.compatibility_fields();
-        apply_container_resolution(
-            &mut fields,
-            ContainerResolution {
-                cgroup_path: Some("/user.slice/session-2.scope".to_string()),
-                container: Some(container),
-                via_namespace: true,
-            },
-            &mut provenance,
-        );
-        assert_eq!(
-            fields.container.cgroup_path.as_deref(),
-            Some("/user.slice/session-2.scope")
-        );
-        assert!(provenance.has("ContainerId", Fidelity::Derived));
-        assert!(provenance.has("ContainerRuntime", Fidelity::Derived));
-        assert!(!provenance.has("CgroupPath", Fidelity::Derived));
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shared_or_recycled_pid_namespaces_do_not_override_cgroup_identity() {
+        use crate::sensor::RawProcessPlatform;
+        use crate::state::container::ContainerResolver;
+        use std::os::unix::fs::MetadataExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cgroup");
+        let proc_root = temp.path().join("proc");
+        let normalizer = build_normalizer();
+        assert!(normalizer
+            .state
+            .containers
+            .set(std::sync::Mutex::new(ContainerResolver::new(
+                Some(root.clone()),
+                proc_root.clone(),
+            )))
+            .is_ok());
+        let a = format!("/system.slice/docker-{}.scope", "a".repeat(64));
+        let b = format!("/system.slice/docker-{}.scope", "b".repeat(64));
+        // Both containers share a PID namespace. The host-cgroup process
+        // entered it, or later acquired the same recycled namespace inode.
+        for (pid, path, expected) in [
+            (42, a.as_str(), Some("a".repeat(64))),
+            (43, "/host", None),
+            (44, b.as_str(), Some("b".repeat(64))),
+            (45, "/host", None),
+        ] {
+            let cgroup = root.join(path.trim_start_matches('/'));
+            std::fs::create_dir_all(&cgroup).unwrap();
+            std::fs::create_dir_all(proc_root.join(pid.to_string())).unwrap();
+            std::fs::write(
+                proc_root.join(format!("{pid}/cgroup")),
+                format!("0::{path}\n"),
+            )
+            .unwrap();
+            let mut event = process_start_event(Platform::Linux, "test", pid);
+            let SensorPayload::Process(raw) = &mut event.payload else {
+                unreachable!()
+            };
+            let RawProcessPlatform::Linux(source) = raw.platform.as_mut() else {
+                unreachable!()
+            };
+            source.cgroup_id = Some(std::fs::metadata(&cgroup).unwrap().ino());
+            source.identity.pid_namespace = Some(4026532500);
+            let normalized = normalizer.normalize(&event).unwrap();
+            assert_eq!(normalized.get_field("CgroupPath"), Some(path));
+            assert_eq!(normalized.get_field("ContainerId"), expected.as_deref());
+        }
     }
 
     #[test]

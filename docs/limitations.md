@@ -119,8 +119,11 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Rustinel reads only what the cgroup path carries and never queries a runtime socket.
 - **A cgroup removed before enrichment leaves the event unresolved, never reported as the host.**
   Enrichment runs moments after the exec, so this needs a backlogged pipeline and a container that is already gone.
-- **Namespace attribution needs an observed container process.**
-  A process that entered a container's PID namespace without its cgroup gets the container only after Rustinel has seen a process of that container start.
+  The fallback scan checks at most 65536 directory entries and stops after a 10 ms work budget, with 8192 cached cgroups and a maximum depth of 32.
+  A cgroup outside the scanned part of the hierarchy can also remain unresolved.
+- **Namespace membership alone does not determine container identity.**
+  Containers can share namespaces, and namespace inode numbers are recycled.
+  `nsenter` without a cgroup change keeps the caller's cgroup attribution.
 - **DNS:** plain UDP on port 53 only, and long names are dropped.
   Answers are decoded for A, AAAA, and CNAME records within the first 512 bytes of a response.
   A socket connected to port 53 before Rustinel started is missed until it is reopened.

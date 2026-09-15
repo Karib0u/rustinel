@@ -102,10 +102,7 @@ async fn live_container_context_reaches_sigma() {
             "nsenter",
             rule(
                 "Entered Docker Namespace",
-                &format!(
-                    "  selection:\n    CommandLine|contains: issue148-nsenter\n    ContainerId: {}\n  condition: selection",
-                    docker.id
-                ),
+                "  selection:\n    Image|endswith: /sh\n    CommandLine|contains: issue148-nsenter\n    CgroupPath|exists: true\n  container:\n    ContainerId|exists: true\n  condition: selection and not container",
             ),
         ),
         (
@@ -251,8 +248,9 @@ async fn live_container_context_reaches_sigma() {
     let entered = &alerts
         .get("Entered Docker Namespace")
         .expect("nsenter alert")[0];
-    assert_eq!(field(entered, "ContainerRuntime"), Some("docker"));
-    assert!(entered.provenance.has("ContainerId", Fidelity::Derived));
+    assert_eq!(field(entered, "ContainerId"), None);
+    assert_eq!(field(entered, "ContainerRuntime"), None);
+    assert_eq!(field(entered, "CgroupPath"), Some(own_cgroup.as_str()));
     assert_ne!(
         field(entered, "CgroupPath"),
         field(docker_exec, "CgroupPath"),

@@ -118,7 +118,7 @@ pub struct LinuxProcessIdentity {
 }
 
 /// Linux cgroup and container context resolved from the measured cgroup
-/// identifier and PID namespace. Absent fields mean unresolved.
+/// identifier. Absent fields mean unresolved.
 ///
 /// `CgroupPath` present with `ContainerId` absent is a host process;
 /// `CgroupPath` absent means the event could not be classified either way.
