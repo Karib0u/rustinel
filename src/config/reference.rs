@@ -343,6 +343,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         default_note: None,
         description: "The same for the process session. Keep it at 10 or below: the command line is read from the live process, so slower values lose it for short-lived processes, and `0` loses most of them.",
     },
+    ConfigOption {
+        key: "windows.security_filtering_platform_connections",
+        default_note: None,
+        description: "Read Security events 5156, 5157, and 5152: one per allowed connection, blocked connection, and dropped packet. Off by default because they are the highest-volume Security events. The host must also audit them, see [Windows host logging](windows-logging.md#filtering-platform-connections).",
+    },
 ];
 
 /// The generated region of `docs/configuration.md`, markers included.

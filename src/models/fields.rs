@@ -596,8 +596,11 @@ impl SecurityAuditFields {
     /// other field in the model that holds a decimal PID string. The raw
     /// rendering stays in [`Self::fields`] for rules to match; this is the
     /// parse the pipeline itself needs for process-cache lookups.
+    ///
+    /// The Windows Filtering Platform connection templates spell the field
+    /// `ProcessID`, and in decimal.
     pub fn process_id(&self) -> Option<u32> {
-        parse_windows_process_id(self.get("ProcessId")?)
+        parse_windows_process_id(self.get("ProcessId").or_else(|| self.get("ProcessID"))?)
     }
 }
 

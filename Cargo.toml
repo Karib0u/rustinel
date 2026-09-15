@@ -125,3 +125,8 @@ harness = false
 [[bench]]
 name = "cache_eviction"
 harness = false
+
+# Field availability lookup cost, measured with `cargo bench --bench field_lookup`.
+[[bench]]
+name = "field_lookup"
+harness = false

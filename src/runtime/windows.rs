@@ -205,6 +205,10 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         ensure_administrator_privileges()?;
         let flush_interval_ms = context.config().windows.etw_flush_interval_ms;
         let process_flush_interval_ms = context.config().windows.etw_process_flush_interval_ms;
+        let security_filtering_platform_connections = context
+            .config()
+            .windows
+            .security_filtering_platform_connections;
         let event_log_directory = context.config().logging.directory.join("event-log-capture");
         let session = context.start_recording(&options, Platform::Windows)?;
 
@@ -225,7 +229,10 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         let sensor = Arc::new(
             EtwSensor::with_flush_intervals(flush_interval_ms, process_flush_interval_ms)
                 .with_host_state(Arc::clone(session.host_state()))
-                .with_event_log_directory(event_log_directory),
+                .with_event_log_directory(event_log_directory)
+                .with_security_filtering_platform_connections(
+                    security_filtering_platform_connections,
+                ),
         );
         let sensor_for_trace = Arc::clone(&sensor);
         let mut trace_handle =
@@ -325,7 +332,10 @@ async fn run_edr(
             cfg.windows.etw_process_flush_interval_ms,
         )
         .with_host_state(Arc::clone(&state.host))
-        .with_event_log_directory(cfg.logging.directory.join("event-log")),
+        .with_event_log_directory(cfg.logging.directory.join("event-log"))
+        .with_security_filtering_platform_connections(
+            cfg.windows.security_filtering_platform_connections,
+        ),
     );
 
     let pipeline = LivePipeline::new(
