@@ -80,6 +80,7 @@ impl Engine {
                 .iter()
                 .map(|(key, count)| (key.display(), *count))
                 .collect(),
+            deferred_pass_rules: self.store.deferred().len(),
         }
     }
 }
@@ -102,6 +103,9 @@ pub struct EngineStats {
     pub inactive_collector_categories: BTreeMap<String, usize>,
     /// Inert rule counts by full logsource, for detailed diagnostics.
     pub inactive_collector_logsources: BTreeMap<String, usize>,
+    /// Loaded rules that select on `Hashes` or `Imphash` and are evaluated
+    /// only in the deferred pass, after artifact resolution.
+    pub deferred_pass_rules: usize,
 }
 
 impl EngineStats {

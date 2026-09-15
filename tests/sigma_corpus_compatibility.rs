@@ -120,6 +120,7 @@ fn scan_platform(corpus_dir: &Path, platform: Platform) -> anyhow::Result<Platfo
         inactive_collector_rules,
         inactive_collector_categories,
         inactive_collector_logsources: _,
+        deferred_pass_rules: _,
     } = engine.stats();
 
     anyhow::ensure!(
@@ -259,6 +260,8 @@ fn process_event(timestamp: &str) -> NormalizedEvent {
         event_id_string: "1".to_string(),
         opcode: 1,
         fields: EventFields::ProcessCreation(ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),

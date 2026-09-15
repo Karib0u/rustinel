@@ -229,6 +229,8 @@ impl RawProcessEvent {
         };
 
         ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity,
             cgroup_id,
             exec,

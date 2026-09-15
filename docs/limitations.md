@@ -46,9 +46,12 @@ Fields each platform never fills are listed in [Field availability](field-availa
 
 ## Windows
 
-- **Silent: no hashes on process or image-load events.**
-  Rules on `Hashes` or `Imphash` never fire.
-  Hashing exists only for IOC matching.
+- **`Hashes` and `Imphash` arrive after the event.**
+  Rules on them run in a separate pass, up to 2 seconds later, and see the file as it is when it is read.
+  An executable or DLL replaced right after it starts or loads is hashed as the replacement.
+  Images larger than 128 MB, unreadable images, and images the resolver cannot reach in time are evaluated without the fields.
+  Recordings do not carry these fields, so replay cannot reproduce a match that needed them.
+  See [Deferred pass](detection.md#deferred-pass).
 - **Command lines can be missing or cut.**
   The ETW source cuts command lines at 1,024 characters.
   Rustinel reads the full value from the live process when it still exists and marks it `derived`.

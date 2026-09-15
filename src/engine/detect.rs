@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use crate::engine::DetectorStore;
+use crate::engine::{DetectionPass, DetectorStore};
 use crate::ioc::IocEngine;
 use crate::models::{Alert, CanonicalEvent};
 
@@ -46,11 +46,22 @@ impl EventDetectors {
     /// matches in a deterministic order. The same event evaluated against the
     /// same detectors produces the same alerts in the same sequence.
     pub fn evaluate(&self, event: &CanonicalEvent) -> Vec<Alert> {
-        let normalized = event.normalized();
-        let mut alerts = self.sigma.evaluate_event(normalized);
+        self.evaluate_pass(event, DetectionPass::All)
+    }
 
-        for ioc_match in self.ioc.check_event(event) {
-            alerts.push(self.ioc.build_alert_for_match(&ioc_match, event));
+    /// Evaluate one detection pass of an event.
+    ///
+    /// Inline IOC checks belong to the admission side: they run with
+    /// [`DetectionPass::All`] and [`DetectionPass::Admission`], never again in
+    /// the deferred pass.
+    pub fn evaluate_pass(&self, event: &CanonicalEvent, pass: DetectionPass) -> Vec<Alert> {
+        let normalized = event.normalized();
+        let mut alerts = self.sigma.evaluate_event_pass(normalized, pass);
+
+        if pass.includes_admission() {
+            for ioc_match in self.ioc.check_event(event) {
+                alerts.push(self.ioc.build_alert_for_match(&ioc_match, event));
+            }
         }
 
         alerts

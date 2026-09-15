@@ -934,6 +934,8 @@ mod tests {
                 platform,
                 pid,
                 ProcessCreationFields {
+                    hashes: None,
+                    imphash: None,
                     linux_identity: Box::new(LinuxProcessIdentity {
                         real_group_id: Some("1000".to_string()),
                         ..Default::default()
@@ -996,6 +998,8 @@ mod tests {
                 platform,
                 pid,
                 ProcessCreationFields {
+                    hashes: None,
+                    imphash: None,
                     linux_identity: Default::default(),
                     cgroup_id: None,
                     exec: Default::default(),
@@ -1146,6 +1150,8 @@ mod tests {
                 Platform::Windows,
                 42,
                 ProcessCreationFields {
+                    hashes: None,
+                    imphash: None,
                     linux_identity: Default::default(),
                     cgroup_id: None,
                     exec: Default::default(),

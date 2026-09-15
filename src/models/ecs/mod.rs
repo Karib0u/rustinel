@@ -20,7 +20,9 @@ use event::{
     ecs_object_access_category, event_dataset, event_provider, host_os_family, host_os_type,
     network_direction_from_category, network_direction_from_initiated,
 };
-use helpers::{basename, file_extension_from_path, parse_bool, parse_u16, parse_u64};
+use helpers::{
+    basename, file_extension_from_path, parse_bool, parse_u16, parse_u64, SysmonDigests,
+};
 use network::{extract_ips, network_transport_from_opcode, network_type_from_ip};
 use registry::split_registry_path;
 use threat::attack_fields;
@@ -123,6 +125,10 @@ impl From<&Alert> for EcsAlert {
             process_description: None,
             process_company: None,
             process_file_version: None,
+            process_hash_md5: None,
+            process_hash_sha1: None,
+            process_hash_sha256: None,
+            process_pe_imphash: None,
             user_name: None,
             user_id: None,
             user_domain: None,
@@ -152,6 +158,10 @@ impl From<&Alert> for EcsAlert {
             file_code_signature_subject_name: None,
             dll_name: None,
             dll_path: None,
+            dll_hash_md5: None,
+            dll_hash_sha1: None,
+            dll_hash_sha256: None,
+            dll_pe_imphash: None,
             registry_path: None,
             registry_hive: None,
             registry_key: None,
@@ -223,6 +233,11 @@ impl From<&Alert> for EcsAlert {
                 ecs.process_description = f.description.clone();
                 ecs.process_company = f.company.clone();
                 ecs.process_file_version = f.file_version.clone();
+                let digests = SysmonDigests::parse(f.hashes.as_deref());
+                ecs.process_hash_md5 = digests.md5;
+                ecs.process_hash_sha1 = digests.sha1;
+                ecs.process_hash_sha256 = digests.sha256;
+                ecs.process_pe_imphash = f.imphash.clone().or(digests.imphash);
                 apply_user_fields(&mut ecs, f.user.as_deref());
                 ecs.edr_process_target_image = f.target_image.clone();
             }
@@ -299,6 +314,11 @@ impl From<&Alert> for EcsAlert {
                 ecs.file_code_signature_subject_name = f.signature.clone();
                 ecs.dll_path = f.image_loaded.clone();
                 ecs.dll_name = f.image_loaded.as_deref().and_then(basename);
+                let digests = SysmonDigests::parse(f.hashes.as_deref());
+                ecs.dll_hash_md5 = digests.md5;
+                ecs.dll_hash_sha1 = digests.sha1;
+                ecs.dll_hash_sha256 = digests.sha256;
+                ecs.dll_pe_imphash = f.imphash.clone().or(digests.imphash);
                 ecs.process_executable = f.image.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
                 apply_user_fields(&mut ecs, f.user.as_deref());
@@ -508,6 +528,8 @@ mod tests {
                 event_id_string: "1".to_string(),
                 opcode: 1,
                 fields: EventFields::ProcessCreation(ProcessCreationFields {
+                    hashes: None,
+                    imphash: None,
                     linux_identity: Default::default(),
                     cgroup_id: Some("123456".to_string()),
                     exec: Default::default(),

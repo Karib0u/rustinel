@@ -4,7 +4,7 @@ Rustinel runs three engines over the same events.
 
 | Engine | Checks | When | Alerts per event |
 | --- | --- | --- | --- |
-| Sigma | Every event | Inline | At most one, plus correlation alerts |
+| Sigma | Every event | Inline; rules on `Hashes` or `Imphash` after artifact resolution | At most one, plus correlation alerts; see [Deferred pass](#deferred-pass) |
 | IOC (IP, domain, path) | Every event | Inline | One per matching indicator |
 | IOC (hash) | Executable of each new process | Background | One per matching hash |
 | YARA | Executable of each new process, and optionally its memory | Background | One per matching rule |
@@ -46,7 +46,40 @@ Today that is Windows PE metadata (`OriginalFileName`, `Product`, `Description`,
 It may hold an event for at most 100 ms from the event's arrival; events behind it wait in order, so no event is delayed longer than that.
 When PE metadata is not ready in time, the event is admitted without it and `artifact_resolver` counts the miss; the metadata is still cached for the next start of the same image.
 YARA file scanning and hash indicators never delay admission, because they raise their own alerts instead of feeding Sigma.
-Enrichment that cannot fit the budget, such as future hash or signature fields, must be evaluated by a separate deferred pass rather than by holding events.
+Enrichment that cannot fit the budget is evaluated by a separate deferred pass rather than by holding events.
+
+### Deferred pass
+
+Windows `Hashes` and `Imphash` take longer to compute than the admission budget allows.
+A rule that selects on either field, directly or through a filter that applies to it, is a deferred-pass rule: admission evaluates every other rule, and deferred-pass rules evaluate the event separately.
+Each process start or image load that a deferred-pass rule could match is evaluated by those rules exactly once, never at admission as well.
+That evaluation happens as soon as the artifact resolver has the fields, or 2 seconds after the event arrived, whichever comes first.
+Deferred events are evaluated in the order they arrived.
+
+Only what loaded rules ask for is computed.
+A rule on `Hashes|contains: 'SHA256=...'` needs SHA256 alone; a `Hashes` value that names no algorithm needs all of them.
+When no loaded rule selects on these fields for an event's logsource, that event is not hashed for Sigma.
+The digests come from the same single file read as PE metadata, IOC hashing, and YARA, and are cached per file identity.
+
+`Hashes` follows Sysmon: `SHA1=...,MD5=...,SHA256=...,IMPHASH=...` in that order, uppercase hex, listing the requested values that could be computed.
+`Imphash` is the lowercase import hash, computed as pefile, YARA, and VirusTotal compute it, including their names for ordinal imports.
+An image that is not a readable PE, or imports nothing, has no imphash rather than an empty or zero value.
+
+When the fields are not available in time, deferred-pass rules still evaluate the event once, without them, so a rule that also matches through other selections keeps firing.
+That happens when the image cannot be opened or read, changed since the event, is larger than 128 MB, the resolver queue is full, or the 2 second budget expires.
+`rustinel doctor` counts these outcomes under `artifact_resolver`.
+If the deferred queue itself is full, the event keeps every rule at admission, without the fields, and that is counted too.
+
+Both values are read from the file after the event and are marked `derived`.
+Windows process-start and image-load events carry no file identity measured at event time, so an image replaced between the event and the read is hashed as it is when read.
+
+Each pass keeps its own best match, so one event can raise one alert from admission and one from the deferred pass.
+Both passes share one correlation state, and a correlation can reference rules from either pass.
+Deferred detections reach correlation up to 2 seconds after the admitted events around them, with their original event timestamps.
+A correlation window shorter than that can miss them.
+
+A recording holds the event as admitted, without `Hashes` or `Imphash`.
+Replay evaluates deferred-pass rules on it once, as the live deferred pass does when the fields are unavailable, and its header reports how many rules this affects.
 
 Memory scanning is off by default (`scanner.yara_memory_enabled`).
 When on, Rustinel waits `yara_memory_delay_ms` after the process starts, then scans its private memory.

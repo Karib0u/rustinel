@@ -11,6 +11,7 @@ use anyhow::Result;
 use rsigma_eval::{CorrelationConfig, CorrelationEngine, EvaluationResult, MatchDetailLevel};
 use rsigma_parser::{FilterRuleTarget, Level, SigmaCollection, Status};
 
+use super::deferred::DeferredRules;
 use super::logsource::logsource_key;
 use super::LogSourceKey;
 use crate::models::{MatchDebugLevel, SigmaRuleMetadata};
@@ -41,6 +42,8 @@ pub(crate) struct RuleStore {
     /// RSigma uses the ID field to route detection results into correlations,
     /// so these IDs are removed again before Rustinel builds an alert.
     synthetic_detection_ids: std::collections::HashSet<(String, String)>,
+    /// Rules evaluated only after artifact resolution.
+    deferred: DeferredRules,
 }
 
 impl RuleStore {
@@ -59,6 +62,7 @@ impl RuleStore {
             conditions: HashMap::new(),
             metadata: HashMap::new(),
             synthetic_detection_ids: std::collections::HashSet::new(),
+            deferred: DeferredRules::default(),
         }
     }
 
@@ -77,6 +81,11 @@ impl RuleStore {
             );
             poisoned.into_inner()
         })
+    }
+
+    /// Rules that only the deferred pass evaluates.
+    pub(crate) fn deferred(&self) -> &DeferredRules {
+        &self.deferred
     }
 
     /// Per-logsource loaded-rule counts, for engine stats.
@@ -141,6 +150,8 @@ impl RuleStore {
             .map_err(|err| anyhow::anyhow!("{err}"))?;
         drop(engine);
         self.synthetic_detection_ids.extend(synthetic_ids);
+        self.deferred
+            .extend(DeferredRules::classify(&compiled_collection));
 
         for rule in &collection.rules {
             *self

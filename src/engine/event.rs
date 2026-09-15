@@ -212,6 +212,8 @@ mod tests {
         event.event_id_string = "7".to_string();
         event.opcode = 10;
         event.fields = EventFields::ImageLoad(ImageLoadFields {
+            hashes: None,
+            imphash: None,
             image_loaded: Some(r"C:\Windows\System32\kernel32.dll".to_string()),
             process_id: Some("42".to_string()),
             image: None,
@@ -312,6 +314,8 @@ mod tests {
     #[test]
     fn typed_process_fields_expose_sigma_names() {
         let fields = ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),

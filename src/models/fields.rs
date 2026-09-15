@@ -164,6 +164,15 @@ pub struct ProcessCreationFields {
     #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
     pub file_version: Option<String>,
 
+    /// Sysmon-format digests of the image file, filled by artifact resolution
+    /// after admission: `SHA1=...,MD5=...,SHA256=...,IMPHASH=...`.
+    #[serde(rename = "Hashes", skip_serializing_if = "Option::is_none")]
+    pub hashes: Option<String>,
+
+    /// Lowercase import hash of the image file, filled with `Hashes`.
+    #[serde(rename = "Imphash", skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<String>,
+
     #[serde(rename = "TargetImage", skip_serializing_if = "Option::is_none")]
     pub target_image: Option<String>,
 
@@ -382,6 +391,15 @@ pub struct ImageLoadFields {
 
     #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
     pub file_version: Option<String>,
+
+    /// Sysmon-format digests of the loaded image file, filled by artifact
+    /// resolution after admission.
+    #[serde(rename = "Hashes", skip_serializing_if = "Option::is_none")]
+    pub hashes: Option<String>,
+
+    /// Lowercase import hash of the loaded image file, filled with `Hashes`.
+    #[serde(rename = "Imphash", skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<String>,
 
     #[serde(rename = "Signed", skip_serializing_if = "Option::is_none")]
     pub signed: Option<String>,

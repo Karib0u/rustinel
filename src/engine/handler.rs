@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::alerts::AlertSink;
 use crate::capture::CaptureSink;
-use crate::engine::{DetectorStore, EventDetectors};
+use crate::engine::{DetectionPass, DetectorStore, EventDetectors};
 use crate::models::CanonicalEvent;
 use crate::response::ResponseEngine;
 use crate::sensor::CanonicalEventHandler;
@@ -89,9 +89,15 @@ impl CanonicalEventHandler for NormalizedEventHandler {
             return;
         };
 
-        // The same canonical detector service is used by replay.
+        // The same canonical detector service is used by replay. An event
+        // whose deferred pass is pending leaves those rules to that pass.
         let detectors = EventDetectors::snapshot(&detection.detectors);
-        let alerts = detectors.evaluate(event);
+        let pass = if event.deferred_pass_pending() {
+            DetectionPass::Admission
+        } else {
+            DetectionPass::All
+        };
+        let alerts = detectors.evaluate_pass(event, pass);
         if alerts.is_empty() {
             tracing::trace!(target: TARGET_ENGINE, "No rule matched this event");
         }

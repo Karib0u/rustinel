@@ -169,6 +169,8 @@ fn never_fields_cannot_leak_through_the_sigma_accessor() {
         7,
         10,
         EventFields::ImageLoad(ImageLoadFields {
+            hashes: None,
+            imphash: None,
             image_loaded: Some(r"C:\Windows\System32\kernel32.dll".to_string()),
             process_id: Some("42".to_string()),
             image: None,
@@ -212,6 +214,8 @@ fn missing_always_fields_detect_decoder_contract_drift() {
         1,
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             image: Some(r"C:\Windows\System32\cmd.exe".to_string()),
             image_source: None,
