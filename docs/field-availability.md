@@ -49,16 +49,12 @@ Edit that table and run `cargo run --bin generate-docs`.
 | windows | `file_event` | `create, delete, modify, rename, set` | `Microsoft-Windows-Kernel-File` | `PathTruncated` | ETW delivers a complete path or no attributable event |
 | windows | `file_event` | `create, delete, modify, rename, set` | `Microsoft-Windows-Kernel-File` | `PreviousCreationUtcTime` | Kernel-File reports the information class, not the old timestamp |
 | windows | `file_event` | `create, delete, modify, rename, set` | `Microsoft-Windows-Kernel-File` | `SourceFilename` | Kernel-File does not provide the old name on emitted rename events |
-| windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `Hashes` | loaded images are not hashed by this collector |
-| windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `Imphash` | loaded images are not hashed by this collector |
 | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `Signature` | Kernel-Process image-load events contain no signer identity |
 | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `Signed` | Kernel-Process image-load events contain no Authenticode result |
 | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |
 | windows | `pipe_created` | `17` | `Microsoft-Windows-Kernel-File` | `*` | named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW |
 | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `CgroupId` | Windows process events do not have a Linux kernel cgroup identifier |
 | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `CurrentDirectory` | Microsoft-Windows-Kernel-Process does not expose the working directory |
-| windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `Hashes` | process images are not hashed by this collector |
-| windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `Imphash` | process images are not hashed by this collector |
 | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `TargetImage` | a process-creation event has no target process |
 | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `User` | Microsoft-Windows-Kernel-Process does not expose process user identity |
 | windows | `service_creation` | `7045 / register` | `Service Control Manager` | `Image` | System event 7045 does not carry a creating process image |

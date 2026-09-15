@@ -832,6 +832,8 @@ pub(super) fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option
         .map(|path| convert_nt_to_dos(&path));
 
     let fields = ImageLoadFields {
+        hashes: None,
+        imphash: None,
         image_loaded,
         process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)

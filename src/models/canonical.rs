@@ -15,6 +15,10 @@ pub struct CanonicalEvent {
     pub pid: Option<u32>,
     pub process_start_key: Option<ProcessStartKey>,
     pub parent_process_start_key: Option<ProcessStartKey>,
+    /// Deferred-pass rules will evaluate this event after artifact resolution,
+    /// so admission must leave them out. Never recorded: a recording replays
+    /// every rule against the event it holds.
+    deferred_pass_pending: bool,
 }
 
 impl CanonicalEvent {
@@ -31,6 +35,7 @@ impl CanonicalEvent {
             pid,
             process_start_key,
             parent_process_start_key,
+            deferred_pass_pending: false,
         }
     }
 
@@ -49,6 +54,15 @@ impl CanonicalEvent {
     /// Mutable access for bounded host enrichment before detector admission.
     pub(crate) fn normalized_mut(&mut self) -> &mut NormalizedEvent {
         &mut self.normalized
+    }
+
+    /// Whether a deferred detection pass owns this event's deferred-pass rules.
+    pub fn deferred_pass_pending(&self) -> bool {
+        self.deferred_pass_pending
+    }
+
+    pub(crate) fn set_deferred_pass_pending(&mut self, pending: bool) {
+        self.deferred_pass_pending = pending;
     }
 
     pub fn into_normalized(self) -> NormalizedEvent {
@@ -121,6 +135,8 @@ mod tests {
             event_id_string: "1".into(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

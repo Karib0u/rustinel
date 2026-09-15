@@ -48,7 +48,7 @@ Linux startup attribution also requires kernel process birth-time support.
 
 ## `artifact_resolver`
 
-The resolver opens each process image at most once per submitted event and shares the bytes between PE metadata, IOC hashing, signature/imphash extension points, and YARA.
+The resolver opens each process image at most once per submitted event and shares the bytes between PE metadata, IOC and Sigma hashing, the imphash, a signature extension point, and YARA.
 Its consumer results remain in separate `FileIdentity`-keyed stores under one eviction ceiling.
 
 | Field | Meaning |
@@ -57,6 +57,11 @@ Its consumer results remain in separate `FileIdentity`-keyed stores under one ev
 | `admission_budget_ms` | Longest PE metadata may hold an event before it is admitted without it |
 | `admission_budget_exceeded` | Events admitted without PE metadata because resolution missed the budget |
 | `admission_backpressure` | Events that waited for room in the ordered admission queue; each wait is bounded by the budget |
+| `deferred_budget_ms` | Longest a deferred-pass event waits for `Hashes` and `Imphash` before its rules evaluate it without them |
+| `deferred_queued` | Events whose deferred-pass rules waited for artifact fields |
+| `deferred_enriched`, `deferred_unenriched` | Deferred passes evaluated with at least one artifact field, or without any |
+| `deferred_budget_exceeded` | Deferred passes evaluated without the fields because the budget expired first; also counted in `deferred_unenriched` |
+| `deferred_queue_saturated` | Events whose deferred-pass rules ran at admission, without the fields, because the deferred queue was full |
 | `queued`, `resolved` | Jobs admitted and completed |
 | `cache_hits`, `cache_misses` | Whole-job cache outcomes after the identity was measured |
 | `queue_saturated`, `worker_saturated`, `deadline_exceeded` | Enrichment shed because the resolver queue was full, an I/O thread could not be started, or no I/O slot freed before the job's deadline; the event is still admitted |

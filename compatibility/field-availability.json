@@ -212,9 +212,9 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Hashes",
-      "since": null,
-      "availability": "never",
-      "reason": "process images are not hashed by this collector"
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "computed from the image file after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
       "platform": "windows",
@@ -224,9 +224,9 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Imphash",
-      "since": null,
-      "availability": "never",
-      "reason": "process images are not hashed by this collector"
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "computed from the image file's import table after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
       "platform": "windows",
@@ -1409,9 +1409,9 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Hashes",
-      "since": null,
-      "availability": "never",
-      "reason": "loaded images are not hashed by this collector"
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "computed from the loaded file after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
       "platform": "windows",
@@ -1421,9 +1421,9 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Imphash",
-      "since": null,
-      "availability": "never",
-      "reason": "loaded images are not hashed by this collector"
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "computed from the loaded file's import table after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
       "platform": "windows",

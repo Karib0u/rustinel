@@ -6,6 +6,8 @@
 pub(crate) mod cache;
 pub(crate) mod file_identity;
 pub mod fs;
+#[cfg(windows)]
+pub(crate) mod imphash;
 pub mod log_rate_limiter;
 pub mod path;
 pub(crate) mod path_allowlist;

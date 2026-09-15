@@ -353,6 +353,8 @@ mod tests {
     fn payload_category_matches_variant() {
         let payload = SensorPayload::Process(RawProcessEvent::from_compatibility(
             crate::models::ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

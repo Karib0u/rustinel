@@ -28,6 +28,11 @@ const SINCE_1_7_0: Option<&str> = Some("1.7.0");
 /// rejects a version newer than the crate, so this cannot name the next
 /// release before the version bump.
 const SINCE_DNS_RESPONSES: Option<&str> = Some("1.7.1");
+/// Windows `Hashes` and `Imphash` from artifact resolution (#319).
+///
+/// TODO(release): set to the release that ships it, as for
+/// [`SINCE_DNS_RESPONSES`].
+const SINCE_ARTIFACT_HASHES: Option<&str> = Some("1.7.1");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -201,15 +206,15 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         SINCE_BASELINE,
         "a process-creation event has no target process",
     ),
-    never(
+    conditional(
         "Hashes",
-        SINCE_BASELINE,
-        "process images are not hashed by this collector",
+        SINCE_ARTIFACT_HASHES,
+        "computed from the image file after admission when a loaded rule selects on it, and seen only by those rules",
     ),
-    never(
+    conditional(
         "Imphash",
-        SINCE_BASELINE,
-        "process images are not hashed by this collector",
+        SINCE_ARTIFACT_HASHES,
+        "computed from the image file's import table after admission when a loaded rule selects on it, and seen only by those rules",
     ),
 ];
 
@@ -269,15 +274,15 @@ const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
         SINCE_BASELINE,
         "Kernel-Process image-load events contain no user identity",
     ),
-    never(
+    conditional(
         "Hashes",
-        SINCE_BASELINE,
-        "loaded images are not hashed by this collector",
+        SINCE_ARTIFACT_HASHES,
+        "computed from the loaded file after admission when a loaded rule selects on it, and seen only by those rules",
     ),
-    never(
+    conditional(
         "Imphash",
-        SINCE_BASELINE,
-        "loaded images are not hashed by this collector",
+        SINCE_ARTIFACT_HASHES,
+        "computed from the loaded file's import table after admission when a loaded rule selects on it, and seen only by those rules",
     ),
 ];
 

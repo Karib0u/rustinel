@@ -132,6 +132,8 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
         parent_process_start_key: None,
         payload: SensorPayload::Process(RawProcessEvent::from_compatibility(
             ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Box::new(rustinel::models::LinuxProcessIdentity {
                     real_group_id: (platform == Platform::Linux).then(|| "1000".to_string()),
                     ..Default::default()

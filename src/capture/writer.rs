@@ -419,6 +419,8 @@ mod tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

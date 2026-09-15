@@ -50,7 +50,8 @@ Field names follow Sysmon.
 | Events | Fields |
 | --- | --- |
 | Process | `Image`, `CommandLine`, `ProcessId`, `ParentImage`, `ParentCommandLine`, `ParentProcessId`, `User`, `CurrentDirectory`, `IntegrityLevel` |
-| Process, Windows only | `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion` |
+| Process, Windows only | `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash` |
+| Image load, Windows only | `ImageLoaded`, `Image`, `ProcessId`, `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash` |
 | Process, Linux only | `ImageTruncated` |
 | Process, macOS only | `PreExecImage`, `Script`, `Signed`, `SignatureStatus`, `SigningId`, `TeamId`, `CdHash`, `CodeSigningFlags`, `IsPlatformBinary` |
 | Network | `DestinationIp`, `DestinationPort`, `DestinationHostname`, `SourceIp`, `SourcePort`, `Protocol`, `Initiated` |
@@ -71,6 +72,8 @@ Things that differ from Sysmon:
   Cutting removes the end of the path, which is what `|endswith` matches.
 - **`ParentImage` and `ParentCommandLine`** on Linux and macOS come from Rustinel's process cache.
   They are absent when Rustinel never saw the parent or has evicted it.
+- **`Hashes` and `Imphash`** are computed by Rustinel from the image file, not by the kernel, and rules on them run in a [deferred pass](detection.md#deferred-pass).
+  `Hashes` lists only the algorithms loaded rules name, in Sysmon's order.
 - **`Provider_Name`** is the Windows provider that wrote an Event Log record, such as `Service Control Manager`.
   It is not the ECS `event.provider`.
 - **Security events** keep Windows' formatting: `SubjectLogonId` is `0x3e4`, not `996`, and `AccessList` holds `%%4417`-style codes.
