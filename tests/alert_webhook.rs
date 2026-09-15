@@ -118,11 +118,19 @@ impl TestServer {
     }
 }
 
-/// A URL on a port nothing listens on.
+/// A URL whose server closes every connection before answering.
+///
+/// A transport failure that is immediate on every platform: a closed loopback
+/// port is refused at once on Linux and macOS, but Windows retries the SYN for
+/// about two seconds, which turns every attempt into a connect timeout.
 async fn unreachable_url() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    drop(listener);
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            drop(stream);
+        }
+    });
     format!("http://{addr}/unreachable/path-token-XYZ")
 }
 
