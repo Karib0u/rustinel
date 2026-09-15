@@ -198,6 +198,21 @@ pub struct EcsAlert {
         skip_serializing_if = "Option::is_none"
     )]
     pub edr_process_cgroup_id: Option<String>,
+    /// Cgroup v2 path resolved from `edr.process.cgroup_id`. Present with no
+    /// `container.id` for a host process.
+    #[serde(
+        rename = "edr.process.cgroup_path",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_process_cgroup_path: Option<String>,
+
+    // ========================================================================
+    // Container Fields
+    // ========================================================================
+    #[serde(rename = "container.id", skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+    #[serde(rename = "container.runtime", skip_serializing_if = "Option::is_none")]
+    pub container_runtime: Option<String>,
 
     #[serde(
         rename = "edr.process.real_user_id",

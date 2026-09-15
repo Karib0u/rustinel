@@ -1,3 +1,4 @@
+pub mod container;
 mod host;
 #[cfg(target_os = "macos")]
 mod inventory_macos;
