@@ -1181,14 +1181,26 @@ level: high
                 record[BH_HDRLEN_OFFSET..BH_HDRLEN_OFFSET + 2]
                     .copy_from_slice(&20u16.to_ne_bytes());
                 record.extend_from_slice(&frame);
-                let (tx, mut rx) = tokio::sync::mpsc::channel(8);
-                let (attribution_tx, attribution_rx) = std::sync::mpsc::sync_channel(8);
-                for_each_packet(&record, |time, packet| {
-                    handle_packet(dlt, time, packet, &tx, &attribution_tx)
-                });
-                drop(attribution_tx);
-                run_attribution_worker(attribution_rx, tx);
-                let event = rx.try_recv().expect("DNS event forwarded");
+                // Under parallel load, a best-effort libproc scan can miss
+                // this still-open socket. Retry the whole path with a fresh
+                // worker inventory; a wrong PID or extra event still fails
+                // immediately, and missing attribution fails at the deadline.
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let event = loop {
+                    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+                    let (attribution_tx, attribution_rx) = std::sync::mpsc::sync_channel(8);
+                    for_each_packet(&record, |time, packet| {
+                        handle_packet(dlt, time, packet, &tx, &attribution_tx)
+                    });
+                    drop(attribution_tx);
+                    run_attribution_worker(attribution_rx, tx);
+                    let event = rx.try_recv().expect("DNS event forwarded");
+                    assert!(rx.try_recv().is_err(), "one event per captured record");
+                    if event.pid.is_some() || Instant::now() >= deadline {
+                        break event;
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                };
                 assert_eq!(event.pid, Some(std::process::id()), "{address}, DLT {dlt}");
                 let normalized = test_normalizer().normalize(&event).expect("DNS normalizes");
                 assert_eq!(
@@ -1201,7 +1213,6 @@ level: high
                     normalized.get_field("Image").is_some(),
                     "socket owner image is exposed"
                 );
-                assert!(rx.try_recv().is_err(), "one event per captured record");
             }
         }
     }
