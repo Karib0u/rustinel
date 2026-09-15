@@ -22,6 +22,7 @@ All counters start at zero when the agent starts.
 | `registry` | Windows registry key-path resolution |
 | `file_attribution` | Windows file path resolution |
 | `etw_decode` | Windows ETW decoding outcomes |
+| `alert_webhooks` | Delivery outcomes per [webhook](output.md#webhooks), present when one is configured |
 
 Platform sections appear only on their platform.
 
@@ -70,6 +71,23 @@ Its consumer results remain in separate `FileIdentity`-keyed stores under one ev
 | `pe_entries`, `hash_entries`, `imphash_entries`, `signature_entries`, `yara_entries` | Occupancy of every separate result store |
 | `yara_generation` | Active cache generation; only YARA entries invalidate on a successful YARA reload |
 | `evicted` | File identities removed from all stores by the shared eviction policy |
+
+## `alert_webhooks`
+
+One entry per configured destination.
+Webhook losses never remove an alert from the alert file.
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `target` | The destination's name and `scheme://host[:port]` |
+| `capacity`, `high_water_mark` | Queue size and the deepest it got |
+| `queued` | Alerts accepted into the queue |
+| `delivered` | Alerts answered with `2xx` |
+| `failed` | Alerts given up after a non-retried response or the last attempt |
+| `retries` | Retry attempts, across all alerts |
+| `dropped_queue_full` | Alerts not queued because the queue was full |
+| `dropped_oversized` | Alerts larger than `max_payload_bytes` |
+| `abandoned_at_shutdown` | Alerts still queued when the shutdown grace period ended |
 
 ## `channels`
 

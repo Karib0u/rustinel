@@ -462,3 +462,212 @@ fn loader_defaults_match_the_documented_defaults() {
         serde_json::to_value(AppConfig::default()).expect("serialize default config")
     );
 }
+
+fn load_config_file(
+    temp: &tempfile::TempDir,
+    body: &str,
+) -> Result<AppConfig, config::ConfigError> {
+    let path = temp.path().join("config.toml");
+    std::fs::write(&path, body).expect("write config");
+    AppConfig::from_options_with_environment(
+        ConfigLoadOptions {
+            explicit_config: Some(path),
+            env_config: None,
+            managed_config: temp.path().join("missing-managed.toml"),
+            exe_config: None,
+            cwd_config: temp.path().join("missing-cwd.toml"),
+        },
+        Some(config::Map::new()),
+    )
+}
+
+/// Self-signed, key discarded; only its parseability matters.
+const TEST_CA_PEM: &str = "-----BEGIN CERTIFICATE-----\nMIIBjTCCATOgAwIBAgIUBFPqAIiESFnvGGbOaZtYZmLIf6MwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcnVzdGluZWwtdGVzdC1jYTAgFw0yNjA5MTUxNzA3NThaGA8y\nMTI2MDgyMjE3MDc1OFowGzEZMBcGA1UEAwwQcnVzdGluZWwtdGVzdC1jYTBZMBMG\nByqGSM49AgEGCCqGSM49AwEHA0IABCit5ylJfNuHqehuKxUOm3q6CXRXVH+/fJ1y\nnYMfQeQJsVQVZaRmI7dauvxhD8VMQa2YYfjELVo9AlUDaBDInICjUzBRMB0GA1Ud\nDgQWBBSfmsUVS5pqGadGzN2i7tJF3Si2STAfBgNVHSMEGDAWgBSfmsUVS5pqGadG\nzN2i7tJF3Si2STAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIBVF\neHG4bjDEXPymygwmkn5Y578VXlAB1+XGWbIHkDzdAiEAnivGnrOpFWPW2fZScC0g\nha+te7iF5L7AkZIkiziJjt0=\n-----END CERTIFICATE-----\n";
+
+#[test]
+fn webhook_destinations_load_with_defaults_and_relative_ca_file() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(temp.path().join("certs")).expect("certs dir");
+    std::fs::write(temp.path().join("certs/ca.pem"), TEST_CA_PEM).expect("write ca");
+    let cfg = load_config_file(
+        &temp,
+        r#"
+[[alerts.webhook]]
+url = "https://collector.example:8443/ingest/abc123"
+headers = { Authorization = "Bearer s3cret-token" }
+secret = "hmac-key"
+
+[[alerts.webhook]]
+name = "chat"
+url = "http://127.0.0.1:9000/hook"
+ca_file = "certs/ca.pem"
+max_attempts = 2
+queue_capacity = 16
+"#,
+    )
+    .expect("webhooks load");
+
+    let webhooks = &cfg.alerts.webhook;
+    assert_eq!(webhooks.len(), 2);
+    assert_eq!(webhooks[0].label(), "collector.example:8443");
+    assert_eq!(webhooks[0].target(), "https://collector.example:8443");
+    assert_eq!(webhooks[0].timeout_ms, 5_000);
+    assert!(webhooks[0].tls_verify);
+    assert_eq!(webhooks[0].max_attempts, 5);
+    assert_eq!(webhooks[0].queue_capacity, 1_024);
+    assert_eq!(webhooks[1].label(), "chat");
+    assert_eq!(webhooks[1].max_attempts, 2);
+    assert_eq!(webhooks[1].queue_capacity, 16);
+    assert_eq!(
+        webhooks[1].ca_file.as_deref(),
+        Some(temp.path().join("certs/ca.pem").as_path())
+    );
+    assert_eq!(webhooks[1].load_ca_bundle().expect("ca parses").len(), 1);
+}
+
+#[test]
+fn malformed_webhook_destinations_fail_at_load() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(temp.path().join("bad.pem"), "not a certificate").expect("write pem");
+    let cases = [
+        ("url = \"not a url\"", "url is not a valid URL"),
+        (
+            "url = \"ftp://example.com/\"",
+            "scheme must be http or https",
+        ),
+        (
+            "url = \"https://example.com/\"\nheaders = { \"bad header\" = \"x\" }",
+            "header name",
+        ),
+        (
+            "url = \"https://example.com/\"\nheaders = { X-Rustinel-Signature = \"forged\" }",
+            "set by Rustinel",
+        ),
+        (
+            "url = \"https://example.com/\"\nheaders = { Authorization = \"a\\nb\" }",
+            "invalid characters",
+        ),
+        (
+            "url = \"https://example.com/\"\ntimeout_ms = 0",
+            "timeout_ms",
+        ),
+        (
+            "url = \"https://example.com/\"\nqueue_capacity = 0",
+            "queue_capacity",
+        ),
+        (
+            "url = \"https://example.com/\"\nqueue_capacity = 9223372036854775807",
+            "queue_capacity",
+        ),
+        (
+            "url = \"https://example.com/\"\nmax_attempts = 0",
+            "max_attempts",
+        ),
+        (
+            "url = \"https://example.com/\"\nmax_attempts = 21",
+            "max_attempts",
+        ),
+        (
+            "url = \"https://example.com/\"\nretry_initial_ms = 5000\nretry_max_ms = 10",
+            "retry_max_ms",
+        ),
+        ("url = \"https://example.com/\"\nsecret = \"\"", "secret"),
+        (
+            "url = \"https://example.com/\"\nca_file = \"bad.pem\"",
+            "ca_file",
+        ),
+        (
+            "url = \"https://example.com/\"\nca_file = \"missing.pem\"",
+            "ca_file",
+        ),
+    ];
+    for (table, expected) in cases {
+        let err = load_config_file(&temp, &format!("[[alerts.webhook]]\n{table}\n"))
+            .expect_err(table)
+            .to_string();
+        assert!(err.contains(expected), "{table}: {err}");
+        assert!(err.contains("alerts.webhook[0]"), "{table}: {err}");
+    }
+
+    let err = load_config_file(
+        &temp,
+        "[[alerts.webhook]]\nurl = \"https://a.example/1\"\n[[alerts.webhook]]\nurl = \"https://a.example/2\"\n",
+    )
+    .expect_err("duplicate labels")
+    .to_string();
+    assert!(
+        err.contains("alerts.webhook[1]") && err.contains("distinct name"),
+        "{err}"
+    );
+}
+
+#[test]
+fn webhook_validation_errors_and_debug_output_never_carry_secrets() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let err = load_config_file(
+        &temp,
+        r#"
+[[alerts.webhook]]
+url = "https://hooks.example/services/T0KEN-IN-PATH"
+headers = { Authorization = "Bearer s3cret-token" }
+secret = "hmac-key"
+timeout_ms = 0
+"#,
+    )
+    .expect_err("zero timeout")
+    .to_string();
+    for secret in ["T0KEN-IN-PATH", "s3cret-token", "hmac-key"] {
+        assert!(!err.contains(secret), "{err}");
+    }
+
+    let mut webhook = WebhookConfig::new("https://user:pw@hooks.example/services/T0KEN-IN-PATH");
+    webhook.headers.insert(
+        "Authorization".to_string(),
+        "Bearer s3cret-token".to_string(),
+    );
+    webhook.secret = Some("hmac-key".to_string());
+    let mut cfg = AppConfig::default();
+    cfg.alerts.webhook.push(webhook);
+    let debug = format!("{cfg:?}");
+    let serialized = serde_json::to_string(&cfg).expect("serialize");
+    for rendered in [&debug, &serialized] {
+        for secret in ["T0KEN-IN-PATH", "s3cret-token", "hmac-key", "user:pw"] {
+            assert!(!rendered.contains(secret), "{rendered}");
+        }
+        assert!(rendered.contains("https://hooks.example"), "{rendered}");
+    }
+}
+
+#[test]
+fn configuration_parse_errors_never_carry_source_credentials() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for content in [
+        "[[alerts.webhook]]\nurl = \"https://hooks.example/URL-TOKEN\" invalid\n",
+        "[[alerts.webhook]]\nurl = \"https://hooks.example/\"\nheaders = { Authorization = \"Bearer HEADER-TOKEN\" invalid }\n",
+        "[[alerts.webhook]]\nurl = \"https://hooks.example/\"\nsecret = \"HMAC-KEY\" invalid\n",
+    ] {
+        let error = load_config_file(&temp, content).expect_err("invalid TOML");
+        for rendered in [error.to_string(), format!("{error:?}")] {
+            assert!(rendered.contains("invalid configuration syntax"), "{rendered}");
+            assert!(rendered.contains("config.toml"), "{rendered}");
+            for secret in ["URL-TOKEN", "HEADER-TOKEN", "HMAC-KEY"] {
+                assert!(!rendered.contains(secret), "{rendered}");
+            }
+        }
+    }
+}
+
+#[test]
+fn configuration_type_and_enum_errors_never_carry_input_values() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (content, key) in [
+        ("[[alerts.webhook]]\nurl = \"https://hooks.example/\"\ntimeout_ms = \"PRIVATE-VALUE\"\n", "timeout_ms"),
+        ("[alerts]\nmatch_debug = \"PRIVATE-VALUE\"\n", "match_debug"),
+    ] {
+        let error = load_config_file(&temp, content).expect_err("invalid value");
+        for rendered in [error.to_string(), format!("{error:?}")] {
+            assert!(!rendered.contains("PRIVATE-VALUE"), "{rendered}");
+            assert!(rendered.contains(key), "{rendered}");
+        }
+    }
+}

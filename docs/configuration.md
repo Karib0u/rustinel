@@ -114,13 +114,14 @@ The operational log.
 
 ### `[alerts]`
 
-The ECS NDJSON alert file.
+The ECS NDJSON alert file, and optional webhook destinations.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `directory` | `"logs"` | Alert directory. |
 | `filename` | `"alerts.json"` | Alert file name. Rotated daily with a date suffix. |
 | `match_debug` | `"off"` | Match detail added to alerts: `off`, `summary` (what matched), or `full` (also the matched values). |
+| `webhook` | none | HTTP endpoints that also receive every alert, as `[[alerts.webhook]]` tables. See [webhook destinations](#webhook-destinations). |
 
 ### `[dedup]`
 
@@ -195,6 +196,41 @@ ETW delivery. Read on every platform so one file can serve a mixed fleet, used o
 | `etw_process_flush_interval_ms` | `5` | The same for the process session. Keep it at 10 or below: the command line is read from the live process, so slower values lose it for short-lived processes, and `0` loses most of them. |
 | `security_filtering_platform_connections` | `false` | Read Security events 5156, 5157, and 5152: one per allowed connection, blocked connection, and dropped packet. Off by default because they are the highest-volume Security events. The host must also audit them, see [Windows host logging](windows-logging.md#filtering-platform-connections). |
 <!-- END GENERATED CONFIG REFERENCE -->
+
+## Webhook destinations
+
+Each `[[alerts.webhook]]` table adds one HTTP endpoint that receives every alert.
+The request format, retries, and a receiver example are in [Webhooks](output.md#webhooks).
+
+```toml
+[[alerts.webhook]]
+name = "collector"
+url = "https://collector.example/rustinel"
+headers = { Authorization = "Bearer <token>" }
+secret = "<shared secret>"
+
+[[alerts.webhook]]
+url = "https://automation.example/hooks/alerts"
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `url` | required | `http` or `https` endpoint. |
+| `name` | host and port of `url` | Label in logs, `telemetry.json`, and `rustinel doctor`. Must be unique. |
+| `headers` | none | Headers added to every request. `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, and `X-Rustinel-*` are rejected. |
+| `secret` | unset | Key for the `X-Rustinel-Signature` HMAC-SHA256 header. |
+| `timeout_ms` | `5000` | Time limit for one attempt, connecting included. |
+| `tls_verify` | `true` | Verify the server certificate. Set `false` only for lab endpoints. |
+| `ca_file` | unset | PEM file of extra CA certificates to trust, in addition to the system roots. |
+| `queue_capacity` | `1024` | Alerts waiting for this destination. New alerts are dropped for it when it is full. |
+| `max_attempts` | `5` | Attempts per alert, the first included. At most 20. |
+| `retry_initial_ms` | `500` | Delay before the first retry. Doubles on each further retry. |
+| `retry_max_ms` | `30000` | Longest delay between two attempts. |
+| `max_payload_bytes` | `1048576` | Alerts with larger JSON are not sent to this destination. |
+
+A malformed URL, header, or CA file stops the agent at startup, and `rustinel doctor` reports it.
+Header values, `secret`, and the URL path are treated as credentials: they are never logged, so keep the config file readable only by the agent.
+`[[alerts.webhook]]` cannot be set with `EDR__` variables.
 
 ## Default trusted paths
 

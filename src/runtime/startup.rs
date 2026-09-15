@@ -7,7 +7,7 @@ use tokio::task::JoinHandle;
 use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
-use crate::alerts::AlertSink;
+use crate::alerts::{AlertSink, WebhookDispatcher};
 use crate::config;
 use crate::runtime::logging::{init_logging, log_startup_banner};
 use crate::runtime::telemetry::TelemetryReporter;
@@ -52,11 +52,18 @@ pub(super) struct RuntimeLogging {
 }
 
 impl RuntimeLogging {
-    pub fn start(cfg: &config::AppConfig, runtime_label: &str) -> Self {
+    pub fn start(cfg: &config::AppConfig, runtime_label: &str) -> anyhow::Result<Self> {
         let (app_guard, alert_guard, mut alert_sink) = init_logging(cfg);
         let _guards = (app_guard, alert_guard);
 
-        // 2a. Alert deduplication
+        // 2a. Webhook destinations, attached before the dedup worker takes its
+        // copy of the sink so rollups are delivered as well.
+        if !cfg.alerts.webhook.is_empty() {
+            let webhooks = WebhookDispatcher::start(&cfg.alerts.webhook)?;
+            alert_sink = alert_sink.with_webhooks(Arc::new(webhooks));
+        }
+
+        // 2b. Alert deduplication
         let dedup_worker_handle = if cfg.dedup.enabled {
             let dedup = Arc::new(Deduplicator::new(
                 cfg.dedup.window_secs,
@@ -72,14 +79,14 @@ impl RuntimeLogging {
 
         log_startup_banner(runtime_label);
 
-        // 2b. Pipeline drop counters, published for `rustinel doctor`
+        // 2c. Pipeline drop counters, published for `rustinel doctor`
         let telemetry_reporter = TelemetryReporter::start(cfg);
 
-        Self {
+        Ok(Self {
             alert_sink,
             dedup_worker_handle,
             telemetry_reporter,
             _guards,
-        }
+        })
     }
 }

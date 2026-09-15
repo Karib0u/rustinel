@@ -21,6 +21,8 @@ pub use provenance::FieldFidelitySnapshot;
 mod snapshot;
 pub use macos::{BpfInterfaceSnapshot, BpfSnapshot, EsfSnapshot, MacosCollectorSnapshot};
 pub use process_correlation::{ProcessCorrelationSnapshot, WINDOWS_PROCESS_CORRELATION};
+pub(crate) mod webhook;
+pub use webhook::{WebhookCounters, WebhookSnapshot};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};

@@ -505,6 +505,9 @@ pub struct TelemetrySnapshot {
     /// on snapshots written before #394.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub etw_decode: Option<EtwDecodeSnapshot>,
+    /// Alert webhook delivery, one entry per configured destination.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alert_webhooks: Vec<super::WebhookSnapshot>,
 }
 
 impl TelemetrySnapshot {
@@ -534,6 +537,7 @@ impl TelemetrySnapshot {
             registry: super::REGISTRY.snapshot(),
             file_attribution: super::WINDOWS_FILE_ATTRIBUTION.snapshot(),
             etw_decode: super::ETW_DECODE.snapshot(),
+            alert_webhooks: super::webhook::snapshot(),
         }
     }
 
@@ -711,6 +715,7 @@ mod tests {
             registry: None,
             file_attribution: None,
             etw_decode: None,
+            alert_webhooks: Vec::new(),
         }
     }
 

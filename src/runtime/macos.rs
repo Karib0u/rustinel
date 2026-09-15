@@ -74,7 +74,7 @@ async fn run_macos_edr(
         dedup_worker_handle,
         telemetry_reporter,
         _guards,
-    } = RuntimeLogging::start(&cfg, "macOS ESF");
+    } = RuntimeLogging::start(&cfg, "macOS ESF")?;
 
     // Shared state
     let state = SharedState::new(&cfg);
