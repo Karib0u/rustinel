@@ -54,6 +54,7 @@ pub(crate) fn telemetry_results(
 
     results.extend(process_correlation_results(&snapshot));
     results.extend(field_fidelity_results(&snapshot));
+    results.extend(alert_webhook_results(&snapshot));
     let dropping = snapshot.dropping_channels();
     if dropping.is_empty() {
         results.insert(
@@ -148,6 +149,48 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
             "Inspect artifact resolver pressure and file-access failures; increase throughput or narrow artifact consumers before relying on enriched detections",
         )
     }]
+}
+
+/// Webhook delivery is additive to the alert file, so undelivered alerts are a
+/// gap at the receiver, not a detection gap.
+fn alert_webhook_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    if snapshot.alert_webhooks.is_empty() {
+        return Vec::new();
+    }
+    let detail = snapshot
+        .alert_webhooks
+        .iter()
+        .map(|webhook| webhook.describe())
+        .collect::<Vec<_>>()
+        .join("; ");
+    let undelivered = snapshot
+        .alert_webhooks
+        .iter()
+        .map(|webhook| webhook.undelivered())
+        .fold(0u64, u64::saturating_add);
+    if undelivered == 0 {
+        let delivered = snapshot
+            .alert_webhooks
+            .iter()
+            .map(|webhook| webhook.delivered)
+            .fold(0u64, u64::saturating_add);
+        return vec![DiagnosticResult::pass(
+            "alert_webhooks",
+            format!(
+                "{delivered} alerts delivered to {} webhook destinations",
+                snapshot.alert_webhooks.len()
+            ),
+        )
+        .with_detail(detail)];
+    }
+    vec![DiagnosticResult::warn(
+        "alert_webhooks",
+        format!("{undelivered} alerts did not reach a webhook destination"),
+        detail,
+    )
+    .with_fix(
+        "The alert file still holds every alert. Check the endpoint's availability and the operational log for the failure reason; raise queue_capacity or max_attempts if the endpoint is only slow",
+    )]
 }
 
 fn host_state_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
@@ -729,6 +772,41 @@ mod tests {
     }
 
     #[test]
+    fn doctor_warns_when_webhook_alerts_go_undelivered() {
+        let mut report = snapshot(Vec::new());
+        assert!(alert_webhook_results(&report).is_empty());
+        report
+            .alert_webhooks
+            .push(crate::telemetry::WebhookSnapshot {
+                name: "collector".to_string(),
+                target: "https://collector.example".to_string(),
+                capacity: 8,
+                queued: 3,
+                delivered: 3,
+                failed: 0,
+                retries: 1,
+                dropped_queue_full: 0,
+                dropped_oversized: 0,
+                abandoned_at_shutdown: 0,
+                high_water_mark: 2,
+            });
+        let results = alert_webhook_results(&report);
+        assert_eq!(results[0].id, "alert_webhooks");
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+
+        report.alert_webhooks[0].dropped_queue_full = 2;
+        report.alert_webhooks[0].failed = 1;
+        let results = alert_webhook_results(&report);
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.starts_with("3 alerts"));
+        let json = serde_json::to_string(&report).unwrap();
+        assert_eq!(
+            serde_json::from_str::<TelemetrySnapshot>(&json).unwrap(),
+            report
+        );
+    }
+
+    #[test]
     fn doctor_reports_process_join_outcomes_separately() {
         let mut report = snapshot(Vec::new());
         assert!(process_correlation_results(&report).is_empty());
@@ -792,6 +870,7 @@ mod tests {
             registry: None,
             file_attribution: None,
             etw_decode: None,
+            alert_webhooks: Vec::new(),
         }
     }
 

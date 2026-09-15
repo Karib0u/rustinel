@@ -23,7 +23,7 @@ src/
 ├── scanner/         YARA compilation and scanning
 ├── memory/          per-platform process memory reads for YARA
 ├── ioc/             indicator loading and matching
-├── alerts/          ECS NDJSON sink and deduplication
+├── alerts/          ECS NDJSON sink, deduplication, and webhook delivery
 ├── response/        active response
 ├── reload/          file watching, debounce, atomic detector swap
 ├── telemetry/       loss counters and telemetry.json

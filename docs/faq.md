@@ -41,6 +41,7 @@ Sum `event.count` for the real volume, see [Deduplication](detection.md#deduplic
 
 It writes files.
 A shipper such as Filebeat forwards them, see [Send alerts to a SIEM](siem-demos.md).
+Rustinel can also POST each alert to an HTTP endpoint, see [Webhooks](output.md#webhooks).
 
 ### Can I use SigmaHQ rules?
 

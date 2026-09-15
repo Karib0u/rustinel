@@ -18,6 +18,9 @@ use crate::models::MatchDebugLevel;
 use crate::scanner::{self, ScanLimits};
 
 pub mod reference;
+pub mod webhook;
+
+pub use webhook::WebhookConfig;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 const CONFIG_PATH_ENV: &str = "RUSTINEL_CONFIG";
@@ -360,6 +363,9 @@ pub struct AlertConfig {
     pub directory: PathBuf,
     pub filename: String,
     pub match_debug: MatchDebugLevel,
+    /// HTTP destinations that also receive every alert written to the file.
+    #[serde(default)]
+    pub webhook: Vec<WebhookConfig>,
 }
 
 /// Active response configuration (optional prevention/termination)
@@ -575,7 +581,14 @@ impl AppConfig {
             cfg.resolve_relative_paths(&config_dir, environment.as_ref());
         }
         cfg.apply_allowlist_fallbacks();
+        cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// Checks that deserialization cannot express, made at load time so a bad
+    /// value stops startup instead of failing later at runtime.
+    pub fn validate(&self) -> Result<(), config::ConfigError> {
+        webhook::validate_all(&self.alerts.webhook).map_err(config::ConfigError::Message)
     }
 
     fn resolve_relative_paths(
@@ -607,6 +620,11 @@ impl AppConfig {
             "ALERTS__DIRECTORY",
             environment,
         );
+        for webhook in &mut self.alerts.webhook {
+            if let Some(ca_file) = &mut webhook.ca_file {
+                resolve_path(ca_file, base_dir);
+            }
+        }
         resolve_path_from_config(
             &mut self.capture.directory,
             base_dir,
@@ -767,6 +785,7 @@ impl Default for AppConfig {
                 directory: PathBuf::from("logs"),
                 filename: "alerts.json".to_string(),
                 match_debug: MatchDebugLevel::Off,
+                webhook: Vec::new(),
             },
             allowlist: AllowlistConfig {
                 paths: default_allowlist_paths(),

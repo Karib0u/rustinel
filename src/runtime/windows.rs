@@ -277,7 +277,7 @@ async fn run_edr(
         dedup_worker_handle,
         telemetry_reporter,
         _guards,
-    } = RuntimeLogging::start(&cfg, "Windows ETW");
+    } = RuntimeLogging::start(&cfg, "Windows ETW")?;
 
     // Initialize Active Response Engine (optional)
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));

@@ -48,7 +48,7 @@ pub const CONFIG_SECTIONS: &[ConfigSection] = &[
     },
     ConfigSection {
         name: "alerts",
-        summary: "The ECS NDJSON alert file.",
+        summary: "The ECS NDJSON alert file, and optional webhook destinations.",
     },
     ConfigSection {
         name: "dedup",
@@ -220,6 +220,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         key: "alerts.match_debug",
         default_note: None,
         description: "Match detail added to alerts: `off`, `summary` (what matched), or `full` (also the matched values).",
+    },
+    ConfigOption {
+        key: "alerts.webhook",
+        default_note: Some("none"),
+        description: "HTTP endpoints that also receive every alert, as `[[alerts.webhook]]` tables. See [webhook destinations](#webhook-destinations).",
     },
     // dedup
     ConfigOption {

@@ -53,6 +53,14 @@ directory = "logs"
 filename = "alerts.json"    # Will contain newline-delimited JSON (NDJSON)
 match_debug = "off"         # off | summary | full (attach match details to alerts.json)
 
+# Optional: also POST every alert (the same ECS JSON object) to HTTP endpoints.
+# Repeat the table for more destinations. The alert file is unaffected by
+# delivery failures. Header values and secret are credentials: never logged.
+# [[alerts.webhook]]
+# url = "https://collector.example/rustinel"
+# headers = { Authorization = "Bearer <token>" }
+# secret = "<shared secret>"   # adds an X-Rustinel-Signature HMAC-SHA256 header
+
 # 3a. Alert Deduplication
 #   Collapses repeated identical alerts within a fixed window anchored to the
 #   first occurrence into a single rollup alert carrying event.count.  The first

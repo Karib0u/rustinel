@@ -4,8 +4,12 @@
 //! deduplication that collapses repeated identical alerts into a single rollup
 //! carrying `event.count` — the number of repeats it suppressed, so that the live
 //! first occurrence is not counted twice.  See [`dedup`] for the full semantics.
+//!
+//! Every alert written to the file, rollups included, is also offered to the
+//! configured [`webhook`] destinations.
 
 pub mod dedup;
+pub mod webhook;
 
 use crate::models::ecs::EcsAlert;
 use crate::models::{Alert, YaraScanSource};
@@ -15,11 +19,13 @@ use tracing::{error, info};
 use tracing_appender::non_blocking::NonBlocking;
 
 pub use dedup::Deduplicator;
+pub use webhook::WebhookDispatcher;
 
 #[derive(Clone)]
 pub struct AlertSink {
     writer: NonBlocking,
     dedup: Option<Arc<Deduplicator>>,
+    webhooks: Option<Arc<WebhookDispatcher>>,
 }
 
 impl AlertSink {
@@ -27,7 +33,20 @@ impl AlertSink {
         Self {
             writer,
             dedup: None,
+            webhooks: None,
         }
+    }
+
+    /// Attach webhook destinations.  Call before handing the sink to any
+    /// handler, including the dedup flush worker, so rollups are delivered too.
+    pub fn with_webhooks(mut self, webhooks: Arc<WebhookDispatcher>) -> Self {
+        self.webhooks = Some(webhooks);
+        self
+    }
+
+    /// Return the attached webhook dispatcher, if any.
+    pub fn webhooks(&self) -> Option<&Arc<WebhookDispatcher>> {
+        self.webhooks.as_ref()
     }
 
     /// Attach a deduplicator.  Call before handing the sink to any handler.
@@ -50,7 +69,13 @@ impl AlertSink {
                 // writeln! two concurrent alerts can land as `{A}{B}\n\n`.
                 line.push('\n');
                 let mut writer = self.writer.clone();
-                if let Err(err) = writer.write_all(line.as_bytes()) {
+                let written = writer.write_all(line.as_bytes());
+                // Webhook delivery is independent of the file: neither a file
+                // error nor a delivery problem affects the other.
+                if let Some(webhooks) = &self.webhooks {
+                    webhooks.dispatch(&line.as_bytes()[..line.len() - 1]);
+                }
+                if let Err(err) = written {
                     error!(error = %err, "Failed to write ECS alert");
                     return;
                 }

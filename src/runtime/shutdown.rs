@@ -46,6 +46,12 @@ impl LivePipeline {
             dedup.flush_all(alert_sink);
             dedup.log_metrics();
         }
+        // After the final flush, so rollups reach the webhooks before they stop.
+        if let Some(webhooks) = alert_sink.webhooks() {
+            webhooks
+                .shutdown(crate::alerts::webhook::SHUTDOWN_GRACE)
+                .await;
+        }
         if let Some(reporter) = telemetry_reporter {
             reporter.finish().await;
         }

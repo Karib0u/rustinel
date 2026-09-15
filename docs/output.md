@@ -3,6 +3,7 @@
 | Output | Default location | Written by |
 | --- | --- | --- |
 | Alerts (ECS NDJSON) | `logs/alerts.json.<date>` | `run` |
+| Alerts (HTTP POST) | each configured [webhook](#webhooks) | `run` |
 | Operational log | `logs/rustinel.log.<date>` | every command |
 | Recordings | `captures/rustinel-capture-<timestamp>.ndjson` | `capture` |
 | Replay results | console, or `--output` | `replay` |
@@ -121,6 +122,85 @@ Adding that product behavior is separate from tracking the schema version.
 | `edr.process.mount_namespace`, `edr.process.pid_namespace`, `edr.process.network_namespace` | Linux | Namespace inode numbers |
 | `edr.process.session_id`, `edr.process.controlling_tty` | Linux | Session ID and terminal as `major:minor` |
 | `edr.process.kernel_start_boottime` | Linux | Process start time in nanoseconds since boot |
+
+## Webhooks
+
+Each [`[[alerts.webhook]]`](configuration.md#webhook-destinations) destination receives every alert written to the alert file, as one `POST` per alert.
+The body is the same ECS JSON object as the file line, without the trailing newline.
+The file is written first and does not depend on delivery: a slow, failing, or unreachable endpoint never delays or removes an alert from it.
+
+| Header | Value |
+| --- | --- |
+| `Content-Type` | `application/json` |
+| `User-Agent` | `rustinel/<version>` |
+| `X-Rustinel-Delivery` | ID of this alert, the same on every retry and every destination |
+| `X-Rustinel-Timestamp` | Unix time in seconds, when `secret` is set |
+| `X-Rustinel-Signature` | `sha256=` and the hex HMAC-SHA256 of `<timestamp>.<body>` keyed with `secret`, when `secret` is set |
+
+Configured `headers` are added to every request.
+
+### Delivery
+
+- A `2xx` response is a delivery.
+- Connection errors, timeouts, `408`, `425`, `429`, and `5xx` are retried.
+  The delay starts at `retry_initial_ms`, doubles each time up to `retry_max_ms`, and is randomized within its upper half.
+  A `Retry-After` in seconds raises the delay, up to `retry_max_ms`.
+- Any other response, including redirects, is not retried.
+- After `max_attempts` attempts the alert is given up for that destination.
+- Each destination delivers one alert at a time, in order, from its own queue.
+  When the queue is full, new alerts are dropped for that destination only.
+- An alert larger than `max_payload_bytes` is not sent to that destination.
+- At shutdown, queued alerts get 5 seconds to be delivered; the rest are counted as abandoned.
+
+Delivery is at least once: a request that times out after the receiver processed it is sent again.
+Discard repeats with `X-Rustinel-Delivery`.
+
+Every outcome is counted in [`telemetry.json`](telemetry.md#alert_webhooks), and `rustinel doctor` warns under `alert_webhooks` when alerts went undelivered.
+Failures are logged at most once a minute per destination, naming the destination by its `name` and host only.
+The URL path, header values, and `secret` never appear in logs, telemetry, or doctor output.
+
+### Deduplication
+
+Webhooks receive exactly what the file receives.
+With [deduplication](detection.md#deduplication) on, that is the first alert when it fires and, if it repeated, one rollup with `event.count` when the window closes.
+
+### Receiver example
+
+A receiver that checks the signature, in Python with only the standard library:
+
+```python
+import hashlib, hmac, json, time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+SECRET = b"change-me"
+
+class Receiver(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        timestamp = self.headers.get("X-Rustinel-Timestamp", "0")
+        expected = "sha256=" + hmac.new(SECRET, f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
+        fresh = abs(time.time() - int(timestamp)) < 300
+        if not (fresh and hmac.compare_digest(expected, self.headers.get("X-Rustinel-Signature", ""))):
+            self.send_response(401)
+            self.end_headers()
+            return
+        alert = json.loads(body)
+        print(alert["rule.name"], alert.get("process.executable"))
+        self.send_response(204)
+        self.end_headers()
+
+HTTPServer(("0.0.0.0", 8080), Receiver).serve_forever()
+```
+
+With this configuration:
+
+```toml
+[[alerts.webhook]]
+url = "http://receiver.example:8080/"
+secret = "change-me"
+```
+
+Use `https` for anything but a lab: over `http` the headers and the alert travel in clear text.
 
 ## Recordings
 

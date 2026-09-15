@@ -59,7 +59,7 @@ async fn run_linux_edr(
         dedup_worker_handle,
         telemetry_reporter,
         _guards,
-    } = RuntimeLogging::start(&cfg, "Linux eBPF");
+    } = RuntimeLogging::start(&cfg, "Linux eBPF")?;
 
     // Shared state
     let state = SharedState::new(&cfg);
