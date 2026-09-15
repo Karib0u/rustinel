@@ -463,3 +463,464 @@ fn hex_process_ids_stay_raw_for_rules_and_parse_for_the_pipeline() {
     let normalized = normalize(&event);
     assert_eq!(normalized.get_field("ProcessId"), Some("0x4d8"));
 }
+
+/// The families added for #479, each against the SigmaHQ rule it unblocked.
+///
+/// Detection blocks are copied from SigmaHQ `da9bb07` unchanged; only the
+/// metadata is trimmed. Each case also carries a near miss, so a rule that
+/// matched everything would fail the test.
+#[test]
+fn added_security_families_match_the_sigmahq_rules_they_unblock() {
+    let rules = [
+        (
+            "win_security_susp_scheduled_task_creation.yml",
+            r#"title: Suspicious Scheduled Task Creation
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_eid:
+        EventID: 4698
+    selection_paths:
+        TaskContent|contains:
+            - '\AppData\Local\Temp\'
+            - '\AppData\Roaming\'
+            - '\Users\Public\'
+            - '\WINDOWS\Temp\'
+            - 'C:\Temp\'
+            - '\Desktop\'
+            - '\Downloads\'
+            - '\Temporary Internet'
+            - 'C:\ProgramData\'
+            - 'C:\Perflogs\'
+    selection_commands:
+        TaskContent|contains:
+            - 'regsvr32'
+            - 'rundll32'
+            - 'cmd.exe</Command>'
+            - 'cmd</Command>'
+            - '<Arguments>/c '
+            - '<Arguments>/k '
+            - '<Arguments>/r '
+            - 'powershell'
+            - 'pwsh'
+            - 'mshta'
+            - 'wscript'
+            - 'cscript'
+            - 'certutil'
+            - 'bitsadmin'
+            - 'bash.exe'
+            - 'bash '
+            - 'scrcons'
+            - 'wmic '
+            - 'wmic.exe'
+            - 'forfiles'
+            - 'scriptrunner'
+            - 'hh.exe'
+    condition: all of selection_*
+level: high
+"#,
+        ),
+        (
+            "win_security_susp_failed_logon_reasons.yml",
+            r#"title: Account Tampering - Suspicious Failed Logon Reasons
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_eid:
+        EventID:
+            - 4625
+            - 4776
+    selection_status:
+        - Status:
+              - '0xC0000072'
+              - '0xC000006F'
+              - '0xC0000070'
+              - '0xC0000413'
+              - '0xC000018C'
+              - '0xC000015B'
+        - SubStatus:
+              - '0xC0000072'
+              - '0xC000006F'
+              - '0xC0000070'
+              - '0xC0000413'
+              - '0xC000018C'
+              - '0xC000015B'
+    filter:
+        SubjectUserSid: 'S-1-0-0'
+    condition: all of selection_* and not filter
+level: medium
+"#,
+        ),
+        (
+            "win_security_user_added_to_local_administrators.yml",
+            r#"title: User Added to Local Administrator Group
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_eid:
+        EventID: 4732
+    selection_group:
+        - TargetUserName|startswith: 'Administr'
+        - TargetSid: 'S-1-5-32-544'
+    filter_main_computer_accounts:
+        SubjectUserName|endswith: '$'
+    condition: all of selection_* and not 1 of filter_*
+level: medium
+"#,
+        ),
+        (
+            "win_security_audit_log_cleared.yml",
+            r#"title: Security Eventlog Cleared
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_517:
+        EventID: 517
+        Provider_Name: Security
+    selection_1102:
+        EventID: 1102
+        Provider_Name: Microsoft-Windows-Eventlog
+    condition: 1 of selection_*
+level: high
+"#,
+        ),
+        (
+            "win_security_net_ntlm_downgrade.yml",
+            r#"title: NetNTLM Downgrade Attack
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4657
+        ObjectName|contains|all:
+            - '\REGISTRY\MACHINE\SYSTEM'
+            - 'ControlSet'
+            - '\Control\Lsa'
+        ObjectValueName:
+            - 'LmCompatibilityLevel'
+            - 'NtlmMinClientSec'
+            - 'RestrictSendingNTLMTraffic'
+    condition: selection
+level: high
+"#,
+        ),
+        (
+            "win_security_hktl_edr_silencer.yml",
+            r#"title: HackTool - EDRSilencer Execution - Filter Added
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID:
+            - 5441
+            - 5447
+        FilterName|contains: 'Custom Outbound Filter'
+    condition: selection
+level: high
+"#,
+        ),
+        (
+            "win_security_susp_outbound_kerberos_connection.yml",
+            r#"title: Uncommon Outbound Kerberos Connection - Security
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 5156
+        DestPort: 88
+    filter_main_lsass:
+        Application|startswith:
+            - '\device\harddiskvolume'
+            - 'C:'
+        Application|endswith: '\Windows\System32\lsass.exe'
+    condition: selection and not 1 of filter_main_*
+level: medium
+"#,
+        ),
+    ];
+
+    let task = |command: &str, arguments: &str| {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n<Task version=\"1.2\">\r\n\
+             <Actions Context=\"Author\">\r\n<Exec>\r\n<Command>{command}</Command>\r\n\
+             <Arguments>{arguments}</Arguments>\r\n</Exec>\r\n</Actions>\r\n</Task>"
+        )
+    };
+    let staged_task = task("cmd.exe", r"/c C:\Users\Public\stage.bat");
+    let benign_task = task(r"C:\Program Files\Vendor\update.exe", "--quiet");
+
+    // (event, the rule it must fire, or None for a near miss)
+    let cases: Vec<(SensorEvent, Option<&str>)> = vec![
+        (
+            security_event(
+                4698,
+                SensorAction::Register,
+                &[
+                    ("TaskName", r"\RustinelIssue479"),
+                    ("TaskContent", &staged_task),
+                ],
+            ),
+            Some("Suspicious Scheduled Task Creation"),
+        ),
+        (
+            security_event(
+                4698,
+                SensorAction::Register,
+                &[("TaskName", r"\Vendor"), ("TaskContent", &benign_task)],
+            ),
+            None,
+        ),
+        // Credential validation has no subject, so the NULL SID filter
+        // cannot exclude it.
+        (
+            security_event(
+                4776,
+                SensorAction::Start,
+                &[
+                    ("TargetUserName", "disabled-user"),
+                    ("Status", "0xC0000072"),
+                ],
+            ),
+            Some("Account Tampering - Suspicious Failed Logon Reasons"),
+        ),
+        // A network logon failure is attributed to the NULL SID, which the
+        // rule filters out.
+        (
+            security_event(
+                4625,
+                SensorAction::Start,
+                &[
+                    ("SubjectUserSid", "S-1-0-0"),
+                    ("TargetUserName", "disabled-user"),
+                    ("Status", "0xC000006E"),
+                    ("SubStatus", "0xC0000072"),
+                ],
+            ),
+            None,
+        ),
+        (
+            security_event(
+                4732,
+                SensorAction::Modify,
+                &[
+                    ("SubjectUserName", "alice"),
+                    ("TargetUserName", "Administrateurs"),
+                    ("TargetSid", "S-1-5-32-544"),
+                    ("MemberSid", "S-1-5-21-1-2-3-1010"),
+                ],
+            ),
+            Some("User Added to Local Administrator Group"),
+        ),
+        (
+            security_event(
+                4732,
+                SensorAction::Modify,
+                &[
+                    ("SubjectUserName", "alice"),
+                    ("TargetUserName", "Remote Desktop Users"),
+                    ("TargetSid", "S-1-5-32-555"),
+                ],
+            ),
+            None,
+        ),
+        (
+            security_event(
+                1102,
+                SensorAction::Delete,
+                &[
+                    ("Provider_Name", "Microsoft-Windows-Eventlog"),
+                    ("SubjectUserName", "alice"),
+                ],
+            ),
+            Some("Security Eventlog Cleared"),
+        ),
+        (
+            security_event(
+                4657,
+                SensorAction::Set,
+                &[
+                    (
+                        "ObjectName",
+                        r"\REGISTRY\MACHINE\SYSTEM\ControlSet001\Control\Lsa",
+                    ),
+                    ("ObjectValueName", "LmCompatibilityLevel"),
+                    ("NewValue", "2"),
+                ],
+            ),
+            Some("NetNTLM Downgrade Attack"),
+        ),
+        (
+            security_event(
+                5447,
+                SensorAction::Modify,
+                &[
+                    ("FilterName", "Custom Outbound Filter"),
+                    ("ChangeType", "%%16385"),
+                ],
+            ),
+            Some("HackTool - EDRSilencer Execution - Filter Added"),
+        ),
+        (
+            security_event(
+                5156,
+                SensorAction::Connect,
+                &[
+                    ("ProcessId", "5104"),
+                    (
+                        "Application",
+                        r"\device\harddiskvolume3\windows\system32\windowspowershell\v1.0\powershell.exe",
+                    ),
+                    ("DestPort", "88"),
+                ],
+            ),
+            Some("Uncommon Outbound Kerberos Connection - Security"),
+        ),
+        (
+            security_event(
+                5156,
+                SensorAction::Connect,
+                &[
+                    ("ProcessId", "712"),
+                    (
+                        "Application",
+                        r"\device\harddiskvolume3\Windows\System32\lsass.exe",
+                    ),
+                    ("DestPort", "88"),
+                ],
+            ),
+            None,
+        ),
+    ];
+
+    let fixture = SigmaFixture::new();
+    for (filename, yaml) in rules {
+        fixture.write_rule(filename, yaml);
+    }
+    let engine = windows_security_engine(&fixture);
+    assert_eq!(engine.stats().total_rules, rules.len());
+    assert_eq!(engine.stats().inactive_collector_rules, 0);
+
+    for (event, expected) in cases {
+        let alerts = engine.check_event(&normalize(&event));
+        let names: Vec<&str> = alerts
+            .iter()
+            .map(|alert| alert.rule_name.as_str())
+            .collect();
+        let id = event.normalization.event_id;
+        match expected {
+            Some(rule) => assert_eq!(names, [rule], "event {id}"),
+            None => assert!(names.is_empty(), "event {id} near miss matched {names:?}"),
+        }
+    }
+}
+
+#[test]
+fn scheduled_task_audit_alerts_carry_the_task_definition_in_ecs() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "task.yml",
+        r#"title: Security Scheduled Task Update
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4702
+    TaskContentNew|contains: 'powershell'
+  condition: selection
+level: high
+"#,
+    );
+    let engine = windows_security_engine(&fixture);
+
+    let definition =
+        "<Task><Actions><Exec><Command>powershell.exe</Command></Exec></Actions></Task>";
+    let event = security_event(
+        4702,
+        SensorAction::Modify,
+        &[
+            ("SubjectUserName", "alice"),
+            ("TaskName", r"\RustinelIssue479"),
+            ("TaskContentNew", definition),
+        ],
+    );
+    let alert = engine
+        .check_event(&normalize(&event))
+        .into_iter()
+        .next()
+        .expect("the task update rule should match");
+    let json = ecs_json(&alert);
+
+    assert_ecs_field_eq(&json, "event.code", "4702");
+    assert_ecs_field_eq(&json, "event.action", "scheduled-task-updated");
+    assert_ecs_field_eq(
+        &json,
+        "event.category",
+        serde_json::json!(["configuration"]),
+    );
+    assert_ecs_field_eq(&json, "event.type", serde_json::json!(["change"]));
+    assert_ecs_field_eq(&json, "edr.task.name", r"\RustinelIssue479");
+    assert_ecs_field_eq(&json, "edr.task.content", definition);
+}
+
+#[test]
+fn account_and_network_audit_events_classify_in_ecs() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "any.yml",
+        r#"title: Any Security Event
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID:
+      - 4625
+      - 4732
+      - 5157
+  condition: selection
+level: low
+"#,
+    );
+    let engine = windows_security_engine(&fixture);
+
+    let cases = [
+        (
+            security_event(4625, SensorAction::Start, &[("IpAddress", "198.51.100.10")]),
+            "logon-failed",
+            serde_json::json!(["authentication"]),
+            serde_json::json!(["start"]),
+        ),
+        (
+            security_event(4732, SensorAction::Modify, &[("TargetSid", "S-1-5-32-544")]),
+            "added-member-to-group",
+            serde_json::json!(["iam"]),
+            serde_json::json!(["group", "change"]),
+        ),
+        (
+            security_event(5157, SensorAction::Connect, &[("ProcessID", "5104")]),
+            "network-connection-blocked",
+            serde_json::json!(["network"]),
+            serde_json::json!(["connection", "denied"]),
+        ),
+    ];
+
+    for (event, action, category, kind) in cases {
+        let alert = engine
+            .check_event(&normalize(&event))
+            .into_iter()
+            .next()
+            .expect("the catch-all rule should match");
+        let json = ecs_json(&alert);
+        assert_ecs_field_eq(&json, "event.action", action);
+        assert_ecs_field_eq(&json, "event.category", category);
+        assert_ecs_field_eq(&json, "event.type", kind);
+    }
+}

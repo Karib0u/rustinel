@@ -16,6 +16,9 @@
 //! - YARA and hash IOC checks, which need the file behind the event. A recording
 //!   holds events, not artifacts, so these are reported as skipped rather than
 //!   attempted against paths that may not exist on the replay host.
+//! - `Hashes` and `Imphash`, for the same reason. Rules that select on them
+//!   are still evaluated once per event, exactly as the live deferred pass
+//!   evaluates an event whose artifact could not be resolved.
 //! - Active response, unconditionally, whatever the supplied configuration says.
 //!   Replaying a recording must never act on the machine doing the replaying.
 //! - Alert deduplication, so every match is reported. Suppressing repeats is
@@ -128,6 +131,12 @@ impl Replay {
                 configuration.push(format!(
                     "             {} rule documents were dropped because their references are unavailable",
                     stats.unsupported_rules.len()
+                ));
+            }
+            if stats.deferred_pass_rules > 0 {
+                configuration.push(format!(
+                    "             {} rules select on Hashes or Imphash, which a recording does not carry; they match only through their other selections",
+                    stats.deferred_pass_rules
                 ));
             }
         } else {

@@ -319,6 +319,21 @@ pub struct EcsAlert {
     )]
     pub process_file_version: Option<String>,
 
+    #[serde(rename = "process.hash.md5", skip_serializing_if = "Option::is_none")]
+    pub process_hash_md5: Option<String>,
+
+    #[serde(rename = "process.hash.sha1", skip_serializing_if = "Option::is_none")]
+    pub process_hash_sha1: Option<String>,
+
+    #[serde(
+        rename = "process.hash.sha256",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub process_hash_sha256: Option<String>,
+
+    #[serde(rename = "process.pe.imphash", skip_serializing_if = "Option::is_none")]
+    pub process_pe_imphash: Option<String>,
+
     #[serde(rename = "user.name", skip_serializing_if = "Option::is_none")]
     pub user_name: Option<String>,
 
@@ -437,6 +452,18 @@ pub struct EcsAlert {
 
     #[serde(rename = "dll.path", skip_serializing_if = "Option::is_none")]
     pub dll_path: Option<String>,
+
+    #[serde(rename = "dll.hash.md5", skip_serializing_if = "Option::is_none")]
+    pub dll_hash_md5: Option<String>,
+
+    #[serde(rename = "dll.hash.sha1", skip_serializing_if = "Option::is_none")]
+    pub dll_hash_sha1: Option<String>,
+
+    #[serde(rename = "dll.hash.sha256", skip_serializing_if = "Option::is_none")]
+    pub dll_hash_sha256: Option<String>,
+
+    #[serde(rename = "dll.pe.imphash", skip_serializing_if = "Option::is_none")]
+    pub dll_pe_imphash: Option<String>,
 
     // ========================================================================
     // Registry Fields

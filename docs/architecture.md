@@ -48,6 +48,7 @@ ebpf/src/            Linux eBPF programs and the event ABI
 4. Admission routes every event to the downstream `SensorEventRouter` exactly once and in `ingest_seq` order, for Sigma/IOC detection or capture.
    Only PE metadata, which Sigma can match, may hold an event, for at most a 100 ms admission budget; later events wait behind it.
    YARA file and IOC hash alerts come from the same resolver result after admission.
+   Sigma rules on `Hashes` or `Imphash` are left out of admission for events the resolver will hash; a deferred detection stage evaluates them once, in arrival order, when the resolver publishes those fields or a 2 second budget expires.
    YARA memory scanning remains a separate worker by design: it reads a live process keyed by process identity, after a delay, under one budget shared across regions.
 5. Hits go to `AlertSink` (ECS NDJSON) and, when enabled, `ResponseEngine`.
 
@@ -57,6 +58,7 @@ Recording schema v2 deliberately serializes its unchanged `NormalizedEvent` view
 Sensor and background-worker queues are bounded channels that drop instead of blocking, with counters in `src/telemetry`.
 Canonicalization runs synchronously in the sensor-channel worker, but file opening, reading, PE parsing, hashing, and YARA file scanning do not.
 A slow artifact delays routing by at most the admission budget, never more, because order is kept and the budget is measured from each event's own arrival.
+The deferred detection stage has its own bounded queue and budget and never holds admission.
 If the artifact queue is full, a job exceeds its deadline, or PE metadata misses the budget, the event is admitted without that enrichment and the outcome is counted.
 Opens and reads run on at most four I/O threads; a thread blocked in the OS keeps its slot until the call returns, and non-regular Unix files are opened nonblocking and rejected.
 Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
@@ -102,7 +104,7 @@ Signature revocation freshness can invalidate the signature store independently 
   Inspect them with `Get-EtwTraceSession -Name rustinel-etw-trace` (or `rustinel-etw-process`).
 - A classic kernel logger supplies creation-time command lines and SIDs, joined to Kernel-Process events by PID, parent PID, and time.
 - At startup, key and file name snapshots let registry and file writes through pre-existing handles be named.
-- Event Log subscriptions read System event 7045 and six Security events, filtered by an XPath query.
+- Event Log subscriptions read System event 7045 and the Security audit events in [Sigma rules](sigma.md#windows-security-events), filtered by a structured query with one `Select` per family: an event is only reachable if it is in both the query and the [`FIELD_AVAILABILITY`](field-availability.md) table.
   Read positions are saved under `logging.directory/event-log`.
 
 ## Linux sensor

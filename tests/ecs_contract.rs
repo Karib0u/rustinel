@@ -140,6 +140,8 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 1,
                 1,
                 EventFields::ProcessCreation(ProcessCreationFields {
+                    hashes: None,
+                    imphash: None,
                     linux_identity: Default::default(),
                     cgroup_id: None,
                     exec: Default::default(),
@@ -266,6 +268,8 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 7,
                 10,
                 EventFields::ImageLoad(ImageLoadFields {
+                    hashes: None,
+                    imphash: None,
                     image_loaded: Some(r"C:\Temp\payload.dll".to_string()),
                     process_id: Some("111".to_string()),
                     image: Some(r"C:\Windows\System32\rundll32.exe".to_string()),
@@ -510,6 +514,8 @@ fn ecs_version_matches_the_documented_target() {
         1,
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
@@ -571,6 +577,8 @@ fn ecs_process_image_truncation_marker_is_preserved() {
         1,
         1,
         EventFields::ProcessCreation(ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),
@@ -621,6 +629,8 @@ fn test_rule_id_mapping_and_omit_behavior() {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

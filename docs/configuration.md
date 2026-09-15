@@ -194,6 +194,7 @@ ETW delivery. Read on every platform so one file can serve a mixed fleet, used o
 | --- | --- | --- |
 | `etw_flush_interval_ms` | `20` | How often the main ETW session hands over partly filled buffers. Lower is faster alerting. `0` falls back to the 1 second ETW timer. Values below 20 are raised to 20. |
 | `etw_process_flush_interval_ms` | `5` | The same for the process session. Keep it at 10 or below: the command line is read from the live process, so slower values lose it for short-lived processes, and `0` loses most of them. |
+| `security_filtering_platform_connections` | `false` | Read Security events 5156, 5157, and 5152: one per allowed connection, blocked connection, and dropped packet. Off by default because they are the highest-volume Security events. The host must also audit them, see [Windows host logging](windows-logging.md#filtering-platform-connections). |
 <!-- END GENERATED CONFIG REFERENCE -->
 
 ## Webhook destinations

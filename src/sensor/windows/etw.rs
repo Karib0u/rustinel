@@ -43,6 +43,7 @@ pub struct EtwSensor {
     loss_counters: Arc<super::loss::LossCounters>,
     flush_interval_ms: u64,
     process_flush_interval_ms: u64,
+    security_filtering_platform_connections: bool,
 }
 
 impl EtwSensor {
@@ -67,6 +68,7 @@ impl EtwSensor {
             loss_counters: Arc::new(super::loss::LossCounters::new()),
             flush_interval_ms,
             process_flush_interval_ms,
+            security_filtering_platform_connections: false,
         }
     }
 
@@ -77,6 +79,12 @@ impl EtwSensor {
 
     pub fn with_event_log_directory(mut self, directory: std::path::PathBuf) -> Self {
         self.event_log_directory = directory;
+        self
+    }
+
+    /// See `windows.security_filtering_platform_connections`.
+    pub fn with_security_filtering_platform_connections(mut self, enabled: bool) -> Self {
+        self.security_filtering_platform_connections = enabled;
         self
     }
 
@@ -106,6 +114,7 @@ impl Sensor for EtwSensor {
             tx.clone(),
             Arc::clone(&self.shutdown),
             &self.event_log_directory,
+            self.security_filtering_platform_connections,
         )?;
 
         // A session left running by a previous process keeps its old buffer

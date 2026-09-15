@@ -16,6 +16,7 @@
 //! - `alert` — mapping RSigma evaluation results onto Rustinel's [`Alert`].
 
 mod alert;
+mod deferred;
 mod detect;
 mod detectors;
 mod event;
@@ -25,6 +26,8 @@ mod logsource;
 mod stats;
 mod store;
 
+pub use deferred::{ArtifactFieldNeeds, DetectionPass};
+pub(crate) use deferred::{HASHES_FIELD, IMPHASH_FIELD};
 pub use detect::EventDetectors;
 pub use detectors::DetectorStore;
 pub use handler::{DetectionPipeline, NormalizedEventHandler};
@@ -170,18 +173,28 @@ impl Engine {
         }
     }
 
-    /// Evaluate an event against the loaded rules.
+    /// Evaluate an event against every loaded rule.
     ///
-    /// The result contains at most one detection alert, selected by
-    /// `MatchRank`, followed by every correlation alert that fired while the
-    /// event was processed. Detection results are deduplicated before they
+    /// Equivalent to [`DetectionPass::All`]: the admission and deferred passes
+    /// of the same event, evaluated back to back.
+    pub fn evaluate_event(&self, event: &NormalizedEvent) -> Vec<Alert> {
+        self.evaluate_event_pass(event, DetectionPass::All)
+    }
+
+    /// Evaluate the rules of one detection pass against an event.
+    ///
+    /// Each pass contributes at most one detection alert, selected by
+    /// `MatchRank` among that pass's rules, followed by every correlation alert
+    /// its detections fired. Detection results are deduplicated before they
     /// reach the stateful correlation engine because a partial logsource can
     /// match through more than one concrete event alias.
-    pub fn evaluate_event(&self, event: &NormalizedEvent) -> Vec<Alert> {
-        let results = {
+    pub fn evaluate_event_pass(&self, event: &NormalizedEvent, pass: DetectionPass) -> Vec<Alert> {
+        let deferred_rules = self.store.deferred();
+        let passes = {
             let mut engine = self.store.lock();
             let adapter = event::RsigmaEvent::new(event);
-            let mut detections = Vec::new();
+            let mut admission = Vec::new();
+            let mut deferred = Vec::new();
             let mut seen = HashSet::new();
 
             for alias in Self::concrete_logsource_aliases_for_event(event) {
@@ -202,42 +215,67 @@ impl Engine {
                         result.header.rule_id.clone(),
                         result.header.rule_title.clone(),
                     );
-                    if seen.insert(identity) {
-                        detections.push(result);
+                    if !seen.insert(identity) {
+                        continue;
+                    }
+                    if deferred_rules
+                        .contains(result.header.rule_id.as_deref(), &result.header.rule_title)
+                    {
+                        if pass.includes_deferred() {
+                            deferred.push(result);
+                        }
+                    } else if pass.includes_admission() {
+                        admission.push(result);
                     }
                 }
             }
 
-            engine.correlate_detections(&adapter, detections)
+            let mut passes = Vec::with_capacity(2);
+            if pass.includes_admission() {
+                passes.push(engine.correlate_detections(&adapter, admission));
+            }
+            // Deferred detections share the one correlation state, so a
+            // correlation may reference rules from either pass.
+            if !deferred.is_empty() {
+                passes.push(engine.correlate_detections(&adapter, deferred));
+            }
+            passes
         };
 
-        let mut best: Option<EvaluationResult> = None;
-        let mut correlations = Vec::new();
-        for mut result in results {
-            self.store.restore_synthetic_detection_id(&mut result);
-            if result.is_detection() {
-                let is_better = match &best {
-                    Some(current) => alert::result_rank(&result) < alert::result_rank(current),
-                    None => true,
-                };
-                if is_better {
-                    best = Some(result);
+        let mut alerts = Vec::new();
+        for results in passes {
+            let mut best: Option<EvaluationResult> = None;
+            let mut correlations = Vec::new();
+            for mut result in results {
+                self.store.restore_synthetic_detection_id(&mut result);
+                if result.is_detection() {
+                    let is_better = match &best {
+                        Some(current) => alert::result_rank(&result) < alert::result_rank(current),
+                        None => true,
+                    };
+                    if is_better {
+                        best = Some(result);
+                    }
+                } else if result.is_correlation() {
+                    correlations.push(result);
                 }
-            } else if result.is_correlation() {
-                correlations.push(result);
             }
+            if let Some(result) = best {
+                alerts.push(self.build_alert(result, event));
+            }
+            alerts.extend(
+                correlations
+                    .into_iter()
+                    .map(|result| self.build_alert(result, event)),
+            );
         }
-
-        let mut alerts = Vec::with_capacity(usize::from(best.is_some()) + correlations.len());
-        if let Some(result) = best {
-            alerts.push(self.build_alert(result, event));
-        }
-        alerts.extend(
-            correlations
-                .into_iter()
-                .map(|result| self.build_alert(result, event)),
-        );
         alerts
+    }
+
+    /// Artifact fields the deferred pass needs for this event, or empty when
+    /// no loaded rule selects on them for its logsource.
+    pub fn deferred_field_needs(&self, event: &NormalizedEvent) -> ArtifactFieldNeeds {
+        self.store.deferred().needs_for(event)
     }
 
     /// Compatibility alias for callers that used the pre-correlation name.
@@ -698,6 +736,117 @@ detection:
         assert!(!engine.check_event(&event).is_empty());
     }
 
+    const IMAGE_RULE: &str = r#"title: Whoami Image
+id: 44444444-4444-4444-8444-444444444444
+level: medium
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: \whoami.exe
+  condition: selection
+"#;
+
+    const HASH_RULE: &str = r#"title: Whoami By Hash
+id: 55555555-5555-4555-8555-555555555555
+level: high
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  hash:
+    Hashes|contains: SHA256=ABCDEF
+  image:
+    Image|endswith: \whoami.exe
+  condition: hash or image
+"#;
+
+    fn rule_names(alerts: &[Alert]) -> Vec<String> {
+        alerts.iter().map(|alert| alert.rule_name.clone()).collect()
+    }
+
+    #[test]
+    fn each_pass_evaluates_only_its_own_rules() {
+        let engine = engine_with_rules(Platform::Windows, &[IMAGE_RULE, HASH_RULE]);
+        assert_eq!(engine.stats().deferred_pass_rules, 1);
+        let event = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
+        );
+
+        assert_eq!(
+            rule_names(&engine.evaluate_event_pass(&event, DetectionPass::Admission)),
+            vec!["Whoami Image"]
+        );
+        assert_eq!(
+            rule_names(&engine.evaluate_event_pass(&event, DetectionPass::Deferred)),
+            vec!["Whoami By Hash"]
+        );
+        // Replay evaluates both passes, each selecting its own best match, so
+        // it reports what live admission and the deferred pass reported.
+        assert_eq!(
+            rule_names(&engine.evaluate_event_pass(&event, DetectionPass::All)),
+            vec!["Whoami Image", "Whoami By Hash"]
+        );
+    }
+
+    #[test]
+    fn deferred_field_needs_follow_the_event_logsource() {
+        let engine = engine_with_rules(Platform::Windows, &[IMAGE_RULE, HASH_RULE]);
+        let process = process_event(Platform::Windows, r"C:\x.exe", "x");
+        assert_eq!(
+            engine.deferred_field_needs(&process),
+            ArtifactFieldNeeds {
+                sha256: true,
+                ..ArtifactFieldNeeds::default()
+            }
+        );
+
+        let mut network = process;
+        network.category = crate::models::EventCategory::Network;
+        assert!(engine.deferred_field_needs(&network).is_empty());
+        assert!(windows_engine().deferred_field_needs(&network).is_empty());
+    }
+
+    #[test]
+    fn a_correlation_counts_detections_from_both_passes() {
+        let engine = engine_with_rules(
+            Platform::Windows,
+            &[
+                IMAGE_RULE,
+                HASH_RULE,
+                r#"title: Image Then Hash
+id: 66666666-6666-4666-8666-666666666666
+level: critical
+correlation:
+  type: temporal
+  rules:
+    - 44444444-4444-4444-8444-444444444444
+    - 55555555-5555-4555-8555-555555555555
+  group-by:
+    - ProcessId
+  timespan: 1m
+"#,
+            ],
+        );
+        let event = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
+        );
+
+        assert!(
+            !rule_names(&engine.evaluate_event_pass(&event, DetectionPass::Admission))
+                .contains(&"Image Then Hash".to_string())
+        );
+        assert!(
+            rule_names(&engine.evaluate_event_pass(&event, DetectionPass::Deferred))
+                .contains(&"Image Then Hash".to_string())
+        );
+    }
+
     #[test]
     fn product_mismatched_rules_are_skipped_at_load_time() {
         let engine = engine_with_rule(
@@ -730,6 +879,8 @@ detection:
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),

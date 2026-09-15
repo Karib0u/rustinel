@@ -457,6 +457,8 @@ impl NormalizedEvent {
                 "Description" => f.description.as_deref(),
                 "Company" => f.company.as_deref(),
                 "FileVersion" => f.file_version.as_deref(),
+                "Hashes" => f.hashes.as_deref(),
+                "Imphash" => f.imphash.as_deref(),
                 "CommandLine" => f.command_line.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
                 "CgroupId" => f.cgroup_id.as_deref(),
@@ -537,6 +539,8 @@ impl NormalizedEvent {
                 "Description" => f.description.as_deref(),
                 "Company" => f.company.as_deref(),
                 "FileVersion" => f.file_version.as_deref(),
+                "Hashes" => f.hashes.as_deref(),
+                "Imphash" => f.imphash.as_deref(),
                 "Signed" => f.signed.as_deref(),
                 "Signature" => f.signature.as_deref(),
                 "ProcessId" => f.process_id.as_deref(),
@@ -817,6 +821,8 @@ mod round_trip_tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
@@ -1082,6 +1088,8 @@ mod round_trip_tests {
             event_id_string: "1".to_string(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 linux_identity: Default::default(),
                 cgroup_id: None,
                 exec: Default::default(),
@@ -1133,6 +1141,8 @@ mod round_trip_tests {
         event.event_id_string = "1".to_string();
         event.opcode = 1;
         event.fields = EventFields::ProcessCreation(ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),

@@ -164,6 +164,15 @@ pub struct ProcessCreationFields {
     #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
     pub file_version: Option<String>,
 
+    /// Sysmon-format digests of the image file, filled by artifact resolution
+    /// after admission: `SHA1=...,MD5=...,SHA256=...,IMPHASH=...`.
+    #[serde(rename = "Hashes", skip_serializing_if = "Option::is_none")]
+    pub hashes: Option<String>,
+
+    /// Lowercase import hash of the image file, filled with `Hashes`.
+    #[serde(rename = "Imphash", skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<String>,
+
     #[serde(rename = "TargetImage", skip_serializing_if = "Option::is_none")]
     pub target_image: Option<String>,
 
@@ -383,6 +392,15 @@ pub struct ImageLoadFields {
     #[serde(rename = "FileVersion", skip_serializing_if = "Option::is_none")]
     pub file_version: Option<String>,
 
+    /// Sysmon-format digests of the loaded image file, filled by artifact
+    /// resolution after admission.
+    #[serde(rename = "Hashes", skip_serializing_if = "Option::is_none")]
+    pub hashes: Option<String>,
+
+    /// Lowercase import hash of the loaded image file, filled with `Hashes`.
+    #[serde(rename = "Imphash", skip_serializing_if = "Option::is_none")]
+    pub imphash: Option<String>,
+
     #[serde(rename = "Signed", skip_serializing_if = "Option::is_none")]
     pub signed: Option<String>,
 
@@ -596,8 +614,11 @@ impl SecurityAuditFields {
     /// other field in the model that holds a decimal PID string. The raw
     /// rendering stays in [`Self::fields`] for rules to match; this is the
     /// parse the pipeline itself needs for process-cache lookups.
+    ///
+    /// The Windows Filtering Platform connection templates spell the field
+    /// `ProcessID`, and in decimal.
     pub fn process_id(&self) -> Option<u32> {
-        parse_windows_process_id(self.get("ProcessId")?)
+        parse_windows_process_id(self.get("ProcessId").or_else(|| self.get("ProcessID"))?)
     }
 }
 

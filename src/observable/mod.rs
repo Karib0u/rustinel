@@ -214,6 +214,8 @@ mod tests {
 
     fn process_fields(image: &str, command_line: &str, cwd: Option<&str>) -> ProcessCreationFields {
         ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),

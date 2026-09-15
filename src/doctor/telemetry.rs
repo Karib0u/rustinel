@@ -110,9 +110,11 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         .saturating_add(resolver.identity_unavailable)
         .saturating_add(resolver.read_failed)
         .saturating_add(resolver.consumer_failed)
-        .saturating_add(resolver.oversized);
+        .saturating_add(resolver.oversized)
+        .saturating_add(resolver.deferred_budget_exceeded)
+        .saturating_add(resolver.deferred_queue_saturated);
     let detail = format!(
-        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} identity unavailable, {} read, {} consumer, {} oversized",
+        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; deferred pass: {} queued, {} with artifact fields, {} without ({} past the {} ms budget), {} queue saturated; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} identity unavailable, {} read, {} consumer, {} oversized",
         resolver.queued,
         resolver.resolved,
         resolver.cache_hits,
@@ -127,6 +129,12 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         resolver.admission_budget_exceeded,
         resolver.admission_budget_ms,
         resolver.admission_backpressure,
+        resolver.deferred_queued,
+        resolver.deferred_enriched,
+        resolver.deferred_unenriched,
+        resolver.deferred_budget_exceeded,
+        resolver.deferred_budget_ms,
+        resolver.deferred_queue_saturated,
         resolver.queue_saturated,
         resolver.worker_saturated,
         resolver.deadline_exceeded,
@@ -897,6 +905,12 @@ mod tests {
             consumer_failed: 0,
             oversized: 0,
             evicted: 3,
+            deferred_queued: 20,
+            deferred_enriched: 17,
+            deferred_unenriched: 3,
+            deferred_budget_exceeded: 1,
+            deferred_queue_saturated: 2,
+            deferred_budget_ms: 2_000,
             pe_entries: 4,
             hash_entries: 5,
             imphash_entries: 6,
@@ -909,12 +923,17 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].status, DiagnosticStatus::Warn);
-        assert!(results[0].message.contains("7 artifact-resolution failure"));
+        assert!(results[0]
+            .message
+            .contains("10 artifact-resolution failure"));
         let detail = results[0].detail.as_deref().expect("resolver detail");
         assert!(detail.contains("PE 4, hashes 5, imphashes 6, signatures 7, YARA 8"));
         assert!(detail.contains("1 queue saturated"));
         assert!(detail.contains("0 identity, 4 identity unavailable"));
         assert!(detail.contains("2 past the 100 ms budget, 9 backpressured sends"));
+        assert!(detail.contains(
+            "deferred pass: 20 queued, 17 with artifact fields, 3 without (1 past the 2000 ms budget), 2 queue saturated"
+        ));
     }
 
     fn channel(name: &str, accepted: u64, dropped: u64) -> ChannelSnapshot {

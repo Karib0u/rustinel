@@ -139,6 +139,8 @@ fn process() -> CanonicalEvent {
         Platform::Windows,
         EventCategory::Process,
         EventFields::ProcessCreation(ProcessCreationFields {
+            hashes: None,
+            imphash: None,
             linux_identity: Default::default(),
             cgroup_id: None,
             exec: Default::default(),

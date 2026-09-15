@@ -520,6 +520,7 @@ mod tests {
             inactive_collector_rules: categories.values().sum(),
             inactive_collector_categories: categories,
             inactive_collector_logsources: BTreeMap::new(),
+            deferred_pass_rules: 0,
         }
     }
 

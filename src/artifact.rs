@@ -9,6 +9,11 @@
 //! that Sigma can match, PE metadata today, may hold an event, and for at most
 //! [`ADMISSION_BUDGET`]; events behind it wait in order. Hash and YARA
 //! consumers finish after admission because they raise their own alerts.
+//!
+//! `Hashes` and `Imphash` cost too much for that budget. Sigma rules that
+//! select on them are left out of admission and evaluated once, in ingest
+//! order, by the deferred detection stage when those fields are resolved or
+//! [`DEFERRED_DETECTION_BUDGET`] expires, whichever comes first.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -24,7 +29,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info};
 
 use crate::alerts::AlertSink;
-use crate::engine::DetectorStore;
+use crate::engine::{ArtifactFieldNeeds, DetectionPass, DetectorStore, EventDetectors};
 use crate::ioc::{ComputedHashes, HashRequirements};
 use crate::models::{
     Alert, CanonicalEvent, EventFields, FileEventFields, FileObjectIdentity, MatchDebugLevel,
@@ -50,6 +55,14 @@ pub(crate) const ADMISSION_BUDGET: Duration = Duration::from_millis(100);
 /// Admission entries only have to absorb the events that arrive while the
 /// head of the queue waits out its budget.
 const ADMISSION_QUEUE_CAPACITY: usize = 4096;
+/// Longest a deferred-pass event waits for `Hashes` and `Imphash`, measured
+/// from its arrival. Past it the deferred rules evaluate it without them, so
+/// their detections reach correlation at most this late.
+pub(crate) const DEFERRED_DETECTION_BUDGET: Duration = Duration::from_secs(2);
+/// Deferred entries wait at most their budget, so the queue only absorbs the
+/// artifact events of one budget window. When it is full, the event keeps
+/// every rule at admission instead.
+const DEFERRED_QUEUE_CAPACITY: usize = 1024;
 type ArtifactOpener = Arc<dyn Fn(&Path) -> io::Result<File> + Send + Sync>;
 
 /// Work requested from one shared artifact read.
@@ -79,6 +92,11 @@ pub struct PeMetadata {
 }
 
 impl ArtifactNeeds {
+    /// Whether digests or the imphash still have to come from the bytes.
+    fn needs_digest_read(self) -> bool {
+        self.hashes.md5 || self.hashes.sha1 || self.hashes.sha256 || self.imphash
+    }
+
     fn is_empty(self) -> bool {
         !self.hashes.md5
             && !self.hashes.sha1
@@ -140,6 +158,27 @@ pub struct ArtifactResolverSnapshot {
     pub consumer_failed: u64,
     pub oversized: u64,
     pub evicted: u64,
+    /// Events whose deferred-pass rules waited for `Hashes`/`Imphash`.
+    #[serde(default)]
+    pub deferred_queued: u64,
+    /// Deferred passes evaluated with at least one artifact field.
+    #[serde(default)]
+    pub deferred_enriched: u64,
+    /// Deferred passes evaluated without artifact fields, because resolution
+    /// failed, was shed, or produced nothing for the file.
+    #[serde(default)]
+    pub deferred_unenriched: u64,
+    /// Deferred passes evaluated without artifact fields because
+    /// [`DEFERRED_DETECTION_BUDGET`] expired first. Counted in
+    /// `deferred_unenriched` too.
+    #[serde(default)]
+    pub deferred_budget_exceeded: u64,
+    /// Events whose deferred-pass rules ran at admission, without artifact
+    /// fields, because the deferred queue was full.
+    #[serde(default)]
+    pub deferred_queue_saturated: u64,
+    #[serde(default)]
+    pub deferred_budget_ms: u64,
     pub pe_entries: usize,
     pub hash_entries: usize,
     pub imphash_entries: usize,
@@ -165,6 +204,11 @@ struct ResolverCounters {
     read_failed: AtomicU64,
     consumer_failed: AtomicU64,
     oversized: AtomicU64,
+    deferred_queued: AtomicU64,
+    deferred_enriched: AtomicU64,
+    deferred_unenriched: AtomicU64,
+    deferred_budget_exceeded: AtomicU64,
+    deferred_queue_saturated: AtomicU64,
 }
 
 struct ResolverState {
@@ -208,6 +252,18 @@ impl ResolverState {
             consumer_failed: self.counters.consumer_failed.load(Ordering::Relaxed),
             oversized: self.counters.oversized.load(Ordering::Relaxed),
             evicted: stores.evicted,
+            deferred_queued: self.counters.deferred_queued.load(Ordering::Relaxed),
+            deferred_enriched: self.counters.deferred_enriched.load(Ordering::Relaxed),
+            deferred_unenriched: self.counters.deferred_unenriched.load(Ordering::Relaxed),
+            deferred_budget_exceeded: self
+                .counters
+                .deferred_budget_exceeded
+                .load(Ordering::Relaxed),
+            deferred_queue_saturated: self
+                .counters
+                .deferred_queue_saturated
+                .load(Ordering::Relaxed),
+            deferred_budget_ms: DEFERRED_DETECTION_BUDGET.as_millis() as u64,
             pe_entries: stores.pe.len(),
             hash_entries: stores.hashes.len(),
             imphash_entries: stores.imphashes.len(),
@@ -320,10 +376,17 @@ pub(crate) fn spawn_artifact_resolver(
     let mut upstream = SensorEventRouter::new();
     upstream.register_handler(Box::new(parts.ingress));
     let admission = parts.admission;
+    let deferred = parts.deferred;
     let resolver = parts.resolver;
     let resolve_rx = parts.resolve_rx;
     let worker = tokio::task::spawn_blocking(move || {
-        run_resolver_stages(admission, resolver, resolve_rx, Arc::new(open_artifact))
+        run_resolver_stages(
+            admission,
+            deferred,
+            resolver,
+            resolve_rx,
+            Arc::new(open_artifact),
+        )
     });
     (
         Arc::new(upstream),
@@ -332,10 +395,11 @@ pub(crate) fn spawn_artifact_resolver(
     )
 }
 
-/// Run admission on the calling thread and resolution beside it, returning
-/// once both queues have closed and drained.
+/// Run admission on the calling thread, and resolution and deferred detection
+/// beside it, returning once every queue has closed and drained.
 fn run_resolver_stages(
     admission: Admission,
+    deferred: Option<DeferredDetection>,
     resolver: ArtifactResolver,
     mut resolve_rx: mpsc::Receiver<ArtifactJob>,
     open: ArtifactOpener,
@@ -349,14 +413,25 @@ fn run_resolver_stages(
             // ingress sees a closed queue and admits base events.
             debug!(target: "artifact", %error, "Could not start artifact resolver");
         }
+        if let Some(deferred) = deferred {
+            let spawned = std::thread::Builder::new()
+                .name("artifact-deferred-detection".to_string())
+                .spawn_scoped(scope, move || deferred.run());
+            if let Err(error) = spawned {
+                // The dropped receiver makes ingress keep every rule at
+                // admission, so no deferred-pass rule goes unevaluated.
+                debug!(target: "artifact", %error, "Could not start deferred detection");
+            }
+        }
         admission.run();
     });
 }
 
-/// The three halves of the resolver, wired to each other but not yet running.
+/// The halves of the resolver, wired to each other but not yet running.
 struct ResolverParts {
     ingress: ArtifactEventHandler,
     admission: Admission,
+    deferred: Option<DeferredDetection>,
     resolver: ArtifactResolver,
     resolve_rx: mpsc::Receiver<ArtifactJob>,
 }
@@ -372,10 +447,29 @@ impl ResolverParts {
         let (resolve_tx, resolve_rx) = mpsc::channel(resolve_capacity);
         let (admission_tx, admission_rx) = std::sync::mpsc::sync_channel(ADMISSION_QUEUE_CAPACITY);
         let pending = Arc::new(AtomicUsize::new(0));
+        // Only a detecting runtime has rules to defer; capture evaluates none.
+        let (deferred_tx, deferred) = match &runtime.detectors {
+            Some(detectors) => {
+                let (tx, rx) = std::sync::mpsc::sync_channel(DEFERRED_QUEUE_CAPACITY);
+                (
+                    Some(tx),
+                    Some(DeferredDetection {
+                        rx,
+                        detectors: Arc::clone(detectors),
+                        host_state: Arc::clone(&host_state),
+                        alert_sink: runtime.alert_sink.clone(),
+                        response_engine: runtime.response_engine.clone(),
+                        state: Arc::clone(&state),
+                    }),
+                )
+            }
+            None => (None, None),
+        };
         Self {
             ingress: ArtifactEventHandler {
                 resolve_tx,
                 admission_tx,
+                deferred_tx,
                 pending: Arc::clone(&pending),
                 downstream: Arc::clone(&downstream),
                 runtime: runtime.clone(),
@@ -387,6 +481,7 @@ impl ResolverParts {
                 downstream,
                 state: Arc::clone(&state),
             },
+            deferred,
             resolver: ArtifactResolver::new(host_state, runtime, state),
             resolve_rx,
         }
@@ -396,6 +491,8 @@ impl ResolverParts {
 struct ArtifactEventHandler {
     resolve_tx: mpsc::Sender<ArtifactJob>,
     admission_tx: std::sync::mpsc::SyncSender<AdmissionEntry>,
+    /// Present when a detecting runtime can defer rules to after resolution.
+    deferred_tx: Option<std::sync::mpsc::SyncSender<DeferredEntry>>,
     /// Admission entries not yet routed. Ingress is the only producer, so a
     /// zero here means every earlier event has already reached downstream.
     pending: Arc<AtomicUsize>,
@@ -407,7 +504,18 @@ struct ArtifactEventHandler {
 impl ArtifactEventHandler {
     /// Admit `event` in ingest order. Without an outstanding admission it is
     /// routed inline; otherwise it queues behind the events already waiting.
-    fn admit(&self, event: &CanonicalEvent, pe: Option<PeReceiver>) {
+    /// A `deferred` event reaches admission marked so its deferred-pass rules
+    /// are left to the deferred stage.
+    fn admit(&self, event: &CanonicalEvent, pe: Option<PeReceiver>, deferred: bool) {
+        let marked;
+        let event = if deferred {
+            let mut copy = event.clone();
+            copy.set_deferred_pass_pending(true);
+            marked = copy;
+            &marked
+        } else {
+            event
+        };
         if pe.is_none() && self.pending.load(Ordering::Acquire) == 0 {
             self.downstream.route_event(event);
             return;
@@ -438,13 +546,51 @@ impl ArtifactEventHandler {
             self.downstream.route_event(&entry.event);
         }
     }
+
+    /// Hand the event's deferred-pass rules to the deferred stage. Returns
+    /// false when that stage cannot take it, so admission keeps every rule.
+    fn defer(
+        &self,
+        event: &CanonicalEvent,
+        needs: ArtifactFieldNeeds,
+        fields: DeferredReceiver,
+    ) -> bool {
+        let Some(deferred_tx) = &self.deferred_tx else {
+            return false;
+        };
+        let entry = DeferredEntry {
+            event: event.clone(),
+            needs,
+            fields,
+            evaluate_by: Instant::now()
+                .checked_add(DEFERRED_DETECTION_BUDGET)
+                .unwrap_or_else(Instant::now),
+        };
+        match deferred_tx.try_send(entry) {
+            Ok(()) => {
+                self.state
+                    .counters
+                    .deferred_queued
+                    .fetch_add(1, Ordering::Relaxed);
+                true
+            }
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                self.state
+                    .counters
+                    .deferred_queue_saturated
+                    .fetch_add(1, Ordering::Relaxed);
+                false
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => false,
+        }
+    }
 }
 
 impl CanonicalEventHandler for ArtifactEventHandler {
     fn handle_event(&self, event: &CanonicalEvent) {
         let Some(target) = ArtifactTarget::from_event(event, self.runtime.written_files.as_ref())
         else {
-            self.admit(event, None);
+            self.admit(event, None, false);
             return;
         };
         if target.kind == ArtifactKind::WrittenFile && target.expected.is_none() {
@@ -454,12 +600,12 @@ impl CanonicalEventHandler for ArtifactEventHandler {
                 .counters
                 .identity_unavailable
                 .fetch_add(1, Ordering::Relaxed);
-            self.admit(event, None);
+            self.admit(event, None, false);
             return;
         }
         let plan = ResolvePlan::snapshot(&self.runtime, event, &target);
         if plan.needs.is_empty() {
-            self.admit(event, None);
+            self.admit(event, None, false);
             return;
         }
         // Only Sigma-visible enrichment holds admission. Hashes and YARA
@@ -470,6 +616,14 @@ impl CanonicalEventHandler for ArtifactEventHandler {
         } else {
             (None, None)
         };
+        let (deferred_ready, deferred_fields) =
+            if plan.deferred.is_empty() || self.deferred_tx.is_none() {
+                (None, None)
+            } else {
+                let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                (Some(tx), Some(rx))
+            };
+        let deferred_needs = plan.deferred;
         let written_file = (target.kind == ArtifactKind::WrittenFile)
             .then(|| Box::new(event.normalized().clone()));
         let job = ArtifactJob {
@@ -477,6 +631,8 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             plan,
             enqueued_at: Instant::now(),
             pe_ready,
+            deferred_ready,
+            resolved_pe: None,
             process_start_key: event.process_start_key,
             provenance: scanner::scan_subject_provenance(event.provenance()),
             platform: event.normalized().platform,
@@ -490,7 +646,9 @@ impl CanonicalEventHandler for ArtifactEventHandler {
         ) {
             Ok(()) => {
                 self.state.counters.queued.fetch_add(1, Ordering::Relaxed);
-                self.admit(event, pe);
+                let deferred =
+                    deferred_fields.is_some_and(|fields| self.defer(event, deferred_needs, fields));
+                self.admit(event, pe, deferred);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 self.state
@@ -498,11 +656,11 @@ impl CanonicalEventHandler for ArtifactEventHandler {
                     .queue_saturated
                     .fetch_add(1, Ordering::Relaxed);
                 debug!("Artifact resolver queue full; admitting base event");
-                self.admit(event, None);
+                self.admit(event, None, false);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                 debug!("Artifact resolver stopped; admitting base event");
-                self.admit(event, None);
+                self.admit(event, None, false);
             }
         }
     }
@@ -559,11 +717,101 @@ impl Admission {
     }
 }
 
+type DeferredReceiver = std::sync::mpsc::Receiver<DeferredFields>;
+type DeferredSender = std::sync::mpsc::SyncSender<DeferredFields>;
+
+/// What resolution learned for a deferred pass: the artifact fields, and PE
+/// metadata so the deferred event is no poorer than the admitted one.
+#[derive(Debug, Default)]
+struct DeferredFields {
+    hashes: Option<ComputedHashes>,
+    imphash: Option<String>,
+    pe_metadata: Option<PeMetadata>,
+}
+
+struct DeferredEntry {
+    /// The event as ingress accepted it, before admission-time enrichment.
+    event: CanonicalEvent,
+    needs: ArtifactFieldNeeds,
+    /// A dropped sender means resolution ended without artifact fields.
+    fields: DeferredReceiver,
+    evaluate_by: Instant,
+}
+
+/// Evaluates deferred-pass rules exactly once per deferred event, in the
+/// order ingress deferred them, each no later than its own budget.
+struct DeferredDetection {
+    rx: std::sync::mpsc::Receiver<DeferredEntry>,
+    detectors: Arc<DetectorStore>,
+    host_state: Arc<HostState>,
+    alert_sink: Option<AlertSink>,
+    response_engine: Option<ResponseEngine>,
+    state: Arc<ResolverState>,
+}
+
+impl DeferredDetection {
+    fn run(self) {
+        while let Ok(mut entry) = self.rx.recv() {
+            let fields = match entry.fields.try_recv() {
+                Ok(fields) => Some(fields),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    let remaining = entry.evaluate_by.saturating_duration_since(Instant::now());
+                    match entry.fields.recv_timeout(remaining) {
+                        Ok(fields) => Some(fields),
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            self.state
+                                .counters
+                                .deferred_budget_exceeded
+                                .fetch_add(1, Ordering::Relaxed);
+                            None
+                        }
+                    }
+                }
+            };
+            let enriched = fields.is_some_and(|fields| {
+                if let Some(metadata) = &fields.pe_metadata {
+                    apply_pe_metadata(&mut entry.event, metadata);
+                }
+                apply_artifact_fields(
+                    &mut entry.event,
+                    entry.needs,
+                    fields.hashes.as_ref(),
+                    fields.imphash.as_deref(),
+                )
+            });
+            let counter = if enriched {
+                &self.state.counters.deferred_enriched
+            } else {
+                &self.state.counters.deferred_unenriched
+            };
+            counter.fetch_add(1, Ordering::Relaxed);
+            self.evaluate(&entry.event);
+        }
+    }
+
+    fn evaluate(&self, event: &CanonicalEvent) {
+        let detectors = EventDetectors::snapshot(&self.detectors);
+        for mut alert in detectors.evaluate_pass(event, DetectionPass::Deferred) {
+            self.host_state
+                .enrich_process_context(&mut alert.event, event.process_start_key);
+            if let Some(sink) = &self.alert_sink {
+                sink.write_alert(&alert);
+            }
+            if let Some(response) = &self.response_engine {
+                response.handle_alert(&alert);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArtifactKind {
     /// The executable of a process start.
     ProcessImage,
-    /// A module loaded into a process. Only PE metadata is resolved.
+    /// A module loaded into a process. PE metadata, and `Hashes`/`Imphash`
+    /// when a deferred-pass rule selects on them, are resolved.
     LoadedImage,
     /// A file named by a canonical file event and chosen by the
     /// [`WrittenFileSelector`].
@@ -654,6 +902,8 @@ fn normalize_path(platform: Platform, path: &str) -> PathBuf {
 #[derive(Clone)]
 struct ResolvePlan {
     needs: ArtifactNeeds,
+    /// Artifact fields the deferred pass needs for this event.
+    deferred: ArtifactFieldNeeds,
     ioc: Option<Arc<crate::ioc::IocEngine>>,
     yara: Option<(u64, Arc<Scanner>)>,
     max_read_bytes: u64,
@@ -671,12 +921,12 @@ impl ResolvePlan {
     ) -> Self {
         let path = &target.path;
         let scans_content = target.kind != ArtifactKind::LoadedImage;
-        let pe_metadata = runtime.pe_metadata
-            && event.normalized().platform == Platform::Windows
+        let pe_image = event.normalized().platform == Platform::Windows
             && matches!(
                 event.normalized().fields,
                 EventFields::ProcessCreation(_) | EventFields::ImageLoad(_)
             );
+        let pe_metadata = runtime.pe_metadata && pe_image;
 
         let mut needs = ArtifactNeeds {
             pe_metadata,
@@ -688,6 +938,23 @@ impl ResolvePlan {
         let mut deadline = ARTIFACT_DEADLINE;
         let mut ioc = None;
         let mut yara = None;
+        // Only Windows PE images carry Sysmon's `Hashes` and `Imphash`.
+        let deferred = match &runtime.detectors {
+            Some(detectors) if pe_image => {
+                detectors.sigma().deferred_field_needs(event.normalized())
+            }
+            _ => ArtifactFieldNeeds::default(),
+        };
+        if !deferred.is_empty() {
+            needs.hashes = HashRequirements {
+                md5: deferred.md5,
+                sha1: deferred.sha1,
+                sha256: deferred.sha256,
+            };
+            needs.imphash = deferred.imphash;
+            hash_max_bytes = PE_MAX_READ_BYTES;
+            max_read_bytes = max_read_bytes.max(PE_MAX_READ_BYTES);
+        }
 
         if scans_content {
             if let Some(detectors) = &runtime.detectors {
@@ -695,8 +962,16 @@ impl ResolvePlan {
                 if current_ioc.wants_hashing()
                     && !current_ioc.is_hash_allowlisted(&path.to_string_lossy())
                 {
-                    needs.hashes = current_ioc.hash_requirements();
-                    hash_max_bytes = nonzero_limit(current_ioc.max_file_size_bytes());
+                    let ioc_hashes = current_ioc.hash_requirements();
+                    needs.hashes = HashRequirements {
+                        md5: needs.hashes.md5 || ioc_hashes.md5,
+                        sha1: needs.hashes.sha1 || ioc_hashes.sha1,
+                        sha256: needs.hashes.sha256 || ioc_hashes.sha256,
+                    };
+                    // One digest pass serves both consumers, so it covers the
+                    // larger of their size limits.
+                    hash_max_bytes =
+                        hash_max_bytes.max(nonzero_limit(current_ioc.max_file_size_bytes()));
                     max_read_bytes = max_read_bytes.max(hash_max_bytes);
                     ioc = Some(current_ioc);
                 }
@@ -721,6 +996,7 @@ impl ResolvePlan {
 
         Self {
             needs,
+            deferred,
             ioc,
             yara,
             max_read_bytes: max_read_bytes.min(ARTIFACT_MAX_READ_BYTES),
@@ -746,6 +1022,10 @@ struct ArtifactJob {
     enqueued_at: Instant,
     /// Present while admission waits on PE metadata for this artifact.
     pe_ready: Option<PeSender>,
+    /// Present while the deferred stage waits on this artifact's fields.
+    deferred_ready: Option<DeferredSender>,
+    /// PE metadata published for this job, handed on to the deferred pass.
+    resolved_pe: Option<PeMetadata>,
     process_start_key: Option<crate::sensor::ProcessStartKey>,
     /// Fidelity limitations on the image and PID the scan alerts report.
     provenance: crate::models::Provenance,
@@ -771,8 +1051,23 @@ impl ArtifactJob {
 
     /// Release admission as soon as PE metadata is known, or known absent.
     fn publish_pe(&mut self, metadata: Option<PeMetadata>) {
+        if self.deferred_ready.is_some() {
+            self.resolved_pe = metadata.clone();
+        }
         if let Some(ready) = self.pe_ready.take() {
             let _ = ready.try_send(metadata);
+        }
+    }
+
+    /// Release the deferred pass once the artifact fields are known, or known
+    /// unavailable. Only the first call sends.
+    fn publish_deferred(&mut self, hashes: Option<ComputedHashes>, imphash: Option<String>) {
+        if let Some(ready) = self.deferred_ready.take() {
+            let _ = ready.try_send(DeferredFields {
+                hashes,
+                imphash,
+                pe_metadata: self.resolved_pe.take(),
+            });
         }
     }
 }
@@ -876,10 +1171,13 @@ impl ArtifactResolver {
             open,
         ) {
             Ok(artifact) => {
+                job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
                 self.apply(&job, &artifact);
                 self.state.counters.resolved.fetch_add(1, Ordering::Relaxed);
             }
             Err(error) => {
+                // Evaluate the deferred pass now rather than at its budget.
+                job.publish_deferred(None, None);
                 debug!(
                     target: "artifact",
                     file = %target.path.display(),
@@ -909,6 +1207,8 @@ impl ArtifactResolver {
             plan: plan.clone(),
             enqueued_at: Instant::now(),
             pe_ready: None,
+            deferred_ready: None,
+            resolved_pe: None,
             process_start_key: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -979,6 +1279,9 @@ impl ArtifactResolver {
         if plan.needs.pe_metadata && !missing.pe_metadata {
             self.publish_pe(job, artifact.pe_metadata.clone());
         }
+        if !missing.pe_metadata && !missing.needs_digest_read() {
+            job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+        }
         if Instant::now() >= deadline_at {
             self.record_deadline(deadline_recorded);
             return Err(ResolveError::Deadline(plan.deadline));
@@ -1033,12 +1336,22 @@ impl ArtifactResolver {
                 .oversized
                 .fetch_add(1, Ordering::Relaxed);
         }
+        if missing.imphash && size > PE_MAX_READ_BYTES {
+            missing.imphash = false;
+            self.state
+                .counters
+                .oversized
+                .fetch_add(1, Ordering::Relaxed);
+        }
         if missing.yara && size > plan.yara_max_bytes {
             missing.yara = false;
             self.state
                 .counters
                 .oversized
                 .fetch_add(1, Ordering::Relaxed);
+        }
+        if !missing.pe_metadata && !missing.needs_digest_read() {
+            job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
         }
         if missing.is_empty() {
             return Ok(artifact);
@@ -1085,22 +1398,60 @@ impl ArtifactResolver {
                 .stores
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .insert(identity.clone(), plan, &artifact, true);
+                .insert(
+                    identity.clone(),
+                    plan,
+                    &artifact,
+                    StoredParts {
+                        pe: true,
+                        imphash: false,
+                    },
+                );
             self.publish_pe(job, artifact.pe_metadata.clone());
+            if !missing.needs_digest_read() {
+                job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+            }
             if Instant::now() >= deadline_at {
                 self.record_deadline(deadline_recorded);
                 return Err(ResolveError::Deadline(plan.deadline));
             }
         }
         if missing.hashes.md5 || missing.hashes.sha1 || missing.hashes.sha256 {
-            artifact.hashes = Some(crate::ioc::compute_hashes_from_bytes(
-                &bytes,
-                missing.hashes,
-            ));
+            let computed = crate::ioc::compute_hashes_from_bytes(&bytes, missing.hashes);
+            // Keep digests the store already had for algorithms not missing.
+            artifact.hashes = Some(match artifact.hashes.take() {
+                Some(cached) => ComputedHashes {
+                    md5: computed.md5.or(cached.md5),
+                    sha1: computed.sha1.or(cached.sha1),
+                    sha256: computed.sha256.or(cached.sha256),
+                },
+                None => computed,
+            });
             if Instant::now() >= deadline_at {
                 self.record_deadline(deadline_recorded);
                 return Err(ResolveError::Deadline(plan.deadline));
             }
+        }
+        if missing.imphash {
+            artifact.imphash = parse_imphash_bytes(&bytes);
+        }
+        if missing.needs_digest_read() {
+            // Store and publish before YARA, so a slow scan neither delays the
+            // deferred pass nor loses digests that are already known.
+            self.state
+                .stores
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(
+                    identity.clone(),
+                    plan,
+                    &artifact,
+                    StoredParts {
+                        pe: false,
+                        imphash: missing.imphash,
+                    },
+                );
+            job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
         }
         if missing.yara {
             if let Some((_, scanner)) = &plan.yara {
@@ -1147,7 +1498,15 @@ impl ArtifactResolver {
             .stores
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        stores.insert(identity, plan, &artifact, false);
+        stores.insert(
+            identity,
+            plan,
+            &artifact,
+            StoredParts {
+                pe: false,
+                imphash: false,
+            },
+        );
         Ok(artifact)
     }
 
@@ -1277,6 +1636,74 @@ fn apply_pe_metadata(event: &mut CanonicalEvent, metadata: &PeMetadata) {
     }
 }
 
+/// Fill `Hashes` and `Imphash` on a process-start or image-load event from
+/// resolved values, limited to what the deferred rules asked for. Returns
+/// whether either field was set.
+fn apply_artifact_fields(
+    event: &mut CanonicalEvent,
+    needs: ArtifactFieldNeeds,
+    hashes: Option<&ComputedHashes>,
+    imphash: Option<&str>,
+) -> bool {
+    let imphash = imphash.filter(|_| needs.imphash);
+    let formatted = sysmon_hashes(needs, hashes, imphash);
+    let (hashes_field, imphash_field) = match &mut event.normalized_mut().fields {
+        EventFields::ProcessCreation(fields) => (&mut fields.hashes, &mut fields.imphash),
+        EventFields::ImageLoad(fields) => (&mut fields.hashes, &mut fields.imphash),
+        _ => return false,
+    };
+    let has_hashes = formatted.is_some();
+    let has_imphash = imphash.is_some();
+    *hashes_field = formatted;
+    *imphash_field = imphash.map(str::to_string);
+    // Read from the file after the event, so not a kernel measurement.
+    if has_hashes {
+        event
+            .normalized_mut()
+            .provenance
+            .mark_derived(crate::engine::HASHES_FIELD);
+    }
+    if has_imphash {
+        event
+            .normalized_mut()
+            .provenance
+            .mark_derived(crate::engine::IMPHASH_FIELD);
+    }
+    has_hashes || has_imphash
+}
+
+/// Sysmon's `Hashes` value: `SHA1=`, `MD5=`, `SHA256=`, `IMPHASH=` in that
+/// order, uppercase hex, comma separated, listing only requested values that
+/// resolved. `None` when none did, so absence is never an empty string.
+fn sysmon_hashes(
+    needs: ArtifactFieldNeeds,
+    hashes: Option<&ComputedHashes>,
+    imphash: Option<&str>,
+) -> Option<String> {
+    fn digest(wanted: bool, value: Option<&String>) -> Option<&str> {
+        value.filter(|_| wanted).map(String::as_str)
+    }
+    let parts: Vec<String> = [
+        (
+            "SHA1",
+            hashes.and_then(|h| digest(needs.sha1, h.sha1.as_ref())),
+        ),
+        (
+            "MD5",
+            hashes.and_then(|h| digest(needs.md5, h.md5.as_ref())),
+        ),
+        (
+            "SHA256",
+            hashes.and_then(|h| digest(needs.sha256, h.sha256.as_ref())),
+        ),
+        ("IMPHASH", imphash.filter(|_| needs.imphash)),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| value.map(|value| format!("{name}={}", value.to_ascii_uppercase())))
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(","))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum ResolveError {
     #[error("cannot open artifact: {0}")]
@@ -1310,6 +1737,13 @@ struct Cached<T> {
     value: T,
 }
 
+/// Optional results a store insert records even when they are absent.
+#[derive(Debug, Clone, Copy)]
+struct StoredParts {
+    pe: bool,
+    imphash: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct YaraCacheKey {
     identity: FileIdentity,
@@ -1320,7 +1754,8 @@ struct YaraCacheKey {
 struct ArtifactStores {
     pe: HashMap<FileIdentity, Cached<Option<PeMetadata>>>,
     hashes: HashMap<FileIdentity, Cached<ComputedHashes>>,
-    imphashes: HashMap<FileIdentity, Cached<String>>,
+    /// `None` records that the file has no imphash, so it is not re-read.
+    imphashes: HashMap<FileIdentity, Cached<Option<String>>>,
     signatures: HashMap<FileIdentity, Cached<ArtifactSignature>>,
     yara: HashMap<YaraCacheKey, Cached<Vec<YaraRuleMatch>>>,
     recency: HashMap<FileIdentity, u64>,
@@ -1386,7 +1821,7 @@ impl ArtifactStores {
         }
         if missing.imphash {
             if let Some(entry) = self.imphashes.get_mut(identity) {
-                artifact.imphash = Some(entry.value.clone());
+                artifact.imphash = entry.value.clone();
                 missing.imphash = false;
             }
         }
@@ -1416,10 +1851,10 @@ impl ArtifactStores {
         identity: FileIdentity,
         plan: &ResolvePlan,
         artifact: &Artifact,
-        store_pe: bool,
+        stored: StoredParts,
     ) {
         self.touch(&identity);
-        if store_pe {
+        if stored.pe {
             self.pe.insert(
                 identity.clone(),
                 Cached {
@@ -1440,11 +1875,11 @@ impl ArtifactStores {
             self.hashes
                 .insert(identity.clone(), Cached { value: merged });
         }
-        if let Some(imphash) = &artifact.imphash {
+        if stored.imphash {
             self.imphashes.insert(
                 identity.clone(),
                 Cached {
-                    value: imphash.clone(),
+                    value: artifact.imphash.clone(),
                 },
             );
         }
@@ -1522,6 +1957,16 @@ fn parse_pe_metadata_bytes(_bytes: &[u8]) -> Option<PeMetadata> {
     None
 }
 
+#[cfg(windows)]
+fn parse_imphash_bytes(bytes: &[u8]) -> Option<String> {
+    crate::utils::imphash::imphash_bytes(bytes)
+}
+
+#[cfg(not(windows))]
+fn parse_imphash_bytes(_bytes: &[u8]) -> Option<String> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1543,6 +1988,8 @@ mod tests {
             event_id_string: "1".into(),
             opcode: 1,
             fields: EventFields::ProcessCreation(ProcessCreationFields {
+                hashes: None,
+                imphash: None,
                 exec: Default::default(),
                 linux_identity: Box::<LinuxProcessIdentity>::default(),
                 image: Some(path.to_string_lossy().into_owned()),
@@ -1585,6 +2032,8 @@ mod tests {
             event_id_string: "7".into(),
             opcode: 3,
             fields: EventFields::ImageLoad(ImageLoadFields {
+                hashes: None,
+                imphash: None,
                 image_loaded: Some(path.to_string_lossy().into_owned()),
                 process_id: Some("42".into()),
                 image: None,
@@ -1789,6 +2238,7 @@ mod tests {
             let ResolverParts {
                 ingress,
                 admission,
+                deferred,
                 resolver,
                 resolve_rx,
             } = ResolverParts::new(
@@ -1799,7 +2249,7 @@ mod tests {
                 resolve_capacity,
             );
             let stages = std::thread::spawn(move || {
-                run_resolver_stages(admission, resolver, resolve_rx, open)
+                run_resolver_stages(admission, deferred, resolver, resolve_rx, open)
             });
             Self {
                 ingress,
@@ -2044,6 +2494,8 @@ mod tests {
             plan,
             enqueued_at: Instant::now() - ARTIFACT_DEADLINE,
             pe_ready: Some(pe_tx),
+            deferred_ready: None,
+            resolved_pe: None,
             process_start_key: None,
             provenance: Default::default(),
             platform: Platform::Windows,
@@ -2092,6 +2544,8 @@ mod tests {
                 plan: plan.clone(),
                 enqueued_at: Instant::now(),
                 pe_ready: None,
+                deferred_ready: None,
+                resolved_pe: None,
                 process_start_key: None,
                 provenance: Default::default(),
                 platform: Platform::Windows,
@@ -2179,7 +2633,10 @@ level: high
                 }),
                 ..Artifact::default()
             },
-            true,
+            StoredParts {
+                pe: true,
+                imphash: false,
+            },
         );
 
         harness.ingress.handle_event(&event);
@@ -2448,6 +2905,346 @@ level: high
             assert_eq!(alert["process.executable"], WRITER_IMAGE);
             assert_eq!(alert["process.pid"], 43);
         }
+    }
+
+    fn windows_rule(title: &str, category: &str, detection: &str) -> String {
+        format!(
+            "title: {title}\nlevel: high\nlogsource:\n  product: windows\n  category: {category}\ndetection:\n{detection}"
+        )
+    }
+
+    /// A detecting runtime over the given Sigma rules, with alerts written to
+    /// `alerts.ndjson` under `root`. No IOC or YARA consumer is loaded, so any
+    /// hashing comes from the deferred pass alone.
+    fn detecting_runtime(
+        root: &Path,
+        rules: &[String],
+    ) -> (
+        ArtifactRuntime,
+        Arc<DetectorStore>,
+        PathBuf,
+        tracing_appender::non_blocking::WorkerGuard,
+    ) {
+        let rules_dir = root.join("sigma");
+        std::fs::create_dir(&rules_dir).unwrap();
+        for (index, rule) in rules.iter().enumerate() {
+            std::fs::write(rules_dir.join(format!("rule{index}.yml")), rule).unwrap();
+        }
+        let mut engine = Engine::new_for_platform(Platform::Windows);
+        engine.load_rules(&rules_dir).unwrap();
+        assert!(engine.stats().failed_rules.is_empty());
+        let detectors = DetectorStore::new(
+            Arc::new(engine),
+            Arc::new(Scanner::empty()),
+            Arc::new(crate::ioc::IocEngine::disabled()),
+        );
+        let alerts_path = root.join("alerts.ndjson");
+        let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());
+        let runtime = ArtifactRuntime {
+            detectors: Some(Arc::clone(&detectors)),
+            alert_sink: Some(AlertSink::new(writer)),
+            response_engine: None,
+            match_debug: MatchDebugLevel::Off,
+            yara_allowlist_paths: Vec::new(),
+            pe_metadata: false,
+            written_files: None,
+        };
+        (runtime, detectors, alerts_path, guard)
+    }
+
+    /// Admission-side detection exactly as the live pipeline runs it.
+    struct AdmissionDetection {
+        detectors: Arc<DetectorStore>,
+        sink: AlertSink,
+    }
+
+    impl CanonicalEventHandler for AdmissionDetection {
+        fn handle_event(&self, event: &CanonicalEvent) {
+            let pass = if event.deferred_pass_pending() {
+                DetectionPass::Admission
+            } else {
+                DetectionPass::All
+            };
+            for alert in EventDetectors::snapshot(&self.detectors).evaluate_pass(event, pass) {
+                self.sink.write_alert(&alert);
+            }
+        }
+    }
+
+    fn read_alerts(path: &Path) -> Vec<serde_json::Value> {
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    fn rule_names(alerts: &[serde_json::Value]) -> Vec<String> {
+        let mut names: Vec<String> = alerts
+            .iter()
+            .map(|alert| alert["rule.name"].as_str().unwrap().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_hash_rule_fires_once_in_the_deferred_pass_and_never_at_admission() {
+        use sha2::Digest;
+
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"deferred sample image";
+        let image = temp.path().join("sample.exe");
+        std::fs::write(&image, bytes).unwrap();
+        let sha256 = hex::encode(sha2::Sha256::digest(bytes));
+        let (runtime, detectors, alerts_path, guard) = detecting_runtime(
+            temp.path(),
+            &[
+                windows_rule(
+                    "By image",
+                    "process_creation",
+                    "  selection:\n    Image|endswith: sample.exe\n  condition: selection\n",
+                ),
+                windows_rule(
+                    "By hash",
+                    "process_creation",
+                    &format!(
+                        "  selection:\n    Hashes|contains: SHA256={}\n  condition: selection\n",
+                        sha256.to_ascii_uppercase()
+                    ),
+                ),
+            ],
+        );
+        let sink = runtime.alert_sink.clone().unwrap();
+        let harness = Harness::start(
+            router_with(AdmissionDetection { detectors, sink }),
+            runtime,
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness
+            .ingress
+            .handle_event(&process_event(&image, Platform::Windows));
+        let state = harness.finish();
+        drop(guard);
+
+        let alerts = read_alerts(&alerts_path);
+        assert_eq!(rule_names(&alerts), vec!["By hash", "By image"]);
+        let by_hash = alerts
+            .iter()
+            .find(|alert| alert["rule.name"] == "By hash")
+            .unwrap();
+        assert_eq!(by_hash["process.hash.sha256"], sha256.as_str());
+        assert!(
+            by_hash.get("process.hash.md5").is_none(),
+            "only SHA256 was requested"
+        );
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.deferred_queued, 1);
+        assert_eq!(snapshot.deferred_enriched, 1);
+        assert_eq!(snapshot.deferred_unenriched, 0);
+        assert_eq!(snapshot.hash_entries, 1);
+    }
+
+    #[test]
+    fn deferred_rules_evaluate_once_without_hashes_when_the_image_cannot_be_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let (runtime, detectors, alerts_path, guard) = detecting_runtime(
+            temp.path(),
+            &[windows_rule(
+                "Hash or image",
+                "process_creation",
+                "  hash:\n    Hashes|contains: IMPHASH=00\n  image:\n    Image|endswith: gone.exe\n  condition: hash or image\n",
+            )],
+        );
+        let sink = runtime.alert_sink.clone().unwrap();
+        let harness = Harness::start(
+            router_with(AdmissionDetection { detectors, sink }),
+            runtime,
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness.ingress.handle_event(&process_event(
+            &temp.path().join("gone.exe"),
+            Platform::Windows,
+        ));
+        let state = harness.finish();
+        drop(guard);
+
+        assert_eq!(
+            rule_names(&read_alerts(&alerts_path)),
+            vec!["Hash or image"]
+        );
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.open_failed, 1);
+        assert_eq!(snapshot.deferred_unenriched, 1);
+        assert_eq!(
+            snapshot.deferred_budget_exceeded, 0,
+            "a failed read releases the pass at once"
+        );
+    }
+
+    #[test]
+    fn a_blocked_resolution_releases_the_deferred_pass_at_its_budget() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("blocked.exe");
+        std::fs::write(&image, b"artifact").unwrap();
+        let (runtime, detectors, alerts_path, guard) = detecting_runtime(
+            temp.path(),
+            &[windows_rule(
+                "Hash or image",
+                "process_creation",
+                "  hash:\n    Hashes|contains: MD5=00\n  image:\n    Image|endswith: blocked.exe\n  condition: hash or image\n",
+            )],
+        );
+        let sink = runtime.alert_sink.clone().unwrap();
+        let gate = Gate::new();
+        let harness = Harness::start(
+            router_with(AdmissionDetection { detectors, sink }),
+            runtime,
+            gate.opener(None),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        let submitted = Instant::now();
+        harness
+            .ingress
+            .handle_event(&process_event(&image, Platform::Windows));
+        let give_up = submitted + DEFERRED_DETECTION_BUDGET + Duration::from_secs(5);
+        while state_of(&harness).deferred_budget_exceeded == 0 {
+            assert!(
+                Instant::now() < give_up,
+                "the deferred pass was never released"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let waited = submitted.elapsed();
+        assert!(
+            waited >= DEFERRED_DETECTION_BUDGET,
+            "released early: {waited:?}"
+        );
+        gate.release();
+        harness.finish();
+        drop(guard);
+
+        assert_eq!(
+            rule_names(&read_alerts(&alerts_path)),
+            vec!["Hash or image"]
+        );
+    }
+
+    #[test]
+    fn nothing_is_hashed_unless_a_loaded_consumer_needs_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("tool.exe");
+        let (runtime, _, _, _guard) = detecting_runtime(
+            temp.path(),
+            &[
+                windows_rule(
+                    "By image",
+                    "process_creation",
+                    "  selection:\n    Image|endswith: tool.exe\n  condition: selection\n",
+                ),
+                windows_rule(
+                    "Loaded imphash",
+                    "image_load",
+                    "  selection:\n    Imphash: 0123\n  condition: selection\n",
+                ),
+            ],
+        );
+
+        let process = process_event(&image, Platform::Windows);
+        let process_plan = ResolvePlan::snapshot(
+            &runtime,
+            &process,
+            &ArtifactTarget::from_event(&process, None).unwrap(),
+        );
+        assert!(!process_plan.needs.needs_digest_read());
+        assert!(process_plan.deferred.is_empty());
+
+        let loaded = image_event(&image);
+        let loaded_plan = ResolvePlan::snapshot(
+            &runtime,
+            &loaded,
+            &ArtifactTarget::from_event(&loaded, None).unwrap(),
+        );
+        assert!(loaded_plan.needs.imphash);
+        assert_eq!(loaded_plan.needs.hashes, HashRequirements::default());
+
+        let linux = process_event(&image, Platform::Linux);
+        let linux_plan = ResolvePlan::snapshot(
+            &runtime,
+            &linux,
+            &ArtifactTarget::from_event(&linux, None).unwrap(),
+        );
+        assert!(
+            linux_plan.deferred.is_empty(),
+            "only Windows PE images carry these fields"
+        );
+    }
+
+    #[test]
+    fn sysmon_hashes_lists_requested_values_in_sysmon_order() {
+        let hashes = ComputedHashes {
+            md5: Some("aa".into()),
+            sha1: Some("bb".into()),
+            sha256: Some("cc".into()),
+        };
+        assert_eq!(
+            sysmon_hashes(ArtifactFieldNeeds::ALL, Some(&hashes), Some("dd")).as_deref(),
+            Some("SHA1=BB,MD5=AA,SHA256=CC,IMPHASH=DD")
+        );
+        let md5_and_imphash = ArtifactFieldNeeds {
+            md5: true,
+            imphash: true,
+            ..ArtifactFieldNeeds::default()
+        };
+        assert_eq!(
+            sysmon_hashes(md5_and_imphash, Some(&hashes), None).as_deref(),
+            Some("MD5=AA"),
+            "an image without imports leaves IMPHASH out rather than inventing one"
+        );
+        assert_eq!(sysmon_hashes(md5_and_imphash, None, None), None);
+    }
+
+    #[test]
+    fn an_absent_imphash_is_cached_so_the_file_is_not_read_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("plain.dll");
+        std::fs::write(&path, b"no imports here").unwrap();
+        let identity = file_identity::from_path(&path).unwrap();
+        let (runtime, _, _, _guard) = detecting_runtime(
+            temp.path(),
+            &[windows_rule(
+                "Loaded imphash",
+                "image_load",
+                "  selection:\n    Imphash: 0123\n  condition: selection\n",
+            )],
+        );
+        let event = image_event(&path);
+        let plan = ResolvePlan::snapshot(
+            &runtime,
+            &event,
+            &ArtifactTarget::from_event(&event, None).unwrap(),
+        );
+        let mut stores = ArtifactStores::new(10);
+        stores.insert(
+            identity.clone(),
+            &plan,
+            &Artifact::default(),
+            StoredParts {
+                pe: false,
+                imphash: true,
+            },
+        );
+
+        let mut artifact = Artifact::default();
+        let mut missing = plan.needs;
+        stores.load(&identity, &plan, &mut artifact, &mut missing);
+        assert!(!missing.imphash);
+        assert_eq!(artifact.imphash, None);
     }
 
     #[test]

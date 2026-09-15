@@ -458,6 +458,15 @@ pub struct WindowsConfig {
     /// the main session's 20 ms. Zero disables it, and gives up roughly 83% of
     /// short-lived command lines with it.
     pub etw_process_flush_interval_ms: u64,
+    /// Subscribe to the per-connection Windows Filtering Platform audit events:
+    /// 5156 (connection allowed), 5157 (connection blocked) and 5152 (packet
+    /// dropped).
+    ///
+    /// Off by default because, once the host audits them, Windows writes one
+    /// record per connection and per dropped packet, the Security channel's
+    /// highest-volume families by far. Enabling this does not enable the audit
+    /// subcategories themselves; Rustinel never changes host policy.
+    pub security_filtering_platform_connections: bool,
 }
 
 impl AppConfig {
@@ -565,7 +574,8 @@ impl AppConfig {
             .set_default("telemetry.snapshot_interval_secs", 30i64)?
             // Windows ETW delivery latency
             .set_default("windows.etw_flush_interval_ms", 20i64)?
-            .set_default("windows.etw_process_flush_interval_ms", 5i64)?;
+            .set_default("windows.etw_process_flush_interval_ms", 5i64)?
+            .set_default("windows.security_filtering_platform_connections", false)?;
 
         let builder = match selected_config {
             Some(path) => builder.add_source(config::File::from(path).required(true)),
@@ -831,6 +841,7 @@ impl Default for AppConfig {
             windows: WindowsConfig {
                 etw_flush_interval_ms: 20,
                 etw_process_flush_interval_ms: 5,
+                security_filtering_platform_connections: false,
             },
         };
 
