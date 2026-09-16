@@ -109,8 +109,7 @@ A path operand in `CommandLine` is matched in absolute form.
 The alert still reports `CommandLine` exactly as it was run, and Sigma rules never see the resolved form.
 
 - Relative operands are joined to the process start's `CurrentDirectory`, then `.` and `..` are folded without reading the file system, so a symlink before a `..` is not followed.
-- The directory is the one recorded during process-start enrichment.
-  macOS supplies the exec-time directory; Linux snapshots the live directory downstream, so an immediate `chdir` can win that race.
+- The directory is the one recorded during process-start enrichment. macOS supplies the exec-time directory; Linux snapshots the live directory downstream, so an immediate `chdir` can win that race.
   Replay resolves against the recorded directory, never the replaying host's.
 - When the event has no `CurrentDirectory`, or it is not absolute, relative operands are not matched.
   Absolute operands still are.

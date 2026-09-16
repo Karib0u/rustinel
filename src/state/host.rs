@@ -502,7 +502,7 @@ fn enrich_windows_process(event: &mut RawEvent) {
     {
         *value = crate::utils::convert_nt_to_dos(value);
     }
-    if event.action != SensorAction::Start {
+    if event.action != crate::sensor::SensorAction::Start {
         return;
     }
     let live = event.process_start_key.and_then(|key| {
