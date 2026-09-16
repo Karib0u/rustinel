@@ -56,11 +56,7 @@ fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
             .expect("command line")
             .contains("example.test"));
         assert_normalized_field_eq(&normalized, "ProcessId", &TEST_PID.to_string());
-        if platform == Platform::Windows {
-            assert_eq!(normalized.get_field("User"), None);
-        } else {
-            assert_normalized_field_eq(&normalized, "User", TEST_USER);
-        }
+        assert_normalized_field_eq(&normalized, "User", TEST_USER);
 
         let alert = engine
             .check_event(&normalized)
@@ -463,10 +459,9 @@ level: low
 
         match &rename_alert.event.fields {
             EventFields::FileEvent(fields) => {
-                assert_eq!(
-                    fields.source_filename.as_deref(),
-                    Some(test_file_path(platform))
-                );
+                let expected_source =
+                    (platform != Platform::Windows).then(|| test_file_path(platform));
+                assert_eq!(fields.source_filename.as_deref(), expected_source);
                 assert_eq!(
                     fields.target_filename.as_deref(),
                     Some(renamed_test_file_path(platform))

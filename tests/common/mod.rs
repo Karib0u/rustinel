@@ -285,7 +285,7 @@ pub fn file_rename_event(platform: Platform) -> SensorEvent {
     file_event(
         platform,
         SensorAction::Rename,
-        Some(test_file_path(platform)),
+        (platform != Platform::Windows).then(|| test_file_path(platform)),
         Some(renamed_test_file_path(platform)),
     )
 }
@@ -313,7 +313,7 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
             user: None,
             query_name: Some(TEST_DOMAIN.to_string()),
             query_results: Some(TEST_DESTINATION_IP.to_string()),
-            record_type: Some("A".to_string()),
+            record_type: (platform != Platform::Windows).then(|| "A".to_string()),
             query_status: Some("NOERROR".to_string()),
             process_id: Some(TEST_PID.to_string()),
             image: None,
