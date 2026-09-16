@@ -130,7 +130,7 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         .saturating_add(resolver.deferred_budget_exceeded)
         .saturating_add(resolver.deferred_queue_saturated);
     let detail = format!(
-        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; deferred pass: {} queued, {} with artifact fields, {} without ({} past the {} ms budget), {} queue saturated; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} identity unavailable, {} read, {} consumer, {} oversized",
+        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; deferred pass: {} queued, {} with artifact fields, {} without ({} past the {} ms budget), {} queue saturated, correlation lateness bounded at {} ms; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} identity unavailable, {} read, {} consumer, {} oversized",
         resolver.queued,
         resolver.resolved,
         resolver.cache_hits,
@@ -151,6 +151,7 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         resolver.deferred_budget_exceeded,
         resolver.deferred_budget_ms,
         resolver.deferred_queue_saturated,
+        resolver.correlation_lateness_ms,
         resolver.queue_saturated,
         resolver.worker_saturated,
         resolver.deadline_exceeded,
@@ -941,6 +942,7 @@ mod tests {
             deferred_budget_exceeded: 1,
             deferred_queue_saturated: 2,
             deferred_budget_ms: 2_000,
+            correlation_lateness_ms: 2_000,
             pe_entries: 4,
             hash_entries: 5,
             imphash_entries: 6,

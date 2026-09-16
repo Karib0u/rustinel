@@ -58,7 +58,7 @@ const ADMISSION_QUEUE_CAPACITY: usize = 4096;
 /// Longest a deferred-pass event waits for `Hashes` and `Imphash`, measured
 /// from its arrival. Past it the deferred rules evaluate it without them, so
 /// their detections reach correlation at most this late.
-pub(crate) const DEFERRED_DETECTION_BUDGET: Duration = Duration::from_secs(2);
+pub(crate) const DEFERRED_DETECTION_BUDGET: Duration = crate::engine::CORRELATION_REORDER_BUDGET;
 /// Deferred entries wait at most their budget, so the queue only absorbs the
 /// artifact events of one budget window. When it is full, the event keeps
 /// every rule at admission instead.
@@ -179,6 +179,10 @@ pub struct ArtifactResolverSnapshot {
     pub deferred_queue_saturated: u64,
     #[serde(default)]
     pub deferred_budget_ms: u64,
+    /// Maximum extra time correlation updates wait for an earlier event's
+    /// deferred pass so every window sees ingest order.
+    #[serde(default)]
+    pub correlation_lateness_ms: u64,
     pub pe_entries: usize,
     pub hash_entries: usize,
     pub imphash_entries: usize,
@@ -264,6 +268,7 @@ impl ResolverState {
                 .deferred_queue_saturated
                 .load(Ordering::Relaxed),
             deferred_budget_ms: DEFERRED_DETECTION_BUDGET.as_millis() as u64,
+            correlation_lateness_ms: crate::engine::CORRELATION_REORDER_BUDGET.as_millis() as u64,
             pe_entries: stores.pe.len(),
             hash_entries: stores.hashes.len(),
             imphash_entries: stores.imphashes.len(),
@@ -794,9 +799,10 @@ impl DeferredDetection {
 
     fn evaluate(&self, event: &CanonicalEvent) {
         let detectors = EventDetectors::snapshot(&self.detectors);
-        for mut alert in detectors.evaluate_pass(event, DetectionPass::Deferred) {
+        for result in detectors.evaluate_pass_with_origins(event, DetectionPass::Deferred) {
+            let mut alert = result.alert;
             self.host_state
-                .enrich_process_context(&mut alert.event, event.process_start_key);
+                .enrich_process_context(&mut alert.event, result.process_start_key);
             if let Some(sink) = &self.alert_sink {
                 sink.write_alert(&alert);
             }
@@ -3315,6 +3321,10 @@ level: high
         assert_eq!(snapshot.deferred_queued, 1);
         assert_eq!(snapshot.deferred_enriched, 1);
         assert_eq!(snapshot.deferred_unenriched, 0);
+        assert_eq!(
+            snapshot.correlation_lateness_ms,
+            DEFERRED_DETECTION_BUDGET.as_millis() as u64
+        );
         assert_eq!(snapshot.hash_entries, 1);
     }
 
