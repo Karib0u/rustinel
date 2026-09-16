@@ -49,6 +49,7 @@ const EVENT_ID_DNS_QUERY: u16 = 22;
 
 const PROCESS_EVENT_EXEC: u32 = 1;
 const PROCESS_EVENT_EXIT: u32 = 2;
+const PROCESS_EVENT_FORK: u32 = 3;
 
 const FILE_EVENT_CREATE: u32 = 1;
 const FILE_EVENT_DELETE: u32 = 2;
@@ -775,6 +776,51 @@ fn build_process_event_with_clock(
                     identity: ev.raw_linux_identity(),
                     cgroup_id: (ev.cgroup_id != 0).then_some(ev.cgroup_id),
                     parent_process_id_derived: false,
+                    image_source: None,
+                    image_truncated: None,
+                })),
+            }),
+        }),
+        PROCESS_EVENT_FORK => Some(SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
+            platform: Platform::Linux,
+            provider: "ebpf",
+            action: SensorAction::Fork,
+            normalization: SensorNormalization {
+                event_id: 0,
+                action_code: 3,
+            },
+            pid: Some(ev.pid),
+            timestamp: time_converter.system_time(ev.event_time_ns),
+            source_seq: Some(ev.source_seq),
+            process_start_key: process_start_key(ev.pid, ev.process_start_time),
+            parent_process_start_key: process_start_key(
+                ev.parent_pid,
+                ev.parent_process_start_time,
+            ),
+            payload: SensorPayload::Process(RawProcessEvent {
+                process_id: ev.pid,
+                parent_process_id: (ev.parent_pid != 0).then_some(ev.parent_pid),
+                process_start_time: None,
+                image: None,
+                command_line: None,
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                target_image: None,
+                platform: Box::new(RawProcessPlatform::Linux(RawLinuxProcess {
+                    real_user_id: None,
+                    identity: Default::default(),
+                    cgroup_id: (ev.cgroup_id != 0).then_some(ev.cgroup_id),
+                    parent_process_id_derived: ev.parent_pid_derived != 0,
                     image_source: None,
                     image_truncated: None,
                 })),
@@ -1514,6 +1560,36 @@ mod tests {
                 assert_eq!(fields.image.as_deref(), Some("/usr/bin/bash"));
                 assert_eq!(fields.process_id, DEAD_PID);
                 assert!(matches!(*fields.platform, RawProcessPlatform::Linux(_)));
+            }
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_process_fork_event_emits_internal_lineage_update() {
+        let raw = raw_process_event(PROCESS_EVENT_FORK, 42, "");
+
+        let event = build_process_event(&raw).expect("process fork should build");
+        assert_eq!(event.action, SensorAction::Fork);
+        assert_eq!(event.normalization.action_code, 3);
+        assert_eq!(
+            event.process_start_key,
+            Some(ProcessStartKey {
+                pid: 42,
+                start_time: 123_456,
+            })
+        );
+        assert_eq!(
+            event.parent_process_start_key,
+            Some(ProcessStartKey {
+                pid: 41,
+                start_time: 111_222,
+            })
+        );
+        match event.payload {
+            SensorPayload::Process(fields) => {
+                assert_eq!(fields.parent_process_id, Some(41));
+                assert!(fields.image.is_none());
             }
             other => panic!("unexpected payload: {:?}", other),
         }

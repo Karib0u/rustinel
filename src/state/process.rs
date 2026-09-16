@@ -191,6 +191,48 @@ impl ProcessCache {
         self.cleanup_graveyard_if_needed(now_secs());
     }
 
+    /// Register a forked process under its own stable identity while carrying
+    /// forward the executable metadata of the exact parent generation.
+    pub(crate) fn inherit(
+        &self,
+        child_pid: u32,
+        child_creation_time: u64,
+        parent_pid: u32,
+        parent_creation_time: u64,
+    ) -> bool {
+        let Some(parent) = self.get_metadata_by_key(parent_pid, parent_creation_time) else {
+            return false;
+        };
+
+        let parent_image = parent.image_name.clone();
+        let parent_command_line = parent.command_line.clone();
+        let mut provenance = parent.provenance.clone();
+        provenance.mark_derived("Image");
+        if parent.command_line.is_some() {
+            provenance.mark_derived("CommandLine");
+        }
+
+        self.add_with_provenance(
+            child_pid,
+            child_creation_time,
+            parent.image_name,
+            parent.command_line,
+            parent.user,
+            Some(parent_pid),
+            Some(parent_image),
+            parent_command_line,
+            parent.original_filename,
+            parent.product,
+            parent.description,
+            parent.company,
+            parent.file_version,
+            parent.current_directory,
+            parent.integrity_level,
+            provenance,
+        );
+        true
+    }
+
     /// Remove a process from the cache (called on process exit)
     /// Moves the exact process identity into the short-lived graveyard.
     pub fn remove(&self, pid: u32, creation_time: u64) {
@@ -417,5 +459,43 @@ mod tests {
                 .map(|meta| meta.creation_time),
             Some(200)
         );
+    }
+
+    #[test]
+    fn fork_inherits_only_from_the_exact_parent_identity() {
+        let cache = ProcessCache::new();
+        cache.add(
+            10,
+            100,
+            "/usr/bin/server".into(),
+            Some("server --prefork".into()),
+            Some("service".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("/srv".into()),
+            None,
+        );
+
+        assert!(!cache.inherit(20, 200, 10, 99));
+        assert!(cache.get_metadata_by_key(20, 200).is_none());
+        assert!(cache.inherit(20, 200, 10, 100));
+
+        let child = cache.get_metadata_by_key(20, 200).unwrap();
+        assert_eq!(child.image_name, "/usr/bin/server");
+        assert_eq!(child.command_line.as_deref(), Some("server --prefork"));
+        assert_eq!(child.parent_pid, Some(10));
+        assert_eq!(child.parent_image.as_deref(), Some("/usr/bin/server"));
+        assert_eq!(child.current_directory.as_deref(), Some("/srv"));
+        assert!(child
+            .provenance
+            .entries()
+            .iter()
+            .any(|entry| entry.field == "Image"));
     }
 }

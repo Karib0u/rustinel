@@ -2114,7 +2114,7 @@ const fn action_code_matches(action: SensorAction, opcode: u8) -> bool {
         | SensorAction::Load
         | SensorAction::Execute
         | SensorAction::Register => opcode == 0 || opcode == 10,
-        SensorAction::Disconnect | SensorAction::Access => true,
+        SensorAction::Disconnect | SensorAction::Access | SensorAction::Fork => true,
     }
 }
 
