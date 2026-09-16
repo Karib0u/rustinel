@@ -195,6 +195,118 @@ impl Default for HostState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    fn linux_process(
+        image: &str,
+        command_line: &str,
+        start_ticks: u64,
+    ) -> crate::sensor::RawProcessEvent {
+        use crate::sensor::{
+            RawLinuxProcess, RawLinuxProcessIdentity, RawProcessEvent, RawProcessPlatform,
+        };
+
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        assert!(hz > 0);
+        let hz = hz as u64;
+        let start_ns =
+            u64::try_from((u128::from(start_ticks) * 1_000_000_000_u128).div_ceil(u128::from(hz)))
+                .unwrap();
+        RawProcessEvent {
+            process_id: 42,
+            parent_process_id: None,
+            process_start_time: None,
+            image: Some(image.to_string()),
+            command_line: Some(command_line.to_string()),
+            parent_image: None,
+            parent_command_line: None,
+            current_directory: None,
+            integrity_level: None,
+            user: None,
+            original_file_name: None,
+            product: None,
+            description: None,
+            company: None,
+            file_version: None,
+            target_image: None,
+            platform: Box::new(RawProcessPlatform::Linux(RawLinuxProcess {
+                real_user_id: None,
+                identity: RawLinuxProcessIdentity {
+                    kernel_start_boottime: Some(start_ns),
+                    ..Default::default()
+                },
+                cgroup_id: None,
+                image_source: Some("execve".to_string()),
+                image_truncated: None,
+                parent_process_id_derived: false,
+            })),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn linux_details(start_time: u64) -> crate::utils::process::ProcessDetails {
+        crate::utils::process::ProcessDetails {
+            image: Some("/tmp/payload".to_string()),
+            command_line: Some("payload --probe".to_string()),
+            current_directory: Some("/tmp".to_string()),
+            start_time: Some(start_time),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_process_paths_are_derived_without_rewriting_command_line() {
+        let mut process = linux_process("payload", "payload --probe", 100);
+        let mut provenance = crate::models::Provenance::default();
+
+        enrich_linux_process_from_details(
+            &mut process,
+            &mut provenance,
+            linux_details(100),
+            Some(crate::sensor::ProcessStartKey {
+                pid: 42,
+                start_time: 900,
+            }),
+        );
+
+        assert_eq!(process.image.as_deref(), Some("/tmp/payload"));
+        assert_eq!(process.current_directory.as_deref(), Some("/tmp"));
+        assert_eq!(process.command_line.as_deref(), Some("payload --probe"));
+        let crate::sensor::RawProcessPlatform::Linux(source) = process.platform.as_ref() else {
+            unreachable!()
+        };
+        assert_eq!(source.image_source.as_deref(), Some("proc"));
+        assert!(provenance.has("Image", crate::models::Fidelity::Derived));
+        assert!(provenance.has("CurrentDirectory", crate::models::Fidelity::Derived));
+        assert!(!provenance.has("CommandLine", crate::models::Fidelity::Derived));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_process_identity_mismatch_leaves_derived_paths_absent() {
+        let mut process = linux_process("payload", "payload --probe", 100);
+        let mut provenance = crate::models::Provenance::default();
+
+        enrich_linux_process_from_details(
+            &mut process,
+            &mut provenance,
+            linux_details(101),
+            Some(crate::sensor::ProcessStartKey {
+                pid: 42,
+                start_time: 900,
+            }),
+        );
+
+        assert_eq!(process.image.as_deref(), Some("payload"));
+        assert!(process.current_directory.is_none());
+        let crate::sensor::RawProcessPlatform::Linux(source) = process.platform.as_ref() else {
+            unreachable!()
+        };
+        assert_eq!(source.image_source.as_deref(), Some("execve"));
+        assert!(provenance.is_empty());
+    }
+
     #[test]
     fn snapshot_reports_inventory_and_bounded_state() {
         let state = HostState::new(StateLimits {
@@ -260,20 +372,124 @@ impl HostState {
     }
 
     fn enrich(&self, event: &mut RawEvent) {
+        #[cfg(target_os = "linux")]
+        {
+            enrich_linux_process(event);
+        }
+
         #[cfg(windows)]
         {
             enrich_windows_process(event);
         }
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         let _ = event;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn enrich_linux_process(event: &mut RawEvent) {
+    use crate::utils::query_process_details;
+
+    if event.platform != crate::sensor::Platform::Linux
+        || event.action != crate::sensor::SensorAction::Start
+    {
+        return;
+    }
+    let RawPayload::Process(process) = &mut event.payload else {
+        return;
+    };
+    let Some(details) = query_process_details(process.process_id) else {
+        return;
+    };
+    enrich_linux_process_from_details(
+        process,
+        &mut event.provenance,
+        details,
+        event.process_start_key,
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn enrich_linux_process_from_details(
+    process: &mut crate::sensor::RawProcessEvent,
+    provenance: &mut crate::models::Provenance,
+    details: crate::utils::process::ProcessDetails,
+    process_start_key: Option<crate::sensor::ProcessStartKey>,
+) {
+    use crate::sensor::RawProcessPlatform;
+    use crate::utils::{hash_command_line, ProcessIdentity};
+    use std::path::{Path, PathBuf};
+
+    let RawProcessPlatform::Linux(source) = process.platform.as_ref() else {
+        return;
+    };
+    let Some(raw_image) = process.image.as_deref() else {
+        return;
+    };
+    let Some(current_image) = details.image.as_deref() else {
+        return;
+    };
+    let Some(expected_start) = source
+        .identity
+        .kernel_start_boottime
+        .and_then(crate::utils::process::linux_boot_time_ns_to_start_ticks)
+    else {
+        return;
+    };
+    if process_start_key.is_none_or(|key| key.pid != process.process_id) {
+        return;
+    }
+
+    let expected_image = if Path::new(raw_image).is_absolute() {
+        PathBuf::from(raw_image)
+    } else {
+        let Some(cwd) = details.current_directory.as_deref() else {
+            return;
+        };
+        if !Path::new(cwd).is_absolute() {
+            return;
+        }
+        Path::new(cwd).join(raw_image)
+    };
+    let command_line_hash = if provenance.has("CommandLine", crate::models::Fidelity::Truncated) {
+        None
+    } else {
+        process.command_line.as_deref().map(hash_command_line)
+    };
+    let expected = ProcessIdentity {
+        pid: process.process_id,
+        image: expected_image.to_string_lossy().into_owned(),
+        start_time: Some(expected_start),
+        command_line_hash,
+    };
+    let current = ProcessIdentity {
+        pid: process.process_id,
+        image: current_image.to_string(),
+        start_time: details.start_time,
+        command_line_hash: details.command_line.as_deref().map(hash_command_line),
+    };
+    if expected.matches(&current).is_err() {
+        return;
+    }
+
+    if !Path::new(raw_image).is_absolute() {
+        process.image = Some(current.image);
+        if let RawProcessPlatform::Linux(source) = process.platform.as_mut() {
+            source.image_source = Some("proc".to_string());
+        }
+        provenance.mark_derived("Image");
+    }
+    if process.current_directory.is_none() {
+        process.current_directory = details.current_directory;
+        if process.current_directory.is_some() {
+            provenance.mark_derived("CurrentDirectory");
+        }
     }
 }
 
 #[cfg(windows)]
 fn enrich_windows_process(event: &mut RawEvent) {
-    use crate::sensor::{RawPayload, SensorAction};
-
     if event.platform != crate::sensor::Platform::Windows {
         return;
     }
@@ -286,7 +502,7 @@ fn enrich_windows_process(event: &mut RawEvent) {
     {
         *value = crate::utils::convert_nt_to_dos(value);
     }
-    if event.action != SensorAction::Start {
+    if event.action != crate::sensor::SensorAction::Start {
         return;
     }
     let live = event.process_start_key.and_then(|key| {

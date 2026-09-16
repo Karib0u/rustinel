@@ -43,6 +43,11 @@ const SINCE_ARTIFACT_HASHES: Option<&str> = Some("1.7.1");
 /// TODO(release): set to the release that ships it, as for
 /// [`SINCE_DNS_RESPONSES`].
 const SINCE_CONTAINER_CONTEXT: Option<&str> = Some("1.7.1");
+/// Identity-checked Linux process path enrichment (#231).
+///
+/// TODO(release): set to the release that ships it, as for
+/// [`SINCE_DNS_RESPONSES`].
+const SINCE_PROCESS_PATH_ENRICHMENT: Option<&str> = Some("1.7.1");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -950,8 +955,8 @@ const LINUX_PROCESS: &[FieldContract] = &[
     ),
     conditional(
         "CurrentDirectory",
-        SINCE_BASELINE,
-        "the live /proc entry is available",
+        SINCE_PROCESS_PATH_ENRICHMENT,
+        "the live /proc entry and BTF process identity remain available during downstream enrichment",
     ),
     conditional(
         "CgroupId",

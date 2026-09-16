@@ -8085,9 +8085,9 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "CurrentDirectory",
-      "since": null,
+      "since": "1.7.1",
       "availability": "conditional",
-      "reason": "the live /proc entry is available"
+      "reason": "the live /proc entry and BTF process identity remain available during downstream enrichment"
     },
     {
       "platform": "linux",
