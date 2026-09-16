@@ -59,6 +59,7 @@ Its consumer results remain in separate `FileIdentity`-keyed stores under one ev
 | `admission_budget_exceeded` | Events admitted without PE metadata because resolution missed the budget |
 | `admission_backpressure` | Events that waited for room in the ordered admission queue; each wait is bounded by the budget |
 | `deferred_budget_ms` | Longest a deferred-pass event waits for `Hashes` and `Imphash` before its rules evaluate it without them |
+| `correlation_lateness_ms` | Maximum extra time a correlation update waits to preserve ingest order across admission and deferred passes |
 | `deferred_queued` | Events whose deferred-pass rules waited for artifact fields |
 | `deferred_enriched`, `deferred_unenriched` | Deferred passes evaluated with at least one artifact field, or without any |
 | `deferred_budget_exceeded` | Deferred passes evaluated without the fields because the budget expired first; also counted in `deferred_unenriched` |
