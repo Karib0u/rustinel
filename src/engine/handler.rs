@@ -97,14 +97,15 @@ impl CanonicalEventHandler for NormalizedEventHandler {
         } else {
             DetectionPass::All
         };
-        let alerts = detectors.evaluate_pass(event, pass);
+        let alerts = detectors.evaluate_pass_with_origins(event, pass);
         if alerts.is_empty() {
             tracing::trace!(target: TARGET_ENGINE, "No rule matched this event");
         }
 
-        for mut alert in alerts {
+        for result in alerts {
+            let mut alert = result.alert;
             self.host_state
-                .enrich_process_context(&mut alert.event, event.process_start_key);
+                .enrich_process_context(&mut alert.event, result.process_start_key);
 
             detection.alert_sink.write_alert(&alert);
             detection.response_engine.handle_alert(&alert);
