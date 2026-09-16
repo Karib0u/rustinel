@@ -684,9 +684,7 @@ mod tests {
         }));
 
         assert!(result.is_err(), "a populated Never field must fail tests");
-        assert!(
-            crate::telemetry::TelemetrySnapshot::capture().field_contract_violations >= before + 1
-        );
+        assert!(crate::telemetry::TelemetrySnapshot::capture().field_contract_violations > before);
     }
 
     #[test]
