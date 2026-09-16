@@ -12,34 +12,64 @@
 pub mod task_identity_abi;
 
 #[cfg(target_os = "linux")]
-use std::sync::OnceLock;
-#[cfg(target_os = "linux")]
 use std::time::{Duration, SystemTime};
 
+/// Converts kernel `CLOCK_BOOTTIME` timestamps using a sampled wall-clock
+/// offset.
+///
+/// The offset is deliberately owned by the ring-buffer poller instead of being
+/// process-global: realtime can be stepped by NTP or an administrator while
+/// Rustinel is running. The poller refreshes this value once per second and
+/// uses one snapshot for each drained batch.
 #[cfg(target_os = "linux")]
-static BOOT_EPOCH: OnceLock<SystemTime> = OnceLock::new();
+#[derive(Clone, Copy, Debug)]
+pub struct BootTimeConverter {
+    boot_epoch: SystemTime,
+}
 
-/// Convert the kernel's `CLOCK_BOOTTIME` nanoseconds into wall-clock time.
 #[cfg(target_os = "linux")]
-pub fn system_time_from_boot_ns(event_time_ns: u64) -> SystemTime {
-    let boot_epoch = *BOOT_EPOCH.get_or_init(|| {
-        let mut current = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        let uptime = if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut current) } == 0 {
-            Duration::new(current.tv_sec.max(0) as u64, current.tv_nsec.max(0) as u32)
-        } else {
-            Duration::ZERO
-        };
-        SystemTime::now()
-            .checked_sub(uptime)
+impl BootTimeConverter {
+    pub fn capture() -> Self {
+        let (realtime, boottime) = clock_samples();
+        Self::from_clock_samples(realtime, boottime)
+    }
+
+    pub fn refresh(&mut self) {
+        let (realtime, boottime) = clock_samples();
+        self.refresh_from_clock_samples(realtime, boottime);
+    }
+
+    fn refresh_from_clock_samples(&mut self, realtime: SystemTime, boottime: Duration) {
+        *self = Self::from_clock_samples(realtime, boottime);
+    }
+
+    fn from_clock_samples(realtime: SystemTime, boottime: Duration) -> Self {
+        Self {
+            boot_epoch: realtime
+                .checked_sub(boottime)
+                .unwrap_or(SystemTime::UNIX_EPOCH),
+        }
+    }
+
+    pub fn system_time(&self, event_time_ns: u64) -> SystemTime {
+        self.boot_epoch
+            .checked_add(Duration::from_nanos(event_time_ns))
             .unwrap_or(SystemTime::UNIX_EPOCH)
-    });
+    }
+}
 
-    boot_epoch
-        .checked_add(Duration::from_nanos(event_time_ns))
-        .unwrap_or(SystemTime::UNIX_EPOCH)
+#[cfg(target_os = "linux")]
+fn clock_samples() -> (SystemTime, Duration) {
+    let mut current = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let uptime = if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut current) } == 0 {
+        Duration::new(current.tv_sec.max(0) as u64, current.tv_nsec.max(0) as u32)
+    } else {
+        Duration::ZERO
+    };
+    (SystemTime::now(), uptime)
 }
 
 /// Maximum bytes of argv the eBPF exec path captures. Mirrors
@@ -421,7 +451,7 @@ pub mod mapping {
 
     use super::super::paths::{resolve_at_path, truncation_marker, DirFdIndex};
     use super::{
-        bytes_to_string, system_time_from_boot_ns, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
+        bytes_to_string, BootTimeConverter, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
     };
 
     const PROVIDER: &str = "ebpf";
@@ -450,7 +480,7 @@ pub mod mapping {
                 action_code: event.kind as u8,
             },
             pid: Some(event.pid),
-            timestamp: system_time_from_boot_ns(event.event_time_ns),
+            timestamp: current_timestamp(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
             parent_process_start_key: process_start_key(
@@ -508,7 +538,7 @@ pub mod mapping {
                 action_code: 12,
             },
             pid: Some(event.pid),
-            timestamp: system_time_from_boot_ns(event.event_time_ns),
+            timestamp: current_timestamp(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
             parent_process_start_key: None,
@@ -578,7 +608,7 @@ pub mod mapping {
             action,
             normalization,
             pid: Some(event.pid),
-            timestamp: system_time_from_boot_ns(event.event_time_ns),
+            timestamp: current_timestamp(event.event_time_ns),
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
             parent_process_start_key: None,
@@ -616,6 +646,10 @@ pub mod mapping {
     fn process_start_key(pid: u32, start_time: u64) -> Option<ProcessStartKey> {
         (start_time != 0).then_some(ProcessStartKey { pid, start_time })
     }
+
+    fn current_timestamp(event_time_ns: u64) -> std::time::SystemTime {
+        BootTimeConverter::capture().system_time(event_time_ns)
+    }
 }
 
 #[cfg(test)]
@@ -634,12 +668,38 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn boot_clock_conversion_preserves_kernel_event_deltas() {
-        let earlier = system_time_from_boot_ns(1_000_000_000);
-        let later = system_time_from_boot_ns(1_123_456_789);
+        let converter = BootTimeConverter::capture();
+        let earlier = converter.system_time(1_000_000_000);
+        let later = converter.system_time(1_123_456_789);
 
         assert_eq!(
             later.duration_since(earlier).expect("time moves forward"),
             std::time::Duration::from_nanos(123_456_789)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn refreshed_boot_clock_conversion_tracks_realtime_steps() {
+        let boottime = std::time::Duration::from_secs(2 * 60 * 60);
+        let event_boottime_ns = 2 * 60 * 60 * 1_000_000_000;
+        let mut converter = BootTimeConverter::from_clock_samples(
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10 * 60 * 60),
+            boottime,
+        );
+        let before_step = converter.system_time(event_boottime_ns);
+
+        converter.refresh_from_clock_samples(
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(11 * 60 * 60),
+            boottime,
+        );
+
+        assert_eq!(
+            converter
+                .system_time(event_boottime_ns)
+                .duration_since(before_step)
+                .expect("a forward clock step moves converted event time forward"),
+            std::time::Duration::from_secs(60 * 60)
         );
     }
 

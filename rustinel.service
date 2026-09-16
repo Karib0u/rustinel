@@ -1,7 +1,7 @@
 [Unit]
 Description=Rustinel eBPF Sentinel
 Documentation=https://github.com/Karib0u/rustinel
-After=network.target
+After=network.target time-sync.target
 
 [Service]
 Type=simple
