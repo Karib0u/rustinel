@@ -32,7 +32,7 @@ use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 
 use super::abi::validate_object_abi;
 use super::events::{
-    bytes_to_string, connect_result_is_connection, parse_event, system_time_from_boot_ns, DnsEvent,
+    bytes_to_string, connect_result_is_connection, parse_event, BootTimeConverter, DnsEvent,
     FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent, DNS_EVENT_QUERY,
     DNS_EVENT_RESPONSE,
 };
@@ -416,6 +416,7 @@ async fn run_ring_poll(
     let mut counter_tick = tokio::time::interval(std::time::Duration::from_secs(1));
     counter_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut counter_read_failed = false;
+    let mut time_converter = BootTimeConverter::capture();
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -427,36 +428,8 @@ async fn run_ring_poll(
         tokio::select! {
             biased;
 
-            Ok(mut guard) = process_fd.readable_mut() => {
-                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_process_ring(rb, &tx);
-                guard.clear_ready();
-            }
-
-            Ok(mut guard) = network_fd.readable_mut() => {
-                // A DNS answer is submitted before the connection that uses
-                // it, but lives in another ring. Drain DNS first so the answer
-                // reaches the DNS cache before the connection is normalized.
-                drain_dns_ring(dns_fd.get_mut(), &tx);
-                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_network_ring(rb, &tx);
-                guard.clear_ready();
-            }
-
-            Ok(mut guard) = file_fd.readable_mut() => {
-                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                let mut dir_fds = host.dir_fds.lock().unwrap_or_else(|e| e.into_inner());
-                drain_file_ring(rb, &tx, &mut dir_fds, &mut unresolved_file_events, &host);
-                guard.clear_ready();
-            }
-
-            Ok(mut guard) = dns_fd.readable_mut() => {
-                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_dns_ring(rb, &tx);
-                guard.clear_ready();
-            }
-
             _ = counter_tick.tick() => {
+                time_converter.refresh();
                 match refresh_kernel_counters(&kernel_counters) {
                     Ok(()) => counter_read_failed = false,
                     Err(err) if !counter_read_failed => {
@@ -465,6 +438,42 @@ async fn run_ring_poll(
                     }
                     Err(_) => {}
                 }
+            }
+
+            Ok(mut guard) = process_fd.readable_mut() => {
+                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
+                drain_process_ring(rb, &tx, time_converter);
+                guard.clear_ready();
+            }
+
+            Ok(mut guard) = network_fd.readable_mut() => {
+                // A DNS answer is submitted before the connection that uses
+                // it, but lives in another ring. Drain DNS first so the answer
+                // reaches the DNS cache before the connection is normalized.
+                drain_dns_ring(dns_fd.get_mut(), &tx, time_converter);
+                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
+                drain_network_ring(rb, &tx, time_converter);
+                guard.clear_ready();
+            }
+
+            Ok(mut guard) = file_fd.readable_mut() => {
+                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
+                let mut dir_fds = host.dir_fds.lock().unwrap_or_else(|e| e.into_inner());
+                drain_file_ring(
+                    rb,
+                    &tx,
+                    &mut dir_fds,
+                    &mut unresolved_file_events,
+                    &host,
+                    time_converter,
+                );
+                guard.clear_ready();
+            }
+
+            Ok(mut guard) = dns_fd.readable_mut() => {
+                let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
+                drain_dns_ring(rb, &tx, time_converter);
+                guard.clear_ready();
             }
 
             // Wake up periodically to check the shutdown flag even when
@@ -504,7 +513,11 @@ fn refresh_kernel_counters(counters: &PerCpuArray<MapData, KernelCounterRow>) ->
 
 // ── Ring-buffer drain helpers ────────────────────────────────────────────────
 
-fn drain_process_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
+fn drain_process_ring(
+    rb: &mut RingBuf<MapData>,
+    tx: &Sender<SensorEvent>,
+    time_converter: BootTimeConverter,
+) {
     while let Some(item) = rb.next() {
         LINUX_EBPF.record_received(LinuxEbpfFamily::Process);
         let bytes: &[u8] = &item;
@@ -514,7 +527,7 @@ fn drain_process_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
             continue;
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::Process);
-        if let Some(sensor_event) = build_process_event(&ev) {
+        if let Some(sensor_event) = build_process_event_with_clock(&ev, time_converter) {
             LINUX_EBPF.record_emitted(LinuxEbpfFamily::Process);
             try_send(tx, sensor_event);
         } else {
@@ -523,7 +536,11 @@ fn drain_process_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
     }
 }
 
-fn drain_network_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
+fn drain_network_ring(
+    rb: &mut RingBuf<MapData>,
+    tx: &Sender<SensorEvent>,
+    time_converter: BootTimeConverter,
+) {
     while let Some(item) = rb.next() {
         LINUX_EBPF.record_received(LinuxEbpfFamily::Network);
         let bytes: &[u8] = &item;
@@ -533,7 +550,7 @@ fn drain_network_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
             continue;
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::Network);
-        if let Some(sensor_event) = build_network_event(&ev) {
+        if let Some(sensor_event) = build_network_event_with_clock(&ev, time_converter) {
             LINUX_EBPF.record_emitted(LinuxEbpfFamily::Network);
             try_send(tx, sensor_event);
         } else {
@@ -554,6 +571,7 @@ fn drain_file_ring(
     dir_fds: &mut DirFdIndex,
     unresolved: &mut u64,
     host: &crate::state::HostState,
+    time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
         LINUX_EBPF.record_received(LinuxEbpfFamily::File);
@@ -588,7 +606,9 @@ fn drain_file_ring(
             continue;
         }
         let unresolved_before = *unresolved;
-        if let Some(sensor_event) = build_file_event(&ev, dir_fds, unresolved) {
+        if let Some(sensor_event) =
+            build_file_event_with_clock(&ev, dir_fds, unresolved, time_converter)
+        {
             LINUX_EBPF.record_emitted(LinuxEbpfFamily::File);
             try_send(tx, sensor_event);
         } else if *unresolved > unresolved_before {
@@ -623,7 +643,11 @@ fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) -> bool {
     false
 }
 
-fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
+fn drain_dns_ring(
+    rb: &mut RingBuf<MapData>,
+    tx: &Sender<SensorEvent>,
+    time_converter: BootTimeConverter,
+) {
     while let Some(item) = rb.next() {
         LINUX_EBPF.record_received(LinuxEbpfFamily::Dns);
         let bytes: &[u8] = &item;
@@ -633,7 +657,7 @@ fn drain_dns_ring(rb: &mut RingBuf<MapData>, tx: &Sender<SensorEvent>) {
             continue;
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::Dns);
-        if let Some(sensor_event) = build_dns_event(&ev) {
+        if let Some(sensor_event) = build_dns_event_with_clock(&ev, time_converter) {
             LINUX_EBPF.record_emitted(LinuxEbpfFamily::Dns);
             try_send(tx, sensor_event);
         } else {
@@ -650,13 +674,16 @@ fn resolve_exec_image(raw_filename: &str, raw_truncated: bool) -> Option<(String
     (!raw_filename.is_empty()).then(|| (raw_filename.to_string(), raw_truncated))
 }
 
-fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
+fn build_process_event_with_clock(
+    ev: &ProcessEvent,
+    time_converter: BootTimeConverter,
+) -> Option<SensorEvent> {
     match ev.kind {
         PROCESS_EVENT_EXEC => {
             let (image, image_truncated) =
                 resolve_exec_image(&bytes_to_string(&ev.image), ev.image_truncated != 0)?;
 
-            let event_time = system_time_from_boot_ns(ev.event_time_ns);
+            let event_time = time_converter.system_time(ev.event_time_ns);
             Some(SensorEvent {
                 process_name: Some(bytes_to_string(&ev.comm)).filter(|name| !name.is_empty()),
                 provenance: {
@@ -722,7 +749,7 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
                 action_code: 2,
             },
             pid: Some(ev.pid),
-            timestamp: system_time_from_boot_ns(ev.event_time_ns),
+            timestamp: time_converter.system_time(ev.event_time_ns),
             source_seq: Some(ev.source_seq),
             process_start_key: process_start_key(ev.pid, ev.process_start_time),
             parent_process_start_key: None,
@@ -757,7 +784,10 @@ fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
     }
 }
 
-fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
+fn build_network_event_with_clock(
+    ev: &NetworkEvent,
+    time_converter: BootTimeConverter,
+) -> Option<SensorEvent> {
     // The kernel emits only attempts that connected, so this rejects nothing
     // in practice. It is the decode-side half of that contract: a refused or
     // unreachable destination is an attempt, not a connection, and a rule
@@ -802,7 +832,7 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: Some(ev.pid),
-        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        timestamp: time_converter.system_time(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
@@ -829,10 +859,11 @@ fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
     })
 }
 
-fn build_file_event(
+fn build_file_event_with_clock(
     ev: &FileEvent,
     dir_fds: &DirFdIndex,
     unresolved: &mut u64,
+    time_converter: BootTimeConverter,
 ) -> Option<SensorEvent> {
     let raw_path = bytes_to_string(&ev.path);
     if raw_path.is_empty() {
@@ -895,7 +926,7 @@ fn build_file_event(
         action,
         normalization,
         pid: Some(ev.pid),
-        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        timestamp: time_converter.system_time(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
@@ -920,7 +951,10 @@ fn build_file_event(
 /// Queries carry the question; responses also carry the answers and the
 /// response code. `None` when the question does not parse, which also sheds
 /// non-DNS traffic that happened to pass the kernel's header check.
-pub(crate) fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
+fn build_dns_event_with_clock(
+    ev: &DnsEvent,
+    time_converter: BootTimeConverter,
+) -> Option<SensorEvent> {
     let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
     let payload = &ev.payload[..payload_len];
 
@@ -953,7 +987,7 @@ pub(crate) fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
             action_code: 0,
         },
         pid: Some(ev.pid),
-        timestamp: system_time_from_boot_ns(ev.event_time_ns),
+        timestamp: time_converter.system_time(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
@@ -1230,6 +1264,29 @@ fn features_for_program(program: &str) -> &'static [&'static str] {
         | "handle_vfs_rename_identity" => &["file_identity"],
         _ => &["file"],
     }
+}
+
+#[cfg(test)]
+fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
+    build_process_event_with_clock(ev, BootTimeConverter::capture())
+}
+
+#[cfg(test)]
+fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
+    build_network_event_with_clock(ev, BootTimeConverter::capture())
+}
+
+#[cfg(test)]
+fn build_file_event(
+    ev: &FileEvent,
+    dir_fds: &DirFdIndex,
+    unresolved: &mut u64,
+) -> Option<SensorEvent> {
+    build_file_event_with_clock(ev, dir_fds, unresolved, BootTimeConverter::capture())
+}
+
+pub(crate) fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
+    build_dns_event_with_clock(ev, BootTimeConverter::capture())
 }
 
 #[cfg(test)]
