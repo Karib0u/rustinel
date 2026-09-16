@@ -84,6 +84,7 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 ///
 /// - kind 1 = exec (`sched_process_exec`)
 /// - kind 2 = exit (`sched_process_exit`)
+/// - kind 3 = fork (`sched_process_fork`), consumed as an internal state update
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ProcessEvent {
@@ -459,6 +460,7 @@ pub mod mapping {
     pub fn process_event_to_sensor(event: &ProcessEvent) -> SensorEvent {
         let action = match event.kind {
             2 => SensorAction::Stop,
+            3 => SensorAction::Fork,
             _ => SensorAction::Start,
         };
         SensorEvent {
@@ -476,7 +478,12 @@ pub mod mapping {
             provider: PROVIDER,
             action,
             normalization: SensorNormalization {
-                event_id: if action == SensorAction::Start { 1 } else { 5 },
+                event_id: match action {
+                    SensorAction::Start => 1,
+                    SensorAction::Stop => 5,
+                    SensorAction::Fork => 0,
+                    _ => unreachable!("process lifecycle action"),
+                },
                 action_code: event.kind as u8,
             },
             pid: Some(event.pid),
@@ -497,7 +504,7 @@ pub mod mapping {
                     exec: event.exec_metadata(),
                     parent_process_id_derived: event.parent_pid_derived != 0,
                     windows: Default::default(),
-                    image: Some(bytes_to_string(&event.image)),
+                    image: (action == SensorAction::Start).then(|| bytes_to_string(&event.image)),
                     image_source: None,
                     image_truncated: (event.image_truncated != 0).then_some(true),
                     original_file_name: None,

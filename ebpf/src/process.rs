@@ -124,6 +124,7 @@ const CLONE_THREAD: u64 = 0x0001_0000;
 
 const PROCESS_EVENT_EXEC: u32 = 1;
 const PROCESS_EVENT_EXIT: u32 = 2;
+const PROCESS_EVENT_FORK: u32 = 3;
 
 #[inline(always)]
 pub unsafe fn current_process_start_time(pid: u32) -> u64 {
@@ -378,12 +379,56 @@ unsafe fn try_handle_fork(ctx: &TracePointContext) -> Result<u32, i64> {
         parent_pid_derived: ((flags & CLONE_PARENT) != 0) as u8,
         _pad: [0u8; 3],
     };
+
+    let (event_time_ns, source_seq) = event_metadata();
+    let process_start_time = if PROCESS_START_TIMES
+        .insert(&child_tid, &event_time_ns, 0)
+        .is_ok()
+    {
+        event_time_ns
+    } else {
+        let _ = PROCESS_START_TIMES.remove(&child_tid);
+        record_map_full(PROCESS_FAMILY);
+        0
+    };
+    // A live PID cannot still belong to the startup inventory generation.
+    // Remove a stale entry eagerly in case its exit was missed.
+    let _ = PROCESS_INVENTORY.remove(&child_tid);
     if PROCESS_PARENTS
         .insert(&child_tid, &relationship, 0)
         .is_err()
     {
         record_map_full(PROCESS_FAMILY);
     }
+
+    let Some(mut entry) = PROCESS_RING.reserve::<ProcessEvent>(0) else {
+        record_ring_full(PROCESS_FAMILY);
+        return Ok(0);
+    };
+    let event = entry.as_mut_ptr();
+    (*event).event_time_ns = event_time_ns;
+    (*event).source_seq = source_seq;
+    (*event).cgroup_id = bpf_get_current_cgroup_id();
+    (*event).process_start_time = process_start_time;
+    (*event).parent_process_start_time = relationship.parent_start_time;
+    (*event).kind = PROCESS_EVENT_FORK;
+    (*event).pid = child_tid;
+    (*event).uid = bpf_get_current_uid_gid() as u32;
+    crate::task_identity::capture(core::ptr::addr_of_mut!((*event).identity));
+    (*event).parent_pid = relationship.parent_pid;
+    (*event).creator_tid = relationship.creator_tid;
+    (*event).creator_tgid = relationship.creator_tgid;
+    (*event).comm = bpf_get_current_comm().unwrap_or([0u8; 16]);
+    (*event).image = [0u8; PROCESS_IMAGE_CAPACITY];
+    (*event).args_len = 0;
+    (*event).args_count = 0;
+    (*event).args_truncated = 0;
+    (*event).image_truncated = 0;
+    (*event).parent_pid_derived = relationship.parent_pid_derived;
+    (*event)._pad1 = 0;
+
+    entry.submit(0);
+    record_submitted(PROCESS_FAMILY);
     Ok(0)
 }
 

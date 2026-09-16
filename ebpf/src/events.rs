@@ -46,6 +46,7 @@ pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 ///
 /// - kind 1 = exec (`sched_process_exec`)
 /// - kind 2 = exit (`sched_process_exit`)
+/// - kind 3 = fork (`sched_process_fork`), consumed as an internal state update
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ProcessEvent {
@@ -58,7 +59,7 @@ pub struct ProcessEvent {
     pub process_start_time: u64,
     /// Sensor-minted execution identity of `parent_pid`, when observed.
     pub parent_process_start_time: u64,
-    /// Event kind: 1 = exec, 2 = exit.
+    /// Event kind: 1 = exec, 2 = exit, 3 = fork.
     pub kind: u32,
     /// Thread group ID — the POSIX "process ID".
     pub pid: u32,

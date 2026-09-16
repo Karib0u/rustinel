@@ -347,6 +347,28 @@ mod tests {
 impl HostState {
     /// Enrich one raw event and create the semantic cross-platform boundary.
     pub fn canonicalize(&self, mut event: RawEvent) -> Option<CanonicalEvent> {
+        if event.action == crate::sensor::SensorAction::Fork {
+            let inherited = match &event.payload {
+                RawPayload::Process(process) => event
+                    .process_start_key
+                    .filter(|child| child.pid == process.process_id)
+                    .zip(event.parent_process_start_key)
+                    .filter(|(_, parent)| process.parent_process_id == Some(parent.pid))
+                    .is_some_and(|(child, parent)| {
+                        self.processes.inherit(
+                            child.pid,
+                            child.start_time,
+                            parent.pid,
+                            parent.start_time,
+                        )
+                    }),
+                _ => false,
+            };
+            if !inherited {
+                self.record_attribution_loss();
+            }
+            return None;
+        }
         self.enrich(&mut event);
         let normalized = Normalizer::new(self).normalize(&event)?;
         let pid = match &event.payload {
@@ -563,8 +585,8 @@ mod canonicalization_tests {
     use super::*;
     use crate::models::EventFields;
     use crate::sensor::{
-        Platform, RawLinuxProcess, RawLinuxProcessIdentity, RawPayload, RawProcessEvent,
-        RawProcessPlatform, RawUserId, SensorAction, SensorNormalization,
+        Platform, ProcessStartKey, RawLinuxProcess, RawLinuxProcessIdentity, RawPayload,
+        RawProcessEvent, RawProcessPlatform, RawUserId, SensorAction, SensorNormalization,
     };
     use std::time::SystemTime;
 
@@ -672,5 +694,150 @@ mod canonicalization_tests {
         assert_eq!(fields.process_id.as_deref(), Some("42"));
         assert_eq!(fields.parent_process_id.as_deref(), Some("7"));
         assert_eq!(fields.cgroup_id.as_deref(), Some("99"));
+    }
+
+    fn linux_process_event(
+        action: SensorAction,
+        pid: u32,
+        start_time: u64,
+        parent: Option<ProcessStartKey>,
+        image: Option<&str>,
+    ) -> RawEvent {
+        RawEvent {
+            process_name: None,
+            provenance: Default::default(),
+            platform: Platform::Linux,
+            provider: "ebpf",
+            action,
+            normalization: SensorNormalization {
+                event_id: u16::from(action == SensorAction::Start),
+                action_code: match action {
+                    SensorAction::Start => 1,
+                    SensorAction::Fork => 3,
+                    _ => 0,
+                },
+            },
+            pid: Some(pid),
+            timestamp: SystemTime::UNIX_EPOCH,
+            source_seq: None,
+            process_start_key: Some(ProcessStartKey { pid, start_time }),
+            parent_process_start_key: parent,
+            payload: RawPayload::Process(RawProcessEvent {
+                process_id: pid,
+                parent_process_id: parent.map(|key| key.pid),
+                process_start_time: None,
+                image: image.map(str::to_string),
+                command_line: image.map(str::to_string),
+                parent_image: None,
+                parent_command_line: None,
+                current_directory: None,
+                integrity_level: None,
+                user: Some(RawUserId::Unix(1000)),
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                target_image: None,
+                platform: Box::new(RawProcessPlatform::Linux(RawLinuxProcess {
+                    real_user_id: Some(1000),
+                    identity: RawLinuxProcessIdentity {
+                        real_group_id: Some(1000),
+                        ..Default::default()
+                    },
+                    cgroup_id: None,
+                    image_source: image.map(|_| "execve".into()),
+                    image_truncated: None,
+                    parent_process_id_derived: false,
+                })),
+            }),
+        }
+    }
+
+    #[test]
+    fn forked_workers_preserve_parent_image_and_exec_replaces_it() {
+        let host = state();
+        let server = ProcessStartKey {
+            pid: 10,
+            start_time: 100,
+        };
+        // Model a server discovered by startup inventory before the sensor
+        // observes its prefork worker.
+        host.processes.add(
+            server.pid,
+            server.start_time,
+            "/usr/bin/server".into(),
+            Some("server --prefork".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let worker = ProcessStartKey {
+            pid: 20,
+            start_time: 200,
+        };
+        assert!(host
+            .canonicalize(linux_process_event(
+                SensorAction::Fork,
+                worker.pid,
+                worker.start_time,
+                Some(server),
+                None,
+            ))
+            .is_none());
+
+        let command = host
+            .canonicalize(linux_process_event(
+                SensorAction::Start,
+                30,
+                300,
+                Some(worker),
+                Some("/usr/bin/command"),
+            ))
+            .expect("exec should remain visible");
+        assert_eq!(
+            command.normalized().get_field("ParentImage"),
+            Some("/usr/bin/server")
+        );
+        assert_eq!(
+            command.normalized().get_field("ParentProcessId"),
+            Some("20")
+        );
+
+        let worker_exec = ProcessStartKey {
+            pid: worker.pid,
+            start_time: 250,
+        };
+        host.canonicalize(linux_process_event(
+            SensorAction::Start,
+            worker_exec.pid,
+            worker_exec.start_time,
+            Some(server),
+            Some("/usr/bin/new-worker"),
+        ))
+        .expect("worker exec should remain visible");
+
+        let later = host
+            .canonicalize(linux_process_event(
+                SensorAction::Start,
+                31,
+                310,
+                Some(worker_exec),
+                Some("/usr/bin/later"),
+            ))
+            .expect("later exec should remain visible");
+        assert_eq!(
+            later.normalized().get_field("ParentImage"),
+            Some("/usr/bin/new-worker")
+        );
     }
 }

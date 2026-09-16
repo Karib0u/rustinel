@@ -7,7 +7,7 @@
 //! | Program               | Hook                        | Purpose         |
 //! |-----------------------|-----------------------------|-----------------|
 //! | `handle_exec`         | `sched/sched_process_exec`  | Event 1         |
-//! | `handle_fork`         | `sched/sched_process_fork`  | record parent   |
+//! | `handle_fork`         | `sched/sched_process_fork`  | inherit image   |
 //! | `handle_exit`         | `sched/sched_process_exit`  | cache cleanup   |
 //! | `handle_execve`       | `syscalls/sys_enter_execve` | capture argv    |
 //! | `handle_execveat`     | `syscalls/sys_enter_execveat`| capture argv   |
@@ -60,7 +60,7 @@ pub mod telemetry;
 /// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
 #[used]
 #[no_mangle]
-pub static RUSTINEL_ABI_VERSION: u32 = 5;
+pub static RUSTINEL_ABI_VERSION: u32 = 6;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

@@ -78,6 +78,8 @@ impl Platform {
 pub enum SensorAction {
     Start,
     Stop,
+    /// Internal process lineage update. It is consumed before canonical events.
+    Fork,
     Create,
     Delete,
     Modify,
