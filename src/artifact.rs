@@ -1519,12 +1519,14 @@ impl ArtifactResolver {
         }
     }
 
-    /// Hand PE metadata to admission and the process cache exactly once.
+    /// Hand PE metadata to admission and executable metadata to the process cache.
     fn publish_pe(&self, job: &mut ArtifactJob, metadata: Option<PeMetadata>) {
-        if let (Some(metadata), Some(key)) = (&metadata, job.process_start_key) {
-            self.host_state
-                .processes
-                .enrich_pe_metadata(key.pid, key.start_time, metadata);
+        if job.target.kind == ArtifactKind::ProcessImage {
+            if let (Some(metadata), Some(key)) = (&metadata, job.process_start_key) {
+                self.host_state
+                    .processes
+                    .enrich_pe_metadata(key.pid, key.start_time, metadata);
+            }
         }
         job.publish_pe(metadata);
     }
@@ -2649,6 +2651,146 @@ level: high
         );
         assert_eq!(state.snapshot().cache_hits, 1);
         assert_eq!(state.snapshot().admission_budget_exceeded, 0);
+    }
+
+    #[test]
+    fn loaded_image_pe_metadata_stays_out_of_the_process_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("library.dll");
+        std::fs::write(&image, b"artifact").unwrap();
+        let runtime = ArtifactRuntime::capture(Platform::Windows);
+        let mut event = image_event(&image);
+        let process_key = crate::sensor::ProcessStartKey {
+            pid: 42,
+            start_time: 100,
+        };
+        event.process_start_key = Some(process_key);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        let state = Arc::new(ResolverState::new());
+        let host_state = Arc::new(HostState::default());
+        let resolver = ArtifactResolver::new(Arc::clone(&host_state), runtime, Arc::clone(&state));
+        let executable_metadata = PeMetadata {
+            original_filename: Some("application.exe".into()),
+            product: Some("Application".into()),
+            description: Some("Application executable".into()),
+            company: Some("Executable Company".into()),
+            file_version: Some("1.0.0".into()),
+        };
+        let reused_process_metadata = PeMetadata {
+            original_filename: Some("new-application.exe".into()),
+            product: Some("New Application".into()),
+            description: Some("Reused PID executable".into()),
+            company: Some("New Executable Company".into()),
+            file_version: Some("2.0.0".into()),
+        };
+        host_state.processes.add(
+            process_key.pid,
+            process_key.start_time,
+            r"C:\Program Files\Application\application.exe".into(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            executable_metadata.original_filename.clone(),
+            executable_metadata.product.clone(),
+            executable_metadata.description.clone(),
+            executable_metadata.company.clone(),
+            executable_metadata.file_version.clone(),
+            None,
+            None,
+        );
+        host_state.processes.add(
+            process_key.pid,
+            200,
+            r"C:\Program Files\Application\new-application.exe".into(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            reused_process_metadata.original_filename.clone(),
+            reused_process_metadata.product.clone(),
+            reused_process_metadata.description.clone(),
+            reused_process_metadata.company.clone(),
+            reused_process_metadata.file_version.clone(),
+            None,
+            None,
+        );
+
+        let dll_metadata = PeMetadata {
+            original_filename: Some("library.dll".into()),
+            product: Some("Shared Library".into()),
+            description: Some("Loaded DLL".into()),
+            company: Some("Library Company".into()),
+            file_version: Some("9.9.9".into()),
+        };
+        state.stores.lock().unwrap().insert(
+            file_identity::from_path(&image).unwrap(),
+            &plan,
+            &Artifact {
+                pe_metadata: Some(dll_metadata.clone()),
+                ..Artifact::default()
+            },
+            StoredParts {
+                pe: true,
+                imphash: false,
+            },
+        );
+
+        for _ in 0..2 {
+            let (pe_ready, pe) = std::sync::mpsc::sync_channel(1);
+            resolver.resolve_job(
+                ArtifactJob {
+                    target: target.clone(),
+                    plan: plan.clone(),
+                    enqueued_at: Instant::now(),
+                    pe_ready: Some(pe_ready),
+                    deferred_ready: None,
+                    resolved_pe: None,
+                    process_start_key: Some(process_key),
+                    provenance: Default::default(),
+                    platform: Platform::Windows,
+                    provider: "test".into(),
+                    written_file: None,
+                },
+                Instant::now() + ARTIFACT_DEADLINE,
+                open_artifact,
+            );
+            assert_eq!(pe.recv().unwrap(), Some(dll_metadata.clone()));
+            assert_eq!(
+                host_state
+                    .processes
+                    .get_metadata_by_key(process_key.pid, process_key.start_time)
+                    .unwrap()
+                    .original_filename,
+                executable_metadata.original_filename
+            );
+        }
+
+        assert_eq!(state.snapshot().pe_entries, 1);
+        assert_eq!(state.snapshot().cache_hits, 2);
+        assert_eq!(
+            host_state
+                .processes
+                .get_metadata_by_key(process_key.pid, 200)
+                .unwrap()
+                .original_filename,
+            reused_process_metadata.original_filename
+        );
+
+        let mut subsequent = windows_file_event(2).into_normalized();
+        host_state.enrich_process_context(&mut subsequent, Some(process_key));
+        let context = subsequent.process_context.unwrap();
+        assert_eq!(
+            context.original_file_name,
+            executable_metadata.original_filename
+        );
+        assert_eq!(context.product, executable_metadata.product);
+        assert_eq!(context.description, executable_metadata.description);
+        assert_eq!(context.company, executable_metadata.company);
+        assert_eq!(context.file_version, executable_metadata.file_version);
     }
 
     /// Scan alerts are built on another thread from the job, not the event,
