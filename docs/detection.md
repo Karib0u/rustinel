@@ -109,17 +109,24 @@ A path operand in `CommandLine` is matched in absolute form.
 The alert still reports `CommandLine` exactly as it was run, and Sigma rules never see the resolved form.
 
 - Relative operands are joined to the process start's `CurrentDirectory`, then `.` and `..` are folded without reading the file system, so a symlink before a `..` is not followed.
-- The directory is the one the sensor recorded when the process started.
-  A process that changes directory before it opens the file is still resolved against its starting directory, and replay resolves against the recorded directory, never the replaying host's.
+- The directory is the one recorded during process-start enrichment.
+  macOS supplies the exec-time directory; Linux snapshots the live directory downstream, so an immediate `chdir` can win that race.
+  Replay resolves against the recorded directory, never the replaying host's.
 - When the event has no `CurrentDirectory`, or it is not absolute, relative operands are not matched.
   Absolute operands still are.
-- Today only macOS process starts carry `CurrentDirectory` (Endpoint Security reports it at exec).
-  Windows Kernel-Process never reports it, and Linux exec events do not yet capture it, so on those platforms only absolute operands are matched.
+- macOS process starts carry `CurrentDirectory` directly from Endpoint Security.
+  Linux reads `/proc/<pid>/cwd` after the event leaves the eBPF ring-drain path and keeps it only when the event's BTF process identity still matches the live process.
+  Fast-exiting processes and identity mismatches leave the field absent.
+  Windows Kernel-Process never reports it, so relative operands are not matched there.
 - The program itself, flags (`-x`, `--flag`, and `/flag` on Windows), `chmod` modes, numbers, globs, variables, shell operators, and `user:group` or `host:port` forms are never treated as paths.
   A flag's attached value, as in `--output=payload`, is.
 - Shape alone cannot tell a file operand from a subcommand, so `git status` run from `/tmp` also yields `/tmp/status`.
   Anchor path regexes to the file they describe rather than to a whole directory.
 - Text fields other than `CommandLine` have no working directory, so only their absolute paths are matched.
+
+The 2026-09-16 Ubuntu 26.04 lab validation on kernel 7.0.0 measured `CurrentDirectory` on 24 of 24 six-second process starts: 12 absolute and 12 relative executable invocations.
+All 12 relative images became absolute and retained their verbatim command lines.
+A follow-up live detection run produced the expected IOC path alert for both invocation forms.
 
 The file format is in [Write and test rules](rule-development.md#add-indicators).
 

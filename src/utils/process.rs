@@ -255,8 +255,11 @@ pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
         return None;
     }
 
-    let proc_stat = read_proc_stat(pid);
-    let parent_process_id = proc_stat.as_ref().and_then(|stat| stat.parent_process_id);
+    // Read the lifetime before and after the links. A process can exit, be
+    // replaced through PID reuse, or exec again while /proc is being read.
+    // Returning a mixed snapshot would defeat downstream identity checks.
+    let proc_stat = read_proc_stat(pid)?;
+    let parent_process_id = proc_stat.parent_process_id;
     let details = ProcessDetails {
         image: read_proc_link(pid, "exe"),
         command_line: read_proc_cmdline(pid),
@@ -264,8 +267,14 @@ pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
         parent_image: parent_process_id.and_then(|ppid| read_proc_link(ppid, "exe")),
         parent_command_line: parent_process_id.and_then(read_proc_cmdline),
         current_directory: read_proc_link(pid, "cwd"),
-        start_time: proc_stat.and_then(|stat| stat.start_time),
+        start_time: proc_stat.start_time,
     };
+
+    let current_stat = read_proc_stat(pid)?;
+    if current_stat.start_time != details.start_time || read_proc_link(pid, "exe") != details.image
+    {
+        return None;
+    }
 
     if details == ProcessDetails::default() {
         None
