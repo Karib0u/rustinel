@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
+use rustinel::models::NormalizedEvent;
 use rustinel::replay::{Format, Replay, ReplayOptions, ReplayReport};
 use rustinel::sensor::Platform;
 
@@ -69,6 +70,21 @@ fn replay_to_string(replay: &Replay, format: Format) -> (String, ReplayReport) {
     let mut buffer = Vec::new();
     let report = replay.run(format, &mut buffer).expect("replay runs");
     (String::from_utf8(buffer).expect("output is utf-8"), report)
+}
+
+#[test]
+fn checked_in_recording_obeys_field_contracts() {
+    let body = std::fs::read_to_string(recording()).expect("recording exists");
+    for (index, line) in body.lines().enumerate() {
+        let event: NormalizedEvent = serde_json::from_str(line).expect("recorded event parses");
+        let missing = rustinel::field_availability::missing_always_fields(&event);
+        let populated = rustinel::field_availability::populated_never_fields(&event);
+        assert!(
+            missing.is_empty() && populated.is_empty(),
+            "recording line {} violates its field contract: missing Always {missing:?}, populated Never {populated:?}",
+            index + 1
+        );
+    }
 }
 
 #[test]
