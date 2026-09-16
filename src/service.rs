@@ -148,7 +148,7 @@ impl SystemdDefinition {
             "[Unit]\n\
 Description=Rustinel endpoint detection agent\n\
 Documentation=https://github.com/Karib0u/rustinel\n\
-After=network.target\n\
+After=network.target time-sync.target\n\
 \n\
 [Service]\n\
 Type=simple\n\
@@ -341,6 +341,11 @@ mod tests {
         assert!(definition
             .contents
             .contains("WorkingDirectory=/opt/rustinel"));
+        assert!(definition
+            .contents
+            .contains("After=network.target time-sync.target"));
+        assert!(!definition.contents.contains("Wants=time-sync.target"));
+        assert!(!definition.contents.contains("Requires=time-sync.target"));
         assert!(definition.contents.contains("WantedBy=multi-user.target"));
     }
 
