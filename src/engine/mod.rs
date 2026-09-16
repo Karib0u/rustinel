@@ -34,12 +34,19 @@ pub use handler::{DetectionPipeline, NormalizedEventHandler};
 pub(crate) use logsource::{current_platform, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};
 pub use stats::{EngineStats, UnsupportedRule, UnsupportedRuleKind};
+pub(crate) use store::CORRELATION_REORDER_BUDGET;
 
 use rsigma_eval::EvaluationResult;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
-use crate::models::{Alert, AlertSeverity, MatchDebugLevel, NormalizedEvent};
-use crate::sensor::Platform;
+use crate::models::{Alert, AlertSeverity, CanonicalEvent, MatchDebugLevel, NormalizedEvent};
+use crate::sensor::{Platform, ProcessStartKey};
+
+pub(crate) struct SigmaAlert {
+    pub(crate) alert: Alert,
+    pub(crate) process_start_key: Option<ProcessStartKey>,
+}
 
 /// Ranking key for the default one-Sigma-alert-per-event policy.
 ///
@@ -187,11 +194,34 @@ impl Engine {
     /// `MatchRank` among that pass's rules, followed by every correlation alert
     /// its detections fired. Detection results are deduplicated before they
     /// reach the stateful correlation engine because a partial logsource can
-    /// match through more than one concrete event alias.
+    /// match through more than one concrete event alias. Detection alerts are
+    /// returned immediately. Correlation updates wait behind any earlier
+    /// incomplete deferred pass, so a later call can also return correlations
+    /// whose triggering event was buffered before that call.
     pub fn evaluate_event_pass(&self, event: &NormalizedEvent, pass: DetectionPass) -> Vec<Alert> {
+        self.evaluate_event_pass_with_origin(event, None, pass)
+            .into_iter()
+            .map(|result| result.alert)
+            .collect()
+    }
+
+    pub(crate) fn evaluate_canonical_event_pass(
+        &self,
+        event: &CanonicalEvent,
+        pass: DetectionPass,
+    ) -> Vec<SigmaAlert> {
+        self.evaluate_event_pass_with_origin(event.normalized(), event.process_start_key, pass)
+    }
+
+    fn evaluate_event_pass_with_origin(
+        &self,
+        event: &NormalizedEvent,
+        process_start_key: Option<ProcessStartKey>,
+        pass: DetectionPass,
+    ) -> Vec<SigmaAlert> {
         let deferred_rules = self.store.deferred();
-        let passes = {
-            let mut engine = self.store.lock();
+        let (best, correlations) = {
+            let mut state = self.store.lock();
             let adapter = event::RsigmaEvent::new(event);
             let mut admission = Vec::new();
             let mut deferred = Vec::new();
@@ -205,7 +235,8 @@ impl Engine {
                     ..Default::default()
                 };
 
-                for result in engine
+                for result in state
+                    .engine
                     .engine()
                     .evaluate_with_logsource(&adapter, &logsource)
                     .into_iter()
@@ -230,46 +261,131 @@ impl Engine {
                 }
             }
 
-            let mut passes = Vec::with_capacity(2);
+            let mut best = Vec::with_capacity(2);
             if pass.includes_admission() {
-                passes.push(engine.correlate_detections(&adapter, admission));
-            }
-            // Deferred detections share the one correlation state, so a
-            // correlation may reference rules from either pass.
-            if !deferred.is_empty() {
-                passes.push(engine.correlate_detections(&adapter, deferred));
-            }
-            passes
-        };
-
-        let mut alerts = Vec::new();
-        for results in passes {
-            let mut best: Option<EvaluationResult> = None;
-            let mut correlations = Vec::new();
-            for mut result in results {
-                self.store.restore_synthetic_detection_id(&mut result);
-                if result.is_detection() {
-                    let is_better = match &best {
-                        Some(current) => alert::result_rank(&result) < alert::result_rank(current),
-                        None => true,
-                    };
-                    if is_better {
-                        best = Some(result);
-                    }
-                } else if result.is_correlation() {
-                    correlations.push(result);
+                if let Some(result) = self.best_detection(&admission) {
+                    best.push(result);
                 }
             }
-            if let Some(result) = best {
-                alerts.push(self.build_alert(result, event));
+            if pass.includes_deferred() {
+                if let Some(result) = self.best_detection(&deferred) {
+                    best.push(result);
+                }
             }
-            alerts.extend(
-                correlations
-                    .into_iter()
-                    .map(|result| self.build_alert(result, event)),
-            );
+
+            let key = correlation_event_key(event);
+            match pass {
+                DetectionPass::All => state.pending.push_back(store::PendingCorrelation {
+                    key,
+                    event: event.clone(),
+                    process_start_key,
+                    passes: vec![admission, deferred],
+                    complete: true,
+                    evaluate_by: Instant::now(),
+                }),
+                DetectionPass::Admission => {
+                    let early = state.early_deferred.remove(&key);
+                    let complete = early.is_some();
+                    let mut passes = vec![admission];
+                    if let Some(deferred) = early {
+                        passes.push(deferred);
+                    }
+                    state.pending.push_back(store::PendingCorrelation {
+                        key,
+                        event: event.clone(),
+                        process_start_key,
+                        passes,
+                        complete,
+                        evaluate_by: Instant::now()
+                            .checked_add(store::CORRELATION_REORDER_BUDGET)
+                            .unwrap_or_else(Instant::now),
+                    });
+                }
+                DetectionPass::Deferred => {
+                    if !state.expired.remove(&key) {
+                        if let Some(entry) = state.pending.iter_mut().find(|entry| entry.key == key)
+                        {
+                            if !entry.complete {
+                                entry.passes.push(deferred);
+                                entry.complete = true;
+                            }
+                        } else if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY
+                        {
+                            tracing::warn!(
+                                target: "engine",
+                                ingest_seq = event.ingest_seq,
+                                "Deferred Sigma correlation result arrived without admission and the bounded reorder buffer is full"
+                            );
+                            state.remember_expired(key);
+                        } else {
+                            state.early_deferred.entry(key).or_insert(deferred);
+                        }
+                    }
+                }
+            }
+
+            let mut correlations = Vec::new();
+            loop {
+                let now = Instant::now();
+                let Some(front) = state.pending.front() else {
+                    break;
+                };
+                let forced = !front.complete
+                    && (now >= front.evaluate_by
+                        || state.pending.len() > store::CORRELATION_REORDER_CAPACITY);
+                if !front.complete && !forced {
+                    break;
+                }
+                let entry = state.pending.pop_front().expect("front exists");
+                if forced {
+                    tracing::warn!(
+                        target: "engine",
+                        ingest_seq = entry.event.ingest_seq,
+                        "Deferred Sigma correlation pass missed its reorder budget; continuing without it"
+                    );
+                    state.remember_expired(entry.key);
+                }
+                let adapter = event::RsigmaEvent::new(&entry.event);
+                for detections in entry.passes {
+                    for result in state
+                        .engine
+                        .correlate_detections(&adapter, detections)
+                        .into_iter()
+                        .filter(EvaluationResult::is_correlation)
+                    {
+                        correlations.push((result, entry.event.clone(), entry.process_start_key));
+                    }
+                }
+            }
+            (best, correlations)
+        };
+
+        let mut alerts = Vec::with_capacity(best.len() + correlations.len());
+        for result in best {
+            alerts.push(SigmaAlert {
+                alert: self.build_alert(result, event),
+                process_start_key,
+            });
+        }
+        for (mut result, event, process_start_key) in correlations {
+            self.store.restore_synthetic_detection_id(&mut result);
+            alerts.push(SigmaAlert {
+                alert: self.build_alert(result, &event),
+                process_start_key,
+            });
         }
         alerts
+    }
+
+    fn best_detection(&self, results: &[EvaluationResult]) -> Option<EvaluationResult> {
+        results
+            .iter()
+            .cloned()
+            .map(|mut result| {
+                self.store.restore_synthetic_detection_id(&mut result);
+                result
+            })
+            .min_by(|left, right| alert::result_rank(left).cmp(&alert::result_rank(right)))
     }
 
     /// Artifact fields the deferred pass needs for this event, or empty when
@@ -282,6 +398,15 @@ impl Engine {
     pub fn check_event(&self, event: &NormalizedEvent) -> Vec<Alert> {
         self.evaluate_event(event)
     }
+}
+
+fn correlation_event_key(event: &NormalizedEvent) -> store::CorrelationEventKey {
+    (
+        event.ingest_seq,
+        event.timestamp.clone(),
+        event.provider.clone(),
+        event.event_id,
+    )
 }
 
 impl Default for Engine {
@@ -913,6 +1038,136 @@ correlation:
         assert!(
             rule_names(&engine.evaluate_event_pass(&event, DetectionPass::Deferred))
                 .contains(&"Image Then Hash".to_string())
+        );
+    }
+
+    #[test]
+    fn deferred_matches_keep_event_count_windows_in_ingest_order() {
+        let engine = engine_with_rules(
+            Platform::Windows,
+            &[
+                r#"title: Plain
+id: plain
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image: later.exe
+  condition: selection
+"#,
+                r#"title: Hashed
+id: hashed
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Hashes|contains: MD5=AA
+  condition: selection
+"#,
+                r#"title: Three hits
+id: three
+correlation:
+  type: event_count
+  rules:
+    - plain
+    - hashed
+  timespan: 1s
+  condition:
+    gte: 3
+"#,
+            ],
+        );
+        let mut early = process_event(Platform::Windows, "early.exe", "early");
+        early.timestamp = "2025-01-01T00:00:00Z".into();
+        early.ingest_seq = 1;
+        if let EventFields::ProcessCreation(fields) = &mut early.fields {
+            fields.hashes = Some("MD5=AA".into());
+        }
+        let mut middle = process_event(Platform::Windows, "later.exe", "middle");
+        middle.timestamp = "2025-01-01T00:00:01Z".into();
+        middle.ingest_seq = 2;
+        let mut latest = process_event(Platform::Windows, "later.exe", "latest");
+        latest.timestamp = "2025-01-01T00:00:02Z".into();
+        latest.ingest_seq = 3;
+
+        let mut alerts = Vec::new();
+        alerts.extend(engine.evaluate_event_pass(&early, DetectionPass::Admission));
+        alerts.extend(engine.evaluate_event_pass(&middle, DetectionPass::Admission));
+        alerts.extend(engine.evaluate_event_pass(&early, DetectionPass::Deferred));
+        alerts.extend(engine.evaluate_event_pass(&latest, DetectionPass::Admission));
+        alerts.extend(engine.evaluate_event_pass(&middle, DetectionPass::Deferred));
+        alerts.extend(engine.evaluate_event_pass(&latest, DetectionPass::Deferred));
+
+        assert!(
+            !rule_names(&alerts).contains(&"Three hits".to_string()),
+            "the timestamp-zero deferred hit is outside the final one-second window"
+        );
+    }
+
+    #[test]
+    fn mixed_admission_and_deferred_temporal_matches_flush_in_event_order() {
+        let engine = engine_with_rules(
+            Platform::Windows,
+            &[
+                r#"title: Image
+id: image
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: \whoami.exe
+  condition: selection
+"#,
+                r#"title: Hash
+id: hash
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Hashes|contains: SHA256=ABCDEF
+  condition: selection
+"#,
+                r#"title: Image Then Hash
+id: image-then-hash
+correlation:
+  type: temporal_ordered
+  rules:
+    - image
+    - hash
+  timespan: 1m
+"#,
+            ],
+        );
+        let mut image = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
+        );
+        image.ingest_seq = 1;
+        let mut hashed = process_event(Platform::Windows, r"C:\other.exe", "other");
+        hashed.timestamp = "2025-01-01T00:00:01Z".into();
+        hashed.ingest_seq = 2;
+        if let EventFields::ProcessCreation(fields) = &mut hashed.fields {
+            fields.hashes = Some(
+                "SHA256=ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789".into(),
+            );
+        }
+
+        let mut alerts = engine.evaluate_event_pass(&image, DetectionPass::Admission);
+        alerts.extend(engine.evaluate_event_pass(&hashed, DetectionPass::Admission));
+        alerts.extend(engine.evaluate_event_pass(&image, DetectionPass::Deferred));
+        alerts.extend(engine.evaluate_event_pass(&hashed, DetectionPass::Deferred));
+
+        assert_eq!(
+            rule_names(&alerts)
+                .into_iter()
+                .filter(|name| name == "Image Then Hash")
+                .count(),
+            1
         );
     }
 

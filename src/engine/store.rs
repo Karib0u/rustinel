@@ -4,8 +4,9 @@
 //! collection. Its inner detection engine still exposes logsource routing, but
 //! the correlation state and all referenced rules share one owner.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use rsigma_eval::{CorrelationConfig, CorrelationEngine, EvaluationResult, MatchDetailLevel};
@@ -14,13 +15,58 @@ use rsigma_parser::{FilterRuleTarget, Level, SigmaCollection, Status};
 use super::deferred::DeferredRules;
 use super::logsource::logsource_key;
 use super::LogSourceKey;
-use crate::models::{MatchDebugLevel, SigmaRuleMetadata};
+use crate::models::{MatchDebugLevel, NormalizedEvent, SigmaRuleMetadata};
+use crate::sensor::ProcessStartKey;
 
 const MAX_SIGMA_TAGS: usize = 64;
 const MAX_SIGMA_TAG_BYTES: usize = 256;
 const MAX_SIGMA_REFERENCES: usize = 32;
 const MAX_SIGMA_REFERENCE_BYTES: usize = 2_048;
 const MAX_SIGMA_AUTHOR_BYTES: usize = 512;
+pub(crate) const CORRELATION_REORDER_BUDGET: Duration = Duration::from_secs(2);
+pub(crate) const CORRELATION_REORDER_CAPACITY: usize = 4_096;
+
+pub(crate) type CorrelationEventKey = (u64, String, String, u16);
+
+pub(crate) struct PendingCorrelation {
+    pub(crate) key: CorrelationEventKey,
+    pub(crate) event: NormalizedEvent,
+    pub(crate) process_start_key: Option<ProcessStartKey>,
+    pub(crate) passes: Vec<Vec<EvaluationResult>>,
+    pub(crate) complete: bool,
+    pub(crate) evaluate_by: Instant,
+}
+
+pub(crate) struct CorrelationState {
+    pub(crate) engine: CorrelationEngine,
+    pub(crate) pending: VecDeque<PendingCorrelation>,
+    pub(crate) early_deferred: HashMap<CorrelationEventKey, Vec<EvaluationResult>>,
+    pub(crate) expired: HashSet<CorrelationEventKey>,
+    pub(crate) expired_order: VecDeque<CorrelationEventKey>,
+}
+
+impl CorrelationState {
+    fn new(engine: CorrelationEngine) -> Self {
+        Self {
+            engine,
+            pending: VecDeque::new(),
+            early_deferred: HashMap::new(),
+            expired: HashSet::new(),
+            expired_order: VecDeque::new(),
+        }
+    }
+
+    pub(crate) fn remember_expired(&mut self, key: CorrelationEventKey) {
+        if self.expired.insert(key.clone()) {
+            self.expired_order.push_back(key);
+        }
+        while self.expired_order.len() > CORRELATION_REORDER_CAPACITY {
+            if let Some(oldest) = self.expired_order.pop_front() {
+                self.expired.remove(&oldest);
+            }
+        }
+    }
+}
 
 /// Compiled RSigma rules, correlation state, counts, and rule metadata.
 ///
@@ -28,7 +74,7 @@ const MAX_SIGMA_AUTHOR_BYTES: usize = 512;
 /// [`RuleStore::new`], which applies the match-detail and event-inclusion
 /// settings a bare `CorrelationEngine` would silently miss.
 pub(crate) struct RuleStore {
-    engine: Mutex<CorrelationEngine>,
+    engine: Mutex<CorrelationState>,
     counts: HashMap<LogSourceKey, usize>,
     /// Rule id or title to description. RSigma result headers do not carry the
     /// description, so it is captured when the collection is loaded.
@@ -56,7 +102,7 @@ impl RuleStore {
         engine.set_match_detail(match_detail_level(match_debug));
 
         Self {
-            engine: Mutex::new(engine),
+            engine: Mutex::new(CorrelationState::new(engine)),
             counts: HashMap::new(),
             descriptions: HashMap::new(),
             conditions: HashMap::new(),
@@ -73,7 +119,7 @@ impl RuleStore {
     /// under the lock into a permanent Sigma outage for the rest of the
     /// process's life. Correlation windows may be left mid-update, which costs
     /// at most an inaccurate aggregate; losing detection entirely is worse.
-    pub(crate) fn lock(&self) -> MutexGuard<'_, CorrelationEngine> {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, CorrelationState> {
         self.engine.lock().unwrap_or_else(|poisoned| {
             tracing::warn!(
                 "Sigma correlation engine mutex was poisoned by an earlier panic; \
@@ -146,6 +192,7 @@ impl RuleStore {
 
         let mut engine = self.lock();
         engine
+            .engine
             .add_collection(&compiled_collection)
             .map_err(|err| anyhow::anyhow!("{err}"))?;
         drop(engine);

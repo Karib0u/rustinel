@@ -17,6 +17,12 @@ use std::sync::Arc;
 use crate::engine::{DetectionPass, DetectorStore};
 use crate::ioc::IocEngine;
 use crate::models::{Alert, CanonicalEvent};
+use crate::sensor::ProcessStartKey;
+
+pub(crate) struct EventAlert {
+    pub(crate) alert: Alert,
+    pub(crate) process_start_key: Option<ProcessStartKey>,
+}
 
 /// The event-based detectors, evaluated together in a fixed order.
 ///
@@ -55,12 +61,33 @@ impl EventDetectors {
     /// [`DetectionPass::All`] and [`DetectionPass::Admission`], never again in
     /// the deferred pass.
     pub fn evaluate_pass(&self, event: &CanonicalEvent, pass: DetectionPass) -> Vec<Alert> {
-        let normalized = event.normalized();
-        let mut alerts = self.sigma.evaluate_event_pass(normalized, pass);
+        self.evaluate_pass_with_origins(event, pass)
+            .into_iter()
+            .map(|result| result.alert)
+            .collect()
+    }
+
+    pub(crate) fn evaluate_pass_with_origins(
+        &self,
+        event: &CanonicalEvent,
+        pass: DetectionPass,
+    ) -> Vec<EventAlert> {
+        let mut alerts = self
+            .sigma
+            .evaluate_canonical_event_pass(event, pass)
+            .into_iter()
+            .map(|result| EventAlert {
+                alert: result.alert,
+                process_start_key: result.process_start_key,
+            })
+            .collect::<Vec<_>>();
 
         if pass.includes_admission() {
             for ioc_match in self.ioc.check_event(event) {
-                alerts.push(self.ioc.build_alert_for_match(&ioc_match, event));
+                alerts.push(EventAlert {
+                    alert: self.ioc.build_alert_for_match(&ioc_match, event),
+                    process_start_key: event.process_start_key,
+                });
             }
         }
 
