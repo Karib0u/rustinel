@@ -633,6 +633,7 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             pe_ready,
             deferred_ready,
             resolved_pe: None,
+            resolved_hashes: None,
             process_start_key: event.process_start_key,
             provenance: scanner::scan_subject_provenance(event.provenance()),
             platform: event.normalized().platform,
@@ -1026,6 +1027,9 @@ struct ArtifactJob {
     deferred_ready: Option<DeferredSender>,
     /// PE metadata published for this job, handed on to the deferred pass.
     resolved_pe: Option<PeMetadata>,
+    /// Hashes published for this job, retained so IOC alerts survive a later
+    /// consumer failure.
+    resolved_hashes: Option<ComputedHashes>,
     process_start_key: Option<crate::sensor::ProcessStartKey>,
     /// Fidelity limitations on the image and PID the scan alerts report.
     provenance: crate::models::Provenance,
@@ -1062,6 +1066,7 @@ impl ArtifactJob {
     /// Release the deferred pass once the artifact fields are known, or known
     /// unavailable. Only the first call sends.
     fn publish_deferred(&mut self, hashes: Option<ComputedHashes>, imphash: Option<String>) {
+        self.resolved_hashes = hashes.clone();
         if let Some(ready) = self.deferred_ready.take() {
             let _ = ready.try_send(DeferredFields {
                 hashes,
@@ -1176,6 +1181,9 @@ impl ArtifactResolver {
                 self.state.counters.resolved.fetch_add(1, Ordering::Relaxed);
             }
             Err(error) => {
+                if let Some(hashes) = &job.resolved_hashes {
+                    self.apply_hash_iocs(&job, hashes);
+                }
                 // Evaluate the deferred pass now rather than at its budget.
                 job.publish_deferred(None, None);
                 debug!(
@@ -1209,6 +1217,7 @@ impl ArtifactResolver {
             pe_ready: None,
             deferred_ready: None,
             resolved_pe: None,
+            resolved_hashes: None,
             process_start_key: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -1534,24 +1543,8 @@ impl ArtifactResolver {
     /// Raise the detections that consume artifact bytes directly. They run
     /// after admission and never feed Sigma.
     fn apply(&self, job: &ArtifactJob, artifact: &Artifact) {
-        if let (Some(ioc), Some(hashes)) = (&job.plan.ioc, &artifact.hashes) {
-            for ioc_match in ioc.match_hashes(hashes) {
-                let mut alert = ioc.build_alert_for_hash_match(
-                    &ioc_match,
-                    &job.target.display_path,
-                    job.target.pid,
-                    &job.provenance,
-                    job.platform,
-                    &job.provider,
-                );
-                job.describe_subject(&mut alert);
-                if let Some(sink) = &self.runtime.alert_sink {
-                    sink.write_alert(&alert);
-                }
-                if let Some(response) = &self.runtime.response_engine {
-                    response.handle_alert(&alert);
-                }
-            }
+        if let Some(hashes) = &artifact.hashes {
+            self.apply_hash_iocs(job, hashes);
         }
 
         if let Some(matches) = &artifact.yara {
@@ -1573,6 +1566,28 @@ impl ArtifactResolver {
                 job.describe_subject(&mut alert);
                 if let Some(sink) = &self.runtime.alert_sink {
                     sink.write_yara_alert(&alert, YaraScanSource::File);
+                }
+                if let Some(response) = &self.runtime.response_engine {
+                    response.handle_alert(&alert);
+                }
+            }
+        }
+    }
+
+    fn apply_hash_iocs(&self, job: &ArtifactJob, hashes: &ComputedHashes) {
+        if let Some(ioc) = &job.plan.ioc {
+            for ioc_match in ioc.match_hashes(hashes) {
+                let mut alert = ioc.build_alert_for_hash_match(
+                    &ioc_match,
+                    &job.target.display_path,
+                    job.target.pid,
+                    &job.provenance,
+                    job.platform,
+                    &job.provider,
+                );
+                job.describe_subject(&mut alert);
+                if let Some(sink) = &self.runtime.alert_sink {
+                    sink.write_alert(&alert);
                 }
                 if let Some(response) = &self.runtime.response_engine {
                     response.handle_alert(&alert);
@@ -2157,6 +2172,116 @@ mod tests {
         assert_eq!(opens.load(Ordering::Relaxed), 2);
     }
 
+    #[test]
+    fn hash_ioc_alert_survives_yara_timeout() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("sample.bin");
+        std::fs::write(&path, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+
+        let slow_rules = temp.path().join("slow-yara");
+        std::fs::create_dir(&slow_rules).unwrap();
+        std::fs::write(
+            slow_rules.join("slow.yar"),
+            r#"rule Slow {
+                condition:
+                    for all i in (0..2000000000) : (uint8(i % 6) != 0xff)
+            }"#,
+        )
+        .unwrap();
+        let timeout = Duration::from_secs(1);
+        let scanner = Scanner::new(&slow_rules)
+            .unwrap()
+            .with_limits(crate::scanner::ScanLimits {
+                timeout,
+                max_file_bytes: 1024,
+            });
+        runtime
+            .detectors
+            .as_ref()
+            .unwrap()
+            .swap_yara(Arc::new(scanner));
+
+        let alerts_path = temp.path().join("alerts.ndjson");
+        let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());
+        runtime.alert_sink = Some(AlertSink::new(writer));
+        let event = process_event(&path, Platform::Linux);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        let deadline_at = Instant::now() + plan.deadline;
+        let state = Arc::new(ResolverState::new());
+        let worker =
+            ArtifactResolver::new(Arc::new(HostState::default()), runtime, Arc::clone(&state));
+        worker.resolve_job(
+            ArtifactJob {
+                target,
+                plan,
+                enqueued_at: Instant::now(),
+                pe_ready: None,
+                deferred_ready: None,
+                resolved_pe: None,
+                resolved_hashes: None,
+                process_start_key: None,
+                provenance: scanner::scan_subject_provenance(event.provenance()),
+                platform: event.normalized().platform,
+                provider: event.normalized().provider.clone(),
+                written_file: None,
+            },
+            deadline_at,
+            open_artifact,
+        );
+        drop(guard);
+
+        let alerts = read_alerts(&alerts_path);
+        assert_eq!(alerts.len(), 1, "only the completed hash IOC may alert");
+        assert_eq!(alerts[0]["edr.rule.engine"], "Ioc");
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.hash_entries, 1);
+        assert_eq!(snapshot.yara_entries, 0, "a timeout is not a clean scan");
+        assert_eq!(snapshot.deadline_exceeded, 1);
+        assert_eq!(snapshot.resolved, 0);
+    }
+
+    #[test]
+    fn successful_hash_and_yara_scan_emits_each_alert_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("sample.bin");
+        std::fs::write(&path, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        let alerts_path = temp.path().join("alerts.ndjson");
+        let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());
+        runtime.alert_sink = Some(AlertSink::new(writer));
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness
+            .ingress
+            .handle_event(&process_event(&path, Platform::Linux));
+        let state = harness.finish();
+        drop(guard);
+
+        let alerts = read_alerts(&alerts_path);
+        let engines: Vec<&str> = alerts
+            .iter()
+            .map(|alert| alert["edr.rule.engine"].as_str().unwrap())
+            .collect();
+        assert_eq!(engines.len(), 2);
+        assert_eq!(engines.iter().filter(|engine| **engine == "Ioc").count(), 1);
+        assert_eq!(
+            engines.iter().filter(|engine| **engine == "Yara").count(),
+            1
+        );
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.resolved, 1);
+        assert_eq!(snapshot.deadline_exceeded, 0);
+    }
+
     /// Records what downstream saw, in the order it saw it.
     #[derive(Clone, Default)]
     struct Seen(Arc<Mutex<Vec<(u64, Instant)>>>);
@@ -2499,6 +2624,7 @@ mod tests {
             pe_ready: Some(pe_tx),
             deferred_ready: None,
             resolved_pe: None,
+            resolved_hashes: None,
             process_start_key: None,
             provenance: Default::default(),
             platform: Platform::Windows,
@@ -2549,6 +2675,7 @@ mod tests {
                 pe_ready: None,
                 deferred_ready: None,
                 resolved_pe: None,
+                resolved_hashes: None,
                 process_start_key: None,
                 provenance: Default::default(),
                 platform: Platform::Windows,
@@ -2749,6 +2876,7 @@ level: high
                     pe_ready: Some(pe_ready),
                     deferred_ready: None,
                     resolved_pe: None,
+                    resolved_hashes: None,
                     process_start_key: Some(process_key),
                     provenance: Default::default(),
                     platform: Platform::Windows,
