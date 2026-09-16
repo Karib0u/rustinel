@@ -48,6 +48,11 @@ const SINCE_CONTAINER_CONTEXT: Option<&str> = Some("1.7.1");
 /// TODO(release): set to the release that ships it, as for
 /// [`SINCE_DNS_RESPONSES`].
 const SINCE_PROCESS_PATH_ENRICHMENT: Option<&str> = Some("1.7.1");
+/// Windows process identity measured by classic-record correlation (#480).
+///
+/// TODO(release): set to the release that ships it, as for
+/// [`SINCE_DNS_RESPONSES`].
+const SINCE_PROCESS_USER: Option<&str> = Some("1.7.1");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -206,10 +211,10 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         SINCE_BASELINE,
         "Windows process events do not have a Linux kernel cgroup identifier",
     ),
-    never(
+    conditional(
         "User",
-        SINCE_BASELINE,
-        "Microsoft-Windows-Kernel-Process does not expose process user identity",
+        SINCE_PROCESS_USER,
+        "the classic process record is correlated; the measured SID is retained or resolves to an account name",
     ),
     never(
         "CurrentDirectory",
@@ -2136,6 +2141,20 @@ pub fn missing_always_fields(event: &NormalizedEvent) -> Vec<&'static str> {
         .flat_map(|contract| contract.fields)
         .filter(|entry| entry.availability == Availability::Always)
         .filter_map(|entry| (!field_is_populated(event, entry.field)).then_some(entry.field))
+        .collect()
+}
+
+/// Populated fields which the matching event contract declares unavailable.
+///
+/// The detector accessor still filters these fields at read time. This check
+/// makes the contradictory producer/contract state observable instead of
+/// silently relying on that safety net forever.
+pub fn populated_never_fields(event: &NormalizedEvent) -> Vec<&'static str> {
+    event_contract(event)
+        .into_iter()
+        .flat_map(|contract| contract.fields)
+        .filter(|entry| matches!(entry.availability, Availability::Never(_)))
+        .filter_map(|entry| field_is_populated(event, entry.field).then_some(entry.field))
         .collect()
 }
 

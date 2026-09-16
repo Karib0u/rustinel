@@ -48,6 +48,19 @@ use crate::sensor::RawEvent;
 /// Tracing target for pipeline telemetry accounting.
 pub const TARGET_TELEMETRY: &str = "telemetry";
 
+/// Canonical fields emitted despite being declared unavailable by the matching
+/// field contract. The detector accessor hides them, but the contradiction is
+/// still a decoder/contract defect that operators must be able to see.
+static FIELD_CONTRACT_VIOLATIONS: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn record_field_contract_violations(count: usize) {
+    FIELD_CONTRACT_VIOLATIONS.fetch_add(count as u64, Ordering::Relaxed);
+}
+
+fn field_contract_violations() -> u64 {
+    FIELD_CONTRACT_VIOLATIONS.load(Ordering::Relaxed)
+}
+
 /// Version shared by Linux eBPF userspace telemetry and the object loader.
 ///
 /// Bump this whenever a ring-buffer event layout or loader-patched global

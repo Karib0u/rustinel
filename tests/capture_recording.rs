@@ -19,6 +19,7 @@ use rustinel::{
     config::ResponseConfig,
     engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler},
     ioc::IocEngine,
+    models::NormalizedEvent,
     scanner::Scanner,
     sensor::{Platform, SensorEventRouter},
 };
@@ -28,7 +29,18 @@ fn read_lines(path: &Path) -> Vec<Value> {
     std::fs::read_to_string(path)
         .expect("recording exists")
         .lines()
-        .map(|line| serde_json::from_str(line).expect("recording line is JSON"))
+        .map(|line| {
+            let value: Value = serde_json::from_str(line).expect("recording line is JSON");
+            let event: NormalizedEvent =
+                serde_json::from_value(value.clone()).expect("recording line is an event");
+            let missing = rustinel::field_availability::missing_always_fields(&event);
+            let populated = rustinel::field_availability::populated_never_fields(&event);
+            assert!(
+                missing.is_empty() && populated.is_empty(),
+                "recording violates its field contract: missing Always {missing:?}, populated Never {populated:?}: {value}"
+            );
+            value
+        })
         .collect()
 }
 

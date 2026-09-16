@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use rustinel::field_availability::{
     availability_for_event, compatibility_json, coverage_markdown, missing_always_fields,
-    unavailable_fields_markdown, Availability, FIELD_AVAILABILITY, SCHEMA_VERSION,
+    populated_never_fields, unavailable_fields_markdown, Availability, FIELD_AVAILABILITY,
+    SCHEMA_VERSION,
 };
 use rustinel::models::{
     EventCategory, EventFields, ImageLoadFields, NormalizedEvent, ProcessCreationFields,
@@ -150,9 +151,11 @@ fn required_permanent_gaps_are_recorded() {
         })
     };
 
-    for field in ["User", "CurrentDirectory"] {
-        assert!(has_never(Platform::Windows, "process_creation", field));
-    }
+    assert!(has_never(
+        Platform::Windows,
+        "process_creation",
+        "CurrentDirectory"
+    ));
     for field in ["Signed", "Signature"] {
         assert!(has_never(Platform::Windows, "image_load", field));
     }
@@ -190,6 +193,7 @@ fn never_fields_cannot_leak_through_the_sigma_accessor() {
     ));
     assert_eq!(image.get_field("Signed"), None);
     assert_eq!(image.get_field("Signature"), None);
+    assert_eq!(populated_never_fields(&image), vec!["Signed", "Signature"]);
 
     let task = event(
         EventCategory::Task,
@@ -205,6 +209,29 @@ fn never_fields_cannot_leak_through_the_sigma_accessor() {
         }),
     );
     assert_eq!(task.get_field("TaskContent"), None);
+}
+
+#[test]
+fn measured_windows_process_user_is_visible_under_the_contract() {
+    let fields = serde_json::from_value(serde_json::json!({
+        "Image": "C:\\Windows\\System32\\cmd.exe",
+        "ProcessId": "42",
+        "User": "NT AUTHORITY\\SYSTEM"
+    }))
+    .unwrap();
+    let process = event(
+        EventCategory::Process,
+        1,
+        1,
+        EventFields::ProcessCreation(fields),
+    );
+
+    assert!(matches!(
+        availability_for_event(&process, "User"),
+        Some(Availability::Conditional(_))
+    ));
+    assert_eq!(process.get_field("User"), Some("NT AUTHORITY\\SYSTEM"));
+    assert!(populated_never_fields(&process).is_empty());
 }
 
 #[test]

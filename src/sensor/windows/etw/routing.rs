@@ -28,6 +28,22 @@ pub(super) const POWERSHELL_EVENT_MODULE_LOGGING: u16 = 4103;
 
 pub(super) const POWERSHELL_EVENT_SCRIPT_BLOCK: u16 = 4104;
 
+/// Microsoft-Windows-Kernel-Process manifest image-load event. Unlike the
+/// classic provider's opcode 10 record, Windows 11 emits this as event 5 with
+/// opcode 0.
+const KERNEL_PROCESS_EVENT_IMAGE_LOAD: u16 = 5;
+
+fn kernel_process_route(event_id: u16, opcode: u8) -> Option<(EventCategory, SensorAction)> {
+    match (event_id, opcode) {
+        (_, 1) => Some((EventCategory::Process, SensorAction::Start)),
+        (_, 2) => Some((EventCategory::Process, SensorAction::Stop)),
+        (_, 10) | (KERNEL_PROCESS_EVENT_IMAGE_LOAD, 0) => {
+            Some((EventCategory::ImageLoad, SensorAction::Load))
+        }
+        _ => None,
+    }
+}
+
 /// One provider, two Sigma logsources: the event ID is the only thing that
 /// separates script block logging from module logging, so the PowerShell
 /// provider cannot be routed on its GUID like the others. Kept in sync with
@@ -357,12 +373,7 @@ impl EtwRouting {
         let provider_guid = record.provider_id();
 
         if provider_guid == self.kernel_process_guid {
-            return match record.opcode() {
-                1 => Some((EventCategory::Process, SensorAction::Start)),
-                2 => Some((EventCategory::Process, SensorAction::Stop)),
-                10 => Some((EventCategory::ImageLoad, SensorAction::Load)),
-                _ => None,
-            };
+            return kernel_process_route(record.event_id(), record.opcode());
         }
 
         if provider_guid == self.powershell_guid {
@@ -402,6 +413,14 @@ mod tests {
     use super::*;
     use crate::models::EventCategory;
     use crate::sensor::SensorAction;
+
+    #[test]
+    fn manifest_and_classic_image_loads_share_one_route() {
+        let expected = Some((EventCategory::ImageLoad, SensorAction::Load));
+        assert_eq!(kernel_process_route(5, 0), expected);
+        assert_eq!(kernel_process_route(0, 10), expected);
+        assert_eq!(kernel_process_route(4, 0), None);
+    }
 
     #[test]
     fn filter_matches_routing_allowlist() {

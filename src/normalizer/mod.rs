@@ -91,11 +91,19 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         // disappears. Keep release telemetry flowing; debug and test builds
         // turn contract drift into an immediate, actionable failure.
         let missing_always = crate::field_availability::missing_always_fields(&normalized);
+        let populated_never = crate::field_availability::populated_never_fields(&normalized);
+        crate::telemetry::record_field_contract_violations(populated_never.len());
         debug_assert!(
             missing_always.is_empty(),
             "decoder omitted Always field(s) for {}: {:?}",
             crate::field_availability::category_name(normalized.category),
             missing_always
+        );
+        debug_assert!(
+            populated_never.is_empty(),
+            "decoder populated Never field(s) for {}: {:?}",
+            crate::field_availability::category_name(normalized.category),
+            populated_never
         );
 
         debug_assert!(
@@ -638,6 +646,50 @@ mod tests {
     }
 
     #[test]
+    fn populated_never_field_fails_and_increments_telemetry() {
+        let event = SensorEvent {
+            process_name: None,
+            provenance: Default::default(),
+            platform: Platform::Windows,
+            provider: "etw",
+            action: SensorAction::Load,
+            normalization: SensorNormalization {
+                event_id: 7,
+                action_code: 10,
+            },
+            pid: Some(42),
+            timestamp: SystemTime::UNIX_EPOCH,
+            source_seq: None,
+            process_start_key: None,
+            parent_process_start_key: None,
+            payload: SensorPayload::ImageLoad(ImageLoadFields {
+                hashes: None,
+                imphash: None,
+                image_loaded: Some(r"C:\Windows\System32\kernel32.dll".into()),
+                process_id: Some("42".into()),
+                image: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                signed: Some("true".into()),
+                signature: None,
+                user: None,
+            }),
+        };
+        let before = crate::telemetry::TelemetrySnapshot::capture().field_contract_violations;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            build_normalizer().normalize(&event)
+        }));
+
+        assert!(result.is_err(), "a populated Never field must fail tests");
+        assert!(
+            crate::telemetry::TelemetrySnapshot::capture().field_contract_violations >= before + 1
+        );
+    }
+
+    #[test]
     fn container_resolution_maps_cgroup_identity_and_clears_unresolved_context() {
         use crate::state::container::{ContainerIdentity, ContainerResolution};
         const ID: &str = "4f0a3c1b2d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
@@ -1075,7 +1127,7 @@ mod tests {
                     parent_process_id: Some("7".to_string()),
                     parent_image: None,
                     parent_command_line: None,
-                    current_directory: Some("/tmp".to_string()),
+                    current_directory: (platform != Platform::Windows).then(|| "/tmp".to_string()),
                     integrity_level: None,
                     user: Some("alice".to_string()),
                 },
@@ -1171,7 +1223,7 @@ mod tests {
                 user: Some("alice".to_string()),
                 destination_hostname: None,
                 protocol: Some("tcp".to_string()),
-                initiated: Some(true),
+                initiated: (platform != Platform::MacOS).then_some(true),
             }),
         }
     }

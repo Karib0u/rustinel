@@ -343,6 +343,16 @@ jobs:
           "RUSTINEL_ENGINE_BIN=$env:GITHUB_WORKSPACE\release-artifact\rustinel.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         shell: pwsh
 
+      - name: Run native capture contract (Linux)
+        if: matrix.platform == 'linux'
+        run: sudo -E python3 tests/native_capture_contract.py --binary "$RUSTINEL_ENGINE_BIN"
+        shell: bash
+
+      - name: Run native capture contract (Windows)
+        if: matrix.platform == 'windows'
+        run: python tests\native_capture_contract.py --binary "$env:RUSTINEL_ENGINE_BIN"
+        shell: pwsh
+
       - name: Prepare signed macOS artifact
         if: matrix.platform == 'macos'
         run: |
