@@ -190,10 +190,40 @@ impl CaptureSession {
     }
 
     /// Wait for a clean shutdown request.
+    #[cfg(not(windows))]
     pub(crate) async fn wait_for_shutdown() {
         match tokio::signal::ctrl_c().await {
             Ok(()) => info!("Received Ctrl+C, finalizing recording"),
             Err(err) => error!("Failed to listen for Ctrl+C: {}", err),
+        }
+    }
+
+    /// Windows process groups receive `CTRL_BREAK_EVENT` from automation such
+    /// as Python's `subprocess.send_signal`. Treat it like interactive Ctrl+C
+    /// so capture can still drain and finalize its manifest.
+    #[cfg(windows)]
+    pub(crate) async fn wait_for_shutdown() {
+        let mut ctrl_break = match tokio::signal::windows::ctrl_break() {
+            Ok(signal) => signal,
+            Err(err) => {
+                error!("Failed to listen for Ctrl+Break: {}", err);
+                match tokio::signal::ctrl_c().await {
+                    Ok(()) => info!("Received Ctrl+C, finalizing recording"),
+                    Err(err) => error!("Failed to listen for Ctrl+C: {}", err),
+                }
+                return;
+            }
+        };
+
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => match result {
+                Ok(()) => info!("Received Ctrl+C, finalizing recording"),
+                Err(err) => error!("Failed to listen for Ctrl+C: {}", err),
+            },
+            signal = ctrl_break.recv() => match signal {
+                Some(()) => info!("Received Ctrl+Break, finalizing recording"),
+                None => error!("Ctrl+Break listener closed before shutdown"),
+            },
         }
     }
 

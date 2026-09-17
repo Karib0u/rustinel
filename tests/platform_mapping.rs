@@ -347,7 +347,8 @@ fn equivalent_windows_and_linux_events_normalize_to_shared_sigma_fields() {
             }
             (EventFields::DnsQuery(w), EventFields::DnsQuery(l)) => {
                 assert_eq!(w.query_name, l.query_name);
-                assert_eq!(w.record_type, l.record_type);
+                assert_eq!(w.record_type, None);
+                assert_eq!(l.record_type.as_deref(), Some("A"));
             }
             _ => panic!("event shape mismatch"),
         }

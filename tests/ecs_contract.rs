@@ -118,10 +118,9 @@ fn process_context_enriches_non_process_alerts_without_overwriting_event_fields(
     );
     assert_ecs_field_eq(&json, "process.parent.command_line", "parent-shell");
     assert_ecs_field_eq(&json, "process.parent.pid", 1000);
-    assert_ecs_field_eq(
-        &json,
-        "process.working_directory",
-        r"C:\Users\alice\AppData\Local\Temp",
+    assert!(
+        json.get("process.working_directory").is_none(),
+        "Windows process starts do not provide a working directory"
     );
     assert_ecs_field_eq(&json, "user.name", TEST_USER);
     assert_ecs_field_eq(

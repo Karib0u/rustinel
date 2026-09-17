@@ -188,9 +188,9 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "User",
-      "since": null,
-      "availability": "never",
-      "reason": "Microsoft-Windows-Kernel-Process does not expose process user identity"
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "the classic process record is correlated; the measured SID is retained or resolves to an account name"
     },
     {
       "platform": "windows",

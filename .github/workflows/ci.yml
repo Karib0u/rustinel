@@ -232,6 +232,16 @@ jobs:
       - name: Build PR binary
         run: cargo build --locked --release
 
+      - name: Run native capture contract (Linux)
+        if: matrix.platform == 'linux'
+        run: sudo -E python3 tests/native_capture_contract.py --binary "$GITHUB_WORKSPACE/target/release/rustinel"
+        shell: bash
+
+      - name: Run native capture contract (Windows)
+        if: matrix.platform == 'windows'
+        run: python tests\native_capture_contract.py --binary "$env:GITHUB_WORKSPACE\target\release\rustinel.exe"
+        shell: pwsh
+
       - name: Check out pinned rules
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

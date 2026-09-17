@@ -28,7 +28,10 @@ fn action_code_for_record(
     record: &EventRecord,
 ) -> u8 {
     match category {
-        EventCategory::Process | EventCategory::ImageLoad => record.opcode(),
+        EventCategory::Process => record.opcode(),
+        // Manifest Kernel-Process event 5 carries opcode 0. Normalize both it
+        // and the classic opcode-10 shape to the established `7 / load` key.
+        EventCategory::ImageLoad => 10,
         EventCategory::Network => match action {
             SensorAction::Connect => 12,
             SensorAction::Disconnect => 13,
@@ -147,6 +150,11 @@ mod tests {
     #[test]
     fn process_start_maps_to_sysmon_1() {
         assert_eq!(map_to_sysmon_id(EventCategory::Process, 1, 999), 1);
+    }
+
+    #[test]
+    fn image_load_maps_to_the_sysmon_7_contract() {
+        assert_eq!(map_to_sysmon_id(EventCategory::ImageLoad, 10, 5), 7);
     }
 
     #[test]

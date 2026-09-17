@@ -162,9 +162,9 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
                 image: Some(image.to_string()),
                 image_source: (platform == Platform::Linux).then(|| "proc".to_string()),
                 image_truncated: None,
-                original_file_name: Some("curl.exe".to_string()),
-                product: Some("curl".to_string()),
-                description: Some("test process".to_string()),
+                original_file_name: (platform == Platform::Windows).then(|| "curl.exe".to_string()),
+                product: (platform == Platform::Windows).then(|| "curl".to_string()),
+                description: (platform == Platform::Windows).then(|| "test process".to_string()),
                 company: None,
                 file_version: None,
                 target_image: None,
@@ -175,7 +175,8 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
                 parent_process_id: Some(TEST_PARENT_PID.to_string()),
                 parent_image: Some(parent_image_for(platform).to_string()),
                 parent_command_line: Some("parent-shell".to_string()),
-                current_directory: Some(temp_current_directory(platform).to_string()),
+                current_directory: (platform != Platform::Windows)
+                    .then(|| temp_current_directory(platform).to_string()),
                 integrity_level: None,
                 user: Some(TEST_USER.to_string()),
             },
@@ -284,7 +285,7 @@ pub fn file_rename_event(platform: Platform) -> SensorEvent {
     file_event(
         platform,
         SensorAction::Rename,
-        Some(test_file_path(platform)),
+        (platform != Platform::Windows).then(|| test_file_path(platform)),
         Some(renamed_test_file_path(platform)),
     )
 }
@@ -312,7 +313,7 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
             user: None,
             query_name: Some(TEST_DOMAIN.to_string()),
             query_results: Some(TEST_DESTINATION_IP.to_string()),
-            record_type: Some("A".to_string()),
+            record_type: (platform != Platform::Windows).then(|| "A".to_string()),
             query_status: Some("NOERROR".to_string()),
             process_id: Some(TEST_PID.to_string()),
             image: None,

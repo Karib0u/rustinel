@@ -20,6 +20,10 @@ use super::{ChannelId, PROCESS_START, TARGET_TELEMETRY};
 use crate::runtime::logging::TARGET_CONSOLE;
 use crate::utils::fs::restrict_file_permissions;
 
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
 /// File name of the snapshot, written inside the configured log directory.
 pub const SNAPSHOT_FILE_NAME: &str = "telemetry.json";
 
@@ -471,6 +475,9 @@ pub struct TelemetrySnapshot {
     pub captured_at: String,
     /// How long that agent had been running.
     pub uptime_secs: u64,
+    /// Populated canonical fields declared `Never` by field availability.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub field_contract_violations: u64,
     pub channels: Vec<ChannelSnapshot>,
     /// Populated canonical fields with fidelity limitations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -520,6 +527,7 @@ impl TelemetrySnapshot {
             pid: std::process::id(),
             captured_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             uptime_secs: PROCESS_START.elapsed().as_secs(),
+            field_contract_violations: super::field_contract_violations(),
             channels: ChannelId::ALL
                 .iter()
                 .map(|channel| channel.counters().snapshot())
@@ -704,6 +712,7 @@ mod tests {
             pid: 42,
             captured_at: "2026-08-24T00:00:00Z".to_string(),
             uptime_secs: 60,
+            field_contract_violations: 0,
             field_fidelity: Vec::new(),
             channels,
             sensor_events_by_category: Vec::new(),
@@ -727,6 +736,14 @@ mod tests {
         for (channel, expected) in snapshot.channels.iter().zip(ChannelId::ALL) {
             assert_eq!(channel.channel, expected.as_str());
         }
+    }
+
+    #[test]
+    fn capture_includes_field_contract_violations() {
+        let before = TelemetrySnapshot::capture().field_contract_violations;
+        crate::telemetry::record_field_contract_violations(2);
+        let after = TelemetrySnapshot::capture().field_contract_violations;
+        assert!(after >= before + 2);
     }
 
     #[test]

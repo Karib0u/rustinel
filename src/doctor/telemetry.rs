@@ -53,6 +53,7 @@ pub(crate) fn telemetry_results(
     results.extend(event_log_results(&snapshot));
 
     results.extend(process_correlation_results(&snapshot));
+    results.extend(field_contract_results(&snapshot));
     results.extend(field_fidelity_results(&snapshot));
     results.extend(alert_webhook_results(&snapshot));
     let dropping = snapshot.dropping_channels();
@@ -94,6 +95,21 @@ pub(crate) fn telemetry_results(
 
     results.insert(0, result);
     (results, Some(snapshot))
+}
+
+fn field_contract_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    if snapshot.field_contract_violations == 0 {
+        return Vec::new();
+    }
+
+    vec![DiagnosticResult::warn(
+        "field_contract_violations",
+        format!(
+            "{} populated fields contradicted the field availability contract",
+            snapshot.field_contract_violations
+        ),
+        "The detector read path filtered fields declared Never. Correct the decoder or update the contract before relying on those fields.",
+    )]
 }
 
 fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
@@ -868,6 +884,7 @@ mod tests {
             pid: 7,
             captured_at: "2026-08-24T12:00:00Z".to_string(),
             uptime_secs: 3600,
+            field_contract_violations: 0,
             field_fidelity: Vec::new(),
             channels,
             sensor_events_by_category: Vec::new(),
@@ -881,6 +898,19 @@ mod tests {
             etw_decode: None,
             alert_webhooks: Vec::new(),
         }
+    }
+
+    #[test]
+    fn doctor_warns_about_populated_never_fields() {
+        let mut snap = snapshot(Vec::new());
+        assert!(field_contract_results(&snap).is_empty());
+
+        snap.field_contract_violations = 3;
+        let results = field_contract_results(&snap);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "field_contract_violations");
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.contains("3 populated fields"));
     }
 
     #[test]

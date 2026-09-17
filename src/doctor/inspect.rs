@@ -727,7 +727,7 @@ mod tests {
         assert!(result
             .detail
             .as_deref()
-            .is_some_and(|detail| detail.contains("process_creation.User")));
+            .is_some_and(|detail| detail.contains("process_creation.CurrentDirectory")));
     }
 
     #[test]
