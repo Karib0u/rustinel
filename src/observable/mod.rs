@@ -237,6 +237,7 @@ mod tests {
             parent_process_id: None,
             parent_image: Some("/usr/bin/bash".into()),
             parent_command_line: Some("bash ./ignored-parent-operand".into()),
+            parent_user: None,
             current_directory: cwd.map(Into::into),
             integrity_level: None,
             user: None,

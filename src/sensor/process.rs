@@ -252,6 +252,7 @@ impl RawProcessEvent {
             parent_process_id: self.parent_process_id.map(|value| value.to_string()),
             parent_image: self.parent_image.clone(),
             parent_command_line: self.parent_command_line.clone(),
+            parent_user: None,
             current_directory: self.current_directory.clone(),
             integrity_level: self.integrity_level.clone(),
             user: self.user.as_ref().map(RawUserId::compatibility_value),

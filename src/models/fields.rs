@@ -12,6 +12,7 @@ use super::EventCategory;
 /// because a minimal event carries too few fields to tell the variants apart.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum EventFields {
     ProcessCreation(ProcessCreationFields),
     FileEvent(FileEventFields),
@@ -215,6 +216,9 @@ pub struct ProcessCreationFields {
 
     #[serde(rename = "ParentCommandLine", skip_serializing_if = "Option::is_none")]
     pub parent_command_line: Option<String>,
+
+    #[serde(rename = "ParentUser", skip_serializing_if = "Option::is_none")]
+    pub parent_user: Option<String>,
 
     #[serde(rename = "CurrentDirectory", skip_serializing_if = "Option::is_none")]
     pub current_directory: Option<String>,

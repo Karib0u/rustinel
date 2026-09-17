@@ -165,6 +165,7 @@ fn process() -> CanonicalEvent {
             parent_process_id: Some("4000".to_string()),
             parent_image: Some(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string()),
             parent_command_line: None,
+            parent_user: None,
             current_directory: Some(r"C:\Users\alice\source\repo\".to_string()),
             integrity_level: None,
             user: None,

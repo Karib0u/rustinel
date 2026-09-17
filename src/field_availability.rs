@@ -203,6 +203,11 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         "derived from the process cache when the parent is still known",
     ),
     conditional(
+        "ParentUser",
+        SINCE_PROCESS_USER,
+        "derived from the process cache when the stable parent identity is known",
+    ),
+    conditional(
         "IntegrityLevel",
         SINCE_1_4_1,
         "available only on process-start templates with a MandatoryLabel SID",

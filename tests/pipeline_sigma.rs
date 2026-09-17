@@ -75,6 +75,37 @@ fn sigma_process_detection_pipeline_maps_to_ecs_for_windows_and_linux() {
 }
 
 #[test]
+fn windows_process_user_contains_rule_matches_replayed_shape() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "process_user.yml",
+        r#"title: Test Windows Process User
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    User|contains: "alice"
+  condition: selection
+level: high
+"#,
+    );
+    let engine = load_engine(Platform::Windows, &fixture);
+    let normalized = TestNormalizer::new()
+        .normalizer
+        .normalize(&process_start_event(Platform::Windows))
+        .expect("process start should normalize");
+
+    assert_normalized_field_eq(&normalized, "User", TEST_USER);
+    let alert = engine
+        .check_event(&normalized)
+        .into_iter()
+        .next()
+        .expect("User|contains should match the replay-compatible process event");
+    assert_sigma_alert(&alert, "Test Windows Process User");
+}
+
+#[test]
 fn sigma_integrity_level_detection_pipeline_matches_sysmon_spelling() {
     let fixture = SigmaFixture::new();
     fixture.write_rule(

@@ -1048,6 +1048,7 @@ mod tests {
                 parent_process_id: None,
                 parent_image: Some("/bin/bash".to_string()),
                 parent_command_line: None,
+                parent_user: None,
                 current_directory: None,
                 integrity_level: None,
                 user: None,
