@@ -8,6 +8,18 @@
       "action": "start",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-Process/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Process",
       "field": "ProcessId",
       "since": null,
       "availability": "always"
@@ -235,6 +247,18 @@
       "action": "connect",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-Network/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "network_connection",
+      "event_id": 3,
+      "action": "connect",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationIp",
       "since": null,
       "availability": "conditional",
@@ -352,6 +376,18 @@
       "action": "accept",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-Network/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "network_connection",
+      "event_id": 3,
+      "action": "accept",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Network",
       "field": "DestinationIp",
       "since": null,
       "availability": "conditional",
@@ -468,6 +504,17 @@
       "action": "create",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-File/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "file_event",
+      "action": "create",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
       "since": null,
       "availability": "always"
@@ -555,6 +602,17 @@
       "action": "set",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-File/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "file_event",
+      "action": "set",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
       "since": null,
       "availability": "always"
@@ -642,6 +700,17 @@
       "action": "modify",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-File/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "file_event",
+      "action": "modify",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
       "since": null,
       "availability": "always"
@@ -729,6 +798,17 @@
       "action": "delete",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-File/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "file_event",
+      "action": "delete",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
       "since": null,
       "availability": "always"
@@ -816,6 +896,17 @@
       "action": "rename",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-File/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "file_event",
+      "action": "rename",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-File",
       "field": "TargetFilename",
       "since": null,
       "availability": "always"
@@ -896,6 +987,17 @@
       "since": null,
       "availability": "never",
       "reason": "ETW delivers a complete path or no attributable event"
+    },
+    {
+      "platform": "windows",
+      "category": "registry_event",
+      "action": "create",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Registry",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-Registry/Analytic",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -979,6 +1081,17 @@
       "action": "set",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-Registry/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "registry_event",
+      "action": "set",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Registry",
       "field": "TargetObject",
       "since": null,
       "availability": "always"
@@ -1055,6 +1168,17 @@
       "action": "delete",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-Registry/Analytic",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "registry_event",
+      "action": "delete",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Registry",
       "field": "TargetObject",
       "since": null,
       "availability": "always"
@@ -1124,6 +1248,18 @@
       "since": null,
       "availability": "conditional",
       "reason": "the operation is a rename and the provider carries the new name"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3006,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-DNS-Client/Operational",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -1204,6 +1340,18 @@
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-DNS-Client/Operational",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryName",
       "since": null,
       "availability": "conditional",
@@ -1268,6 +1416,18 @@
       "since": null,
       "availability": "never",
       "reason": "the subscribed DNS Client events do not expose the query record type"
+    },
+    {
+      "platform": "windows",
+      "category": "image_load",
+      "event_id": 7,
+      "action": "load",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Process",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-Kernel-Process/Analytic",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -1432,6 +1592,18 @@
       "action": "execute",
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-PowerShell/Operational",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "ps_script",
+      "event_id": 4104,
+      "action": "execute",
+      "provider": "etw",
+      "source": "Microsoft-Windows-PowerShell",
       "field": "ScriptBlockText",
       "since": null,
       "availability": "conditional",
@@ -1504,6 +1676,18 @@
       "action": "execute",
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-PowerShell/Operational",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "ps_module",
+      "event_id": 4103,
+      "action": "execute",
+      "provider": "etw",
+      "source": "Microsoft-Windows-PowerShell",
       "field": "ContextInfo",
       "since": "1.4.1",
       "availability": "conditional",
@@ -1556,6 +1740,17 @@
       "since": "1.4.1",
       "availability": "conditional",
       "reason": "the provider event template carries user identity"
+    },
+    {
+      "platform": "windows",
+      "category": "wmi_event",
+      "action": "execute",
+      "provider": "etw",
+      "source": "Microsoft-Windows-WMI-Activity",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-WMI-Activity/Trace",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -1652,6 +1847,18 @@
       "action": "register",
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Microsoft-Windows-TaskScheduler/Operational",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "task_creation",
+      "event_id": 106,
+      "action": "register",
+      "provider": "etw",
+      "source": "Microsoft-Windows-TaskScheduler",
       "field": "TaskName",
       "since": null,
       "availability": "conditional",
@@ -1716,6 +1923,18 @@
       "since": null,
       "availability": "never",
       "reason": "TaskScheduler event 106 does not carry a process image"
+    },
+    {
+      "platform": "windows",
+      "category": "service_creation",
+      "event_id": 7045,
+      "action": "register",
+      "provider": "windows_event_log",
+      "source": "Service Control Manager",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "System",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -1832,6 +2051,18 @@
       "since": "1.4.0",
       "availability": "never",
       "reason": "System event 7045 does not carry a creating process image"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4624,
+      "action": "start",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -2152,6 +2383,18 @@
       "action": "access",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4656,
+      "action": "access",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.4.1",
       "availability": "conditional",
@@ -2320,6 +2563,18 @@
       "action": "access",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4663,
+      "action": "access",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.4.1",
       "availability": "conditional",
@@ -2464,6 +2719,18 @@
       "action": "register",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4697,
+      "action": "register",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.4.1",
       "availability": "conditional",
@@ -2564,6 +2831,18 @@
       "since": "1.4.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 5136,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -2728,6 +3007,18 @@
       "action": "access",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 5145,
+      "action": "access",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.4.1",
       "availability": "conditional",
@@ -2884,6 +3175,18 @@
       "action": "delete",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 1102,
+      "action": "delete",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Eventlog",
       "field": "Provider_Name",
       "since": "1.7.1",
       "availability": "always"
@@ -2959,6 +3262,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4625,
+      "action": "start",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -3219,6 +3534,18 @@
       "action": "start",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4648,
+      "action": "start",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -3379,6 +3706,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4657,
+      "action": "set",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -3555,6 +3894,18 @@
       "action": "register",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4698,
+      "action": "register",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -3687,6 +4038,18 @@
       "action": "delete",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4699,
+      "action": "delete",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -3819,6 +4182,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4700,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -3951,6 +4326,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4701,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -4075,6 +4462,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4702,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -4215,6 +4614,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4719,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -4335,6 +4746,18 @@
       "action": "create",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4720,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -4647,6 +5070,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4722,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -4731,6 +5166,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4724,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -4807,6 +5254,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4726,
+      "action": "delete",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -4903,6 +5362,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4728,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -5043,6 +5514,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4732,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -5167,6 +5650,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4738,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -5479,6 +5974,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4741,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -5823,6 +6330,18 @@
       "action": "delete",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4743,
+      "action": "delete",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -5911,6 +6430,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4756,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -6051,6 +6582,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4765,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -6183,6 +6726,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4766,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -6283,6 +6838,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4771,
+      "action": "start",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -6423,6 +6990,18 @@
       "action": "start",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4776,
+      "action": "start",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "PackageName",
       "since": "1.7.1",
       "availability": "conditional",
@@ -6463,6 +7042,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4781,
+      "action": "rename",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -6579,6 +7170,18 @@
       "action": "modify",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4794,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
       "since": "1.7.1",
       "availability": "conditional",
@@ -6643,6 +7246,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 4817,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -6759,6 +7374,18 @@
       "action": "connect",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 5152,
+      "action": "connect",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
       "since": "1.7.1",
       "availability": "conditional",
@@ -6931,6 +7558,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 5156,
+      "action": "connect",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -7215,6 +7854,18 @@
       "action": "connect",
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 5157,
+      "action": "connect",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessID",
       "since": "1.7.1",
       "availability": "conditional",
@@ -7483,6 +8134,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 5447,
+      "action": "modify",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",
@@ -7699,6 +8362,18 @@
       "since": "1.7.1",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
+    },
+    {
+      "platform": "windows",
+      "category": "security",
+      "event_id": 6416,
+      "action": "register",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Security-Auditing",
+      "field": "Channel",
+      "since": "1.7.1",
+      "value": "Security",
+      "availability": "always"
     },
     {
       "platform": "windows",

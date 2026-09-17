@@ -166,6 +166,80 @@ fn required_permanent_gaps_are_recorded() {
 }
 
 #[test]
+fn every_windows_shape_declares_its_real_channel_or_a_permanent_gap() {
+    for contract in FIELD_AVAILABILITY
+        .iter()
+        .filter(|contract| contract.platform == Platform::Windows)
+    {
+        let channel = contract
+            .fields
+            .iter()
+            .find(|field| field.field == "Channel" || field.field == "*")
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}/{} has no Channel contract",
+                    contract.provider, contract.category
+                )
+            });
+        match channel.value {
+            Some(value) => {
+                assert!(!value.is_empty());
+                assert_eq!(channel.availability, Availability::Always);
+            }
+            None => assert!(matches!(channel.availability, Availability::Never(_))),
+        }
+    }
+}
+
+#[test]
+fn manifest_backed_windows_shapes_record_the_verified_channel_names() {
+    for (category, event_id, expected) in [
+        (
+            "ps_module",
+            4103,
+            "Microsoft-Windows-PowerShell/Operational",
+        ),
+        (
+            "ps_script",
+            4104,
+            "Microsoft-Windows-PowerShell/Operational",
+        ),
+        (
+            "dns_query",
+            3006,
+            "Microsoft-Windows-DNS-Client/Operational",
+        ),
+        (
+            "dns_query",
+            3008,
+            "Microsoft-Windows-DNS-Client/Operational",
+        ),
+        (
+            "task_creation",
+            106,
+            "Microsoft-Windows-TaskScheduler/Operational",
+        ),
+        ("service_creation", 7045, "System"),
+        ("security", 4624, "Security"),
+    ] {
+        let contract = FIELD_AVAILABILITY
+            .iter()
+            .find(|contract| {
+                contract.platform == Platform::Windows
+                    && contract.category == category
+                    && contract.event_id == Some(event_id)
+            })
+            .unwrap_or_else(|| panic!("missing {category} event {event_id} contract"));
+        let channel = contract
+            .fields
+            .iter()
+            .find(|field| field.field == "Channel")
+            .and_then(|field| field.value);
+        assert_eq!(channel, Some(expected), "{category} event {event_id}");
+    }
+}
+
+#[test]
 fn never_fields_cannot_leak_through_the_sigma_accessor() {
     let image = event(
         EventCategory::ImageLoad,

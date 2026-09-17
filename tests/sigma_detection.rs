@@ -11,7 +11,8 @@ mod common;
 
 use common::{
     assert_ecs_field_eq, ecs_json, network_connect_event, powershell_module_event,
-    process_start_event, service_installation_event, SigmaFixture, TestNormalizer,
+    powershell_script_event, process_start_event, service_installation_event, SigmaFixture,
+    TestNormalizer,
 };
 use rustinel::engine::Engine;
 use rustinel::models::{AlertSeverity, MatchDebugLevel};
@@ -496,6 +497,42 @@ fn powershell_module_rule_matches_a_module_event() {
         .next()
         .unwrap_or_else(|| panic!("ps_module rule should match"));
     assert_eq!(alert.rule_name, "Test PowerShell Module Download");
+}
+
+#[test]
+fn hayabusa_powershell_channel_rule_matches_script_block_event() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "powershell_channel.yml",
+        r#"title: PowerShell Operational Script Block
+logsource:
+  product: windows
+  category: ps_script
+detection:
+  selection:
+    Channel: Microsoft-Windows-PowerShell/Operational
+    EventID: 4104
+    ScriptBlockText|contains: Get-Process
+  condition: selection
+level: high
+"#,
+    );
+    let normalized = TestNormalizer::new()
+        .normalizer
+        .normalize(&powershell_script_event())
+        .expect("script block event should normalize");
+
+    assert_eq!(
+        normalized.get_field("Channel"),
+        Some("Microsoft-Windows-PowerShell/Operational")
+    );
+    let engine = engine_with(&fixture, Platform::Windows);
+    let alert = engine
+        .check_event(&normalized)
+        .into_iter()
+        .next()
+        .expect("Channel and EventID must match the PowerShell event");
+    assert_eq!(alert.rule_name, "PowerShell Operational Script Block");
 }
 
 /// A rule whose logsource values carry stray whitespace or case must still
