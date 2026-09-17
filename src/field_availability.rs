@@ -48,6 +48,8 @@ const SINCE_CONTAINER_CONTEXT: Option<&str> = Some("1.7.1");
 /// TODO(release): set to the release that ships it, as for
 /// [`SINCE_DNS_RESPONSES`].
 const SINCE_PROCESS_PATH_ENRICHMENT: Option<&str> = Some("1.7.1");
+/// Native Windows Event Log or ETW manifest channel (#543).
+const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.7.1");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -85,6 +87,9 @@ pub struct FieldContract {
     /// First released version where the field reached its current
     /// availability, or `None` when that predates the supported baseline.
     pub since: Option<&'static str>,
+    /// Exact value for invariant fields such as a native Windows channel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<&'static str>,
     #[serde(flatten)]
     pub availability: Availability,
 }
@@ -111,6 +116,20 @@ const fn always(field: &'static str, since: Option<&'static str>) -> FieldContra
     FieldContract {
         field,
         since,
+        value: None,
+        availability: Availability::Always,
+    }
+}
+
+const fn always_value(
+    field: &'static str,
+    since: Option<&'static str>,
+    value: &'static str,
+) -> FieldContract {
+    FieldContract {
+        field,
+        since,
+        value: Some(value),
         availability: Availability::Always,
     }
 }
@@ -123,6 +142,7 @@ const fn conditional(
     FieldContract {
         field,
         since,
+        value: None,
         availability: Availability::Conditional(reason),
     }
 }
@@ -135,11 +155,17 @@ const fn never(
     FieldContract {
         field,
         since,
+        value: None,
         availability: Availability::Never(reason),
     }
 }
 
 const WINDOWS_PROCESS: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-Kernel-Process/Analytic",
+    ),
     always("ProcessId", SINCE_BASELINE),
     conditional(
         "Image",
@@ -234,6 +260,11 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
 ];
 
 const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-Kernel-Process/Analytic",
+    ),
     conditional(
         "ImageLoaded",
         SINCE_BASELINE,
@@ -302,6 +333,11 @@ const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
 ];
 
 const WINDOWS_NETWORK: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-Kernel-Network/Analytic",
+    ),
     conditional(
         "DestinationIp",
         SINCE_BASELINE,
@@ -343,6 +379,11 @@ const WINDOWS_NETWORK: &[FieldContract] = &[
 ];
 
 const WINDOWS_FILE: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-Kernel-File/Analytic",
+    ),
     always("TargetFilename", SINCE_BASELINE),
     conditional(
         "ProcessId",
@@ -382,6 +423,11 @@ const WINDOWS_FILE: &[FieldContract] = &[
 ];
 
 const WINDOWS_REGISTRY: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-Kernel-Registry/Analytic",
+    ),
     always("TargetObject", SINCE_BASELINE),
     conditional(
         "Details",
@@ -416,6 +462,11 @@ const WINDOWS_REGISTRY: &[FieldContract] = &[
 ];
 
 const WINDOWS_DNS: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-DNS-Client/Operational",
+    ),
     conditional(
         "QueryName",
         SINCE_BASELINE,
@@ -449,6 +500,11 @@ const WINDOWS_DNS: &[FieldContract] = &[
 ];
 
 const WINDOWS_POWERSHELL_SCRIPT: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-PowerShell/Operational",
+    ),
     conditional(
         "ScriptBlockText",
         SINCE_BASELINE,
@@ -482,6 +538,11 @@ const WINDOWS_POWERSHELL_SCRIPT: &[FieldContract] = &[
 ];
 
 const WINDOWS_POWERSHELL_MODULE: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-PowerShell/Operational",
+    ),
     conditional(
         "ContextInfo",
         SINCE_1_4_1,
@@ -510,6 +571,11 @@ const WINDOWS_POWERSHELL_MODULE: &[FieldContract] = &[
 ];
 
 const WINDOWS_WMI: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-WMI-Activity/Trace",
+    ),
     conditional(
         "Operation",
         SINCE_BASELINE,
@@ -553,6 +619,11 @@ const WINDOWS_WMI: &[FieldContract] = &[
 ];
 
 const WINDOWS_TASK: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WINDOWS_CHANNEL,
+        "Microsoft-Windows-TaskScheduler/Operational",
+    ),
     conditional(
         "TaskName",
         SINCE_BASELINE,
@@ -586,6 +657,7 @@ const WINDOWS_TASK: &[FieldContract] = &[
 ];
 
 const WINDOWS_SERVICE: &[FieldContract] = &[
+    always_value("Channel", SINCE_WINDOWS_CHANNEL, "System"),
     always("Provider_Name", SINCE_1_4_1),
     always("ServiceName", SINCE_1_4_0),
     always("ServiceFileName", SINCE_1_4_0),
@@ -628,6 +700,7 @@ const SECURITY_FIELD_REASON: &str =
 macro_rules! security_fields {
     ($($field:literal => $since:expr),+ $(,)?) => {
         &[
+            always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
             conditional("SubjectUserSid", SINCE_1_4_1, SECURITY_FIELD_REASON),
             conditional("SubjectUserName", SINCE_1_4_1, SECURITY_FIELD_REASON),
             conditional("SubjectDomainName", SINCE_1_4_1, SECURITY_FIELD_REASON),
@@ -644,6 +717,7 @@ macro_rules! security_family {
     // The template opens with the `Subject*` identity block.
     (subject: $($field:literal),+ $(,)?) => {
         &[
+            always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
             conditional("SubjectUserSid", SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON),
             conditional("SubjectUserName", SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON),
             conditional("SubjectDomainName", SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON),
@@ -654,7 +728,10 @@ macro_rules! security_family {
     // Credential validation and Windows Filtering Platform templates name no
     // subject.
     (no_subject: $($field:literal),+ $(,)?) => {
-        &[$(conditional($field, SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON)),+]
+        &[
+            always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
+            $(conditional($field, SINCE_SECURITY_FAMILIES, SECURITY_FIELD_REASON)),+
+        ]
     };
 }
 
@@ -772,6 +849,7 @@ const WINDOWS_SECURITY_4702: &[FieldContract] = security_family!(subject:
 // Audit and log tampering. 1102 is written to the Security channel by the
 // Event Log service itself, under its own provider.
 const WINDOWS_SECURITY_1102: &[FieldContract] = &[
+    always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
     always("Provider_Name", SINCE_SECURITY_FAMILIES),
     conditional(
         "SubjectUserSid",
@@ -2099,6 +2177,17 @@ fn event_contract(event: &NormalizedEvent) -> Option<&'static EventFieldContract
     })
 }
 
+/// Native Windows channel recorded for this exact emitted event shape.
+pub(crate) fn channel_for_event(event: &NormalizedEvent) -> Option<&'static str> {
+    event_contract(event).and_then(|contract| {
+        contract
+            .fields
+            .iter()
+            .find(|field| field.field == "Channel")
+            .and_then(|field| field.value)
+    })
+}
+
 const fn action_code_matches(action: SensorAction, opcode: u8) -> bool {
     match action {
         SensorAction::Start => opcode == 1,
@@ -2172,6 +2261,8 @@ struct BaselineEntry<'a> {
     source: &'a str,
     field: &'a str,
     since: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<&'a str>,
     #[serde(flatten)]
     availability: Availability,
 }
@@ -2190,6 +2281,7 @@ pub fn compatibility_json() -> String {
                 source: contract.source,
                 field: field.field,
                 since: field.since,
+                value: field.value,
                 availability: field.availability,
             })
         })

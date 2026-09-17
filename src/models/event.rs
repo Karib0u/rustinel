@@ -419,6 +419,10 @@ impl NormalizedEvent {
     /// Contract validation uses this to detect a decoder that omitted an
     /// `Always` field. Sigma callers must use [`Self::get_field`].
     pub(crate) fn get_field_unchecked(&self, key: &str) -> Option<&str> {
+        if key == "Channel" {
+            return crate::field_availability::channel_for_event(self);
+        }
+
         match &self.fields {
             EventFields::ProcessCreation(f) => match key {
                 "Signed" => f.exec.as_ref().and_then(|exec| exec.signed.as_deref()),

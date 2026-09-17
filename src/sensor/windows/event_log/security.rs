@@ -132,6 +132,18 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         contract_for_event_id(Platform::Windows, "security", event_id, "windows_event_log")
             .ok_or_else(|| anyhow!("unsupported Security event ID {event_id}"))?;
 
+    let channel = child_text(system, "Channel").context("security event XML has no Channel")?;
+    let expected_channel = contract
+        .fields
+        .iter()
+        .find(|field| field.field == "Channel")
+        .and_then(|field| field.value);
+    if Some(channel) != expected_channel {
+        return Err(anyhow!(
+            "unexpected channel {channel:?} for Security event {event_id}"
+        ));
+    }
+
     // The contract names the provider that writes each event ID, so an ID
     // reused by another provider in the channel is not mistaken for it.
     let provider = system
@@ -306,6 +318,15 @@ mod tests {
         assert_eq!(fields.get("ServiceAccount"), Some("LocalSystem"));
         assert_eq!(fields.get("SubjectUserName"), Some("alice"));
         assert_eq!(fields.get("SubjectLogonId"), Some("0x3e4"));
+    }
+
+    #[test]
+    fn rejects_a_record_from_a_different_channel() {
+        let xml = security_event(4624, SUBJECT).replace(
+            "<Channel>Security</Channel>",
+            "<Channel>Microsoft-Windows-Sysmon/Operational</Channel>",
+        );
+        assert!(decode(&xml).is_err());
     }
 
     #[test]
