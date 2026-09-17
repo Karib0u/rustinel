@@ -10,7 +10,7 @@
 | DNS queries | ✓ | ✓ ² | ✓ ² |
 | DNS answers | ✓ | ✓ ² | |
 | Registry | ✓ | | |
-| Image (DLL) load | ✓ | | |
+| Image (DLL) load | ✓ ⁴ | | |
 | PowerShell script blocks and modules | ✓ ³ | | |
 | WMI activity | ✓ | | |
 | Service installs, scheduled tasks | ✓ | | |
@@ -21,6 +21,8 @@
 2. Plain DNS on port 53 only.
    DNS over HTTPS or TLS is not visible.
 3. Needs host policy, see [Windows host logging](windows-logging.md).
+4. Image-load rules receive live DLL loads.
+   This is a dense event stream, so enabling a broad rule corpus can increase CPU and memory use during DLL-heavy workloads.
 
 macOS support is experimental.
 Detailed gaps are in [Limitations](limitations.md).
