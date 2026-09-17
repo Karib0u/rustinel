@@ -724,11 +724,9 @@ mod tests {
         assert_eq!(result.id, "field_availability");
         assert_eq!(result.status, DiagnosticStatus::Pass);
         assert!(result.message.contains("unavailable"));
-        assert!(result
-            .detail
-            .as_deref()
-            .is_some_and(|detail| detail.contains("process_creation.CurrentDirectory")
-                && !detail.contains("process_creation.User")));
+        assert!(result.detail.as_deref().is_some_and(|detail| detail
+            .contains("process_creation.CurrentDirectory")
+            && !detail.contains("process_creation.User")));
     }
 
     #[test]

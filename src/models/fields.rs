@@ -12,6 +12,7 @@ use super::EventCategory;
 /// because a minimal event carries too few fields to tell the variants apart.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum EventFields {
     ProcessCreation(ProcessCreationFields),
     FileEvent(FileEventFields),
