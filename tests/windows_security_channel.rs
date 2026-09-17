@@ -100,12 +100,45 @@ fn security_audit_events_normalize_under_their_own_field_names() {
     assert_eq!(normalized.category, EventCategory::Security);
     assert_eq!(normalized.event_id, 4697);
     assert_eq!(normalized.get_field("EventID"), Some("4697"));
+    assert_eq!(normalized.get_field("Channel"), Some("Security"));
     assert_eq!(normalized.get_field("SubjectLogonId"), Some("0x3e4"));
     assert_eq!(
         normalized.get_field("ServiceFileName"),
         Some(r"C:\Windows\Temp\payload.exe")
     );
     assert!(matches!(normalized.fields, EventFields::SecurityAudit(_)));
+}
+
+#[test]
+fn hayabusa_security_channel_rule_matches_logon_event() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "security_channel.yml",
+        r#"title: Security Channel Logon
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    Channel: Security
+    EventID: 4624
+    TargetUserName: alice
+  condition: selection
+level: high
+"#,
+    );
+    let normalized = normalize(&security_event(
+        4624,
+        SensorAction::Start,
+        &[("TargetUserName", "alice")],
+    ));
+
+    let alert = windows_security_engine(&fixture)
+        .check_event(&normalized)
+        .into_iter()
+        .next()
+        .expect("Channel and EventID must match the Security event");
+    assert_eq!(alert.rule_name, "Security Channel Logon");
 }
 
 /// One rule per supported event family, each written the way SigmaHQ writes

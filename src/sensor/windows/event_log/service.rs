@@ -11,6 +11,7 @@ use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, Se
 use super::EventLogSource;
 
 const SERVICE_EVENT_ID: u16 = 7045;
+const SERVICE_CHANNEL: &str = "System";
 /// The provider that writes System event 7045, and the value `service: system`
 /// rules select on as `Provider_Name`.
 const SERVICE_PROVIDER: &str = "Service Control Manager";
@@ -37,6 +38,13 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .context("service event XML has an invalid EventID")?;
     if event_id != SERVICE_EVENT_ID {
         return Err(anyhow!("unexpected System event ID {event_id}"));
+    }
+
+    let channel = child_text(system, "Channel").context("service event XML has no Channel")?;
+    if channel != SERVICE_CHANNEL {
+        return Err(anyhow!(
+            "unexpected channel {channel:?} for System event {event_id}"
+        ));
     }
 
     let provider = system
@@ -178,6 +186,15 @@ mod tests {
     #[test]
     fn rejects_a_different_provider() {
         let xml = EVENT_7045.replace("Service Control Manager", "Other Provider");
+        assert!(decode(&xml).is_err());
+    }
+
+    #[test]
+    fn rejects_a_record_from_a_different_channel() {
+        let xml = EVENT_7045.replace(
+            "<Channel>System</Channel>",
+            "<Channel>Application</Channel>",
+        );
         assert!(decode(&xml).is_err());
     }
 }

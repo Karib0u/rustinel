@@ -54,7 +54,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | Platform | Always | Conditional | Never |
 | --- | ---: | ---: | ---: |
-| windows | 20 | 605 | 37 |
+| windows | 77 | 605 | 37 |
 | linux | 19 | 45 | 15 |
 | macos | 27 | 24 | 26 |
 
