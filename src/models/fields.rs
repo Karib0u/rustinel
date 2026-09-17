@@ -216,6 +216,9 @@ pub struct ProcessCreationFields {
     #[serde(rename = "ParentCommandLine", skip_serializing_if = "Option::is_none")]
     pub parent_command_line: Option<String>,
 
+    #[serde(rename = "ParentUser", skip_serializing_if = "Option::is_none")]
+    pub parent_user: Option<String>,
+
     #[serde(rename = "CurrentDirectory", skip_serializing_if = "Option::is_none")]
     pub current_directory: Option<String>,
 

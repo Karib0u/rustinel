@@ -103,6 +103,18 @@
       "action": "start",
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
+      "field": "ParentUser",
+      "since": "1.7.1",
+      "availability": "conditional",
+      "reason": "derived from the process cache when the stable parent identity is known"
+    },
+    {
+      "platform": "windows",
+      "category": "process_creation",
+      "event_id": 1,
+      "action": "start",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Process",
       "field": "IntegrityLevel",
       "since": "1.4.1",
       "availability": "conditional",

@@ -156,6 +156,16 @@ fn required_permanent_gaps_are_recorded() {
         "process_creation",
         "CurrentDirectory"
     ));
+    for field in ["User", "ParentUser"] {
+        let availability = FIELD_AVAILABILITY
+            .iter()
+            .find(|contract| {
+                contract.platform == Platform::Windows && contract.category == "process_creation"
+            })
+            .and_then(|contract| contract.fields.iter().find(|entry| entry.field == field))
+            .map(|entry| entry.availability);
+        assert!(matches!(availability, Some(Availability::Conditional(_))));
+    }
     for field in ["Signed", "Signature"] {
         assert!(has_never(Platform::Windows, "image_load", field));
     }
@@ -335,6 +345,7 @@ fn missing_always_fields_detect_decoder_contract_drift() {
             parent_process_id: None,
             parent_image: None,
             parent_command_line: None,
+            parent_user: None,
             current_directory: None,
             integrity_level: None,
             user: None,

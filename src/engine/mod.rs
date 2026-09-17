@@ -1226,6 +1226,7 @@ detection:
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,
+                parent_user: None,
                 current_directory: None,
                 integrity_level: None,
                 user: Some("TestUser".to_string()),

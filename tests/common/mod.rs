@@ -175,6 +175,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
                 parent_process_id: Some(TEST_PARENT_PID.to_string()),
                 parent_image: Some(parent_image_for(platform).to_string()),
                 parent_command_line: Some("parent-shell".to_string()),
+                parent_user: None,
                 current_directory: (platform != Platform::Windows)
                     .then(|| temp_current_directory(platform).to_string()),
                 integrity_level: None,

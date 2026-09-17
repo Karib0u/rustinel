@@ -242,6 +242,13 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
                             );
                         }
                     }
+                    if event.platform == Platform::Windows && fields.parent_user.is_none() {
+                        if let Some(user) = parent.user {
+                            fields.parent_user = Some(user);
+                            provenance.mark_derived("ParentUser");
+                            provenance.inherit(&parent.provenance, "User", "ParentUser");
+                        }
+                    }
                 }
 
                 if let Some(key) = event.process_start_key.filter(|key| key.pid == pid) {
@@ -1125,6 +1132,7 @@ mod tests {
                     parent_process_id: Some("7".to_string()),
                     parent_image: None,
                     parent_command_line: None,
+                    parent_user: None,
                     current_directory: (platform != Platform::Windows).then(|| "/tmp".to_string()),
                     integrity_level: None,
                     user: Some("alice".to_string()),
@@ -1184,6 +1192,7 @@ mod tests {
                     parent_process_id: None,
                     parent_image: None,
                     parent_command_line: None,
+                    parent_user: None,
                     current_directory: None,
                     integrity_level: None,
                     user: Some("alice".to_string()),
@@ -1337,6 +1346,7 @@ mod tests {
                     parent_process_id: None,
                     parent_image: None,
                     parent_command_line: None,
+                    parent_user: None,
                     current_directory: None,
                     integrity_level: None,
                     user: None,
@@ -1752,6 +1762,62 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn windows_user_and_parent_user_resolve_from_stable_identities() {
+        let normalizer = build_normalizer();
+        let parent_pid = 4000;
+
+        let mut system_parent = process_start_event(Platform::Windows, "etw", parent_pid);
+        system_parent.process_start_key = Some(ProcessStartKey {
+            pid: parent_pid,
+            start_time: 100,
+        });
+        if let SensorPayload::Process(fields) = &mut system_parent.payload {
+            fields.user = Some(crate::sensor::RawUserId::WindowsSid("S-1-5-18".into()));
+        }
+        let normalized_parent = normalizer
+            .normalize(&system_parent)
+            .expect("SYSTEM parent starts");
+        assert_eq!(
+            normalized_parent.get_field("User"),
+            Some("NT AUTHORITY\\SYSTEM")
+        );
+        assert!(normalized_parent.provenance.has("User", Fidelity::Derived));
+
+        let mut reused_parent = process_start_event(Platform::Windows, "etw", parent_pid);
+        reused_parent.process_start_key = Some(ProcessStartKey {
+            pid: parent_pid,
+            start_time: 150,
+        });
+        if let SensorPayload::Process(fields) = &mut reused_parent.payload {
+            fields.user = Some(crate::sensor::RawUserId::Name("LAB\\other".into()));
+        }
+        normalizer
+            .normalize(&reused_parent)
+            .expect("reused parent starts");
+
+        let child_pid = 4001;
+        let mut child = process_start_event(Platform::Windows, "etw", child_pid);
+        child.process_start_key = Some(ProcessStartKey {
+            pid: child_pid,
+            start_time: 200,
+        });
+        child.parent_process_start_key = Some(ProcessStartKey {
+            pid: parent_pid,
+            start_time: 100,
+        });
+        if let SensorPayload::Process(fields) = &mut child.payload {
+            fields.parent_process_id = Some(parent_pid);
+        }
+
+        let normalized = normalizer.normalize(&child).expect("child starts");
+        assert_eq!(
+            normalized.get_field("ParentUser"),
+            Some("NT AUTHORITY\\SYSTEM")
+        );
+        assert!(normalized.provenance.has("ParentUser", Fidelity::Derived));
     }
 
     #[test]
