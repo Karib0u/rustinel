@@ -4,7 +4,7 @@
 
 | Target | Needs |
 | --- | --- |
-| All platforms | Rust 1.92 or later (the repository pins stable) |
+| All platforms | Rust 1.98 or later (the repository pins Rust 1.98.1) |
 | Windows | Visual Studio Build Tools |
 | macOS | Xcode Command Line Tools |
 | Linux eBPF object | nightly Rust, `rust-src`, and `bpf-linker` |
