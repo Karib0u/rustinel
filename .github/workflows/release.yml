@@ -83,6 +83,10 @@ jobs:
           tool: cross
 
       - name: Build
+        env:
+          # cross 0.2.5 traces its linker wrapper to stderr, which rustc 1.98
+          # reports through the linker_messages lint even when linking succeeds.
+          RUSTFLAGS: -A linker-messages
         run: cross build --locked --release --target aarch64-unknown-linux-musl
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
