@@ -49,7 +49,7 @@ pub enum Commands {
         /// Accept defaults and do not prompt
         #[arg(long)]
         yes: bool,
-        /// Register the service but do not start it
+        /// Register the service but do not start it; an already-running service is left running
         #[arg(long)]
         no_start: bool,
         /// Replace existing managed configuration

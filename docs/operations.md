@@ -26,6 +26,7 @@ Run it from the install folder:
 
 - `--pack advanced` installs the larger pack.
 - `--no-start` registers the service without starting it.
+  If the service is already running, setup leaves it running.
 - An existing managed configuration is kept.
   `--force` replaces it.
 
