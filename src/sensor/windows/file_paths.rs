@@ -31,6 +31,12 @@ use std::collections::{HashMap, VecDeque};
 #[cfg(test)]
 pub(super) const DEFAULT_CAPACITY: usize = 8192;
 
+/// Maximum number of pre-existing names accepted from the file rundown.
+///
+/// This is separate from the live index capacity: a snapshot is fixed at
+/// startup and only shrinks, while the live indexes continuously turn over.
+pub(super) const MAX_RUNDOWN_ENTRIES: usize = 65_536;
+
 /// A bounded `u64 -> path` index with FIFO eviction.
 ///
 /// FIFO rather than LRU: the natural lifetime here is the handle's, eviction
@@ -259,7 +265,7 @@ impl FilePathCache {
     /// FileObject is a name key, matching manifest FileKey, not FileObject.
     /// Never use a snapshot to attribute an event older than its observation.
     pub(super) fn seed(&mut self, entries: HashMap<u64, (String, i64)>) {
-        self.seed = entries.into_iter().take(self.by_key.capacity).collect();
+        self.seed = entries.into_iter().take(MAX_RUNDOWN_ENTRIES).collect();
     }
 
     pub(crate) fn retained_count(&self) -> usize {
@@ -287,17 +293,28 @@ impl FilePathCache {
 
 #[cfg(test)]
 mod tests {
-    use super::{BoundedIndex, FilePathCache, DEFAULT_CAPACITY};
+    use super::{BoundedIndex, FilePathCache, DEFAULT_CAPACITY, MAX_RUNDOWN_ENTRIES};
 
     #[test]
-    fn startup_path_inventory_obeys_state_capacity() {
+    fn startup_path_inventory_is_independent_of_live_capacity() {
         let mut cache = FilePathCache::with_capacity(2);
         cache.seed(
             (0..10)
                 .map(|key| (key, (format!("path-{key}"), 100)))
                 .collect(),
         );
-        assert_eq!(cache.retained_count(), 2);
+        assert_eq!(cache.retained_count(), 10);
+    }
+
+    #[test]
+    fn startup_path_inventory_obeys_rundown_capacity() {
+        let mut cache = FilePathCache::with_capacity(2);
+        cache.seed(
+            (0..=MAX_RUNDOWN_ENTRIES as u64)
+                .map(|key| (key, (String::new(), 100)))
+                .collect(),
+        );
+        assert_eq!(cache.retained_count(), MAX_RUNDOWN_ENTRIES);
     }
 
     #[test]
