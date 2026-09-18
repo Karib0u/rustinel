@@ -45,7 +45,7 @@ rustinel setup [--pack <PACK>] [--yes] [--no-start] [--force] [--catalog-url <UR
 | --- | --- |
 | `--pack <PACK>` | Rules pack to install. Interactive runs prompt when omitted; other runs use essential. One of `essential`, `advanced`. |
 | `--yes` | Accept defaults and do not prompt. |
-| `--no-start` | Register the service but do not start it. |
+| `--no-start` | Register the service but do not start it; an already-running service is left running. |
 | `--force` | Replace existing managed configuration. |
 | `--catalog-url <URL>` | Rules catalog index URL. Default: `https://github.com/Karib0u/rustinel-rules/releases/latest/download/index.json`. |
 
