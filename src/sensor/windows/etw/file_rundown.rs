@@ -6,6 +6,7 @@ use super::{
     parser::{try_get_string, try_get_uint_as_u64},
     state::EtwState,
 };
+use crate::sensor::windows::file_paths::MAX_RUNDOWN_ENTRIES;
 use crate::telemetry::{FileRundownSnapshot, WINDOWS_FILE_ATTRIBUTION};
 use anyhow::{bail, Context, Result};
 use ferrisetw::{
@@ -26,7 +27,6 @@ use std::{
 use windows::Win32::System::Diagnostics::Etw::EVENT_TRACE_CONTROL_STOP;
 
 const SESSION_NAME: &str = "rustinel-etw-file-rundown";
-const MAX_ENTRIES: usize = 65_536;
 const MAX_PATH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CAPTURE_MIB: u32 = 64;
 
@@ -46,7 +46,7 @@ impl Snapshot {
         }
         let previous = self.entries.get(&key).map_or(0, |(path, _)| path.len());
         let bytes = self.path_bytes - previous + path.len();
-        if bytes > MAX_PATH_BYTES || (self.entries.len() == MAX_ENTRIES && previous == 0) {
+        if bytes > MAX_PATH_BYTES || (self.entries.len() == MAX_RUNDOWN_ENTRIES && previous == 0) {
             self.overflow = true;
             return;
         }
@@ -301,12 +301,12 @@ mod tests {
     #[test]
     fn capacity_rejects_instead_of_evicting_snapshot_entries() {
         let mut snapshot = Snapshot::default();
-        for key in 1..=MAX_ENTRIES as u64 {
+        for key in 1..=MAX_RUNDOWN_ENTRIES as u64 {
             snapshot.insert(key, "a".into(), 10);
         }
         assert!(snapshot.validate(0).is_ok());
-        snapshot.insert(MAX_ENTRIES as u64 + 1, "a".into(), 10);
-        assert_eq!(snapshot.entries.len(), MAX_ENTRIES);
+        snapshot.insert(MAX_RUNDOWN_ENTRIES as u64 + 1, "a".into(), 10);
+        assert_eq!(snapshot.entries.len(), MAX_RUNDOWN_ENTRIES);
         assert!(snapshot.validate(0).is_err());
     }
 

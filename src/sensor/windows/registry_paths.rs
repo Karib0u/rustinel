@@ -192,11 +192,15 @@ impl RegistryPathCache {
         relative_name: &str,
         event_at: i64,
     ) -> Option<String> {
-        if relative_name.is_empty() {
-            return None;
-        }
-
-        let path = if relative_name.starts_with('\\') {
+        let path = if relative_name.is_empty() {
+            if !base_name.is_empty() {
+                base_name.to_string()
+            } else {
+                base_object
+                    .and_then(|base| self.resolve_at(Some(base), event_at))
+                    .map(|resolved| resolved.path.to_string())?
+            }
+        } else if relative_name.starts_with('\\') {
             // Already an absolute NT path such as
             // `\REGISTRY\MACHINE\SYSTEM\ControlSet001\...`.
             relative_name.to_string()
@@ -382,6 +386,18 @@ mod tests {
             resolved(&cache, 0x20).as_deref(),
             Some("\\REGISTRY\\USER\\S-1-5-21\\Software\\Rustinel\\Run")
         );
+    }
+
+    #[test]
+    fn empty_relative_name_inherits_the_resolved_base_path() {
+        let parent = "\\REGISTRY\\USER\\S-1-5-21\\Software\\Microsoft\\WBEM\\Tracing\\Providers";
+        let mut cache = RegistryPathCache::new();
+        cache.learn(None, Some(0x10), "", parent);
+
+        let path = cache.learn(Some(0x10), Some(0x20), "", "");
+
+        assert_eq!(path.as_deref(), Some(parent));
+        assert_eq!(resolved(&cache, 0x20).as_deref(), Some(parent));
     }
 
     #[test]
