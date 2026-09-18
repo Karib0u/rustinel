@@ -253,8 +253,8 @@ mod tests {
             ["enable system/com.rustinel.agent"]
         );
         let plist = fs::read_to_string(backend.plist_path().expect("plist path")).expect("plist");
-        assert!(plist.contains("<key>RunAtLoad</key>\n    <true/>"));
-        assert!(plist.contains("<key>KeepAlive</key>\n    <true/>"));
+        assert!(plist.contains("<key>RunAtLoad</key>\n<true/>"));
+        assert!(plist.contains("<key>KeepAlive</key>\n<true/>"));
     }
 
     #[test]
