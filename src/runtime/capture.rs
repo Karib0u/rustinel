@@ -106,7 +106,6 @@ impl CaptureContext {
         );
 
         eprintln!("Recording to {}", recorder.payload_path().display());
-        eprintln!("Start the activity you want to record, then press Ctrl+C to finish.");
 
         let progress = spawn_progress_reporter(&recorder);
 
@@ -135,6 +134,13 @@ pub(crate) struct CaptureSession {
 }
 
 impl CaptureSession {
+    /// Tell the operator that every required collector is ready to admit
+    /// telemetry. Platform runtimes call this only after sensor startup has
+    /// completed, so callers can use the line as a readiness barrier.
+    pub(crate) fn announce_ready(&self) {
+        eprintln!("Start the activity you want to record, then press Ctrl+C to finish.");
+    }
+
     /// Process metadata cache, so platforms that can enumerate running
     /// processes can seed it during startup.
     #[cfg(any(windows, target_os = "linux"))]

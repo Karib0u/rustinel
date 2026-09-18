@@ -10,21 +10,19 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 
 
 STARTUP_TIMEOUT = 30
 SHUTDOWN_TIMEOUT = 30
+READINESS_LINE = "Start the activity you want to record, then press Ctrl+C to finish."
 
 
-def wait_for(path, timeout):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        time.sleep(0.1)
-    raise AssertionError(f"capture did not create {path} within {timeout}s")
+def stderr_text(process):
+    process.rustinel_stderr_thread.join(timeout=5)
+    return "".join(process.rustinel_stderr_lines)
 
 
 def start_capture(binary, root, payload):
@@ -42,25 +40,48 @@ def start_capture(binary, root, payload):
     process = subprocess.Popen(
         [str(binary), "capture", "--config", str(config), "--output", str(payload)],
         cwd=root,
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
         creationflags=creationflags,
     )
+    ready = threading.Event()
+    stderr_lines = []
+
+    def read_stderr():
+        for line in process.stderr:
+            stderr_lines.append(line)
+            if line.rstrip() == READINESS_LINE:
+                ready.set()
+
+    stderr_thread = threading.Thread(target=read_stderr, name="capture-stderr", daemon=True)
+    stderr_thread.start()
+    process.rustinel_stderr_lines = stderr_lines
+    process.rustinel_stderr_thread = stderr_thread
     manifest = payload.with_suffix(".manifest.json")
     try:
-        wait_for(manifest, STARTUP_TIMEOUT)
-        time.sleep(3)
-        if process.poll() is not None:
-            stdout, stderr = process.communicate()
+        deadline = time.monotonic() + STARTUP_TIMEOUT
+        while not ready.wait(timeout=0.1):
+            if process.poll() is not None:
+                raise AssertionError(
+                    f"capture exited during startup ({process.returncode})\n"
+                    f"{stderr_text(process)}"
+                )
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    f"capture did not report readiness within {STARTUP_TIMEOUT}s"
+                )
+        if not manifest.exists():
             raise AssertionError(
-                f"capture exited during startup ({process.returncode})\n{stdout}\n{stderr}"
+                f"capture reported readiness without creating {manifest}"
             )
     except BaseException:
-        process.kill()
-        stdout, stderr = process.communicate()
+        if process.poll() is None:
+            process.kill()
+        process.wait()
         raise AssertionError(
-            f"capture failed during startup (exit {process.returncode})\n{stdout}\n{stderr}"
+            f"capture failed during startup (exit {process.returncode})\n"
+            f"{stderr_text(process)}"
         )
     return process, manifest
 
@@ -71,13 +92,14 @@ def stop_capture(process):
     else:
         process.send_signal(signal.SIGINT)
     try:
-        stdout, stderr = process.communicate(timeout=SHUTDOWN_TIMEOUT)
+        process.wait(timeout=SHUTDOWN_TIMEOUT)
     except subprocess.TimeoutExpired:
         process.kill()
-        stdout, stderr = process.communicate()
-        raise AssertionError(f"capture did not stop after Ctrl-C\n{stdout}\n{stderr}")
+        process.wait()
+        raise AssertionError(f"capture did not stop after Ctrl-C\n{stderr_text(process)}")
+    stderr = stderr_text(process)
     if process.returncode != 0:
-        raise AssertionError(f"capture exited {process.returncode}\n{stdout}\n{stderr}")
+        raise AssertionError(f"capture exited {process.returncode}\n{stderr}")
 
 
 def process_event(events, pid):

@@ -3,8 +3,10 @@
 #![cfg(target_os = "linux")]
 
 use std::ffi::CString;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use rustinel::capture::{manifest_path_for, CaptureManifest};
@@ -12,6 +14,7 @@ use rustinel::models::NormalizedEvent;
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
+const READINESS_LINE: &str = "Start the activity you want to record, then press Ctrl+C to finish.";
 
 fn write_config(root: &Path) -> std::path::PathBuf {
     let config_path = root.join("config.toml");
@@ -53,6 +56,33 @@ fn stop_capture(mut child: Child) {
     assert!(child.wait().expect("capture exits").success());
 }
 
+fn wait_for_readiness(child: &mut Child, deadline: Duration) -> bool {
+    let stderr = child.stderr.take().expect("capture stderr is piped");
+    let (line_tx, line_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            if line_tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    let start = Instant::now();
+    while start.elapsed() < deadline {
+        match line_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(Ok(line)) if line == READINESS_LINE => return true,
+            Ok(Ok(_)) => {}
+            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if child.try_wait().expect("poll capture process").is_some() {
+                    return false;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn open_dir(path: &Path, flags: i32) -> i32 {
     let path = CString::new(path.as_os_str().as_encoded_bytes()).expect("path has no NUL");
     // SAFETY: `path` is a valid NUL-terminated pathname and flags need no mode.
@@ -79,23 +109,22 @@ fn bare_read_only_reuse_cannot_consume_an_old_directory_index_entry() {
 
     let config_path = write_config(temp.path());
     let payload = temp.path().join("captures").join("linux-file-paths.ndjson");
-    let child = Command::new(env!("CARGO_BIN_EXE_rustinel"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rustinel"))
         .arg("capture")
         .arg("--config")
         .arg(&config_path)
         .arg("--output")
         .arg(&payload)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("capture starts");
 
     let manifest_path = manifest_path_for(&payload);
     assert!(
-        wait_for(STARTUP_TIMEOUT, || manifest_path.exists()),
-        "capture did not initialize"
+        wait_for_readiness(&mut child, STARTUP_TIMEOUT),
+        "capture did not report collector readiness"
     );
-    std::thread::sleep(Duration::from_secs(1));
 
     // First populate the index under a descriptor opened with O_DIRECTORY.
     let old_fd = open_dir(

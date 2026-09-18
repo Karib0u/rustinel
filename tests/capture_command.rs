@@ -7,16 +7,19 @@
 
 #![cfg(unix)]
 
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use rustinel::capture::{manifest_path_for, CaptureManifest, CaptureStatus};
 
-/// How long the capture is allowed to take to open its recording.
+/// How long the capture is allowed to take to start its collectors.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long the capture is allowed to take to finalize after Ctrl-C.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
+const READINESS_LINE: &str = "Start the activity you want to record, then press Ctrl+C to finish.";
 
 fn write_config(root: &Path) -> std::path::PathBuf {
     let config_path = root.join("config.toml");
@@ -49,6 +52,33 @@ fn read_manifest(path: &Path) -> CaptureManifest {
         .expect("manifest parses")
 }
 
+fn wait_for_readiness(child: &mut Child, deadline: Duration) -> bool {
+    let stderr = child.stderr.take().expect("capture stderr is piped");
+    let (line_tx, line_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            if line_tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    let start = Instant::now();
+    while start.elapsed() < deadline {
+        match line_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(Ok(line)) if line == READINESS_LINE => return true,
+            Ok(Ok(_)) => {}
+            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if child.try_wait().expect("poll capture process").is_some() {
+                    return false;
+                }
+            }
+        }
+    }
+    false
+}
+
 #[test]
 #[ignore = "requires sensor privileges; run manually on a controlled host"]
 fn ctrl_c_finalizes_a_complete_recording() {
@@ -63,15 +93,16 @@ fn ctrl_c_finalizes_a_complete_recording() {
         .arg("--output")
         .arg(&payload)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("capture starts");
 
     let manifest_path = manifest_path_for(&payload);
     assert!(
-        wait_for(STARTUP_TIMEOUT, || manifest_path.exists()),
-        "capture did not open a recording within {STARTUP_TIMEOUT:?}"
+        wait_for_readiness(&mut child, STARTUP_TIMEOUT),
+        "capture did not report collector readiness within {STARTUP_TIMEOUT:?}"
     );
+    assert!(manifest_path.exists(), "ready capture has no manifest");
     assert_eq!(
         read_manifest(&manifest_path).status,
         CaptureStatus::Incomplete,
