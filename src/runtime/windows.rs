@@ -10,7 +10,7 @@ const SENSOR_EVENT_CHANNEL_CAPACITY: usize = 32_768;
 use arc_swap::ArcSwap;
 use std::sync::Arc;
 use tokio::runtime::Builder;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{error, info, warn};
 
 enum ShutdownMode {
@@ -235,8 +235,42 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
                 ),
         );
         let sensor_for_trace = Arc::clone(&sensor);
-        let mut trace_handle =
-            tokio::task::spawn_blocking(move || sensor_for_trace.start(sensor_tx));
+        let (readiness_tx, readiness_rx) = oneshot::channel();
+        let mut trace_handle = tokio::task::spawn_blocking(move || {
+            sensor_for_trace.start_with_readiness(sensor_tx, readiness_tx)
+        });
+
+        // ETW startup runs on its blocking trace thread. Do not announce the
+        // recording until that thread confirms that both ETW sessions, their
+        // consumers, and the Event Log subscriptions are accepting events.
+        let (startup_failure, trace_finished) = tokio::select! {
+            result = &mut trace_handle => {
+                let reason = match result {
+                    Ok(Ok(())) => "ETW session closed during startup".to_string(),
+                    Ok(Err(err)) => format!("ETW session failed during startup: {err:#}"),
+                    Err(err) => format!("ETW sensor thread did not start cleanly: {err}"),
+                };
+                (Some(reason), true)
+            }
+            readiness = readiness_rx => match readiness {
+                Ok(Ok(())) => (None, false),
+                Ok(Err(err)) => (Some(format!("ETW startup failed: {err}")), false),
+                Err(_) => (Some("ETW sensor stopped before reporting readiness".to_string()), false),
+            }
+        };
+
+        if let Some(reason) = startup_failure {
+            error!("🚨 {}", reason);
+            session.mark_incomplete(&reason);
+            sensor.shutdown();
+            if !trace_finished {
+                let _ = (&mut trace_handle).await;
+            }
+            session.finish(sensor_worker, sensor.events_lost()).await?;
+            return Err(anyhow::anyhow!(reason));
+        }
+
+        session.announce_ready();
 
         // An ETW session that ends on its own takes the recording with it:
         // everything after that point is missing, which the capture sink cannot

@@ -51,6 +51,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
             );
             eprintln!("Warning: network and DNS events will not be recorded ({e:#})");
         }
+        session.announce_ready();
 
         CaptureSession::wait_for_shutdown().await;
         esf_sensor.shutdown();

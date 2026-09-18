@@ -38,6 +38,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
             session.abandon(sensor_worker).await;
             return Err(e);
         }
+        session.announce_ready();
 
         CaptureSession::wait_for_shutdown().await;
         sensor.shutdown();

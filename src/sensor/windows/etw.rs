@@ -17,6 +17,7 @@ use ferrisetw::trace::stop_trace_by_name;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
 use tracing::{info, warn};
 
 /// Fixed trace session name for stopping the trace on shutdown.
@@ -96,6 +97,55 @@ impl EtwSensor {
     pub fn events_lost(&self) -> u64 {
         self.loss_counters.total()
     }
+
+    /// Start ETW and report when every required collector can admit events.
+    ///
+    /// Unlike [`Sensor::start`], which blocks until shutdown, this gives a
+    /// foreground caller an explicit startup boundary. The result is sent only
+    /// after both ETW sessions, their consumers, and the Event Log
+    /// subscriptions have started. Startup failures are sent through the same
+    /// channel before this method returns them.
+    pub fn start_with_readiness(
+        &self,
+        tx: Sender<SensorEvent>,
+        readiness: oneshot::Sender<std::result::Result<(), String>>,
+    ) -> Result<()> {
+        self.start_inner(tx, Some(readiness))
+    }
+
+    fn start_inner(
+        &self,
+        tx: Sender<SensorEvent>,
+        mut readiness: Option<oneshot::Sender<std::result::Result<(), String>>>,
+    ) -> Result<()> {
+        info!("Starting ETW sensor...");
+
+        self.shutdown.store(false, Ordering::Relaxed);
+        self.loss_counters.reset();
+        let result = (|| {
+            let event_logs = EventLogSubscriptions::start(
+                tx.clone(),
+                Arc::clone(&self.shutdown),
+                &self.event_log_directory,
+                self.security_filtering_platform_connections,
+            )?;
+
+            // A session left running by a previous process keeps its old buffer
+            // sizing and its old providers, and `start` would then bind to it.
+            let _ = stop_trace_by_name(TRACE_SESSION_NAME);
+            let _ = stop_trace_by_name(PROCESS_TRACE_SESSION_NAME);
+
+            let trace_result = self.run_sessions(&tx, &mut readiness);
+
+            self.shutdown.store(true, Ordering::Relaxed);
+            event_logs.join().and(trace_result)
+        })();
+
+        if let (Err(err), Some(readiness)) = (&result, readiness.take()) {
+            let _ = readiness.send(Err(format!("{err:#}")));
+        }
+        result
+    }
 }
 
 impl Default for EtwSensor {
@@ -106,26 +156,7 @@ impl Default for EtwSensor {
 
 impl Sensor for EtwSensor {
     fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
-        info!("Starting ETW sensor...");
-
-        self.shutdown.store(false, Ordering::Relaxed);
-        self.loss_counters.reset();
-        let event_logs = EventLogSubscriptions::start(
-            tx.clone(),
-            Arc::clone(&self.shutdown),
-            &self.event_log_directory,
-            self.security_filtering_platform_connections,
-        )?;
-
-        // A session left running by a previous process keeps its old buffer
-        // sizing and its old providers, and `start` would then bind to it.
-        let _ = stop_trace_by_name(TRACE_SESSION_NAME);
-        let _ = stop_trace_by_name(PROCESS_TRACE_SESSION_NAME);
-
-        let trace_result = self.run_sessions(&tx);
-
-        self.shutdown.store(true, Ordering::Relaxed);
-        event_logs.join().and(trace_result)
+        self.start_inner(tx, None)
     }
 
     fn shutdown(&self) {
