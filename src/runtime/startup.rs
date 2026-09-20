@@ -4,12 +4,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::task::JoinHandle;
+use tracing::info;
 use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
 use crate::alerts::{AlertSink, WebhookDispatcher};
 use crate::config;
-use crate::runtime::logging::{init_logging, log_startup_banner};
+use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
 use crate::runtime::telemetry::TelemetryReporter;
 
 pub(super) fn load_config(
@@ -52,7 +53,11 @@ pub(super) struct RuntimeLogging {
 }
 
 impl RuntimeLogging {
-    pub fn start(cfg: &config::AppConfig, runtime_label: &str) -> anyhow::Result<Self> {
+    pub fn start(
+        cfg: &config::AppConfig,
+        runtime_label: &str,
+        config_path: Option<&std::path::Path>,
+    ) -> anyhow::Result<Self> {
         let (app_guard, alert_guard, mut alert_sink) = init_logging(cfg);
         let _guards = (app_guard, alert_guard);
 
@@ -78,6 +83,12 @@ impl RuntimeLogging {
         };
 
         log_startup_banner(runtime_label);
+        match config_path {
+            Some(path) => info!(target: TARGET_CONSOLE, "Config: {}", path.display()),
+            None => info!(target: TARGET_CONSOLE, "Config: built-in defaults"),
+        }
+        info!(target: TARGET_CONSOLE, "Logs: {}", cfg.logging.directory.display());
+        info!(target: TARGET_CONSOLE, "Alerts: {}", cfg.alerts.directory.display());
 
         // 2c. Pipeline drop counters, published for `rustinel doctor`
         let telemetry_reporter = TelemetryReporter::start(cfg);

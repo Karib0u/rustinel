@@ -524,7 +524,7 @@ fn drain_process_ring(
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<ProcessEvent>(bytes) else {
             LINUX_EBPF.record_short_read(LinuxEbpfFamily::Process);
-            warn!("process ring: short read ({} bytes)", bytes.len());
+            debug!("process ring: short read ({} bytes)", bytes.len());
             continue;
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::Process);
@@ -547,7 +547,7 @@ fn drain_network_ring(
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<NetworkEvent>(bytes) else {
             LINUX_EBPF.record_short_read(LinuxEbpfFamily::Network);
-            warn!("network ring: short read ({} bytes)", bytes.len());
+            debug!("network ring: short read ({} bytes)", bytes.len());
             continue;
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::Network);
@@ -579,13 +579,13 @@ fn drain_file_ring(
         let bytes: &[u8] = &item;
         let Some(header) = parse_event::<FileEventHeader>(bytes) else {
             LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
-            warn!("file ring: short read ({} bytes)", bytes.len());
+            debug!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
         if header.kind == FILE_EVENT_INDEX_RESET {
             let Some(ev) = parse_event::<FileIndexEvent>(bytes) else {
                 LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
-                warn!("file index ring: short read ({} bytes)", bytes.len());
+                debug!("file index ring: short read ({} bytes)", bytes.len());
                 continue;
             };
             LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
@@ -595,7 +595,7 @@ fn drain_file_ring(
         }
         let Some(ev) = parse_event::<FileEvent>(bytes) else {
             LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
-            warn!("file ring: short read ({} bytes)", bytes.len());
+            debug!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
@@ -654,7 +654,7 @@ fn drain_dns_ring(
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<DnsEvent>(bytes) else {
             LINUX_EBPF.record_short_read(LinuxEbpfFamily::Dns);
-            warn!("dns ring: short read ({} bytes)", bytes.len());
+            debug!("dns ring: short read ({} bytes)", bytes.len());
             continue;
         };
         LINUX_EBPF.record_decoded(LinuxEbpfFamily::Dns);

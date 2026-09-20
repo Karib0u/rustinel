@@ -75,7 +75,9 @@ async fn run_macos_edr(
         dedup_worker_handle,
         telemetry_reporter,
         _guards,
-    } = RuntimeLogging::start(&cfg, "macOS ESF")?;
+    } = RuntimeLogging::start(&cfg, "macOS ESF", resolved_config_path.as_deref())?;
+
+    info!(target: TARGET_CONSOLE, "Agent initializing");
 
     // Shared state
     let state = SharedState::new(&cfg);
@@ -100,7 +102,7 @@ async fn run_macos_edr(
 
     info!(
         target: TARGET_CONSOLE,
-        "Starting macOS sensors; press Ctrl+C to stop gracefully"
+        "Starting macOS sensors"
     );
 
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(8192);
@@ -129,6 +131,10 @@ async fn run_macos_edr(
             e
         );
     }
+    info!(
+        target: TARGET_CONSOLE,
+        "Agent ready; press Ctrl+C to stop gracefully"
+    );
 
     // Wait for Ctrl+C
     match tokio::signal::ctrl_c().await {
