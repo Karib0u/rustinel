@@ -164,7 +164,14 @@ pub(crate) fn load_ips(path: &Path) -> IpIocs {
 
         if value.contains('/') {
             match value.parse::<IpNetwork>() {
-                Ok(network) => iocs.cidr.push((network, meta)),
+                Ok(network) if iocs.cidr.insert(network, meta) => {}
+                Ok(_) => warn!(
+                    target: "ioc",
+                    path = %source,
+                    line = line_no,
+                    value = %value,
+                    "Too many CIDR indicators, skipping"
+                ),
                 Err(err) => warn!(
                     target: "ioc",
                     path = %source,
@@ -366,7 +373,8 @@ mod tests {
         )
         .unwrap();
         let ips = load_ips(&path);
-        assert_shared(&ips.exact[&"192.0.2.1".parse().unwrap()], &ips.cidr[0].1);
+        let cidr_matches = ips.cidr.lookup("192.0.2.1".parse().unwrap());
+        assert_shared(&ips.exact[&"192.0.2.1".parse().unwrap()], cidr_matches[0].1);
 
         fs::write(&path, "a{2}; repeated; detail\nb{2}; repeated; detail\n").unwrap();
         let paths = load_path_regexes(&path);

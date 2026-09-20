@@ -10,7 +10,7 @@ use rustinel::{
     engine::{Engine, EventDetectors},
     ioc::{HashCache, IocEngine, IocKind},
     models::{CanonicalEvent, EventFields, Provenance},
-    sensor::Platform,
+    sensor::{Platform, SensorPayload},
 };
 use std::sync::Arc;
 
@@ -142,6 +142,58 @@ fn ip_ioc_matches_network_and_dns_response_ips() {
             .collect::<Vec<_>>(),
         matches.iter().map(match_identity).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn ip_cidr_index_preserves_ipv4_ipv6_overlap_and_feed_order() {
+    let fixture = IocFixture::new();
+    fixture.write_ips(
+        "2001:db8:abcd::/48; v6 narrow\n\
+         198.51.100.0/24; v4 narrow\n\
+         2001:db8::/32; v6 broad\n\
+         198.51.0.0/16; v4 broad\n\
+         0.0.0.0/0; v4 default\n\
+         ::/0; v6 default\n",
+    );
+    let engine = IocEngine::load(&fixture.config());
+    let harness = TestNormalizer::new();
+
+    let event_for = |destination_ip: &str| {
+        let mut event = network_connect_event(Platform::Linux);
+        let SensorPayload::Network(fields) = &mut event.payload else {
+            panic!("expected network fields");
+        };
+        fields.destination_ip = Some(destination_ip.to_string());
+        fields.source_ip = None;
+        CanonicalEvent::from_normalized(
+            harness
+                .normalizer
+                .normalize(&event)
+                .expect("network event should normalize"),
+        )
+    };
+
+    let ipv4 = engine.check_event(&event_for("198.51.100.42"));
+    assert_eq!(
+        ipv4.iter()
+            .map(|matched| matched.comment.as_deref().expect("CIDR comment"))
+            .collect::<Vec<_>>(),
+        ["v4 narrow", "v4 broad", "v4 default"]
+    );
+    assert!(ipv4
+        .iter()
+        .all(|matched| matched.observed == "198.51.100.42"));
+
+    let ipv6 = engine.check_event(&event_for("2001:db8:abcd::42"));
+    assert_eq!(
+        ipv6.iter()
+            .map(|matched| matched.comment.as_deref().expect("CIDR comment"))
+            .collect::<Vec<_>>(),
+        ["v6 narrow", "v6 broad", "v6 default"]
+    );
+    assert!(ipv6
+        .iter()
+        .all(|matched| matched.observed == "2001:db8:abcd::42"));
 }
 
 #[test]

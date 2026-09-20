@@ -117,6 +117,11 @@ harness = false
 name = "ioc_domains"
 harness = false
 
+# CIDR IOC matching, measured with `cargo bench --bench ioc_ips`.
+[[bench]]
+name = "ioc_ips"
+harness = false
+
 # Per-event inline IOC matching, measured with `cargo bench --bench ioc_observables`.
 [[bench]]
 name = "ioc_observables"
