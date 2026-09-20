@@ -136,7 +136,7 @@ impl Engine {
         let rules_dir = rules_dir.as_ref();
 
         if !rules_dir.exists() {
-            warn!("Rules directory does not exist: {:?}", rules_dir);
+            info!("Rules directory does not exist: {:?}", rules_dir);
             return Ok(());
         }
 
@@ -169,12 +169,27 @@ impl Engine {
         }
 
         for unsupported in &stats.unsupported_rules {
-            warn!(
+            info!(
                 source = %unsupported.source_path,
                 kind = %unsupported.kind,
                 identity = %unsupported.identity,
                 reason = %unsupported.reason,
                 "Sigma document was dropped"
+            );
+        }
+
+        if !stats.failed_rules.is_empty() {
+            warn!(
+                path = ?rules_dir,
+                diagnostics = stats.failed_rules.len(),
+                "Some Sigma rule files had diagnostics; see the operational log for details"
+            );
+        }
+        if !stats.unsupported_rules.is_empty() {
+            warn!(
+                path = ?rules_dir,
+                dropped_documents = stats.unsupported_rules.len(),
+                "Some Sigma documents were dropped; see the operational log for details"
             );
         }
 
@@ -216,7 +231,7 @@ impl Engine {
                     Ok(errors) => {
                         let path_str = path.display().to_string();
                         for error in errors {
-                            warn!(
+                            info!(
                                 source = %path_str,
                                 diagnostic = %error,
                                 "Sigma rule loaded with a metadata diagnostic"
@@ -228,7 +243,7 @@ impl Engine {
                     Err(error) => {
                         let path_str = path.display().to_string();
                         let error_message = error.to_string();
-                        warn!("Failed to load rule {:?}: {}", path, error_message);
+                        info!("Failed to load rule {:?}: {}", path, error_message);
                         self.failed_rules.push((path_str, error_message));
                     }
                 }

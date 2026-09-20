@@ -37,6 +37,19 @@ pub struct IocStats {
     pub path_regex: usize,
 }
 
+impl IocStats {
+    pub fn total(&self) -> usize {
+        self.md5
+            + self.sha1
+            + self.sha256
+            + self.ip
+            + self.cidr
+            + self.domain_exact
+            + self.domain_suffix
+            + self.path_regex
+    }
+}
+
 pub struct IocEngine {
     enabled: bool,
     severity: AlertSeverity,

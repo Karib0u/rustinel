@@ -71,10 +71,23 @@ fn read_lines(path: &Path) -> Vec<(usize, String)> {
         .collect()
 }
 
+fn warn_skipped_entries(path: &Path, feed: &str, skipped: usize) {
+    if skipped > 0 {
+        warn!(
+            target: "ioc",
+            path = ?path,
+            feed,
+            skipped,
+            "Some IOC entries were skipped; see the operational log for details"
+        );
+    }
+}
+
 pub(crate) fn load_hashes(path: &Path) -> HashIocs {
     let mut iocs = HashIocs::default();
     let source: Arc<str> = Arc::from(path.display().to_string());
     let mut comments = HashSet::new();
+    let mut skipped = 0;
 
     for (line_no, line) in read_lines(path) {
         let line = line.trim();
@@ -96,7 +109,8 @@ pub(crate) fn load_hashes(path: &Path) -> HashIocs {
         };
 
         if !is_hex(&normalized) {
-            warn!(
+            skipped += 1;
+            info!(
                 target: "ioc",
                 path = %source,
                 line = line_no,
@@ -117,7 +131,8 @@ pub(crate) fn load_hashes(path: &Path) -> HashIocs {
                 iocs.sha256.insert(normalized, meta);
             }
             _ => {
-                warn!(
+                skipped += 1;
+                info!(
                     target: "ioc",
                     path = %source,
                     line = line_no,
@@ -127,6 +142,8 @@ pub(crate) fn load_hashes(path: &Path) -> HashIocs {
             }
         }
     }
+
+    warn_skipped_entries(path, "hashes", skipped);
 
     info!(
         target: "ioc",
@@ -143,6 +160,7 @@ pub(crate) fn load_ips(path: &Path) -> IpIocs {
     let mut iocs = IpIocs::default();
     let source: Arc<str> = Arc::from(path.display().to_string());
     let mut comments = HashSet::new();
+    let mut skipped = 0;
 
     for (line_no, line) in read_lines(path) {
         let line = line.trim();
@@ -165,38 +183,49 @@ pub(crate) fn load_ips(path: &Path) -> IpIocs {
         if value.contains('/') {
             match value.parse::<IpNetwork>() {
                 Ok(network) if iocs.cidr.insert(network, meta) => {}
-                Ok(_) => warn!(
-                    target: "ioc",
-                    path = %source,
-                    line = line_no,
-                    value = %value,
-                    "Too many CIDR indicators, skipping"
-                ),
-                Err(err) => warn!(
-                    target: "ioc",
-                    path = %source,
-                    line = line_no,
-                    value = %value,
-                    error = %err,
-                    "Invalid CIDR, skipping"
-                ),
+                Ok(_) => {
+                    skipped += 1;
+                    info!(
+                        target: "ioc",
+                        path = %source,
+                        line = line_no,
+                        value = %value,
+                        "Too many CIDR indicators, skipping"
+                    );
+                }
+                Err(err) => {
+                    skipped += 1;
+                    info!(
+                        target: "ioc",
+                        path = %source,
+                        line = line_no,
+                        value = %value,
+                        error = %err,
+                        "Invalid CIDR, skipping"
+                    );
+                }
             }
         } else {
             match value.parse::<IpAddr>() {
                 Ok(ip) => {
                     iocs.exact.insert(ip, meta);
                 }
-                Err(err) => warn!(
-                    target: "ioc",
-                    path = %source,
-                    line = line_no,
-                    value = %value,
-                    error = %err,
-                    "Invalid IP, skipping"
-                ),
+                Err(err) => {
+                    skipped += 1;
+                    info!(
+                        target: "ioc",
+                        path = %source,
+                        line = line_no,
+                        value = %value,
+                        error = %err,
+                        "Invalid IP, skipping"
+                    );
+                }
             }
         }
     }
+
+    warn_skipped_entries(path, "ip", skipped);
 
     info!(
         target: "ioc",
@@ -216,6 +245,7 @@ pub(crate) fn load_domains(path: &Path) -> DomainIocs {
     let mut iocs = DomainIocs::default();
     let source: Arc<str> = Arc::from(path.display().to_string());
     let mut comments = HashSet::new();
+    let mut skipped = 0;
 
     for (line_no, line) in read_lines(path) {
         let line = line.trim();
@@ -245,7 +275,8 @@ pub(crate) fn load_domains(path: &Path) -> DomainIocs {
         if normalized.starts_with('.') {
             let suffix = normalized.trim_start_matches('.');
             if !suffix.is_empty() && !iocs.suffix.insert(suffix, meta) {
-                warn!(
+                skipped += 1;
+                info!(
                     target: "ioc",
                     path = %source,
                     line = line_no,
@@ -257,6 +288,8 @@ pub(crate) fn load_domains(path: &Path) -> DomainIocs {
             iocs.exact.insert(normalized, meta);
         }
     }
+
+    warn_skipped_entries(path, "domains", skipped);
 
     info!(
         target: "ioc",
@@ -273,6 +306,7 @@ pub(crate) fn load_path_regexes(path: &Path) -> PathIocs {
     let source: Arc<str> = Arc::from(path.display().to_string());
     let mut comments = HashSet::new();
     let mut patterns = Vec::new();
+    let mut skipped = 0;
 
     for (line_no, line) in read_lines(path) {
         let line = line.trim();
@@ -287,7 +321,8 @@ pub(crate) fn load_path_regexes(path: &Path) -> PathIocs {
         }
 
         if let Err(err) = Regex::new(value) {
-            warn!(
+            skipped += 1;
+            info!(
                 target: "ioc",
                 path = %source,
                 line = line_no,
@@ -308,6 +343,8 @@ pub(crate) fn load_path_regexes(path: &Path) -> PathIocs {
         ));
         patterns.push(value.to_string());
     }
+
+    warn_skipped_entries(path, "path_regex", skipped);
 
     if !patterns.is_empty() {
         let regex_set = RegexSetBuilder::new(patterns)
@@ -336,6 +373,39 @@ pub(crate) fn load_path_regexes(path: &Path) -> PathIocs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
+    use std::sync::Mutex;
+    use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Layer};
+
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for SharedWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn render_hash_load(path: &Path, filter: &str) -> String {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer_output = Arc::clone(&output);
+        let subscriber = tracing_subscriber::registry().with(
+            fmt::layer()
+                .with_ansi(false)
+                .without_time()
+                .with_writer(move || SharedWriter(Arc::clone(&writer_output)))
+                .with_filter(EnvFilter::try_new(filter).unwrap()),
+        );
+        tracing::subscriber::with_default(subscriber, || {
+            load_hashes(path);
+        });
+        let rendered = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        rendered
+    }
 
     fn assert_shared(first: &IocMeta, second: &IocMeta) {
         assert!(Arc::ptr_eq(&first.source, &second.source));
@@ -393,5 +463,19 @@ mod tests {
         let hashes = load_hashes(&path);
         assert_shared(&hashes.md5[&md5], &hashes.sha1[&sha1]);
         assert_shared(&hashes.md5[&md5], &hashes.sha256[&sha256]);
+    }
+
+    #[test]
+    fn invalid_ioc_entries_emit_one_warning_and_keep_details_at_info() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hashes.txt");
+        fs::write(&path, "not-hex\nalso-not-hex\n").unwrap();
+
+        let warnings = render_hash_load(&path, "warn");
+        assert_eq!(warnings.matches("Some IOC entries were skipped").count(), 1);
+        assert!(!warnings.contains("Invalid hash (non-hex)"));
+
+        let details = render_hash_load(&path, "info");
+        assert_eq!(details.matches("Invalid hash (non-hex)").count(), 2);
     }
 }

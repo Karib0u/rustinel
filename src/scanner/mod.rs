@@ -268,7 +268,7 @@ impl Scanner {
                                 }
                                 Err(e) => {
                                     files_failed += 1;
-                                    warn!("✗ Failed to compile {:?}: {}", path, e);
+                                    info!("Failed to compile YARA rule {:?}: {}", path, e);
                                 }
                             }
                         }
@@ -276,14 +276,19 @@ impl Scanner {
                 }
             }
         } else {
-            warn!(
+            info!(
                 "YARA rules directory does not exist or is not a directory: {:?}",
                 rules_dir
             );
         }
 
-        if files_found > 0 && files_compiled == 0 {
-            warn!("YARA rules found but none compiled successfully");
+        if files_failed > 0 {
+            warn!(
+                path = ?rules_dir,
+                failed_files = files_failed,
+                compiled_files = files_compiled,
+                "Some YARA rule files failed to compile; see the operational log for details"
+            );
         }
 
         let rules = compiler.build();

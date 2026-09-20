@@ -197,14 +197,7 @@ pub fn spawn_reload_worker(
                         let started = Instant::now();
                         let ioc = IocEngine::load(&ioc_cfg);
                         let stats = ioc.stats();
-                        let total = stats.md5
-                            + stats.sha1
-                            + stats.sha256
-                            + stats.ip
-                            + stats.cidr
-                            + stats.domain_exact
-                            + stats.domain_suffix
-                            + stats.path_regex;
+                        let total = stats.total();
                         if total == 0 {
                             warn!(
                                 target: "reload",
