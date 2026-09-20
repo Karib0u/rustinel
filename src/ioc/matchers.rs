@@ -133,15 +133,13 @@ impl IocEngine {
             );
         }
 
-        for (network, meta) in &self.ip_iocs.cidr {
-            if network.contains(ip) {
-                let indicator = network.to_string();
-                push_match_unique(
-                    matches,
-                    seen,
-                    build_match(IocKind::Ip, &indicator, &observed(), meta),
-                );
-            }
+        for (network, meta) in self.ip_iocs.cidr.lookup(ip) {
+            let indicator = network.to_string();
+            push_match_unique(
+                matches,
+                seen,
+                build_match(IocKind::Ip, &indicator, &observed(), meta),
+            );
         }
     }
 }
