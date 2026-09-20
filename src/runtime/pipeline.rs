@@ -64,16 +64,27 @@ impl LivePipeline {
                 warn!(error = %e, "Failed to load Sigma rules");
             } else {
                 let stats = sigma_engine.stats();
-                info!(
-                    target: TARGET_CONSOLE,
-                    total_rules = stats.total_rules,
-                    skipped_deferred_rules = stats.skipped_deferred_rules,
-                    skipped_unknown_logsource_rules = stats.skipped_unknown_logsource_rules,
-                    skipped_product_rules = stats.skipped_product_rules,
-                    inactive_collector_rules = stats.inactive_collector_rules,
-                    unsupported_rules = stats.unsupported_rules.len(),
-                    "Sigma engine initialized"
-                );
+                if stats.total_rules == 0 {
+                    warn!(
+                        target: TARGET_CONSOLE,
+                        path = ?cfg.scanner.sigma_rules_path,
+                        rule_files_found = stats.rule_files_found,
+                        diagnostics = stats.failed_rules.len(),
+                        unsupported_rules = stats.unsupported_rules.len(),
+                        "Sigma detection is enabled but no active rules were loaded"
+                    );
+                } else {
+                    info!(
+                        target: TARGET_CONSOLE,
+                        total_rules = stats.total_rules,
+                        skipped_deferred_rules = stats.skipped_deferred_rules,
+                        skipped_unknown_logsource_rules = stats.skipped_unknown_logsource_rules,
+                        skipped_product_rules = stats.skipped_product_rules,
+                        inactive_collector_rules = stats.inactive_collector_rules,
+                        unsupported_rules = stats.unsupported_rules.len(),
+                        "Sigma engine initialized"
+                    );
+                }
                 if let Some(categories) = stats.inactive_collector_summary() {
                     warn!(
                         target: TARGET_CONSOLE,
@@ -97,7 +108,22 @@ impl LivePipeline {
                 .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
             {
                 Ok(s) => {
-                    info!(target: TARGET_CONSOLE, "YARA scanner initialized");
+                    if s.compiled_files() == 0 {
+                        warn!(
+                            target: TARGET_CONSOLE,
+                            path = ?cfg.scanner.yara_rules_path,
+                            files_found = s.files_found(),
+                            failed_files = s.failed_files(),
+                            "YARA scanning is enabled but no rule files compiled successfully"
+                        );
+                    } else {
+                        info!(
+                            target: TARGET_CONSOLE,
+                            compiled_files = s.compiled_files(),
+                            failed_files = s.failed_files(),
+                            "YARA scanner initialized"
+                        );
+                    }
                     Arc::new(s)
                 }
                 Err(e) => {
@@ -117,18 +143,25 @@ impl LivePipeline {
         let ioc_engine = Arc::new(IocEngine::load(&cfg.ioc));
         if ioc_engine.is_enabled() {
             let stats = ioc_engine.stats();
-            info!(
-                target: TARGET_CONSOLE,
-                md5 = stats.md5,
-                sha1 = stats.sha1,
-                sha256 = stats.sha256,
-                ip = stats.ip,
-                cidr = stats.cidr,
-                domain_exact = stats.domain_exact,
-                domain_suffix = stats.domain_suffix,
-                path_regex = stats.path_regex,
-                "IOC engine initialized"
-            );
+            if stats.total() == 0 {
+                warn!(
+                    target: TARGET_CONSOLE,
+                    "IOC detection is enabled but no indicators were loaded"
+                );
+            } else {
+                info!(
+                    target: TARGET_CONSOLE,
+                    md5 = stats.md5,
+                    sha1 = stats.sha1,
+                    sha256 = stats.sha256,
+                    ip = stats.ip,
+                    cidr = stats.cidr,
+                    domain_exact = stats.domain_exact,
+                    domain_suffix = stats.domain_suffix,
+                    path_regex = stats.path_regex,
+                    "IOC engine initialized"
+                );
+            }
         } else {
             info!(target: TARGET_CONSOLE, "IOC detection disabled by configuration");
         }
@@ -253,6 +286,90 @@ impl LivePipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
+    use std::sync::Mutex;
+    use tracing_subscriber::{fmt, layer::SubscriberExt};
+
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for SharedWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    async fn shutdown_pipeline(pipeline: LivePipeline, response_worker: JoinHandle<()>) {
+        let sensor_worker = tokio::spawn(async {});
+        let (writer, _guard) = tracing_appender::non_blocking(io::sink());
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            pipeline.shutdown(
+                sensor_worker,
+                response_worker,
+                None,
+                &AlertSink::new(writer),
+                None,
+            ),
+        )
+        .await
+        .expect("pipeline must shut down");
+    }
+
+    #[tokio::test]
+    async fn empty_detectors_are_reported_as_enabled_but_inactive() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = AppConfig::default();
+        cfg.scanner.sigma_enabled = true;
+        cfg.scanner.sigma_rules_path = temp.path().join("sigma");
+        cfg.scanner.yara_enabled = true;
+        cfg.scanner.yara_rules_path = temp.path().join("yara");
+        cfg.ioc.enabled = true;
+        cfg.ioc.hashes_path = temp.path().join("hashes.txt");
+        cfg.ioc.ips_path = temp.path().join("ips.txt");
+        cfg.ioc.domains_path = temp.path().join("domains.txt");
+        cfg.ioc.paths_regex_path = temp.path().join("paths.txt");
+        cfg.reload.enabled = false;
+
+        let response_config = Arc::new(ArcSwap::from_pointee(cfg.response.clone()));
+        let (response, response_worker) = ResponseEngine::new(response_config.clone());
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer_output = Arc::clone(&output);
+        let subscriber = tracing_subscriber::registry().with(
+            fmt::layer()
+                .with_ansi(false)
+                .without_time()
+                .with_writer(move || SharedWriter(Arc::clone(&writer_output))),
+        );
+        let (alert_writer, _guard) = tracing_appender::non_blocking(io::sink());
+
+        let pipeline = tracing::subscriber::with_default(subscriber, || {
+            LivePipeline::new(
+                &cfg,
+                None,
+                Platform::Linux,
+                SharedState::new(&cfg),
+                AlertSink::new(alert_writer),
+                response_config,
+                response.clone(),
+            )
+        });
+        drop(response);
+
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(output.contains("Sigma detection is enabled but no active rules were loaded"));
+        assert!(output.contains("YARA scanning is enabled but no rule files compiled successfully"));
+        assert!(output.contains("IOC detection is enabled but no indicators were loaded"));
+        assert!(!output.contains("Sigma engine initialized"));
+        assert!(!output.contains("YARA scanner initialized"));
+        assert!(!output.contains("IOC engine initialized"));
+
+        shutdown_pipeline(pipeline, response_worker).await;
+    }
 
     #[tokio::test]
     async fn optional_workers_follow_configuration_and_release_response_senders() {
@@ -290,20 +407,7 @@ mod tests {
             assert_eq!(pipeline.reload_worker_handle.is_some(), enabled);
             assert_eq!(pipeline.reload_tx.is_some(), enabled);
             drop(response);
-            let sensor_worker = tokio::spawn(async {});
-            let (writer, _shutdown_guard) = tracing_appender::non_blocking(std::io::sink());
-            tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                pipeline.shutdown(
-                    sensor_worker,
-                    response_worker,
-                    None,
-                    &AlertSink::new(writer),
-                    None,
-                ),
-            )
-            .await
-            .expect("pipeline must release all worker senders");
+            shutdown_pipeline(pipeline, response_worker).await;
         }
     }
 }
