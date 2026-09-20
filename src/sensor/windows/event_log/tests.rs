@@ -83,6 +83,7 @@ fn callback_errors_are_categorical_and_named() {
             bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
             pending: None,
             failure: None,
+            decode_warnings: LogRateLimiter::new(DECODE_WARNING_WINDOW),
         }),
     };
     for code in [ERROR_EVT_QUERY_RESULT_STALE.0, 5] {
