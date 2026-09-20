@@ -12,8 +12,9 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use windows::core::PCWSTR;
+use windows::Win32::Foundation::ERROR_WMI_INSTANCE_NOT_FOUND;
 use windows::Win32::System::Diagnostics::Etw::{
     ControlTraceW, CONTROLTRACE_HANDLE, EVENT_TRACE_CONTROL, EVENT_TRACE_CONTROL_QUERY,
     EVENT_TRACE_CONTROL_STOP, EVENT_TRACE_PROPERTIES,
@@ -159,6 +160,13 @@ fn query(session_name: &str, control: EVENT_TRACE_CONTROL) -> Result<u64> {
     query_with_buffer_loss(session_name, control).map(|(events, _)| events)
 }
 
+fn session_already_stopped(
+    status: windows::Win32::Foundation::WIN32_ERROR,
+    control: EVENT_TRACE_CONTROL,
+) -> bool {
+    control == EVENT_TRACE_CONTROL_STOP && status == ERROR_WMI_INSTANCE_NOT_FOUND
+}
+
 /// Real-time buffer loss is separate from EventsLost and can occur at STOP.
 pub(super) fn query_with_buffer_loss(
     session_name: &str,
@@ -186,6 +194,10 @@ pub(super) fn query_with_buffer_loss(
             control,
         )
     };
+    if session_already_stopped(status, control) {
+        debug!(session = session_name, "ETW trace session already stopped");
+        return Ok((0, 0));
+    }
     if status.is_err() {
         bail!("ControlTraceW failed for session '{session_name}': {status:?}");
     }
@@ -214,5 +226,21 @@ mod tests {
         assert_eq!(counters.total(), 15);
         counters.reset();
         assert_eq!(counters.total(), 0);
+    }
+
+    #[test]
+    fn a_missing_session_is_benign_only_when_stopping() {
+        assert!(session_already_stopped(
+            ERROR_WMI_INSTANCE_NOT_FOUND,
+            EVENT_TRACE_CONTROL_STOP
+        ));
+        assert!(!session_already_stopped(
+            ERROR_WMI_INSTANCE_NOT_FOUND,
+            EVENT_TRACE_CONTROL_QUERY
+        ));
+        assert!(!session_already_stopped(
+            windows::Win32::Foundation::ERROR_ACCESS_DENIED,
+            EVENT_TRACE_CONTROL_STOP
+        ));
     }
 }

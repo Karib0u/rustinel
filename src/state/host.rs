@@ -568,7 +568,7 @@ pub(crate) fn enrich_windows_command_line(
     if correlated {
         let metrics = &crate::telemetry::WINDOWS_PROCESS_CORRELATION;
         let counter = if conflicting {
-            tracing::warn!(
+            tracing::debug!(
                 pid = process.process_id,
                 "Classic command line differs from live-query value"
             );
