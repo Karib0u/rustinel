@@ -141,7 +141,10 @@ jobs:
         with:
           test-name: rustinel-ebpf-load
           image: kind
-          image-version: 5.10-main
+          # LVH's rolling tag extracts to kind_5.10.qcow2 but the action looks
+          # for kind_5.10-main.qcow2. Use the immutable dated tag so its image
+          # name and the action's derived path agree.
+          image-version: 5.10-20260914.012528
           kernel-version: 5.10-main
           host-mount: .
           install-dependencies: true
