@@ -124,17 +124,18 @@ jobs:
       - name: Build agent with downloaded eBPF object
         run: |
           cp .ci/ebpf-object/rustinel-ebpf.o ebpf/rustinel-ebpf.o
-          cargo build --locked --release
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-feature=+crt-static" \
+            cargo build --locked --release --target x86_64-unknown-linux-gnu
       - name: Load and exercise eBPF on runner kernel
         if: matrix.kernel == 'runner'
         run: |
           sudo -E python3 tests/ebpf_load_smoke.py \
-            --binary target/release/rustinel \
+            --binary target/x86_64-unknown-linux-gnu/release/rustinel \
             --ebpf-object .ci/ebpf-object/rustinel-ebpf.o \
             --rules-dir rules/sigma \
             --artifacts-dir .ci/ebpf-load-runner
           sudo -E python3 tests/native_capture_contract.py \
-            --binary "$GITHUB_WORKSPACE/target/release/rustinel"
+            --binary "$GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/release/rustinel"
       - name: Load and exercise eBPF on Linux 5.10
         if: matrix.kernel == '5.10'
         uses: cilium/little-vm-helper@f86d344aca812dda5aef167867a9a0a90ca6cca5 # v0.0.31
@@ -153,12 +154,12 @@ jobs:
           cmd: |
             uname -a
             python3 /host/tests/ebpf_load_smoke.py \
-              --binary /host/target/release/rustinel \
+              --binary /host/target/x86_64-unknown-linux-gnu/release/rustinel \
               --ebpf-object /host/.ci/ebpf-object/rustinel-ebpf.o \
               --rules-dir /host/rules/sigma \
               --artifacts-dir /host/.ci/ebpf-load-5.10
             python3 /host/tests/native_capture_contract.py \
-              --binary /host/target/release/rustinel
+              --binary /host/target/x86_64-unknown-linux-gnu/release/rustinel
       - name: Upload eBPF load diagnostics
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
