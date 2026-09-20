@@ -318,7 +318,7 @@ async fn run_edr(
         dedup_worker_handle,
         telemetry_reporter,
         _guards,
-    } = RuntimeLogging::start(&cfg, "Windows ETW")?;
+    } = RuntimeLogging::start(&cfg, "Windows ETW", resolved_config_path.as_deref())?;
 
     // Initialize Active Response Engine (optional)
     let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
@@ -327,9 +327,9 @@ async fn run_edr(
         target: "rustinel",
         logs_dir = ?cfg.logging.directory,
         alerts_dir = ?cfg.alerts.directory,
-        "Agent started with dual-pipeline logging"
+        "Agent logging initialized"
     );
-    info!(target: TARGET_CONSOLE, "Agent started");
+    info!(target: TARGET_CONSOLE, "Agent initializing");
 
     // Verify running with appropriate privileges
     ensure_administrator_privileges()?;
@@ -391,7 +391,7 @@ async fn run_edr(
     info!("✓ Signal handlers configured");
     info!("");
     info!("Starting ETW trace session...");
-    info!(target: TARGET_CONSOLE, "ETW sensor starting; press Ctrl+C to stop gracefully");
+    info!(target: TARGET_CONSOLE, "Starting ETW sensor");
     info!("");
 
     // Start shared sensor event pipeline
@@ -409,9 +409,29 @@ async fn run_edr(
     });
 
     let sensor_clone = Arc::clone(&sensor);
+    let (readiness_tx, readiness_rx) = oneshot::channel();
 
     // We make trace_handle mutable so we can await it.
-    let mut trace_handle = tokio::task::spawn_blocking(move || sensor_clone.start(sensor_tx));
+    let mut trace_handle = tokio::task::spawn_blocking(move || {
+        sensor_clone.start_with_readiness(sensor_tx, readiness_tx)
+    });
+
+    match readiness_rx.await {
+        Ok(Ok(())) => info!(
+            target: TARGET_CONSOLE,
+            "Agent ready; press Ctrl+C to stop gracefully"
+        ),
+        Ok(Err(err)) => {
+            let _ = (&mut trace_handle).await;
+            return Err(anyhow::anyhow!("ETW startup failed: {err}"));
+        }
+        Err(_) => {
+            let _ = (&mut trace_handle).await;
+            return Err(anyhow::anyhow!(
+                "ETW sensor stopped before reporting readiness"
+            ));
+        }
+    }
 
     // Wait for either shutdown signal or trace completion.
     tokio::select! {

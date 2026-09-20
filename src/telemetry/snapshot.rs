@@ -649,13 +649,18 @@ pub fn write_final_snapshot(path: &Path) {
     let active_channels = snapshot.active_channels();
 
     if !active_channels.is_empty() {
-        info!(
-            target: TARGET_CONSOLE,
-            channels = active_channels.len(),
-            accepted = snapshot.total_accepted(),
-            dropped = snapshot.total_dropped(),
-            "Pipeline summary"
-        );
+        let dropped = snapshot.total_dropped();
+        if dropped == 0 {
+            info!(target: TARGET_CONSOLE, "Pipeline drained cleanly; no work dropped");
+        } else {
+            warn!(
+                target: TARGET_CONSOLE,
+                affected_channels = snapshot.dropping_channels().len(),
+                dropped,
+                path = %path.display(),
+                "Pipeline dropped work; inspect telemetry snapshot"
+            );
+        }
     }
 
     for channel in active_channels {

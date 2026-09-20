@@ -60,7 +60,9 @@ async fn run_linux_edr(
         dedup_worker_handle,
         telemetry_reporter,
         _guards,
-    } = RuntimeLogging::start(&cfg, "Linux eBPF")?;
+    } = RuntimeLogging::start(&cfg, "Linux eBPF", resolved_config_path.as_deref())?;
+
+    info!(target: TARGET_CONSOLE, "Agent initializing");
 
     // Shared state
     let state = SharedState::new(&cfg);
@@ -85,7 +87,7 @@ async fn run_linux_edr(
 
     info!(
         target: TARGET_CONSOLE,
-        "Starting eBPF sensor; press Ctrl+C to stop gracefully"
+        "Starting eBPF sensor"
     );
 
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(8192);
@@ -104,6 +106,10 @@ async fn run_linux_edr(
         error!("eBPF sensor failed to start: {:#}", e);
         return Err(e);
     }
+    info!(
+        target: TARGET_CONSOLE,
+        "Agent ready; press Ctrl+C to stop gracefully"
+    );
 
     // Wait for Ctrl+C
     match tokio::signal::ctrl_c().await {

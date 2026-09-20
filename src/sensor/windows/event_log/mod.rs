@@ -15,6 +15,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::telemetry::event_log::update;
+use crate::utils::LogRateLimiter;
 use anyhow::{anyhow, Context, Result};
 use tokio::sync::mpsc::{error::TrySendError, Sender};
 use tracing::{info, trace, warn};
@@ -29,6 +30,7 @@ use crate::sensor::SensorEvent;
 use super::etw::{PROCESS_TRACE_SESSION_NAME, TRACE_SESSION_NAME};
 
 const EVENT_LOG_WAIT: Duration = Duration::from_millis(250);
+const DECODE_WARNING_WINDOW: Duration = Duration::from_secs(60);
 
 type EventDecoder = fn(&str) -> Result<SensorEvent>;
 
@@ -191,6 +193,7 @@ struct CallbackState {
     bookmark: OwnedEvtHandle,
     pending: Option<String>,
     failure: Option<String>,
+    decode_warnings: LogRateLimiter,
 }
 
 fn run_subscription_inner(
@@ -257,6 +260,7 @@ fn run_subscription_inner(
             bookmark,
             pending: None,
             failure: None,
+            decode_warnings: LogRateLimiter::new(DECODE_WARNING_WINDOW),
         }),
     });
     let channel = wide_string(source.channel);
@@ -386,8 +390,27 @@ unsafe extern "system" fn subscription_callback(
                 }
             }
             Err(err) => {
-                update(context.source.channel, |health| health.decode_errors += 1);
-                warn!(channel = context.source.channel, error = %err, "Failed to decode event log record");
+                let mut decode_errors = 0;
+                update(context.source.channel, |health| {
+                    health.decode_errors += 1;
+                    decode_errors = health.decode_errors;
+                });
+                let decision = state.decode_warnings.should_emit("decode");
+                if decision.should_emit {
+                    warn!(
+                        channel = context.source.channel,
+                        error = %err,
+                        decode_errors,
+                        suppressed_warnings = decision.suppressed_since_last_emit,
+                        "Failed to decode Event Log record"
+                    );
+                } else {
+                    tracing::debug!(
+                        channel = context.source.channel,
+                        error = %err,
+                        "Failed to decode Event Log record"
+                    );
+                }
             }
         }
         // Checkpoint records handled here, including explicitly accounted queue shedding.

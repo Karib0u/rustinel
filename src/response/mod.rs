@@ -6,16 +6,31 @@
 use crate::config::ResponseConfig;
 use crate::models::{Alert, AlertSeverity, DetectionEngine, EventFields};
 use crate::utils::{
-    hash_command_line, normalize_path_for_comparison, validate_process_identity, ProcessIdentity,
+    hash_command_line, normalize_path_for_comparison, validate_process_identity, LogRateLimiter,
+    ProcessIdentity,
 };
 use arc_swap::ArcSwap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 const TARGET_RESPONSE: &str = "response";
+const RESPONSE_WARNING_WINDOW: Duration = Duration::from_secs(60);
 static IDENTITY_MISMATCH_SKIPS: AtomicU64 = AtomicU64::new(0);
+static RESPONSE_WARNINGS: LazyLock<Mutex<LogRateLimiter>> =
+    LazyLock::new(|| Mutex::new(LogRateLimiter::new(RESPONSE_WARNING_WINDOW)));
+
+fn warn_limited(key: &str, emit: impl FnOnce(u64)) {
+    let decision = match RESPONSE_WARNINGS.lock() {
+        Ok(mut limiter) => limiter.should_emit(key),
+        Err(poisoned) => poisoned.into_inner().should_emit(key),
+    };
+    if decision.should_emit {
+        emit(decision.suppressed_since_last_emit);
+    }
+}
 
 #[derive(Debug)]
 struct ResponseTask {
@@ -134,11 +149,14 @@ impl ResponseEngine {
         if let Err(err) =
             crate::telemetry::try_send(crate::telemetry::ChannelId::ActiveResponse, &self.tx, task)
         {
-            warn!(
-                target: TARGET_RESPONSE,
-                error = %err,
-                "Active response queue full, dropping task"
-            );
+            warn_limited("queue", |suppressed_warnings| {
+                warn!(
+                    target: TARGET_RESPONSE,
+                    error = %err,
+                    suppressed_warnings,
+                    "Active response queue unavailable; dropping task"
+                );
+            });
         }
     }
 
@@ -266,13 +284,16 @@ fn handle_task(
         allowlist_paths,
     ) {
         ResponseDecision::MissingPid => {
-            warn!(
-                target: TARGET_RESPONSE,
-                rule = %task.rule_name,
-                engine = ?task.engine,
-                severity = ?task.severity,
-                "Active response skipped: missing pid"
-            );
+            warn_limited("missing_pid", |suppressed_warnings| {
+                warn!(
+                    target: TARGET_RESPONSE,
+                    rule = %task.rule_name,
+                    engine = ?task.engine,
+                    severity = ?task.severity,
+                    suppressed_warnings,
+                    "Active response skipped: missing pid"
+                );
+            });
         }
         ResponseDecision::ProtectedPid { pid } => {
             info!(
@@ -285,14 +306,17 @@ fn handle_task(
             );
         }
         ResponseDecision::MissingImage { pid } => {
-            warn!(
-                target: TARGET_RESPONSE,
-                pid,
-                rule = %task.rule_name,
-                engine = ?task.engine,
-                severity = ?task.severity,
-                "Active response skipped: missing image"
-            );
+            warn_limited("missing_image", |suppressed_warnings| {
+                warn!(
+                    target: TARGET_RESPONSE,
+                    pid,
+                    rule = %task.rule_name,
+                    engine = ?task.engine,
+                    severity = ?task.severity,
+                    suppressed_warnings,
+                    "Active response skipped: missing image"
+                );
+            });
         }
         ResponseDecision::Allowlisted { pid, image } => {
             info!(
@@ -355,17 +379,20 @@ fn handle_task(
                 Err(err) => {
                     let skipped_identity_mismatch_count =
                         IDENTITY_MISMATCH_SKIPS.fetch_add(1, Ordering::Relaxed) + 1;
-                    warn!(
-                        target: TARGET_RESPONSE,
-                        pid,
-                        image = %image,
-                        rule = %task.rule_name,
-                        engine = ?task.engine,
-                        severity = ?task.severity,
-                        skipped_identity_mismatch_count,
-                        reason = %err,
-                        "Active response skipped: process identity mismatch"
-                    );
+                    warn_limited("identity_mismatch", |suppressed_warnings| {
+                        warn!(
+                            target: TARGET_RESPONSE,
+                            pid,
+                            image = %image,
+                            rule = %task.rule_name,
+                            engine = ?task.engine,
+                            severity = ?task.severity,
+                            skipped_identity_mismatch_count,
+                            suppressed_warnings,
+                            reason = %err,
+                            "Active response skipped: process identity mismatch"
+                        );
+                    });
                 }
             }
         }
