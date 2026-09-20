@@ -59,6 +59,26 @@ sudo env RUSTINEL_EBPF_OBJECT=$PWD/ebpf/rustinel-ebpf.o ./target/release/rustine
 For `cargo check`, `clippy`, or unit tests without the nightly toolchain, set `RUSTINEL_EBPF_STUB=1`.
 The resulting binary cannot collect telemetry.
 
+### eBPF load smoke test
+
+Compilation alone does not run the kernel verifier.
+After building the eBPF object and release agent as above, run the same load, attachment, event-family, and demo-alert checks used by CI:
+
+```bash
+cargo build --locked --release
+sudo python3 tests/ebpf_load_smoke.py \
+  --binary target/release/rustinel \
+  --ebpf-object ebpf/rustinel-ebpf.o \
+  --rules-dir rules/sigma \
+  --artifacts-dir target/ebpf-load-smoke
+sudo python3 tests/native_capture_contract.py \
+  --binary "$PWD/target/release/rustinel"
+```
+
+The smoke test requires root, `curl`, network access, and a Linux 5.8 or newer kernel with BTF.
+It verifies that the supplied object is embedded in the binary before starting the agent.
+CI runs the commands on both the current GitHub runner kernel and Linux 5.10; use a VM when reproducing the 5.10 leg locally.
+
 ## macOS
 
 Endpoint Security needs a bundle signed with the `com.apple.developer.endpoint-security.client` entitlement.

@@ -98,6 +98,77 @@ jobs:
           path: ebpf/rustinel-ebpf.o
           retention-days: 1
 
+  ebpf-load:
+    name: Linux eBPF Load (${{ matrix.kernel }})
+    runs-on: ubuntu-latest
+    needs: ebpf-build
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: [runner, "5.10"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Download eBPF artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: rustinel-ebpf-object
+          path: .ci/ebpf-object
+      - name: Build agent with downloaded eBPF object
+        run: |
+          cp .ci/ebpf-object/rustinel-ebpf.o ebpf/rustinel-ebpf.o
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-feature=+crt-static" \
+            cargo build --locked --release --target x86_64-unknown-linux-gnu
+      - name: Load and exercise eBPF on runner kernel
+        if: matrix.kernel == 'runner'
+        run: |
+          sudo -E python3 tests/ebpf_load_smoke.py \
+            --binary target/x86_64-unknown-linux-gnu/release/rustinel \
+            --ebpf-object .ci/ebpf-object/rustinel-ebpf.o \
+            --rules-dir rules/sigma \
+            --artifacts-dir .ci/ebpf-load-runner
+          sudo -E python3 tests/native_capture_contract.py \
+            --binary "$GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/release/rustinel"
+      - name: Load and exercise eBPF on Linux 5.10
+        if: matrix.kernel == '5.10'
+        uses: cilium/little-vm-helper@f86d344aca812dda5aef167867a9a0a90ca6cca5 # v0.0.31
+        with:
+          test-name: rustinel-ebpf-load
+          image: kind
+          # LVH's rolling tag extracts to kind_5.10.qcow2 but the action looks
+          # for kind_5.10-main.qcow2. Use the immutable dated tag so its image
+          # name and the action's derived path agree.
+          image-version: 5.10-20260914.012528
+          kernel-version: 5.10-main
+          host-mount: .
+          install-dependencies: true
+          cpu: 2
+          mem: 4G
+          cmd: |
+            uname -a
+            python3 /host/tests/ebpf_load_smoke.py \
+              --binary /host/target/x86_64-unknown-linux-gnu/release/rustinel \
+              --ebpf-object /host/.ci/ebpf-object/rustinel-ebpf.o \
+              --rules-dir /host/rules/sigma \
+              --artifacts-dir /host/.ci/ebpf-load-5.10
+            python3 /host/tests/native_capture_contract.py \
+              --binary /host/target/x86_64-unknown-linux-gnu/release/rustinel
+      - name: Upload eBPF load diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ebpf-load-${{ matrix.kernel }}
+          path: .ci/ebpf-load-${{ matrix.kernel }}/
+          include-hidden-files: true
+          if-no-files-found: warn
+
   clippy-linux:
     name: Clippy (Linux)
     runs-on: ubuntu-latest
@@ -231,11 +302,6 @@ jobs:
 
       - name: Build PR binary
         run: cargo build --locked --release
-
-      - name: Run native capture contract (Linux)
-        if: matrix.platform == 'linux'
-        run: sudo -E python3 tests/native_capture_contract.py --binary "$GITHUB_WORKSPACE/target/release/rustinel"
-        shell: bash
 
       - name: Run native capture contract (Windows)
         if: matrix.platform == 'windows'
