@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
 use tracing::{info, trace, warn};
 
 /// Size of one ETW session buffer, in KB.
@@ -286,7 +287,11 @@ impl EtwSensor {
     /// The two sessions are started before either is processed, so a failure to
     /// create the second one is reported as a startup error rather than as a
     /// sensor that silently runs without process events.
-    pub(super) fn run_sessions(&self, tx: &Sender<SensorEvent>) -> Result<()> {
+    pub(super) fn run_sessions(
+        &self,
+        tx: &Sender<SensorEvent>,
+        readiness: &mut Option<oneshot::Sender<std::result::Result<(), String>>>,
+    ) -> Result<()> {
         let process_identities = match crate::platform::windows::snapshot_process_start_keys() {
             Ok(keys) => keys,
             Err(err) => {
@@ -428,6 +433,13 @@ impl EtwSensor {
             for session in [TRACE_SESSION_NAME, PROCESS_TRACE_SESSION_NAME] {
                 let _ = ferrisetw::trace::stop_trace_by_name(session);
             }
+            return Err(anyhow::anyhow!(
+                "a required Windows collector stopped during ETW startup"
+            ));
+        }
+
+        if let Some(readiness) = readiness.take() {
+            let _ = readiness.send(Ok(()));
         }
 
         let main_result = interpret_process_result(

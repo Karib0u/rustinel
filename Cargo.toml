@@ -1,6 +1,6 @@
 [package]
 name = "rustinel"
-version = "1.8.0-rc.1"
+version = "1.8.0"
 edition = "2021"
 authors = []
 description = "Open-source EDR for Windows, Linux, and macOS with Sigma, YARA, and IOC detection"
@@ -115,6 +115,11 @@ harness = false
 # Wildcard-domain IOC matching, measured with `cargo bench --bench ioc_domains`.
 [[bench]]
 name = "ioc_domains"
+harness = false
+
+# CIDR IOC matching, measured with `cargo bench --bench ioc_ips`.
+[[bench]]
+name = "ioc_ips"
 harness = false
 
 # Per-event inline IOC matching, measured with `cargo bench --bench ioc_observables`.

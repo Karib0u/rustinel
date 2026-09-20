@@ -1,7 +1,7 @@
 use ipnetwork::IpNetwork;
 use regex::RegexSet;
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -54,7 +54,122 @@ pub(crate) struct HashIocs {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct IpIocs {
     pub(crate) exact: HashMap<IpAddr, IocMeta>,
-    pub(crate) cidr: Vec<(IpNetwork, IocMeta)>,
+    pub(crate) cidr: CidrIndex,
+}
+
+/// CIDR indicators grouped by address family and prefix length.
+///
+/// Each network bucket stores positions into `entries`. This keeps metadata in
+/// one place and lets lookup restore feed order after probing the active prefix
+/// lengths for an address.
+#[derive(Debug, Clone)]
+pub(crate) struct CidrIndex {
+    entries: Vec<CidrEntry>,
+    v4: [HashMap<Ipv4Addr, Vec<u32>>; 33],
+    v6: [HashMap<Ipv6Addr, Vec<u32>>; 129],
+    v4_prefixes: Vec<u8>,
+    v6_prefixes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct CidrEntry {
+    network: IpNetwork,
+    meta: IocMeta,
+}
+
+impl Default for CidrIndex {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            v4: std::array::from_fn(|_| HashMap::new()),
+            v6: std::array::from_fn(|_| HashMap::new()),
+            v4_prefixes: Vec::new(),
+            v6_prefixes: Vec::new(),
+        }
+    }
+}
+
+impl CidrIndex {
+    /// Adds one network. Returns `false` if the position cannot fit in the
+    /// compact bucket representation.
+    pub(crate) fn insert(&mut self, network: IpNetwork, meta: IocMeta) -> bool {
+        let Ok(position) = u32::try_from(self.entries.len()) else {
+            return false;
+        };
+
+        match network {
+            IpNetwork::V4(network) => {
+                let prefix = network.prefix();
+                let bucket = &mut self.v4[prefix as usize];
+                if bucket.is_empty() {
+                    self.v4_prefixes.push(prefix);
+                }
+                bucket.entry(network.network()).or_default().push(position);
+            }
+            IpNetwork::V6(network) => {
+                let prefix = network.prefix();
+                let bucket = &mut self.v6[prefix as usize];
+                if bucket.is_empty() {
+                    self.v6_prefixes.push(prefix);
+                }
+                bucket.entry(network.network()).or_default().push(position);
+            }
+        }
+
+        self.entries.push(CidrEntry { network, meta });
+        true
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Returns every matching indicator in feed order.
+    pub(crate) fn lookup(&self, ip: IpAddr) -> Vec<(&IpNetwork, &IocMeta)> {
+        let mut positions = Vec::new();
+
+        match ip {
+            IpAddr::V4(ip) => {
+                let value = u32::from(ip);
+                for &prefix in &self.v4_prefixes {
+                    let network = Ipv4Addr::from(value & ipv4_mask(prefix));
+                    if let Some(bucket) = self.v4[prefix as usize].get(&network) {
+                        positions.extend(bucket.iter().copied());
+                    }
+                }
+            }
+            IpAddr::V6(ip) => {
+                let value = u128::from(ip);
+                for &prefix in &self.v6_prefixes {
+                    let network = Ipv6Addr::from(value & ipv6_mask(prefix));
+                    if let Some(bucket) = self.v6[prefix as usize].get(&network) {
+                        positions.extend(bucket.iter().copied());
+                    }
+                }
+            }
+        }
+
+        positions.sort_unstable();
+        positions
+            .into_iter()
+            .map(|position| {
+                let entry = &self.entries[position as usize];
+                (&entry.network, &entry.meta)
+            })
+            .collect()
+    }
+}
+
+fn ipv4_mask(prefix: u8) -> u32 {
+    u32::MAX.checked_shl(u32::from(32 - prefix)).unwrap_or(0)
+}
+
+fn ipv6_mask(prefix: u8) -> u128 {
+    u128::MAX.checked_shl(u32::from(128 - prefix)).unwrap_or(0)
 }
 
 /// Wildcard (`*.example.com` / `.example.com`) domain indicators, indexed by
