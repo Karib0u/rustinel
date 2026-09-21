@@ -1909,6 +1909,31 @@
     {
       "view": "sysmon",
       "platform": "windows",
+      "category": "ps_classic_start",
+      "event_id": 400,
+      "action": "start",
+      "provider": "windows_event_log",
+      "source": "PowerShell",
+      "field": "Channel",
+      "since": "1.8.0",
+      "value": "Windows PowerShell",
+      "availability": "always"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "ps_classic_start",
+      "event_id": 400,
+      "action": "start",
+      "provider": "windows_event_log",
+      "source": "PowerShell",
+      "field": "Data",
+      "since": "1.8.0",
+      "availability": "always"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
       "provider": "etw",

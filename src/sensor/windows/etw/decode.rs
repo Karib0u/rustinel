@@ -159,6 +159,9 @@ pub(super) fn decode_single_record(
         EventCategory::ImageLoad => decode_image_load(&parser, record),
         EventCategory::Scripting => decode_powershell(&parser, record),
         EventCategory::PowerShellModule => decode_powershell_module(&parser, record),
+        EventCategory::PowerShellClassicStart => {
+            unreachable!("classic PowerShell events use the event log source")
+        }
         EventCategory::Wmi => decode_wmi(&parser, record),
         EventCategory::Service | EventCategory::Security => {
             unreachable!("event log categories use the event log sources")

@@ -90,6 +90,7 @@ Stable reason codes in schema version 1 are:
 | `image_load` | ✓ | | |
 | `ps_script` | ✓ | | |
 | `ps_module` | ✓ | | |
+| `ps_classic_start` (also `service: powershell-classic`) | ✓ | | |
 | `wmi_event` | ✓ | | |
 | `service_creation` | ✓ | | |
 | `task_creation` | ✓ | | |
@@ -117,7 +118,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | File | `TargetFilename`, `SourceFilename` (rename), `Image`, `ProcessId`, `User`, `PathTruncated` |
 | DNS | `QueryName`, `QueryResults`, `RecordType`, or the aliases `query`, `answer`, `record_type` |
 | Service (7045) | `ServiceName`, `ImagePath` (also `ServiceFileName`), `ServiceType`, `StartType`, `AccountName`, `Provider_Name` |
-| PowerShell | `ScriptBlockText`, `ScriptBlockId`, `Path` (`ps_script`); `ContextInfo`, `Payload` (`ps_module`) |
+| PowerShell | `ScriptBlockText`, `ScriptBlockId`, `Path` (`ps_script`); `ContextInfo`, `Payload` (`ps_module`); `Data` (`ps_classic_start`) |
 
 Things that differ from Sysmon:
 
@@ -142,6 +143,7 @@ Things that differ from Sysmon:
   It is not the ECS `event.provider`.
 - **Security events** keep Windows' formatting: `SubjectLogonId` is `0x3e4`, not `996`, and `AccessList` holds `%%4417`-style codes.
 - **PowerShell `ContextInfo` and `Payload`** are free text in the host's display language.
+- **Classic PowerShell `Data`** is the raw event 400 engine-start description from the `Windows PowerShell` channel.
 
 ## Windows Security events
 

@@ -22,6 +22,7 @@ pub enum EventFields {
     ImageLoad(ImageLoadFields),
     PowerShellScript(PowerShellScriptFields),
     PowerShellModule(PowerShellModuleFields),
+    PowerShellClassicStart(PowerShellClassicStartFields),
     WmiEvent(WmiEventFields),
     ServiceCreation(ServiceCreationFields),
     TaskCreation(TaskCreationFields),
@@ -56,6 +57,9 @@ impl EventFields {
             EventCategory::Scripting => serde_json::from_value(payload).map(Self::PowerShellScript),
             EventCategory::PowerShellModule => {
                 serde_json::from_value(payload).map(Self::PowerShellModule)
+            }
+            EventCategory::PowerShellClassicStart => {
+                serde_json::from_value(payload).map(Self::PowerShellClassicStart)
             }
             EventCategory::Wmi => serde_json::from_value(payload).map(Self::WmiEvent),
             EventCategory::Service => serde_json::from_value(payload).map(Self::ServiceCreation),
@@ -479,6 +483,16 @@ pub struct PowerShellModuleFields {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+}
+
+/// Classic Windows PowerShell engine-start fields (Sigma: ps_classic_start).
+///
+/// Event 400 stores the complete engine and host description in its third
+/// unnamed EventData value. Sigma rules call that raw value `Data`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerShellClassicStartFields {
+    #[serde(rename = "Data", skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
 }
 
 /// WMI event fields (Sigma: wmi_event)

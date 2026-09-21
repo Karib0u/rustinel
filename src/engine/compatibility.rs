@@ -1377,7 +1377,7 @@ fn contract_matches_logsource(contract: &EventFieldContract, logsource: &LogSour
                 "system" => &["service_creation"],
                 "taskscheduler" | "task scheduler" => &["task_creation"],
                 "powershell" | "powershell-classic" | "microsoft-windows-powershell" => {
-                    &["ps_script", "ps_module"]
+                    &["ps_script", "ps_module", "ps_classic_start"]
                 }
                 "dns-client" | "dns" => &["dns_query"],
                 "wmi" => &["wmi_event"],

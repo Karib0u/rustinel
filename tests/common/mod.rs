@@ -10,7 +10,8 @@ use rustinel::config::IocConfig;
 use rustinel::models::ecs::EcsAlert;
 use rustinel::models::{
     Alert, DnsQueryFields, EventFields, FileEventFields, NetworkConnectionFields, NormalizedEvent,
-    PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, ServiceCreationFields,
+    PowerShellClassicStartFields, PowerShellModuleFields, PowerShellScriptFields,
+    ProcessCreationFields, ServiceCreationFields,
 };
 use rustinel::normalizer::Normalizer;
 use rustinel::sensor::{
@@ -37,6 +38,7 @@ pub const TEST_SERVICE_IMAGE_PATH: &str = r"C:\Windows\Temp\rustinel-fixture-ser
 /// The Windows Event Log provider behind event 7045, as `service: system`
 /// rules select on it.
 pub const TEST_SERVICE_PROVIDER: &str = "Service Control Manager";
+pub const TEST_PS_CLASSIC_DATA: &str = "NewEngineState=Available\nHostName=ConsoleHost\nHostVersion=5.1.26100.9444\nHostApplication=powershell.exe -Version 2\nEngineVersion=2.0";
 
 pub struct TestNormalizer {
     pub normalizer: Normalizer,
@@ -217,6 +219,28 @@ pub fn service_installation_event() -> SensorEvent {
             user: None,
             process_id: None,
             image: None,
+        }),
+    }
+}
+
+pub fn powershell_classic_start_event() -> SensorEvent {
+    SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
+        platform: Platform::Windows,
+        provider: "windows_event_log",
+        action: SensorAction::Start,
+        normalization: SensorNormalization {
+            event_id: 400,
+            action_code: 0,
+        },
+        pid: Some(TEST_PID),
+        timestamp: test_time(),
+        source_seq: Some(1_132_233),
+        process_start_key: None,
+        parent_process_start_key: None,
+        payload: SensorPayload::PowerShellClassicStart(PowerShellClassicStartFields {
+            data: Some(TEST_PS_CLASSIC_DATA.to_string()),
         }),
     }
 }
@@ -518,6 +542,24 @@ level: medium
         )
     }
 
+    pub fn write_ps_classic_start_rule(&self) -> PathBuf {
+        self.write_rule(
+            "ps_classic_start.yml",
+            r#"title: Test PowerShell Downgrade
+logsource:
+  product: windows
+  category: ps_classic_start
+detection:
+  selection:
+    Data|contains: "EngineVersion=2."
+  filter_main:
+    Data|contains: "HostVersion=2."
+  condition: selection and not filter_main
+level: high
+"#,
+        )
+    }
+
     pub fn write_network_rule(&self, platform: Platform) -> PathBuf {
         let product = platform_product(platform);
         self.write_rule(
@@ -741,6 +783,9 @@ pub fn event_fields_from_payload(event: SensorEvent) -> EventFields {
         SensorPayload::ImageLoad(fields) => EventFields::ImageLoad(fields),
         SensorPayload::Scripting(fields) => EventFields::PowerShellScript(fields),
         SensorPayload::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
+        SensorPayload::PowerShellClassicStart(fields) => {
+            EventFields::PowerShellClassicStart(fields)
+        }
         SensorPayload::Wmi(fields) => EventFields::WmiEvent(fields),
         SensorPayload::Service(fields) => EventFields::ServiceCreation(fields),
         SensorPayload::Task(fields) => EventFields::TaskCreation(fields),

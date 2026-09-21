@@ -55,6 +55,8 @@ const SINCE_PROCESS_PATH_ENRICHMENT: Option<&str> = Some("1.7.1");
 const SINCE_PROCESS_USER: Option<&str> = Some("1.7.1");
 /// Native Windows Event Log or ETW manifest channel (#543).
 const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.7.1");
+/// Classic Windows PowerShell event 400 collection (#323).
+const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.8.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -579,6 +581,15 @@ const WINDOWS_POWERSHELL_MODULE: &[FieldContract] = &[
         SINCE_1_4_1,
         "the provider event template carries user identity",
     ),
+];
+
+const WINDOWS_POWERSHELL_CLASSIC_START: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_POWERSHELL_CLASSIC_START,
+        "Windows PowerShell",
+    ),
+    always("Data", SINCE_POWERSHELL_CLASSIC_START),
 ];
 
 const WINDOWS_WMI: &[FieldContract] = &[
@@ -1572,6 +1583,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     ),
     contract!(
         Windows,
+        "ps_classic_start",
+        Some(400),
+        Start,
+        "windows_event_log",
+        "PowerShell",
+        WINDOWS_POWERSHELL_CLASSIC_START
+    ),
+    contract!(
+        Windows,
         "wmi_event",
         None,
         Execute,
@@ -2098,6 +2118,7 @@ pub const fn category_name(category: EventCategory) -> &'static str {
         EventCategory::ImageLoad => "image_load",
         EventCategory::Scripting => "ps_script",
         EventCategory::PowerShellModule => "ps_module",
+        EventCategory::PowerShellClassicStart => "ps_classic_start",
         EventCategory::Wmi => "wmi_event",
         EventCategory::Service => "service_creation",
         EventCategory::Task => "task_creation",

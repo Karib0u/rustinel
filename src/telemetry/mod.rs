@@ -1049,7 +1049,8 @@ impl SensorEventCategoryCounters {
     }
 }
 
-static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 12] = [
+static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 13] = [
+    SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
@@ -1078,6 +1079,7 @@ fn sensor_event_category(category: EventCategory) -> (usize, &'static str) {
         EventCategory::Service => (9, "service"),
         EventCategory::Task => (10, "task"),
         EventCategory::Security => (11, "security"),
+        EventCategory::PowerShellClassicStart => (12, "powershell_classic_start"),
     }
 }
 
@@ -1095,6 +1097,7 @@ fn sensor_event_category_snapshots() -> Vec<SensorEventCategorySnapshot> {
         EventCategory::Service,
         EventCategory::Task,
         EventCategory::Security,
+        EventCategory::PowerShellClassicStart,
     ]
     .into_iter()
     .filter_map(|category| {

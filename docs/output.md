@@ -101,6 +101,7 @@ Adding that product behavior is separate from tracking the schema version.
 | `edr.library` | Image load (Windows) |
 | `edr.scripting` | PowerShell script blocks (Windows) |
 | `edr.powershell_module` | PowerShell module logging (Windows) |
+| `edr.powershell_classic_start` | Classic Windows PowerShell engine starts |
 | `edr.wmi` | WMI activity (Windows) |
 | `edr.service` | Service installs (Windows) |
 | `edr.task` | Scheduled tasks (Windows) |
@@ -111,6 +112,7 @@ Adding that product behavior is separate from tracking the schema version.
 | Field | Platform | Value |
 | --- | --- | --- |
 | `edr.event_log.provider_name` | Windows | The provider that wrote an Event Log record. Sigma sees it as `Provider_Name` |
+| `edr.powershell.data` | Windows | Raw classic Windows PowerShell event 400 engine-start description. Sigma sees it as `Data` |
 | `edr.security` | Windows | The full decoded Security event, with Windows field names. Identity, address, process, and service values are also copied to ECS fields |
 | `edr.process.windows_metadata` | Windows | Where the command line came from, the raw SID, and the session ID |
 | `edr.process.image_source` | Linux | `execve`: the path as passed to `execve()` |

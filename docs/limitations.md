@@ -81,7 +81,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
 - **Silent: WMI event IDs are not Sysmon's.**
   `wmi_event` rules that select on `EventID` never match.
   WMI persistence is not collected.
-- **PowerShell:** only Windows PowerShell 5.1 is collected, module logging (4103) needs host policy, and its text is in the host's language.
+- **PowerShell:** script block and module content is limited to Windows PowerShell 5.1. Classic engine starts include version 2 through event 400. PowerShell 7 is not collected. Module logging (4103) needs host policy, and its text is in the host's language.
 - **No telemetry** for remote threads, process access, named pipes, driver loads, or network data volume.
 - **`IntegrityLevel`** exists on process start events only.
 

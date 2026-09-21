@@ -210,7 +210,7 @@ fn every_windows_shape_declares_its_real_channel_or_a_permanent_gap() {
 }
 
 #[test]
-fn manifest_backed_windows_shapes_record_the_verified_channel_names() {
+fn windows_shapes_record_the_verified_channel_names() {
     for (category, event_id, expected) in [
         (
             "ps_module",
@@ -222,6 +222,7 @@ fn manifest_backed_windows_shapes_record_the_verified_channel_names() {
             4104,
             "Microsoft-Windows-PowerShell/Operational",
         ),
+        ("ps_classic_start", 400, "Windows PowerShell"),
         (
             "dns_query",
             3006,

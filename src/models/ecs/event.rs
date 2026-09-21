@@ -22,6 +22,7 @@ pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<
         EventCategory::ImageLoad => vec!["library".to_string()],
         EventCategory::Scripting => vec!["process".to_string()],
         EventCategory::PowerShellModule => vec!["process".to_string()],
+        EventCategory::PowerShellClassicStart => vec!["process".to_string()],
         EventCategory::Wmi => vec!["api".to_string()],
         EventCategory::Service => vec!["configuration".to_string()],
         EventCategory::Task => vec!["configuration".to_string()],
@@ -162,6 +163,7 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
         EventCategory::ImageLoad => vec!["start".to_string()],
         EventCategory::Scripting => vec!["info".to_string()],
         EventCategory::PowerShellModule => vec!["info".to_string()],
+        EventCategory::PowerShellClassicStart => vec!["start".to_string()],
         EventCategory::Wmi => vec!["info".to_string()],
         EventCategory::Service => {
             if event_id == 7045 {
@@ -209,6 +211,7 @@ pub(super) fn ecs_event_action(
         EventCategory::ImageLoad => "image-load",
         EventCategory::Scripting => "powershell-script",
         EventCategory::PowerShellModule => "powershell-module",
+        EventCategory::PowerShellClassicStart => "powershell-classic-start",
         EventCategory::Wmi => "wmi-operation",
         EventCategory::Service => {
             if event_id == 7045 {
@@ -239,6 +242,7 @@ pub(super) fn event_dataset(category: EventCategory) -> String {
         EventCategory::ImageLoad => "library",
         EventCategory::Scripting => "scripting",
         EventCategory::PowerShellModule => "powershell_module",
+        EventCategory::PowerShellClassicStart => "powershell_classic_start",
         EventCategory::Wmi => "wmi",
         EventCategory::Service => "service",
         EventCategory::Task => "task",

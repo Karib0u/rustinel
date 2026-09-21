@@ -620,6 +620,10 @@ impl NormalizedEvent {
                 Field::User => f.user.as_deref().map(Value::String),
                 _ => None,
             },
+            EventFields::PowerShellClassicStart(f) => match key {
+                Field::Data => f.data.as_deref().map(Value::String),
+                _ => None,
+            },
             EventFields::WmiEvent(f) => match key {
                 Field::Operation => f.operation.as_deref().map(Value::String),
                 Field::User => f.user.as_deref().map(Value::String),
@@ -668,6 +672,7 @@ pub enum EventCategory {
     ImageLoad,
     Scripting,
     PowerShellModule,
+    PowerShellClassicStart,
     Wmi,
     Service,
     Task,

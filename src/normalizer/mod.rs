@@ -58,6 +58,9 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             SensorPayload::PowerShellModule(fields) => {
                 self.normalize_powershell_module(event, fields.clone(), &mut provenance)
             }
+            SensorPayload::PowerShellClassicStart(fields) => {
+                Some(EventFields::PowerShellClassicStart(fields.clone()))
+            }
             SensorPayload::Wmi(fields) => {
                 self.normalize_wmi(event, fields.clone(), &mut provenance)
             }

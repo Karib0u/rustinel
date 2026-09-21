@@ -4,6 +4,7 @@
 //! subscription lifecycle, native handles, shutdown, and sensor-channel
 //! delivery stay shared across System, Security, and Application sources.
 
+mod powershell_classic;
 mod security;
 mod service;
 
@@ -71,6 +72,7 @@ impl EventLogSubscriptions {
     ) -> Result<Self> {
         let sources = [
             service::source(),
+            powershell_classic::source(),
             security::source(security_filtering_platform_connections),
         ];
         let mut workers = Vec::with_capacity(sources.len());
