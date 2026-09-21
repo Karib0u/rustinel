@@ -151,10 +151,14 @@ impl DeferredRules {
         if self.is_empty() {
             return ArtifactFieldNeeds::default();
         }
-        let aliases = Engine::concrete_logsource_aliases_for_event(event);
+        let routes = Engine::concrete_logsource_routes_for_event(event);
         self.needs
             .iter()
-            .filter(|(logsource, _)| aliases.iter().any(|alias| logsource.matches_tuple(alias)))
+            .filter(|(logsource, _)| {
+                routes
+                    .iter()
+                    .any(|route| logsource.matches_tuple(&route.key))
+            })
             .fold(ArtifactFieldNeeds::default(), |acc, (_, needs)| {
                 acc.union(*needs)
             })

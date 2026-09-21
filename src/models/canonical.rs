@@ -1,8 +1,8 @@
 //! Semantic event boundary shared by live detection, capture, and replay.
 //!
 //! Host-dependent work is complete before a `CanonicalEvent` is created.  The
-//! existing `NormalizedEvent` is retained as the generated Sysmon-compatible
-//! view used by detectors and by capture schema version 2.
+//! `NormalizedEvent` is retained as the stable capture-schema-v2 payload.
+//! Detectors render its Rustinel-named data through an explicit field view.
 
 use super::{NormalizedEvent, Provenance};
 use crate::sensor::{ProcessStartKey, SensorAction};
@@ -46,7 +46,7 @@ impl CanonicalEvent {
         Self::new(normalized, action, pid, None, None)
     }
 
-    /// Generated Sysmon-compatible view consumed by today's detectors.
+    /// Stable event payload used by capture, replay, and output rendering.
     pub fn normalized(&self) -> &NormalizedEvent {
         &self.normalized
     }

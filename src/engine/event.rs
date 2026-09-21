@@ -8,50 +8,59 @@
 //!
 //! The keyword and field-enumeration methods are cold paths (keyword-only
 //! rules and the daemon field-observability surface, neither of which is on
-//! Rustinel's hot path). They materialize the event's fields with serde rather
-//! than the default `to_json`-based walk: `EventFields` is
-//! `#[serde(untagged)]`, so the active variant serializes directly as a flat
-//! object keyed by the Sigma names (`Image`, `CommandLine`, ...) that rules
-//! reference. Driving these off serde keeps them in lockstep with the
-//! `#[serde(rename = ...)]` attributes on the field structs instead of
-//! duplicating that key list here, and avoids the default implementation's
-//! nested `fields.Image`-style dotted paths that would never match a flat rule
-//! field name.
+//! Rustinel's hot path). They materialize the selected compile-time field view
+//! rather than walking serialized model fields. The same mapping therefore
+//! drives direct reads, keyword search, and field enumeration.
 
 use std::borrow::Cow;
 
 use rsigma_eval::{Event, EventValue};
 use serde_json::Value;
 
-use crate::models::NormalizedEvent;
+use crate::models::{CanonicalValue, FieldView, FieldViewName, NormalizedEvent};
 
 /// Borrowed [`rsigma_eval::Event`] view over a [`NormalizedEvent`].
 pub(crate) struct RsigmaEvent<'a> {
     event: &'a NormalizedEvent,
+    view: FieldView<'a>,
 }
 
 impl<'a> RsigmaEvent<'a> {
     pub(crate) fn new(event: &'a NormalizedEvent) -> Self {
-        Self { event }
+        Self::with_view(event, FieldViewName::DEFAULT)
     }
 
-    /// The event's detection fields as a flat, Sigma-cased JSON object.
-    ///
-    /// Returns an empty map for the (unreachable in practice) case where the
-    /// fields do not serialize to a JSON object.
-    fn field_map(&self) -> serde_json::Map<String, Value> {
-        match serde_json::to_value(&self.event.fields) {
-            Ok(Value::Object(mut map)) => {
-                map.retain(|field, _| {
-                    !matches!(
-                        crate::field_availability::availability_for_event(self.event, field),
-                        Some(crate::field_availability::Availability::Never(_))
-                    )
-                });
-                map
-            }
-            _ => serde_json::Map::new(),
+    pub(crate) fn with_view(event: &'a NormalizedEvent, view: FieldViewName) -> Self {
+        Self {
+            event,
+            view: event.field_view(view),
         }
+    }
+
+    /// The selected detection view as a flat JSON object.
+    fn field_map(&self) -> serde_json::Map<String, Value> {
+        let mut map = serde_json::Map::new();
+        for mapping in
+            self.view.mappings().iter().filter(|mapping| {
+                mapping.enumerate && !matches!(mapping.name, "timestamp" | "EventID")
+            })
+        {
+            let Some(value) = self.view.get(mapping.name) else {
+                continue;
+            };
+            let value = match value {
+                CanonicalValue::String(value) => Value::String(value.to_string()),
+                CanonicalValue::Bool(value) => Value::Bool(value),
+                CanonicalValue::U64(value) => Value::Number(value.into()),
+            };
+            map.insert(mapping.name.to_string(), value);
+        }
+        for (name, value) in self.view.dynamic_fields() {
+            if self.view.get(name).is_some() {
+                map.insert(name.to_string(), Value::String(value.to_string()));
+            }
+        }
+        map
     }
 
     /// Event IDs exposed to Sigma for this normalized event.
@@ -80,24 +89,14 @@ impl Event for RsigmaEvent<'_> {
             return Some(self.event_id_value());
         }
 
-        if let Some(value) = self.event.get_field(path) {
-            return Some(EventValue::Str(Cow::Borrowed(value)));
-        }
-
-        // ProcessStartTime is stored as a number, so the normalized event's
-        // borrowed string accessor cannot expose it directly.
-        match (&self.event.fields, path) {
-            (crate::models::EventFields::ProcessCreation(fields), "ProcessStartTime")
-                if !matches!(
-                    crate::field_availability::availability_for_event(self.event, path),
-                    Some(crate::field_availability::Availability::Never(_))
-                ) =>
-            {
-                fields
-                    .process_start_time
-                    .map(|value| EventValue::Str(Cow::Owned(value.to_string())))
-            }
-            _ => None,
+        match self.view.get(path)? {
+            CanonicalValue::String(value) => Some(EventValue::Str(Cow::Borrowed(value))),
+            CanonicalValue::Bool(value) => Some(EventValue::Str(Cow::Borrowed(if value {
+                "true"
+            } else {
+                "false"
+            }))),
+            CanonicalValue::U64(value) => Some(EventValue::Str(Cow::Owned(value.to_string()))),
         }
     }
 

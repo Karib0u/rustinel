@@ -40,12 +40,14 @@ A reference to a rule that does not apply to this platform is dropped and report
 
 A rule whose `product` does not match the platform is skipped.
 A rule for a logsource the platform does not collect loads but never fires.
+On Linux and macOS, `service: sysmon` selects the Sysmon-compatible field view over native telemetry; it does not claim that Sysmon collected the event.
 
 `ps_module`, `ps_script`, and most `service: security` rules also need host logging to be enabled, see [Windows host logging](windows-logging.md).
 
 ## Fields
 
-Field names follow Sysmon.
+The default `sysmon` field view follows Sysmon names.
+Rustinel maps those names to canonical event accessors after collection, so sensors do not depend on a rule vocabulary.
 
 | Events | Fields |
 | --- | --- |

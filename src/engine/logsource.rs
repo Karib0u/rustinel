@@ -1,7 +1,9 @@
 use super::Engine;
-use crate::models::{EventCategory, NormalizedEvent};
+use crate::models::{EventCategory, FieldViewName, NormalizedEvent};
 use crate::sensor::Platform;
 use serde::{Deserialize, Serialize};
+
+const SYSMON_VIEW: &str = FieldViewName::SYSMON.as_str();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogSource {
@@ -138,6 +140,22 @@ pub struct LogSourceClassification {
     pub collector_active: Option<bool>,
 }
 
+/// One rule-routing alias paired with the field vocabulary used to evaluate it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LogSourceRoute {
+    pub(crate) key: LogSourceKey,
+    pub(crate) view: FieldViewName,
+}
+
+impl LogSourceRoute {
+    fn sysmon(key: LogSourceKey) -> Self {
+        Self {
+            key,
+            view: FieldViewName::SYSMON,
+        }
+    }
+}
+
 pub(crate) fn current_platform() -> Platform {
     #[cfg(windows)]
     {
@@ -254,45 +272,73 @@ impl Engine {
         )
     }
 
-    pub(crate) fn active_logsource_tuples(&self) -> Vec<LogSourceKey> {
+    fn active_logsource_keys(&self) -> Vec<LogSourceKey> {
         let mut tuples = match self.platform {
             Platform::Linux => vec![
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("process_creation")),
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("network_connection")),
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_event")),
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_create")),
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_delete")),
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("file_rename")),
-                LogSourceKey::from_parts(Some("linux"), Some("sysmon"), Some("dns_query")),
+                LogSourceKey::from_parts(
+                    Some("linux"),
+                    Some(SYSMON_VIEW),
+                    Some("process_creation"),
+                ),
+                LogSourceKey::from_parts(
+                    Some("linux"),
+                    Some(SYSMON_VIEW),
+                    Some("network_connection"),
+                ),
+                LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("file_event")),
+                LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("file_create")),
+                LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("file_delete")),
+                LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("file_rename")),
+                LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("dns_query")),
             ],
             // macOS telemetry comes from ESF (process, file) and /dev/bpf
             // (network, DNS); mirror the Linux collector coverage.
             Platform::MacOS => vec![
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("process_creation")),
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("network_connection")),
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_event")),
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_create")),
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_delete")),
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("file_rename")),
-                LogSourceKey::from_parts(Some("macos"), Some("sysmon"), Some("dns_query")),
-            ],
-            Platform::Windows => vec![
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("process_creation")),
                 LogSourceKey::from_parts(
-                    Some("windows"),
-                    Some("sysmon"),
+                    Some("macos"),
+                    Some(SYSMON_VIEW),
+                    Some("process_creation"),
+                ),
+                LogSourceKey::from_parts(
+                    Some("macos"),
+                    Some(SYSMON_VIEW),
                     Some("network_connection"),
                 ),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("file_event")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("file_create")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("file_delete")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("file_change")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("file_rename")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("registry_event")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("registry_add")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("registry_set")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("registry_delete")),
-                LogSourceKey::from_parts(Some("windows"), Some("sysmon"), Some("image_load")),
+                LogSourceKey::from_parts(Some("macos"), Some(SYSMON_VIEW), Some("file_event")),
+                LogSourceKey::from_parts(Some("macos"), Some(SYSMON_VIEW), Some("file_create")),
+                LogSourceKey::from_parts(Some("macos"), Some(SYSMON_VIEW), Some("file_delete")),
+                LogSourceKey::from_parts(Some("macos"), Some(SYSMON_VIEW), Some("file_rename")),
+                LogSourceKey::from_parts(Some("macos"), Some(SYSMON_VIEW), Some("dns_query")),
+            ],
+            Platform::Windows => vec![
+                LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some(SYSMON_VIEW),
+                    Some("process_creation"),
+                ),
+                LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some(SYSMON_VIEW),
+                    Some("network_connection"),
+                ),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("file_event")),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("file_create")),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("file_delete")),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("file_change")),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("file_rename")),
+                LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some(SYSMON_VIEW),
+                    Some("registry_event"),
+                ),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("registry_add")),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("registry_set")),
+                LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some(SYSMON_VIEW),
+                    Some("registry_delete"),
+                ),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("image_load")),
                 LogSourceKey::from_parts(Some("windows"), Some("dns-client"), Some("dns_query")),
                 LogSourceKey::from_parts(Some("windows"), Some("dns"), Some("dns_query")),
                 LogSourceKey::from_parts(Some("windows"), Some("powershell"), Some("ps_script")),
@@ -344,10 +390,22 @@ impl Engine {
         tuples
     }
 
+    /// Active rule routes and the view that makes each tuple satisfiable.
+    ///
+    /// The native Linux and macOS collectors do not pretend to be Sysmon.
+    /// `service: sysmon` names the compatibility view selected for those rule
+    /// routes; collector provenance remains on the canonical event.
+    pub(crate) fn active_logsource_routes(&self) -> Vec<LogSourceRoute> {
+        self.active_logsource_keys()
+            .into_iter()
+            .map(LogSourceRoute::sysmon)
+            .collect()
+    }
+
     pub(crate) fn matches_active_logsource(&self, logsource: &LogSourceKey) -> bool {
-        self.active_logsource_tuples()
+        self.active_logsource_routes()
             .iter()
-            .any(|tuple| logsource.matches_tuple(tuple))
+            .any(|route| logsource.matches_tuple(&route.key))
     }
 
     pub(crate) fn is_known_but_inactive_logsource(&self, logsource: &LogSourceKey) -> bool {
@@ -511,14 +569,14 @@ impl Engine {
             EventCategory::Process => {
                 aliases.push(LogSourceKey::from_parts(
                     Some(platform_product(event.platform)),
-                    Some("sysmon"),
+                    Some(SYSMON_VIEW),
                     Some("process_creation"),
                 ));
             }
             EventCategory::Network => {
                 aliases.push(LogSourceKey::from_parts(
                     Some(platform_product(event.platform)),
-                    Some("sysmon"),
+                    Some(SYSMON_VIEW),
                     Some("network_connection"),
                 ));
                 aliases.push(LogSourceKey::from_parts(
@@ -531,7 +589,7 @@ impl Engine {
                 for category in Self::sigma_file_categories_for_event(event) {
                     aliases.push(LogSourceKey::from_parts(
                         Some(platform_product(event.platform)),
-                        Some("sysmon"),
+                        Some(SYSMON_VIEW),
                         Some(category),
                     ));
                 }
@@ -540,7 +598,7 @@ impl Engine {
                 for category in Self::sigma_registry_categories_for_event(event) {
                     aliases.push(LogSourceKey::from_parts(
                         Some(platform_product(event.platform)),
-                        Some("sysmon"),
+                        Some(SYSMON_VIEW),
                         Some(category),
                     ));
                 }
@@ -562,14 +620,14 @@ impl Engine {
                     Platform::Linux => {
                         aliases.push(LogSourceKey::from_parts(
                             Some("linux"),
-                            Some("sysmon"),
+                            Some(SYSMON_VIEW),
                             Some("dns_query"),
                         ));
                     }
                     Platform::MacOS => {
                         aliases.push(LogSourceKey::from_parts(
                             Some("macos"),
-                            Some("sysmon"),
+                            Some(SYSMON_VIEW),
                             Some("dns_query"),
                         ));
                     }
@@ -581,7 +639,7 @@ impl Engine {
             EventCategory::ImageLoad => {
                 aliases.push(LogSourceKey::from_parts(
                     Some(platform_product(event.platform)),
-                    Some("sysmon"),
+                    Some(SYSMON_VIEW),
                     Some("image_load"),
                 ));
             }
@@ -659,6 +717,16 @@ impl Engine {
         aliases
     }
 
+    /// Concrete event routes with their field vocabulary attached.
+    pub(crate) fn concrete_logsource_routes_for_event(
+        event: &NormalizedEvent,
+    ) -> Vec<LogSourceRoute> {
+        Self::concrete_logsource_aliases_for_event(event)
+            .into_iter()
+            .map(LogSourceRoute::sysmon)
+            .collect()
+    }
+
     /// Map a file event to its Sigma logsource categories.
     ///
     /// `file_change` corresponds to Sysmon Event ID 2, *file creation time
@@ -707,6 +775,8 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::platform_product;
+    use crate::engine::Engine;
+    use crate::models::FieldViewName;
     use crate::sensor::Platform;
 
     #[test]
@@ -714,5 +784,21 @@ mod tests {
         assert_eq!(platform_product(Platform::MacOS), "macos");
         assert_eq!(platform_product(Platform::Linux), "linux");
         assert_eq!(platform_product(Platform::Windows), "windows");
+    }
+
+    #[test]
+    fn active_logsources_carry_their_field_view() {
+        for platform in [Platform::Linux, Platform::MacOS, Platform::Windows] {
+            let engine = Engine::new_for_platform(platform);
+            let routes = engine.active_logsource_routes();
+            assert!(!routes.is_empty());
+            assert!(routes
+                .iter()
+                .all(|route| route.view == FieldViewName::SYSMON));
+            assert!(routes
+                .iter()
+                .filter(|route| route.key.service.as_deref() == Some("sysmon"))
+                .all(|route| route.key.service.as_deref() == Some(route.view.as_str())));
+        }
     }
 }

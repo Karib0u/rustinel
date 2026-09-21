@@ -1,7 +1,6 @@
-//! Cost of one `NormalizedEvent::get_field`, the accessor every Sigma field
-//! read goes through.
+//! Cost of one default-view field lookup, the path every Sigma field read uses.
 //!
-//! `get_field` consults the field availability contract before answering, so
+//! The view consults the field availability contract before answering, so
 //! its cost tracks how far into `FIELD_AVAILABILITY` the event's contract sits.
 //! The table is grouped by platform and searched one platform at a time;
 //! without that, adding event families for one platform slows down every other

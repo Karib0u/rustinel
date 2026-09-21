@@ -314,7 +314,12 @@ fn field_availability_result(platform: InstallPlatform) -> DiagnosticResult {
                 crate::field_availability::Availability::Conditional(_) => counts[1] += 1,
                 crate::field_availability::Availability::Never(_) => {
                     counts[2] += 1;
-                    permanent.push(format!("{}.{}", contract.category, field.field));
+                    permanent.push(format!(
+                        "{}.{}.{}",
+                        contract.view.as_str(),
+                        contract.category,
+                        field.field
+                    ));
                 }
             }
         }
@@ -324,7 +329,7 @@ fn field_availability_result(platform: InstallPlatform) -> DiagnosticResult {
     DiagnosticResult::pass(
         "field_availability",
         format!(
-            "Field availability contract loaded ({} always, {} conditional, {} unavailable)",
+            "Field-view availability contract loaded ({} always, {} conditional, {} unavailable)",
             counts[0], counts[1], counts[2]
         ),
     )
