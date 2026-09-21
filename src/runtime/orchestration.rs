@@ -1,4 +1,4 @@
-use crate::cli::{Cli, Commands};
+use crate::cli::{Cli, Commands, SigmaAction};
 use crate::replay::ReplayOptions;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use crate::runtime::capture::CaptureOptions;
@@ -20,6 +20,17 @@ fn run_portable_command(cli: &Cli) -> Option<anyhow::Result<()>> {
                 config_path: cli.config.clone(),
             }))
         }
+        Some(Commands::Sigma {
+            action:
+                SigmaAction::Doctor {
+                    json,
+                    platform,
+                    rules,
+                },
+        }) => Some(
+            crate::doctor::sigma::run_cli(cli.config.clone(), rules.clone(), *platform, *json)
+                .map(|code| std::process::exit(code)),
+        ),
         _ => None,
     }
 }
@@ -63,6 +74,9 @@ pub fn run() -> anyhow::Result<()> {
         Some(Commands::Replay { .. }) => {
             unreachable!("replay is handled before service dispatch")
         }
+        Some(Commands::Sigma { .. }) => {
+            unreachable!("Sigma doctor is handled before service dispatch")
+        }
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
         Some(Commands::Rules { action }) => crate::rules::run_cli(action, cli.config),
         Some(Commands::Setup {
@@ -92,6 +106,9 @@ pub fn run() -> anyhow::Result<()> {
     match cli.command {
         Some(Commands::Update) => unreachable!("update is handled before platform dispatch"),
         Some(Commands::Replay { .. }) => unreachable!("replay is handled before platform dispatch"),
+        Some(Commands::Sigma { .. }) => {
+            unreachable!("Sigma doctor is handled before platform dispatch")
+        }
         Some(Commands::Service { action }) => crate::platform::handle_service_command(action),
         Some(Commands::Doctor { json }) => {
             let code = crate::doctor::run_cli(cli.config, json)?;
