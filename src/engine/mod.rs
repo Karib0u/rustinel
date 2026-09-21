@@ -222,18 +222,18 @@ impl Engine {
         let deferred_rules = self.store.deferred();
         let (best, correlations) = {
             let mut state = self.store.lock();
-            let adapter = event::RsigmaEvent::new(event);
             let mut admission = Vec::new();
             let mut deferred = Vec::new();
             let mut seen = HashSet::new();
 
-            for alias in Self::concrete_logsource_aliases_for_event(event) {
+            for route in Self::concrete_logsource_routes_for_event(event) {
                 let logsource = rsigma_parser::LogSource {
-                    product: alias.product,
-                    service: alias.service,
-                    category: alias.category,
+                    product: route.key.product,
+                    service: route.key.service,
+                    category: route.key.category,
                     ..Default::default()
                 };
+                let adapter = event::RsigmaEvent::with_view(event, route.view);
 
                 for result in state
                     .engine

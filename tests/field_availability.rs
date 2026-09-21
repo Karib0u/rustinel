@@ -6,8 +6,8 @@ use rustinel::field_availability::{
     SCHEMA_VERSION,
 };
 use rustinel::models::{
-    EventCategory, EventFields, ImageLoadFields, NormalizedEvent, ProcessCreationFields,
-    TaskCreationFields,
+    EventCategory, EventFields, FieldViewName, ImageLoadFields, NormalizedEvent,
+    ProcessCreationFields, TaskCreationFields,
 };
 use rustinel::sensor::Platform;
 
@@ -72,6 +72,7 @@ fn compatibility_entries_always_state_since() {
         .expect("compatibility entries are an array");
     assert!(!entries.is_empty());
     for entry in entries {
+        assert_eq!(entry["view"], "sysmon");
         assert!(
             entry
                 .as_object()
@@ -86,7 +87,11 @@ fn known_field_transitions_keep_their_release_provenance() {
     let since = |platform, category: &str, field: &str| {
         FIELD_AVAILABILITY
             .iter()
-            .filter(|contract| contract.platform == platform && contract.category == category)
+            .filter(|contract| {
+                contract.view == FieldViewName::SYSMON
+                    && contract.platform == platform
+                    && contract.category == category
+            })
             .flat_map(|contract| contract.fields)
             .find(|entry| entry.field == field)
             .and_then(|entry| entry.since)
@@ -120,7 +125,8 @@ fn keys_are_unique_and_limited_statuses_have_reasons() {
     for contract in FIELD_AVAILABILITY {
         for field in contract.fields {
             let key = format!(
-                "{:?}|{}|{:?}|{:?}|{}|{}",
+                "{}|{:?}|{}|{:?}|{:?}|{}|{}",
+                contract.view.as_str(),
                 contract.platform,
                 contract.category,
                 contract.event_id,
@@ -143,7 +149,8 @@ fn keys_are_unique_and_limited_statuses_have_reasons() {
 fn required_permanent_gaps_are_recorded() {
     let has_never = |platform, category: &str, field: &str| {
         FIELD_AVAILABILITY.iter().any(|contract| {
-            contract.platform == platform
+            contract.view == FieldViewName::SYSMON
+                && contract.platform == platform
                 && contract.category == category
                 && contract.fields.iter().any(|entry| {
                     entry.field == field && matches!(entry.availability, Availability::Never(_))
@@ -160,7 +167,9 @@ fn required_permanent_gaps_are_recorded() {
         let availability = FIELD_AVAILABILITY
             .iter()
             .find(|contract| {
-                contract.platform == Platform::Windows && contract.category == "process_creation"
+                contract.view == FieldViewName::SYSMON
+                    && contract.platform == Platform::Windows
+                    && contract.category == "process_creation"
             })
             .and_then(|contract| contract.fields.iter().find(|entry| entry.field == field))
             .map(|entry| entry.availability);
@@ -177,10 +186,9 @@ fn required_permanent_gaps_are_recorded() {
 
 #[test]
 fn every_windows_shape_declares_its_real_channel_or_a_permanent_gap() {
-    for contract in FIELD_AVAILABILITY
-        .iter()
-        .filter(|contract| contract.platform == Platform::Windows)
-    {
+    for contract in FIELD_AVAILABILITY.iter().filter(|contract| {
+        contract.view == FieldViewName::SYSMON && contract.platform == Platform::Windows
+    }) {
         let channel = contract
             .fields
             .iter()
@@ -235,7 +243,8 @@ fn manifest_backed_windows_shapes_record_the_verified_channel_names() {
         let contract = FIELD_AVAILABILITY
             .iter()
             .find(|contract| {
-                contract.platform == Platform::Windows
+                contract.view == FieldViewName::SYSMON
+                    && contract.platform == Platform::Windows
                     && contract.category == category
                     && contract.event_id == Some(event_id)
             })

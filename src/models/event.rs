@@ -1,4 +1,4 @@
-use super::EventFields;
+use super::{CanonicalField, CanonicalValue, EventFields, FieldView, FieldViewName};
 use crate::sensor::Platform;
 use serde::{Deserialize, Serialize};
 
@@ -188,7 +188,11 @@ impl Provenance {
     }
 }
 
-/// Normalized event structure compatible with Sigma/Sysmon format
+/// Stable schema-v2 event rendering.
+///
+/// Rust members use Rustinel's canonical vocabulary. Serde preserves the
+/// historical Sysmon-compatible recording and alert shape, while detection
+/// field names are supplied by [`FieldView`].
 ///
 /// Deserialization is hand-written rather than derived so a recorded event comes
 /// back exactly as it was written: [`EventFields`] is dispatched on the recorded
@@ -393,227 +397,262 @@ impl NormalizedEvent {
             })
     }
 
-    /// Zero-allocation field accessor
-    /// Returns reference to string without creating HashMap or cloning
-    /// PERFORMANCE: Replaces flatten() to eliminate heap allocations
-    pub fn get_field(&self, key: &str) -> Option<&str> {
-        // Fast path for common fields
-        match key {
-            "timestamp" | "event_time" => return Some(&self.timestamp),
-            "EventID" => return Some(&self.event_id_string),
-            _ => {}
-        }
-
-        // A model field may be retained for a future collector without being
-        // honest to expose for this event shape today. The availability table
-        // is the boundary between the permissive storage model and Sigma.
-        if matches!(
-            crate::field_availability::availability_for_event(self, key),
-            Some(crate::field_availability::Availability::Never(_))
-        ) {
-            return None;
-        }
-
-        self.get_field_unchecked(key)
+    /// Render the event through a named detection field vocabulary.
+    pub fn field_view(&self, view: FieldViewName) -> FieldView<'_> {
+        FieldView::new(self, view)
     }
 
-    /// Read the typed payload without applying the availability contract.
-    ///
-    /// Contract validation uses this to detect a decoder that omitted an
-    /// `Always` field. Sigma callers must use [`Self::get_field`].
-    pub(crate) fn get_field_unchecked(&self, key: &str) -> Option<&str> {
-        if key == "Channel" {
-            return crate::field_availability::channel_for_event(self);
+    /// Backward-compatible accessor for the default Sysmon field view.
+    pub fn get_field(&self, key: &str) -> Option<&str> {
+        match self.field_view(FieldViewName::DEFAULT).get(key)? {
+            CanonicalValue::String(value) => Some(value),
+            CanonicalValue::Bool(value) => Some(if value { "true" } else { "false" }),
+            CanonicalValue::U64(_) => None,
+        }
+    }
+
+    /// Read one semantic field without applying a view's availability policy.
+    pub(crate) fn canonical_value(
+        &self,
+        key: CanonicalField,
+        view: FieldViewName,
+    ) -> Option<CanonicalValue<'_>> {
+        use CanonicalField as Field;
+        use CanonicalValue as Value;
+
+        match key {
+            Field::Timestamp => return Some(Value::String(&self.timestamp)),
+            Field::EventId => return Some(Value::String(&self.event_id_string)),
+            Field::Channel => {
+                return crate::field_availability::channel_for_event(view, self).map(Value::String);
+            }
+            _ => {}
         }
 
         match &self.fields {
             EventFields::ProcessCreation(f) => match key {
-                "Signed" => f.exec.as_ref().and_then(|exec| exec.signed.as_deref()),
-                "PreExecImage" => f
+                Field::Signed => f
                     .exec
                     .as_ref()
-                    .and_then(|exec| exec.pre_exec_image.as_deref()),
-                "RealUserId" => f
+                    .and_then(|exec| exec.signed.as_deref())
+                    .map(Value::String),
+                Field::PreExecImage => f
                     .exec
                     .as_ref()
-                    .and_then(|exec| exec.real_user_id.as_deref()),
-                "Script" => f.exec.as_ref().and_then(|exec| exec.script.as_deref()),
-                "SignatureStatus" => f
+                    .and_then(|exec| exec.pre_exec_image.as_deref())
+                    .map(Value::String),
+                Field::RealUserId => f
                     .exec
                     .as_ref()
-                    .and_then(|exec| exec.signature_status.as_deref()),
-                "SigningId" => f.exec.as_ref().and_then(|exec| exec.signing_id.as_deref()),
-                "TeamId" => f.exec.as_ref().and_then(|exec| exec.team_id.as_deref()),
-                "CdHash" => f.exec.as_ref().and_then(|exec| exec.cdhash.as_deref()),
-                "CodeSigningFlags" => f
+                    .and_then(|exec| exec.real_user_id.as_deref())
+                    .map(Value::String),
+                Field::Script => f
                     .exec
                     .as_ref()
-                    .and_then(|exec| exec.codesigning_flags.as_deref()),
-                "IsPlatformBinary" => f
+                    .and_then(|exec| exec.script.as_deref())
+                    .map(Value::String),
+                Field::SignatureStatus => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.signature_status.as_deref())
+                    .map(Value::String),
+                Field::SigningId => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.signing_id.as_deref())
+                    .map(Value::String),
+                Field::TeamId => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.team_id.as_deref())
+                    .map(Value::String),
+                Field::CdHash => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.cdhash.as_deref())
+                    .map(Value::String),
+                Field::CodeSigningFlags => f
+                    .exec
+                    .as_ref()
+                    .and_then(|exec| exec.codesigning_flags.as_deref())
+                    .map(Value::String),
+                Field::IsPlatformBinary => f
                     .exec
                     .as_ref()
                     .and_then(|exec| exec.is_platform_binary)
-                    .map(|v| if v { "true" } else { "false" }),
-                "Image" => f.image.as_deref(),
-                "ImageSource" => f.image_source.as_deref(),
-                "ImageTruncated" => f
-                    .image_truncated
-                    .map(|value| if value { "true" } else { "false" }),
-                "OriginalFileName" => f.original_file_name.as_deref(),
-                "Product" => f.product.as_deref(),
-                "Description" => f.description.as_deref(),
-                "Company" => f.company.as_deref(),
-                "FileVersion" => f.file_version.as_deref(),
-                "Hashes" => f.hashes.as_deref(),
-                "Imphash" => f.imphash.as_deref(),
-                "CommandLine" => f.command_line.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "CgroupId" => f.cgroup_id.as_deref(),
-                "CgroupPath" => f.container.cgroup_path.as_deref(),
-                "ContainerId" => f.container.container_id.as_deref(),
-                "ContainerRuntime" => f.container.container_runtime.as_deref(),
-                "RealGroupId" => f.linux_identity.real_group_id.as_deref(),
-                "EffectiveUserId" => f.linux_identity.effective_user_id.as_deref(),
-                "EffectiveGroupId" => f.linux_identity.effective_group_id.as_deref(),
-                "MountNamespace" => f.linux_identity.mount_namespace.as_deref(),
-                "PidNamespace" => f.linux_identity.pid_namespace.as_deref(),
-                "NetworkNamespace" => f.linux_identity.network_namespace.as_deref(),
-                "SessionId" => f.linux_identity.session_id.as_deref(),
-                "ControllingTty" => f.linux_identity.controlling_tty.as_deref(),
-                "ParentProcessId" => f.parent_process_id.as_deref(),
-                "ParentImage" => f.parent_image.as_deref(),
-                "ParentCommandLine" => f.parent_command_line.as_deref(),
-                "ParentUser" => f.parent_user.as_deref(),
-                "User" => f.user.as_deref(),
-                "IntegrityLevel" => f.integrity_level.as_deref(),
-                "CurrentDirectory" => f.current_directory.as_deref(),
-                "TargetImage" => f.target_image.as_deref(),
+                    .map(Value::Bool),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::ImageSource => f.image_source.as_deref().map(Value::String),
+                Field::ImageTruncated => f.image_truncated.map(Value::Bool),
+                Field::OriginalFileName => f.original_file_name.as_deref().map(Value::String),
+                Field::Product => f.product.as_deref().map(Value::String),
+                Field::Description => f.description.as_deref().map(Value::String),
+                Field::Company => f.company.as_deref().map(Value::String),
+                Field::FileVersion => f.file_version.as_deref().map(Value::String),
+                Field::Hashes => f.hashes.as_deref().map(Value::String),
+                Field::Imphash => f.imphash.as_deref().map(Value::String),
+                Field::CommandLine => f.command_line.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::ProcessStartTime => f.process_start_time.map(Value::U64),
+                Field::CgroupId => f.cgroup_id.as_deref().map(Value::String),
+                Field::CgroupPath => f.container.cgroup_path.as_deref().map(Value::String),
+                Field::ContainerId => f.container.container_id.as_deref().map(Value::String),
+                Field::ContainerRuntime => {
+                    f.container.container_runtime.as_deref().map(Value::String)
+                }
+                Field::RealGroupId => f.linux_identity.real_group_id.as_deref().map(Value::String),
+                Field::EffectiveUserId => f
+                    .linux_identity
+                    .effective_user_id
+                    .as_deref()
+                    .map(Value::String),
+                Field::EffectiveGroupId => f
+                    .linux_identity
+                    .effective_group_id
+                    .as_deref()
+                    .map(Value::String),
+                Field::MountNamespace => f
+                    .linux_identity
+                    .mount_namespace
+                    .as_deref()
+                    .map(Value::String),
+                Field::PidNamespace => f.linux_identity.pid_namespace.as_deref().map(Value::String),
+                Field::NetworkNamespace => f
+                    .linux_identity
+                    .network_namespace
+                    .as_deref()
+                    .map(Value::String),
+                Field::SessionId => f.linux_identity.session_id.as_deref().map(Value::String),
+                Field::KernelStartBoottime => {
+                    f.linux_identity.kernel_start_boottime.map(Value::U64)
+                }
+                Field::ControllingTty => f
+                    .linux_identity
+                    .controlling_tty
+                    .as_deref()
+                    .map(Value::String),
+                Field::ParentProcessId => f.parent_process_id.as_deref().map(Value::String),
+                Field::ParentImage => f.parent_image.as_deref().map(Value::String),
+                Field::ParentCommandLine => f.parent_command_line.as_deref().map(Value::String),
+                Field::ParentUser => f.parent_user.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
+                Field::IntegrityLevel => f.integrity_level.as_deref().map(Value::String),
+                Field::CurrentDirectory => f.current_directory.as_deref().map(Value::String),
+                Field::TargetImage => f.target_image.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::FileEvent(f) => match key {
-                "SourceFilename" => f.source_filename.as_deref(),
-                "TargetFilename" => f.target_filename.as_deref(),
-                "Image" => f.image.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "User" => f.user.as_deref(),
-                "CreationUtcTime" => f.creation_utc_time.as_deref(),
-                "PreviousCreationUtcTime" => f.previous_creation_utc_time.as_deref(),
-                "PathTruncated" => f.path_truncated.as_deref(),
+                Field::SourceFilename => f.source_filename.as_deref().map(Value::String),
+                Field::TargetFilename => f.target_filename.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
+                Field::CreationTime => f.creation_utc_time.as_deref().map(Value::String),
+                Field::PreviousCreationTime => {
+                    f.previous_creation_utc_time.as_deref().map(Value::String)
+                }
+                Field::PathTruncated => f.path_truncated.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::NetworkConnection(f) => match key {
-                "DestinationIp" => f.destination_ip.as_deref(),
-                "SourceIp" => f.source_ip.as_deref(),
-                "DestinationPort" => f.destination_port.as_deref(),
-                "SourcePort" => f.source_port.as_deref(),
-                "Image" => f.image.as_deref(),
-                "User" => f.user.as_deref(),
-                "DestinationHostname" => f.destination_hostname.as_deref(),
-                "Protocol" => f.protocol.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                // Rules spell `Initiated` as the string `true`/`false`, which
-                // is what Sysmon's own XML renders. The model keeps a boolean,
-                // so the two spellings are borrowed `&'static str` rather than
-                // formatted, which is what this accessor's no-allocation
-                // contract requires.
-                "Initiated" => f.initiated.map(|v| if v { "true" } else { "false" }),
+                Field::DestinationIp => f.destination_ip.as_deref().map(Value::String),
+                Field::SourceIp => f.source_ip.as_deref().map(Value::String),
+                Field::DestinationPort => f.destination_port.as_deref().map(Value::String),
+                Field::SourcePort => f.source_port.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
+                Field::DestinationHostname => f.destination_hostname.as_deref().map(Value::String),
+                Field::Protocol => f.protocol.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::Initiated => f.initiated.map(Value::Bool),
                 _ => None,
             },
             EventFields::RegistryEvent(f) => match key {
-                "TargetObject" => f.target_object.as_deref(),
-                "Details" => f.details.as_deref(),
-                "Image" => f.image.as_deref(),
-                "EventType" => f.event_type.as_deref(),
-                "NewName" => f.new_name.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "User" => f.user.as_deref(),
+                Field::TargetObject => f.target_object.as_deref().map(Value::String),
+                Field::Details => f.details.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::EventType => f.event_type.as_deref().map(Value::String),
+                Field::NewName => f.new_name.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::DnsQuery(f) => match key {
-                "User" => f.user.as_deref(),
-                "query" => f.query_name.as_deref(),
-                "answer" => f.query_results.as_deref(),
-                "record_type" => f.record_type.as_deref(),
-                "QueryName" => f.query_name.as_deref(),
-                "QueryResults" => f.query_results.as_deref(),
-                "RecordType" => f.record_type.as_deref(),
-                "QueryStatus" => f.query_status.as_deref(),
-                "Image" => f.image.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
+                Field::User => f.user.as_deref().map(Value::String),
+                Field::DnsQueryName => f.query_name.as_deref().map(Value::String),
+                Field::DnsQueryResults => f.query_results.as_deref().map(Value::String),
+                Field::DnsRecordType => f.record_type.as_deref().map(Value::String),
+                Field::DnsQueryStatus => f.query_status.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::ImageLoad(f) => match key {
-                "ImageLoaded" => f.image_loaded.as_deref(),
-                "Image" => f.image.as_deref(),
-                "OriginalFileName" => f.original_file_name.as_deref(),
-                "Product" => f.product.as_deref(),
-                "Description" => f.description.as_deref(),
-                "Company" => f.company.as_deref(),
-                "FileVersion" => f.file_version.as_deref(),
-                "Hashes" => f.hashes.as_deref(),
-                "Imphash" => f.imphash.as_deref(),
-                "Signed" => f.signed.as_deref(),
-                "Signature" => f.signature.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "User" => f.user.as_deref(),
+                Field::ImageLoaded => f.image_loaded.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::OriginalFileName => f.original_file_name.as_deref().map(Value::String),
+                Field::Product => f.product.as_deref().map(Value::String),
+                Field::Description => f.description.as_deref().map(Value::String),
+                Field::Company => f.company.as_deref().map(Value::String),
+                Field::FileVersion => f.file_version.as_deref().map(Value::String),
+                Field::Hashes => f.hashes.as_deref().map(Value::String),
+                Field::Imphash => f.imphash.as_deref().map(Value::String),
+                Field::Signed => f.signed.as_deref().map(Value::String),
+                Field::Signature => f.signature.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::PowerShellScript(f) => match key {
-                "ScriptBlockText" => f.script_block_text.as_deref(),
-                "ScriptBlockId" => f.script_block_id.as_deref(),
-                "Path" => f.path.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "Image" => f.image.as_deref(),
-                "User" => f.user.as_deref(),
+                Field::ScriptBlockText => f.script_block_text.as_deref().map(Value::String),
+                Field::ScriptBlockId => f.script_block_id.as_deref().map(Value::String),
+                Field::Path => f.path.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::PowerShellModule(f) => match key {
-                "ContextInfo" => f.context_info.as_deref(),
-                "Payload" => f.payload.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "Image" => f.image.as_deref(),
-                "User" => f.user.as_deref(),
+                Field::ContextInfo => f.context_info.as_deref().map(Value::String),
+                Field::Payload => f.payload.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::WmiEvent(f) => match key {
-                "Operation" => f.operation.as_deref(),
-                "User" => f.user.as_deref(),
-                "Query" => f.query.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "Image" => f.image.as_deref(),
-                "EventNamespace" => f.event_namespace.as_deref(),
-                "EventType" => f.event_type.as_deref(),
-                "DestinationHostname" => f.destination_hostname.as_deref(),
+                Field::Operation => f.operation.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
+                Field::Query => f.query.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
+                Field::EventNamespace => f.event_namespace.as_deref().map(Value::String),
+                Field::EventType => f.event_type.as_deref().map(Value::String),
+                Field::DestinationHostname => f.destination_hostname.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::ServiceCreation(f) => match key {
-                "Provider_Name" => f.provider_name.as_deref(),
-                "ServiceName" => f.service_name.as_deref(),
-                // `ImagePath` is what the 7045 record calls the executable and
-                // what every SigmaHQ service rule selects on; `ServiceFileName`
-                // is the Sysmon-style name the model stores it under. The alias
-                // lives here rather than in the field struct so the value is
-                // carried, serialized, and keyword-searched exactly once.
-                "ServiceFileName" | "ImagePath" => f.service_file_name.as_deref(),
-                "ServiceType" => f.service_type.as_deref(),
-                "StartType" => f.start_type.as_deref(),
-                "AccountName" => f.account_name.as_deref(),
-                "User" => f.user.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "Image" => f.image.as_deref(),
+                Field::ProviderName => f.provider_name.as_deref().map(Value::String),
+                Field::ServiceName => f.service_name.as_deref().map(Value::String),
+                Field::ServiceFileName => f.service_file_name.as_deref().map(Value::String),
+                Field::ServiceType => f.service_type.as_deref().map(Value::String),
+                Field::StartType => f.start_type.as_deref().map(Value::String),
+                Field::AccountName => f.account_name.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
                 _ => None,
             },
             EventFields::TaskCreation(f) => match key {
-                "TaskName" => f.task_name.as_deref(),
-                "TaskContent" => f.task_content.as_deref(),
-                "UserName" => f.user_name.as_deref(),
-                "User" => f.user.as_deref(),
-                "ProcessId" => f.process_id.as_deref(),
-                "Image" => f.image.as_deref(),
+                Field::TaskName => f.task_name.as_deref().map(Value::String),
+                Field::TaskContent => f.task_content.as_deref().map(Value::String),
+                Field::UserName => f.user_name.as_deref().map(Value::String),
+                Field::User => f.user.as_deref().map(Value::String),
+                Field::ProcessId => f.process_id.as_deref().map(Value::String),
+                Field::ProcessImage => f.image.as_deref().map(Value::String),
                 _ => None,
             },
-            EventFields::SecurityAudit(f) => f.get(key),
-            EventFields::Generic(map) => map.get(key).map(|s| s.as_str()),
+            EventFields::SecurityAudit(_) | EventFields::Generic(_) => None,
         }
     }
 }

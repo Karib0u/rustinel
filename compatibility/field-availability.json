@@ -1,7 +1,8 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "entries": [
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -14,6 +15,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -25,6 +27,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -37,6 +40,7 @@
       "reason": "the provider may omit the image path"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -49,6 +53,7 @@
       "reason": "queried from the live process and lost if it exits first"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -61,6 +66,7 @@
       "reason": "the event template may omit the native creation time"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -73,6 +79,7 @@
       "reason": "the event template may omit parent identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -85,6 +92,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -97,6 +105,7 @@
       "reason": "derived from the process cache when the parent is still known"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -109,6 +118,7 @@
       "reason": "derived from the process cache when the stable parent identity is known"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -121,6 +131,7 @@
       "reason": "available only on process-start templates with a MandatoryLabel SID"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -133,6 +144,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -145,6 +157,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -157,6 +170,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -169,6 +183,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -181,6 +196,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -193,6 +209,7 @@
       "reason": "Windows process events do not have a Linux kernel cgroup identifier"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -205,6 +222,7 @@
       "reason": "the classic process record is correlated; the measured SID is retained or resolves to an account name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -217,6 +235,7 @@
       "reason": "Microsoft-Windows-Kernel-Process does not expose the working directory"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -229,6 +248,7 @@
       "reason": "a process-creation event has no target process"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -241,6 +261,7 @@
       "reason": "computed from the image file after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "process_creation",
       "event_id": 1,
@@ -253,6 +274,7 @@
       "reason": "computed from the image file's import table after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -265,6 +287,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -277,6 +300,7 @@
       "reason": "the provider event template must carry the remote address"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -289,6 +313,7 @@
       "reason": "the provider event template must carry the local address"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -301,6 +326,7 @@
       "reason": "the provider event template must carry the remote port"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -313,6 +339,7 @@
       "reason": "the provider event template must carry the local port"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -324,6 +351,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -335,6 +363,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -346,6 +375,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -358,6 +388,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -370,6 +401,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -382,6 +414,7 @@
       "reason": "derived from a preceding observed DNS answer"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -394,6 +427,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -406,6 +440,7 @@
       "reason": "the provider event template must carry the remote address"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -418,6 +453,7 @@
       "reason": "the provider event template must carry the local address"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -430,6 +466,7 @@
       "reason": "the provider event template must carry the remote port"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -442,6 +479,7 @@
       "reason": "the provider event template must carry the local port"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -453,6 +491,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -464,6 +503,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -475,6 +515,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -487,6 +528,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -499,6 +541,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "network_connection",
       "event_id": 3,
@@ -511,6 +554,7 @@
       "reason": "derived from a preceding observed DNS answer"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -522,6 +566,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -532,6 +577,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -543,6 +589,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -554,6 +601,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -565,6 +613,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -576,6 +625,7 @@
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -587,6 +637,7 @@
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -598,6 +649,7 @@
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "create",
@@ -609,6 +661,7 @@
       "reason": "ETW delivers a complete path or no attributable event"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -620,6 +673,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -630,6 +684,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -641,6 +696,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -652,6 +708,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -663,6 +720,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -674,6 +732,7 @@
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -685,6 +744,7 @@
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -696,6 +756,7 @@
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "set",
@@ -707,6 +768,7 @@
       "reason": "ETW delivers a complete path or no attributable event"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -718,6 +780,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -728,6 +791,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -739,6 +803,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -750,6 +815,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -761,6 +827,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -772,6 +839,7 @@
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -783,6 +851,7 @@
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -794,6 +863,7 @@
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "modify",
@@ -805,6 +875,7 @@
       "reason": "ETW delivers a complete path or no attributable event"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -816,6 +887,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -826,6 +898,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -837,6 +910,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -848,6 +922,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -859,6 +934,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -870,6 +946,7 @@
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -881,6 +958,7 @@
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -892,6 +970,7 @@
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "delete",
@@ -903,6 +982,7 @@
       "reason": "ETW delivers a complete path or no attributable event"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -914,6 +994,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -924,6 +1005,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -935,6 +1017,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -946,6 +1029,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -957,6 +1041,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -968,6 +1053,7 @@
       "reason": "Kernel-File does not provide the old name on emitted rename events"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -979,6 +1065,7 @@
       "reason": "Kernel-File reports the information class, not the new timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -990,6 +1077,7 @@
       "reason": "Kernel-File reports the information class, not the old timestamp"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "file_event",
       "action": "rename",
@@ -1001,6 +1089,7 @@
       "reason": "ETW delivers a complete path or no attributable event"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1012,6 +1101,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1022,6 +1112,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1033,6 +1124,7 @@
       "reason": "captured registry value data is available and renderable"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1044,6 +1136,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1055,6 +1148,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1066,6 +1160,7 @@
       "reason": "the provider event template carries the event type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1077,6 +1172,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "create",
@@ -1088,6 +1184,7 @@
       "reason": "the operation is a rename and the provider carries the new name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1099,6 +1196,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1109,6 +1207,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1120,6 +1219,7 @@
       "reason": "captured registry value data is available and renderable"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1131,6 +1231,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1142,6 +1243,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1153,6 +1255,7 @@
       "reason": "the provider event template carries the event type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1164,6 +1267,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "set",
@@ -1175,6 +1279,7 @@
       "reason": "the operation is a rename and the provider carries the new name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1186,6 +1291,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1196,6 +1302,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1207,6 +1314,7 @@
       "reason": "captured registry value data is available and renderable"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1218,6 +1326,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1229,6 +1338,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1240,6 +1350,7 @@
       "reason": "the provider event template carries the event type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1251,6 +1362,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "registry_event",
       "action": "delete",
@@ -1262,6 +1374,7 @@
       "reason": "the operation is a rename and the provider carries the new name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3006,
@@ -1274,6 +1387,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3006,
@@ -1286,6 +1400,7 @@
       "reason": "the DNS Client event template carries a query name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3006,
@@ -1298,6 +1413,7 @@
       "reason": "the event is a response carrying decoded answers"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3006,
@@ -1310,6 +1426,7 @@
       "reason": "the DNS Client event template carries a status"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3006,
@@ -1322,6 +1439,7 @@
       "reason": "the DNS Client event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3006,
@@ -1334,6 +1452,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3006,
@@ -1346,6 +1465,7 @@
       "reason": "the subscribed DNS Client events do not expose the query record type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3008,
@@ -1358,6 +1478,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3008,
@@ -1370,6 +1491,7 @@
       "reason": "the DNS Client event template carries a query name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3008,
@@ -1382,6 +1504,7 @@
       "reason": "the event is a response carrying decoded answers"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3008,
@@ -1394,6 +1517,7 @@
       "reason": "the DNS Client event template carries a status"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3008,
@@ -1406,6 +1530,7 @@
       "reason": "the DNS Client event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3008,
@@ -1418,6 +1543,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "dns_query",
       "event_id": 3008,
@@ -1430,6 +1556,7 @@
       "reason": "the subscribed DNS Client events do not expose the query record type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1442,6 +1569,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1454,6 +1582,7 @@
       "reason": "the provider may omit the loaded image path"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1466,6 +1595,7 @@
       "reason": "the provider may omit process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1478,6 +1608,7 @@
       "reason": "the provider may omit the loading process image"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1490,6 +1621,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1502,6 +1634,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1514,6 +1647,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1526,6 +1660,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1538,6 +1673,7 @@
       "reason": "PE version-resource enrichment succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1550,6 +1686,7 @@
       "reason": "Kernel-Process image-load events contain no Authenticode result"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1562,6 +1699,7 @@
       "reason": "Kernel-Process image-load events contain no signer identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1574,6 +1712,7 @@
       "reason": "Kernel-Process image-load events contain no user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1586,6 +1725,7 @@
       "reason": "computed from the loaded file after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "image_load",
       "event_id": 7,
@@ -1598,6 +1738,7 @@
       "reason": "computed from the loaded file's import table after admission when a loaded rule selects on it, and seen only by those rules"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_script",
       "event_id": 4104,
@@ -1610,6 +1751,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_script",
       "event_id": 4104,
@@ -1622,6 +1764,7 @@
       "reason": "event 4104 contains a script block"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_script",
       "event_id": 4104,
@@ -1634,6 +1777,7 @@
       "reason": "event 4104 contains a script-block identifier"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_script",
       "event_id": 4104,
@@ -1646,6 +1790,7 @@
       "reason": "the script block is associated with a file"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_script",
       "event_id": 4104,
@@ -1658,6 +1803,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_script",
       "event_id": 4104,
@@ -1670,6 +1816,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_script",
       "event_id": 4104,
@@ -1682,6 +1829,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_module",
       "event_id": 4103,
@@ -1694,6 +1842,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_module",
       "event_id": 4103,
@@ -1706,6 +1855,7 @@
       "reason": "Module Logging is enabled and event 4103 carries context"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_module",
       "event_id": 4103,
@@ -1718,6 +1868,7 @@
       "reason": "Module Logging is enabled and event 4103 carries a payload"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_module",
       "event_id": 4103,
@@ -1730,6 +1881,7 @@
       "reason": "the provider event template carries process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_module",
       "event_id": 4103,
@@ -1742,6 +1894,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "ps_module",
       "event_id": 4103,
@@ -1754,6 +1907,7 @@
       "reason": "the provider event template carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1765,6 +1919,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1776,6 +1931,7 @@
       "reason": "the native WMI event family carries an operation"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1787,6 +1943,7 @@
       "reason": "the native WMI event family carries user identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1798,6 +1955,7 @@
       "reason": "the native WMI event family carries a query or command line"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1809,6 +1967,7 @@
       "reason": "the native WMI event family carries client process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1820,6 +1979,7 @@
       "reason": "present in the event or derived from the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1831,6 +1991,7 @@
       "reason": "the native WMI event family carries a namespace"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1842,6 +2003,7 @@
       "reason": "the native WMI event family carries an event type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "wmi_event",
       "action": "execute",
@@ -1853,6 +2015,7 @@
       "reason": "the native WMI event family carries a client machine"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "task_creation",
       "event_id": 106,
@@ -1865,6 +2028,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "task_creation",
       "event_id": 106,
@@ -1877,6 +2041,7 @@
       "reason": "TaskScheduler event 106 carries a task name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "task_creation",
       "event_id": 106,
@@ -1889,6 +2054,7 @@
       "reason": "TaskScheduler event 106 carries user context"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "task_creation",
       "event_id": 106,
@@ -1901,6 +2067,7 @@
       "reason": "TaskScheduler event 106 does not carry the task XML definition"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "task_creation",
       "event_id": 106,
@@ -1913,6 +2080,7 @@
       "reason": "TaskScheduler event 106 has UserContext, not a Sysmon User field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "task_creation",
       "event_id": 106,
@@ -1925,6 +2093,7 @@
       "reason": "TaskScheduler event 106 does not carry process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "task_creation",
       "event_id": 106,
@@ -1937,6 +2106,7 @@
       "reason": "TaskScheduler event 106 does not carry a process image"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -1949,6 +2119,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -1960,6 +2131,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -1971,6 +2143,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -1982,6 +2155,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -1993,6 +2167,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -2005,6 +2180,7 @@
       "reason": "System event 7045 carries a service type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -2017,6 +2193,7 @@
       "reason": "System event 7045 carries a start type"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -2029,6 +2206,7 @@
       "reason": "System event 7045 carries an account name"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -2041,6 +2219,7 @@
       "reason": "the Event Log system header carries a security user ID"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -2053,6 +2232,7 @@
       "reason": "System event 7045 does not carry process identity"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "service_creation",
       "event_id": 7045,
@@ -2065,6 +2245,7 @@
       "reason": "System event 7045 does not carry a creating process image"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2077,6 +2258,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2089,6 +2271,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2101,6 +2284,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2113,6 +2297,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2125,6 +2310,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2137,6 +2323,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2149,6 +2336,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2161,6 +2349,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2173,6 +2362,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2185,6 +2375,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2197,6 +2388,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2209,6 +2401,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2221,6 +2414,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2233,6 +2427,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2245,6 +2440,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2257,6 +2453,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2269,6 +2466,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2281,6 +2479,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2293,6 +2492,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2305,6 +2505,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2317,6 +2518,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2329,6 +2531,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2341,6 +2544,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2353,6 +2557,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2365,6 +2570,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2377,6 +2583,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4624,
@@ -2389,6 +2596,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2401,6 +2609,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2413,6 +2622,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2425,6 +2635,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2437,6 +2648,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2449,6 +2661,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2461,6 +2674,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2473,6 +2687,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2485,6 +2700,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2497,6 +2713,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2509,6 +2726,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2521,6 +2739,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2533,6 +2752,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2545,6 +2765,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2557,6 +2778,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4656,
@@ -2569,6 +2791,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2581,6 +2804,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2593,6 +2817,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2605,6 +2830,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2617,6 +2843,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2629,6 +2856,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2641,6 +2869,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2653,6 +2882,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2665,6 +2895,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2677,6 +2908,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2689,6 +2921,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2701,6 +2934,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2713,6 +2947,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4663,
@@ -2725,6 +2960,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2737,6 +2973,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2749,6 +2986,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2761,6 +2999,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2773,6 +3012,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2785,6 +3025,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2797,6 +3038,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2809,6 +3051,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2821,6 +3064,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2833,6 +3077,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4697,
@@ -2845,6 +3090,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2857,6 +3103,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2869,6 +3116,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2881,6 +3129,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2893,6 +3142,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2905,6 +3155,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2917,6 +3168,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2929,6 +3181,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2941,6 +3194,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2953,6 +3207,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2965,6 +3220,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2977,6 +3233,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -2989,6 +3246,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -3001,6 +3259,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5136,
@@ -3013,6 +3272,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3025,6 +3285,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3037,6 +3298,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3049,6 +3311,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3061,6 +3324,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3073,6 +3337,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3085,6 +3350,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3097,6 +3363,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3109,6 +3376,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3121,6 +3389,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3133,6 +3402,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3145,6 +3415,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3157,6 +3428,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3169,6 +3441,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5145,
@@ -3181,6 +3454,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3193,6 +3467,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3204,6 +3479,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3216,6 +3492,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3228,6 +3505,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3240,6 +3518,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3252,6 +3531,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3264,6 +3544,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 1102,
@@ -3276,6 +3557,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3288,6 +3570,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3300,6 +3583,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3312,6 +3596,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3324,6 +3609,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3336,6 +3622,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3348,6 +3635,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3360,6 +3648,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3372,6 +3661,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3384,6 +3674,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3396,6 +3687,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3408,6 +3700,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3420,6 +3713,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3432,6 +3726,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3444,6 +3739,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3456,6 +3752,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3468,6 +3765,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3480,6 +3778,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3492,6 +3791,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3504,6 +3804,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3516,6 +3817,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3528,6 +3830,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4625,
@@ -3540,6 +3843,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3552,6 +3856,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3564,6 +3869,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3576,6 +3882,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3588,6 +3895,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3600,6 +3908,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3612,6 +3921,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3624,6 +3934,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3636,6 +3947,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3648,6 +3960,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3660,6 +3973,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3672,6 +3986,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3684,6 +3999,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3696,6 +4012,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3708,6 +4025,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4648,
@@ -3720,6 +4038,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3732,6 +4051,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3744,6 +4064,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3756,6 +4077,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3768,6 +4090,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3780,6 +4103,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3792,6 +4116,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3804,6 +4129,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3816,6 +4142,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3828,6 +4155,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3840,6 +4168,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3852,6 +4181,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3864,6 +4194,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3876,6 +4207,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3888,6 +4220,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4657,
@@ -3900,6 +4233,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3912,6 +4246,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3924,6 +4259,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3936,6 +4272,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3948,6 +4285,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3960,6 +4298,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3972,6 +4311,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3984,6 +4324,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -3996,6 +4337,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -4008,6 +4350,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -4020,6 +4363,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -4032,6 +4376,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4698,
@@ -4044,6 +4389,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4056,6 +4402,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4068,6 +4415,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4080,6 +4428,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4092,6 +4441,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4104,6 +4454,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4116,6 +4467,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4128,6 +4480,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4140,6 +4493,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4152,6 +4506,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4164,6 +4519,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4176,6 +4532,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4699,
@@ -4188,6 +4545,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4200,6 +4558,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4212,6 +4571,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4224,6 +4584,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4236,6 +4597,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4248,6 +4610,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4260,6 +4623,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4272,6 +4636,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4284,6 +4649,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4296,6 +4662,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4308,6 +4675,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4320,6 +4688,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4700,
@@ -4332,6 +4701,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4344,6 +4714,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4356,6 +4727,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4368,6 +4740,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4380,6 +4753,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4392,6 +4766,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4404,6 +4779,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4416,6 +4792,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4428,6 +4805,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4440,6 +4818,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4452,6 +4831,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4464,6 +4844,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4701,
@@ -4476,6 +4857,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4488,6 +4870,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4500,6 +4883,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4512,6 +4896,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4524,6 +4909,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4536,6 +4922,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4548,6 +4935,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4560,6 +4948,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4572,6 +4961,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4584,6 +4974,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4596,6 +4987,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4608,6 +5000,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4702,
@@ -4620,6 +5013,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4632,6 +5026,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4644,6 +5039,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4656,6 +5052,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4668,6 +5065,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4680,6 +5078,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4692,6 +5091,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4704,6 +5104,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4716,6 +5117,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4728,6 +5130,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4740,6 +5143,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4719,
@@ -4752,6 +5156,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4764,6 +5169,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4776,6 +5182,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4788,6 +5195,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4800,6 +5208,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4812,6 +5221,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4824,6 +5234,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4836,6 +5247,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4848,6 +5260,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4860,6 +5273,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4872,6 +5286,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4884,6 +5299,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4896,6 +5312,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4908,6 +5325,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4920,6 +5338,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4932,6 +5351,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4944,6 +5364,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4956,6 +5377,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4968,6 +5390,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4980,6 +5403,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -4992,6 +5416,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -5004,6 +5429,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -5016,6 +5442,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -5028,6 +5455,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -5040,6 +5468,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -5052,6 +5481,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -5064,6 +5494,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4720,
@@ -5076,6 +5507,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5088,6 +5520,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5100,6 +5533,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5112,6 +5546,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5124,6 +5559,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5136,6 +5572,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5148,6 +5585,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5160,6 +5598,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4722,
@@ -5172,6 +5611,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5184,6 +5624,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5196,6 +5637,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5208,6 +5650,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5220,6 +5663,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5232,6 +5676,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5244,6 +5689,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5256,6 +5702,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4724,
@@ -5268,6 +5715,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5280,6 +5728,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5292,6 +5741,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5304,6 +5754,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5316,6 +5767,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5328,6 +5780,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5340,6 +5793,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5352,6 +5806,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5364,6 +5819,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4726,
@@ -5376,6 +5832,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5388,6 +5845,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5400,6 +5858,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5412,6 +5871,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5424,6 +5884,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5436,6 +5897,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5448,6 +5910,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5460,6 +5923,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5472,6 +5936,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5484,6 +5949,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5496,6 +5962,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5508,6 +5975,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4728,
@@ -5520,6 +5988,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5532,6 +6001,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5544,6 +6014,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5556,6 +6027,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5568,6 +6040,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5580,6 +6053,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5592,6 +6066,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5604,6 +6079,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5616,6 +6092,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5628,6 +6105,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5640,6 +6118,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5652,6 +6131,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4732,
@@ -5664,6 +6144,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5676,6 +6157,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5688,6 +6170,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5700,6 +6183,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5712,6 +6196,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5724,6 +6209,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5736,6 +6222,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5748,6 +6235,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5760,6 +6248,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5772,6 +6261,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5784,6 +6274,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5796,6 +6287,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5808,6 +6300,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5820,6 +6313,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5832,6 +6326,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5844,6 +6339,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5856,6 +6352,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5868,6 +6365,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5880,6 +6378,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5892,6 +6391,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5904,6 +6404,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5916,6 +6417,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5928,6 +6430,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5940,6 +6443,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5952,6 +6456,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5964,6 +6469,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5976,6 +6482,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4738,
@@ -5988,6 +6495,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6000,6 +6508,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6012,6 +6521,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6024,6 +6534,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6036,6 +6547,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6048,6 +6560,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6060,6 +6573,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6072,6 +6586,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6084,6 +6599,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6096,6 +6612,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6108,6 +6625,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6120,6 +6638,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6132,6 +6651,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6144,6 +6664,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6156,6 +6677,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6168,6 +6690,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6180,6 +6703,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6192,6 +6716,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6204,6 +6729,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6216,6 +6742,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6228,6 +6755,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6240,6 +6768,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6252,6 +6781,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6264,6 +6794,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6276,6 +6807,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6288,6 +6820,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6300,6 +6833,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6312,6 +6846,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6324,6 +6859,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4741,
@@ -6336,6 +6872,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6348,6 +6885,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6360,6 +6898,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6372,6 +6911,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6384,6 +6924,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6396,6 +6937,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6408,6 +6950,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6420,6 +6963,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6432,6 +6976,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4743,
@@ -6444,6 +6989,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6456,6 +7002,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6468,6 +7015,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6480,6 +7028,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6492,6 +7041,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6504,6 +7054,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6516,6 +7067,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6528,6 +7080,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6540,6 +7093,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6552,6 +7106,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6564,6 +7119,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6576,6 +7132,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4756,
@@ -6588,6 +7145,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6600,6 +7158,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6612,6 +7171,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6624,6 +7184,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6636,6 +7197,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6648,6 +7210,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6660,6 +7223,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6672,6 +7236,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6684,6 +7249,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6696,6 +7262,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6708,6 +7275,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6720,6 +7288,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4765,
@@ -6732,6 +7301,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6744,6 +7314,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6756,6 +7327,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6768,6 +7340,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6780,6 +7353,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6792,6 +7366,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6804,6 +7379,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6816,6 +7392,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6828,6 +7405,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6840,6 +7418,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4766,
@@ -6852,6 +7431,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6864,6 +7444,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6876,6 +7457,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6888,6 +7470,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6900,6 +7483,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6912,6 +7496,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6924,6 +7509,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6936,6 +7522,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6948,6 +7535,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6960,6 +7548,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6972,6 +7561,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6984,6 +7574,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4771,
@@ -6996,6 +7587,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4776,
@@ -7008,6 +7600,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4776,
@@ -7020,6 +7613,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4776,
@@ -7032,6 +7626,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4776,
@@ -7044,6 +7639,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4776,
@@ -7056,6 +7652,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7068,6 +7665,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7080,6 +7678,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7092,6 +7691,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7104,6 +7704,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7116,6 +7717,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7128,6 +7730,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7140,6 +7743,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7152,6 +7756,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7164,6 +7769,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4781,
@@ -7176,6 +7782,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4794,
@@ -7188,6 +7795,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4794,
@@ -7200,6 +7808,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4794,
@@ -7212,6 +7821,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4794,
@@ -7224,6 +7834,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4794,
@@ -7236,6 +7847,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4794,
@@ -7248,6 +7860,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4794,
@@ -7260,6 +7873,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7272,6 +7886,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7284,6 +7899,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7296,6 +7912,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7308,6 +7925,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7320,6 +7938,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7332,6 +7951,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7344,6 +7964,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7356,6 +7977,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7368,6 +7990,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 4817,
@@ -7380,6 +8003,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7392,6 +8016,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7404,6 +8029,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7416,6 +8042,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7428,6 +8055,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7440,6 +8068,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7452,6 +8081,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7464,6 +8094,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7476,6 +8107,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7488,6 +8120,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7500,6 +8133,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7512,6 +8146,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7524,6 +8159,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7536,6 +8172,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7548,6 +8185,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7560,6 +8198,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5152,
@@ -7572,6 +8211,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7584,6 +8224,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7596,6 +8237,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7608,6 +8250,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7620,6 +8263,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7632,6 +8276,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7644,6 +8289,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7656,6 +8302,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7668,6 +8315,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7680,6 +8328,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7692,6 +8341,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7704,6 +8354,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7716,6 +8367,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7728,6 +8380,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7740,6 +8393,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7752,6 +8406,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7764,6 +8419,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7776,6 +8432,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7788,6 +8445,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7800,6 +8458,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7812,6 +8471,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7824,6 +8484,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7836,6 +8497,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7848,6 +8510,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5156,
@@ -7860,6 +8523,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7872,6 +8536,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7884,6 +8549,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7896,6 +8562,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7908,6 +8575,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7920,6 +8588,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7932,6 +8601,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7944,6 +8614,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7956,6 +8627,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7968,6 +8640,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7980,6 +8653,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -7992,6 +8666,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8004,6 +8679,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8016,6 +8692,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8028,6 +8705,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8040,6 +8718,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8052,6 +8731,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8064,6 +8744,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8076,6 +8757,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8088,6 +8770,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8100,6 +8783,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8112,6 +8796,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8124,6 +8809,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8136,6 +8822,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5157,
@@ -8148,6 +8835,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8160,6 +8848,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8172,6 +8861,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8184,6 +8874,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8196,6 +8887,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8208,6 +8900,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8220,6 +8913,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8232,6 +8926,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8244,6 +8939,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8256,6 +8952,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8268,6 +8965,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8280,6 +8978,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8292,6 +8991,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8304,6 +9004,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8316,6 +9017,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8328,6 +9030,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8340,6 +9043,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8352,6 +9056,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8364,6 +9069,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 5447,
@@ -8376,6 +9082,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8388,6 +9095,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8400,6 +9108,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8412,6 +9121,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8424,6 +9134,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8436,6 +9147,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8448,6 +9160,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8460,6 +9173,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8472,6 +9186,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8484,6 +9199,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8496,6 +9212,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8508,6 +9225,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "security",
       "event_id": 6416,
@@ -8520,6 +9238,7 @@
       "reason": "the audited event template and host audit policy supply this field"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "pipe_created",
       "event_id": 17,
@@ -8531,6 +9250,7 @@
       "reason": "named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW"
     },
     {
+      "view": "sysmon",
       "platform": "windows",
       "category": "create_remote_thread",
       "event_id": 8,
@@ -8542,6 +9262,7 @@
       "reason": "no Rustinel sensor produces remote-thread creation telemetry"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8553,6 +9274,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8564,6 +9286,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8575,6 +9298,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8586,6 +9310,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8597,6 +9322,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8609,6 +9335,7 @@
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8621,6 +9348,7 @@
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8633,6 +9361,7 @@
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8645,6 +9374,7 @@
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8657,6 +9387,7 @@
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8669,6 +9400,7 @@
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8681,6 +9413,7 @@
       "reason": "runtime BTF resolves this field and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8693,6 +9426,7 @@
       "reason": "runtime BTF resolves terminal fields and the process has a controlling terminal"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8705,6 +9439,7 @@
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8717,6 +9452,7 @@
       "reason": "the raw exec filename exceeded the kernel capture buffer"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8729,6 +9465,7 @@
       "reason": "kernel argv capture or the live /proc entry is available"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8741,6 +9478,7 @@
       "reason": "the live /proc entry is available"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8753,6 +9491,7 @@
       "reason": "measured at fork or available from process state"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8765,6 +9504,7 @@
       "reason": "measured at fork or available from process state"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8777,6 +9517,7 @@
       "reason": "the live /proc entry and BTF process identity remain available during downstream enrichment"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8789,6 +9530,7 @@
       "reason": "the kernel reports a non-zero cgroup identifier at exec time"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8801,6 +9543,7 @@
       "reason": "the host mounts cgroup2 and the cgroup still exists when the event is enriched"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8813,6 +9556,7 @@
       "reason": "the cgroup path names a recognized container layout"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8825,6 +9569,7 @@
       "reason": "ContainerId is present and its cgroup layout names the runtime"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8837,6 +9582,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8849,6 +9595,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8861,6 +9608,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8873,6 +9621,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8885,6 +9634,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8897,6 +9647,7 @@
       "reason": "Windows integrity levels do not exist on Linux"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "process_creation",
       "event_id": 1,
@@ -8909,6 +9660,7 @@
       "reason": "a process-creation event has no target process"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -8920,6 +9672,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -8931,6 +9684,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -8942,6 +9696,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -8954,6 +9709,7 @@
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -8965,6 +9721,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -8977,6 +9734,7 @@
       "reason": "the socket fexit tier is active and sk_protocol names TCP or UDP"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -8989,6 +9747,7 @@
       "reason": "the process identity is still present in the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -9001,6 +9760,7 @@
       "reason": "a preceding observed DNS answer resolves the destination"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -9013,6 +9773,7 @@
       "reason": "the socket fexit tier measures the bound source address"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "network_connection",
       "event_id": 3,
@@ -9025,6 +9786,7 @@
       "reason": "the socket fexit tier measures the bound source port"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9035,6 +9797,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9045,6 +9808,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9056,6 +9820,7 @@
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9067,6 +9832,7 @@
       "reason": "the action is rename and the old path can be resolved"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9078,6 +9844,7 @@
       "reason": "the process identity is still present in the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9089,6 +9856,7 @@
       "reason": "the kernel path buffer truncated a source or target"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9100,6 +9868,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "create",
@@ -9111,6 +9880,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9121,6 +9891,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9131,6 +9902,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9142,6 +9914,7 @@
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9153,6 +9926,7 @@
       "reason": "the action is rename and the old path can be resolved"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9164,6 +9938,7 @@
       "reason": "the process identity is still present in the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9175,6 +9950,7 @@
       "reason": "the kernel path buffer truncated a source or target"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9186,6 +9962,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "modify",
@@ -9197,6 +9974,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9207,6 +9985,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9217,6 +9996,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9228,6 +10008,7 @@
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9239,6 +10020,7 @@
       "reason": "the action is rename and the old path can be resolved"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9250,6 +10032,7 @@
       "reason": "the process identity is still present in the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9261,6 +10044,7 @@
       "reason": "the kernel path buffer truncated a source or target"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9272,6 +10056,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "delete",
@@ -9283,6 +10068,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9293,6 +10079,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9303,6 +10090,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9314,6 +10102,7 @@
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9325,6 +10114,7 @@
       "reason": "the action is rename and the old path can be resolved"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9336,6 +10126,7 @@
       "reason": "the process identity is still present in the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9347,6 +10138,7 @@
       "reason": "the kernel path buffer truncated a source or target"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9358,6 +10150,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "file_event",
       "action": "rename",
@@ -9369,6 +10162,7 @@
       "reason": "the eBPF file probes do not read file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "dns_query",
       "event_id": 22,
@@ -9380,6 +10174,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "dns_query",
       "event_id": 22,
@@ -9391,6 +10186,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "dns_query",
       "event_id": 22,
@@ -9403,6 +10199,7 @@
       "reason": "the DNS question can be parsed"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "dns_query",
       "event_id": 22,
@@ -9415,6 +10212,7 @@
       "reason": "the event is a response carrying A, AAAA, or CNAME answers"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "dns_query",
       "event_id": 22,
@@ -9427,6 +10225,7 @@
       "reason": "the process identity is still present in the process cache"
     },
     {
+      "view": "sysmon",
       "platform": "linux",
       "category": "dns_query",
       "event_id": 22,
@@ -9439,6 +10238,7 @@
       "reason": "the event is a response; the value is the DNS RCODE"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9450,6 +10250,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9461,6 +10262,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9472,6 +10274,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9483,6 +10286,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9495,6 +10299,7 @@
       "reason": "ESF supplies at least one exec argument"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9507,6 +10312,7 @@
       "reason": "the parent PID is non-zero"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9519,6 +10325,7 @@
       "reason": "derived from the process cache by an observed stable parent identity"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9531,6 +10338,7 @@
       "reason": "the stable parent identity resolves to a cached command line"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9542,6 +10350,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9553,6 +10362,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9564,6 +10374,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9575,6 +10386,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9586,6 +10398,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9598,6 +10411,7 @@
       "reason": "ESF supplies a non-empty acting process executable path"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9610,6 +10424,7 @@
       "reason": "message version 2+ supplies a script for direct shebang execution"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9622,6 +10437,7 @@
       "reason": "ESF supplies a non-empty signing identifier"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9634,6 +10450,7 @@
       "reason": "ESF supplies a non-empty signing team identifier"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9646,6 +10463,7 @@
       "reason": "the executable has the CS_SIGNED flag"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9658,6 +10476,7 @@
       "reason": "ESF supplies an exec working directory"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9670,6 +10489,7 @@
       "reason": "macOS process events do not have a Linux kernel cgroup identifier"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9682,6 +10502,7 @@
       "reason": "ESF supplies the executable path directly"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9694,6 +10515,7 @@
       "reason": "ESF does not use the Linux raw-image buffer"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9706,6 +10528,7 @@
       "reason": "Windows integrity levels do not exist on macOS"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9718,6 +10541,7 @@
       "reason": "a process-creation event has no target process"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9730,6 +10554,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9742,6 +10567,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9754,6 +10580,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9766,6 +10593,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "process_creation",
       "event_id": 1,
@@ -9778,6 +10606,7 @@
       "reason": "PE version resources are Windows-only"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9789,6 +10618,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9800,6 +10630,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9811,6 +10642,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9822,6 +10654,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9833,6 +10666,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9845,6 +10679,7 @@
       "reason": "bounded socket-inventory attribution finds the owner"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9857,6 +10692,7 @@
       "reason": "bounded socket-inventory attribution finds the owner"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9869,6 +10705,7 @@
       "reason": "a preceding observed DNS answer resolves the destination"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9881,6 +10718,7 @@
       "reason": "BPF packets do not carry process user identity"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "network_connection",
       "event_id": 3,
@@ -9893,6 +10731,7 @@
       "reason": "a wire capture cannot determine whether the local host initiated the flow"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9903,6 +10742,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9913,6 +10753,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9923,6 +10764,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9934,6 +10776,7 @@
       "reason": "the ESF action is a rename"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9945,6 +10788,7 @@
       "reason": "ESF supplies the acting process executable path"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9956,6 +10800,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9967,6 +10812,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "create",
@@ -9978,6 +10824,7 @@
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -9988,6 +10835,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -9998,6 +10846,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -10008,6 +10857,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -10019,6 +10869,7 @@
       "reason": "the ESF action is a rename"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -10030,6 +10881,7 @@
       "reason": "ESF supplies the acting process executable path"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -10041,6 +10893,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -10052,6 +10905,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "modify",
@@ -10063,6 +10917,7 @@
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10073,6 +10928,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10083,6 +10939,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10093,6 +10950,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10104,6 +10962,7 @@
       "reason": "the ESF action is a rename"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10115,6 +10974,7 @@
       "reason": "ESF supplies the acting process executable path"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10126,6 +10986,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10137,6 +10998,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "delete",
@@ -10148,6 +11010,7 @@
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10158,6 +11021,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10168,6 +11032,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10178,6 +11043,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10189,6 +11055,7 @@
       "reason": "the ESF action is a rename"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10200,6 +11067,7 @@
       "reason": "ESF supplies the acting process executable path"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10211,6 +11079,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10222,6 +11091,7 @@
       "reason": "ESF file notifications do not carry file timestamps"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "file_event",
       "action": "rename",
@@ -10233,6 +11103,7 @@
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "dns_query",
       "event_id": 22,
@@ -10244,6 +11115,7 @@
       "availability": "always"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "dns_query",
       "event_id": 22,
@@ -10256,6 +11128,7 @@
       "reason": "the DNS qtype has a known Sysmon-compatible name"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "dns_query",
       "event_id": 22,
@@ -10268,6 +11141,7 @@
       "reason": "the BPF DNS path emits queries, not responses"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "dns_query",
       "event_id": 22,
@@ -10280,6 +11154,7 @@
       "reason": "the BPF DNS path emits queries, not responses"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "dns_query",
       "event_id": 22,
@@ -10292,6 +11167,7 @@
       "reason": "bounded socket-inventory attribution finds the owner"
     },
     {
+      "view": "sysmon",
       "platform": "macos",
       "category": "dns_query",
       "event_id": 22,

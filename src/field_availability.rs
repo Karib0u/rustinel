@@ -1,4 +1,4 @@
-//! Machine-readable field availability for every sensor event shape.
+//! Machine-readable field availability for every view and sensor event shape.
 //!
 //! This is the source of truth for field-level compatibility. Keep limitations
 //! here rather than in a decoder comment or a hand-maintained documentation
@@ -8,10 +8,10 @@
 use semver::Version;
 use serde::Serialize;
 
-use crate::models::{EventCategory, EventFields, NormalizedEvent};
+use crate::models::{EventCategory, FieldViewName, NormalizedEvent};
 use crate::sensor::{Platform, SensorAction};
 
-pub const SCHEMA_VERSION: u16 = 2;
+pub const SCHEMA_VERSION: u16 = 3;
 
 /// The field had its current availability at or before the oldest supported
 /// Rustinel release. Keeping this explicit at every declaration prevents a new
@@ -99,13 +99,14 @@ pub struct FieldContract {
     pub availability: Availability,
 }
 
-/// Availability for one `(platform, category, event id/action, provider)` key.
+/// Availability for one `(view, platform, category, event id/action, provider)` key.
 ///
 /// `provider` is the stable provider written to [`NormalizedEvent`]. `source`
 /// names the native producer so ETW and Event Log contracts remain reviewable
 /// without leaking provider-specific identifiers into the shared event model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct EventFieldContract {
+    pub view: FieldViewName,
     pub platform: Platform,
     pub category: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1411,6 +1412,7 @@ const CREATE_REMOTE_THREAD: &[FieldContract] = &[never(
 macro_rules! contract {
     ($platform:ident, $category:literal, $event:expr, $action:ident, $provider:literal, $source:literal, $fields:ident) => {
         EventFieldContract {
+            view: FieldViewName::SYSMON,
             platform: Platform::$platform,
             category: $category,
             event_id: $event,
@@ -1938,6 +1940,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         WINDOWS_SECURITY_6416
     ),
     EventFieldContract {
+        view: FieldViewName::SYSMON,
         platform: Platform::Windows,
         category: "pipe_created",
         event_id: Some(17),
@@ -1947,6 +1950,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         fields: PIPE_CREATED,
     },
     EventFieldContract {
+        view: FieldViewName::SYSMON,
         platform: Platform::Windows,
         category: "create_remote_thread",
         event_id: Some(8),
@@ -2167,15 +2171,20 @@ pub fn contract_for_event_id(
     provider: &str,
 ) -> Option<&'static EventFieldContract> {
     platform_contracts(platform).iter().find(|contract| {
-        contract.category == category
+        contract.view == FieldViewName::DEFAULT
+            && contract.category == category
             && contract.event_id == Some(event_id)
             && contract.provider == provider
     })
 }
 
-fn event_contract(event: &NormalizedEvent) -> Option<&'static EventFieldContract> {
+fn event_contract(
+    view: FieldViewName,
+    event: &NormalizedEvent,
+) -> Option<&'static EventFieldContract> {
     platform_contracts(event.platform).iter().find(|contract| {
-        contract.category == category_name(event.category)
+        contract.view == view
+            && contract.category == category_name(event.category)
             && contract.provider == event.provider
             && contract.event_id.is_none_or(|id| id == event.event_id)
             // Event Log records identify their schema by event ID and do not
@@ -2188,8 +2197,11 @@ fn event_contract(event: &NormalizedEvent) -> Option<&'static EventFieldContract
 }
 
 /// Native Windows channel recorded for this exact emitted event shape.
-pub(crate) fn channel_for_event(event: &NormalizedEvent) -> Option<&'static str> {
-    event_contract(event).and_then(|contract| {
+pub(crate) fn channel_for_event(
+    view: FieldViewName,
+    event: &NormalizedEvent,
+) -> Option<&'static str> {
+    event_contract(view, event).and_then(|contract| {
         contract
             .fields
             .iter()
@@ -2217,9 +2229,13 @@ const fn action_code_matches(action: SensorAction, opcode: u8) -> bool {
     }
 }
 
-/// Look up a field exactly as Sigma will see the event.
-pub fn availability_for_event(event: &NormalizedEvent, field: &str) -> Option<Availability> {
-    event_contract(event).and_then(|contract| {
+/// Look up a field exactly as one named view will expose the event.
+pub fn availability_for_view(
+    view: FieldViewName,
+    event: &NormalizedEvent,
+    field: &str,
+) -> Option<Availability> {
+    event_contract(view, event).and_then(|contract| {
         contract
             .fields
             .iter()
@@ -2228,13 +2244,25 @@ pub fn availability_for_event(event: &NormalizedEvent, field: &str) -> Option<Av
     })
 }
 
+/// Look up a field in the default Sysmon compatibility view.
+pub fn availability_for_event(event: &NormalizedEvent, field: &str) -> Option<Availability> {
+    availability_for_view(FieldViewName::DEFAULT, event, field)
+}
+
 /// Always fields missing from an emitted normalized event.
 pub fn missing_always_fields(event: &NormalizedEvent) -> Vec<&'static str> {
-    event_contract(event)
+    missing_always_fields_for_view(FieldViewName::DEFAULT, event)
+}
+
+pub fn missing_always_fields_for_view(
+    view: FieldViewName,
+    event: &NormalizedEvent,
+) -> Vec<&'static str> {
+    event_contract(view, event)
         .into_iter()
         .flat_map(|contract| contract.fields)
         .filter(|entry| entry.availability == Availability::Always)
-        .filter_map(|entry| (!field_is_populated(event, entry.field)).then_some(entry.field))
+        .filter_map(|entry| (!field_is_populated(view, event, entry.field)).then_some(entry.field))
         .collect()
 }
 
@@ -2244,26 +2272,23 @@ pub fn missing_always_fields(event: &NormalizedEvent) -> Vec<&'static str> {
 /// makes the contradictory producer/contract state observable instead of
 /// silently relying on that safety net forever.
 pub fn populated_never_fields(event: &NormalizedEvent) -> Vec<&'static str> {
-    event_contract(event)
+    populated_never_fields_for_view(FieldViewName::DEFAULT, event)
+}
+
+pub fn populated_never_fields_for_view(
+    view: FieldViewName,
+    event: &NormalizedEvent,
+) -> Vec<&'static str> {
+    event_contract(view, event)
         .into_iter()
         .flat_map(|contract| contract.fields)
         .filter(|entry| matches!(entry.availability, Availability::Never(_)))
-        .filter_map(|entry| field_is_populated(event, entry.field).then_some(entry.field))
+        .filter_map(|entry| field_is_populated(view, event, entry.field).then_some(entry.field))
         .collect()
 }
 
-fn field_is_populated(event: &NormalizedEvent, field: &str) -> bool {
-    if event.get_field_unchecked(field).is_some() {
-        return true;
-    }
-
-    // The zero-allocation string accessor cannot borrow a formatted numeric
-    // value. Keep the presence check typed for the one numeric model field.
-    matches!(
-        (&event.fields, field),
-        (EventFields::ProcessCreation(fields), "ProcessStartTime")
-            if fields.process_start_time.is_some()
-    )
+fn field_is_populated(view: FieldViewName, event: &NormalizedEvent, field: &str) -> bool {
+    event.field_view(view).get_unchecked(field).is_some()
 }
 
 /// Flattened compatibility artifact generated from [`FIELD_AVAILABILITY`].
@@ -2275,6 +2300,7 @@ struct Baseline<'a> {
 
 #[derive(Serialize)]
 struct BaselineEntry<'a> {
+    view: FieldViewName,
     platform: Platform,
     category: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2297,6 +2323,7 @@ pub fn compatibility_json() -> String {
         .iter()
         .flat_map(|contract| {
             contract.fields.iter().map(|field| BaselineEntry {
+                view: contract.view,
                 platform: contract.platform,
                 category: contract.category,
                 event_id: contract.event_id,
@@ -2357,21 +2384,23 @@ fn key_label(contract: &EventFieldContract) -> String {
 /// Generated permanent-gap table embedded in `docs/field-availability.md`.
 pub fn unavailable_fields_markdown() -> String {
     use std::collections::BTreeMap;
+    type GapKey<'a> = (&'a str, &'a str, &'a str, &'a str, &'a str, &'a str);
 
     let mut output = String::from(
         "<!-- BEGIN GENERATED FIELD AVAILABILITY -->\n\
 This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.\n\
 Edit that table and run `cargo run --bin generate-docs`.\n\n\
-| Platform | Category | Event / action | Source | Unavailable field | Reason |\n\
-| --- | --- | --- | --- | --- | --- |\n",
+| View | Platform | Category | Event / action | Source | Unavailable field | Reason |\n\
+| --- | --- | --- | --- | --- | --- | --- |\n",
     );
-    let mut rows: BTreeMap<(&str, &str, &str, &str, &str), Vec<String>> = BTreeMap::new();
+    let mut rows: BTreeMap<GapKey<'_>, Vec<String>> = BTreeMap::new();
     for contract in FIELD_AVAILABILITY {
         for field in contract.fields {
             let Availability::Never(reason) = field.availability else {
                 continue;
             };
             rows.entry((
+                contract.view.as_str(),
                 contract.platform.as_str(),
                 contract.category,
                 contract.source,
@@ -2382,11 +2411,12 @@ Edit that table and run `cargo run --bin generate-docs`.\n\n\
             .push(key_label(contract));
         }
     }
-    for ((platform, category, source, field, reason), mut selectors) in rows {
+    for ((view, platform, category, source, field, reason), mut selectors) in rows {
         selectors.sort();
         selectors.dedup();
         output.push_str(&format!(
-            "| {} | `{}` | `{}` | `{}` | `{}` | {} |\n",
+            "| `{}` | {} | `{}` | `{}` | `{}` | `{}` | {} |\n",
+            view,
             platform,
             category,
             selectors.join(", "),
@@ -2405,29 +2435,32 @@ pub fn coverage_markdown() -> String {
         "<!-- BEGIN GENERATED FIELD AVAILABILITY -->\n\
 Generated from `FIELD_AVAILABILITY`.\n\
 These count fields, not rules: a rule that references a `Never` field inside an `or` branch can still fire.\n\n\
-| Platform | Always | Conditional | Never |\n\
-| --- | ---: | ---: | ---: |\n",
+| View | Platform | Always | Conditional | Never |\n\
+| --- | --- | ---: | ---: | ---: |\n",
     );
-    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
-        let mut counts = [0usize; 3];
-        for availability in FIELD_AVAILABILITY
-            .iter()
-            .filter(|contract| contract.platform == platform)
-            .flat_map(|contract| contract.fields.iter().map(|field| field.availability))
-        {
-            match availability {
-                Availability::Always => counts[0] += 1,
-                Availability::Conditional(_) => counts[1] += 1,
-                Availability::Never(_) => counts[2] += 1,
+    for view in [FieldViewName::SYSMON] {
+        for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+            let mut counts = [0usize; 3];
+            for availability in FIELD_AVAILABILITY
+                .iter()
+                .filter(|contract| contract.view == view && contract.platform == platform)
+                .flat_map(|contract| contract.fields.iter().map(|field| field.availability))
+            {
+                match availability {
+                    Availability::Always => counts[0] += 1,
+                    Availability::Conditional(_) => counts[1] += 1,
+                    Availability::Never(_) => counts[2] += 1,
+                }
             }
+            output.push_str(&format!(
+                "| `{}` | {} | {} | {} | {} |\n",
+                view.as_str(),
+                platform.as_str(),
+                counts[0],
+                counts[1],
+                counts[2]
+            ));
         }
-        output.push_str(&format!(
-            "| {} | {} | {} | {} |\n",
-            platform.as_str(),
-            counts[0],
-            counts[1],
-            counts[2]
-        ));
     }
     output.push_str(
         "\nThe complete machine-readable baseline is \

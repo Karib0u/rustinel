@@ -5,8 +5,8 @@ use super::EventCategory;
 
 /// Event fields enum containing category-specific data
 ///
-/// Serialization is untagged: the payload is the bare field object, keyed by the
-/// canonical Sigma/Sysmon field names. Reading that payload back therefore needs
+/// Serialization is untagged: the payload is the stable schema-v2 recording
+/// view. Reading that payload back therefore needs
 /// the event category to say which variant it is — see
 /// [`EventFields::from_recorded`]. Structural inference is not good enough,
 /// because a minimal event carries too few fields to tell the variants apart.

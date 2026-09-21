@@ -15,7 +15,7 @@ src/
 │   ├── windows/     ETW sessions and Event Log subscriptions
 │   ├── linux/       eBPF loader, ring readers, decoders
 │   └── macos/       Endpoint Security and /dev/bpf capture
-├── models/          CanonicalEvent, the generated NormalizedEvent view, alert, and ECS models
+├── models/          CanonicalEvent, field-view mappings, the stable recorded view, alert, and ECS models
 ├── normalizer/      builds the stable NormalizedEvent compatibility view
 ├── state/           HostState, bounded attribution indexes and inventory
 ├── artifact.rs      single-open executable resolution and bounded result stores
@@ -33,7 +33,7 @@ src/
 ├── setup.rs, service.rs, platform/  managed install and native services
 ├── update.rs        `rustinel update`
 ├── utils/           path allowlists, file identity, PE parsing, helpers
-└── field_availability.rs  per-platform field contract, source of generated docs
+└── field_availability.rs  per-view and per-platform field contract, source of generated docs
 ebpf/src/            Linux eBPF programs and the event ABI
 ```
 
@@ -46,6 +46,8 @@ ebpf/src/            Linux eBPF programs and the event ABI
    It opens the file once, validates it against the identity captured at event time, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.
    A written file without an event-time identity is skipped and counted, never scanned by path alone.
 4. Admission routes every event to the downstream `SensorEventRouter` exactly once and in `ingest_seq` order, for Sigma/IOC detection or capture.
+   Sigma logsource routes select a compiled field view over the canonical event.
+   View tables map external rule names to Rustinel semantic accessors, so adding a vocabulary does not change platform sensors.
    Only PE metadata, which Sigma can match, may hold an event, for at most a 100 ms admission budget; later events wait behind it.
    YARA file and IOC hash alerts come from the same resolver result after admission.
    Sigma rules on `Hashes` or `Imphash` are left out of admission for events the resolver will hash; a deferred detection stage evaluates them once, in arrival order, when the resolver publishes those fields or a 2 second budget expires.
@@ -54,6 +56,7 @@ ebpf/src/            Linux eBPF programs and the event ABI
 
 Capture also receives `CanonicalEvent`.
 Recording schema v2 deliberately serializes its unchanged `NormalizedEvent` view, and replay wraps that same view back in a canonical event, so existing recordings remain compatible.
+The `sysmon` view is the default rendering and retains the complete compatibility surface, including Rustinel's `ImageSource`, `ImageTruncated`, and `PathTruncated` fidelity fields.
 
 Sensor and background-worker queues are bounded channels that drop instead of blocking, with counters in `src/telemetry`.
 Canonicalization runs synchronously in the sensor-channel worker, but file opening, reading, PE parsing, hashing, and YARA file scanning do not.

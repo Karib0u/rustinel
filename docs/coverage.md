@@ -54,11 +54,11 @@ Those fields are listed in [Field availability](field-availability.md), and `rus
 Generated from `FIELD_AVAILABILITY`.
 These count fields, not rules: a rule that references a `Never` field inside an `or` branch can still fire.
 
-| Platform | Always | Conditional | Never |
-| --- | ---: | ---: | ---: |
-| windows | 77 | 607 | 36 |
-| linux | 19 | 45 | 15 |
-| macos | 27 | 24 | 26 |
+| View | Platform | Always | Conditional | Never |
+| --- | --- | ---: | ---: | ---: |
+| `sysmon` | windows | 77 | 607 | 36 |
+| `sysmon` | linux | 19 | 45 | 15 |
+| `sysmon` | macos | 27 | 24 | 26 |
 
 The complete machine-readable baseline is [`compatibility/field-availability.json`](https://github.com/Karib0u/rustinel/blob/main/compatibility/field-availability.json).
 <!-- END GENERATED FIELD AVAILABILITY -->
