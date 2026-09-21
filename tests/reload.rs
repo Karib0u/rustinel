@@ -6,7 +6,7 @@ use std::sync::Arc;
 use common::{dns_query_event, process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
     config::{ReloadConfig, ResponseConfig, ScannerConfig},
-    engine::{DetectorStore, Engine},
+    engine::{DetectorStore, Engine, SigmaMatchMode},
     ioc::IocEngine,
     models::{CanonicalEvent, MatchDebugLevel},
     reload::{spawn_reload_worker, ReloadTarget},
@@ -40,6 +40,7 @@ fn scanner_cfg(sigma: &SigmaFixture, yara: &YaraFixture) -> ScannerConfig {
     ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: sigma.rules_dir().to_path_buf(),
+        sigma_match_mode: SigmaMatchMode::Best,
         yara_enabled: true,
         yara_rules_path: yara.rules_dir().to_path_buf(),
         yara_allowlist_paths: Vec::new(),
@@ -276,6 +277,7 @@ async fn test_reload_poller_fallback_polling() {
     let scanner_cfg = ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: non_existent_dir.clone(),
+        sigma_match_mode: SigmaMatchMode::Best,
         yara_enabled: false,
         yara_rules_path: PathBuf::from(""),
         yara_allowlist_paths: Vec::new(),
@@ -382,6 +384,7 @@ async fn test_reload_poller_handles_rule_tree_with_many_directories() {
     let scanner_cfg = ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: sigma_dir.clone(),
+        sigma_match_mode: SigmaMatchMode::Best,
         yara_enabled: false,
         yara_rules_path: PathBuf::from(""),
         yara_allowlist_paths: Vec::new(),

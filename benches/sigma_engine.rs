@@ -8,13 +8,30 @@ use std::collections::HashMap;
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use rustinel::engine::Engine;
+use rustinel::engine::{Engine, SigmaMatchMode};
 use rustinel::models::{EventCategory, EventFields, MatchDebugLevel, NormalizedEvent};
 use rustinel::sensor::Platform;
 use tempfile::TempDir;
 
-fn engine() -> Engine {
+fn engine(mode: SigmaMatchMode) -> Engine {
     Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off)
+        .with_sigma_match_mode(mode)
+}
+
+fn write_overlapping_rules(dir: &std::path::Path, count: usize) {
+    let documents = (0..count)
+        .map(|index| {
+            format!(
+                "title: Overlapping Process {index}\n\
+                 id: 00000000-0000-0000-0000-{index:012}\n\
+                 logsource:\n  product: linux\n  category: process_creation\n\
+                 detection:\n  selection:\n    Image|endswith: /curl\n\
+                 \x20 condition: selection\nlevel: high\n"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("---\n");
+    std::fs::write(dir.join("overlapping.yml"), documents).expect("write overlapping rules");
 }
 
 /// A representative Linux ruleset covering the common logsource families and
@@ -206,7 +223,7 @@ fn sample_events() -> Vec<NormalizedEvent> {
 fn bench_evaluate_event(c: &mut Criterion) {
     let tempdir = TempDir::new().expect("bench tempdir");
     write_rules(tempdir.path());
-    let mut engine = engine();
+    let mut engine = engine(SigmaMatchMode::Best);
     engine
         .load_rules(tempdir.path())
         .expect("bench rules should load");
@@ -224,7 +241,7 @@ fn bench_evaluate_event(c: &mut Criterion) {
 fn bench_evaluate_event_large(c: &mut Criterion) {
     let tempdir = TempDir::new().expect("bench tempdir");
     write_scaled_rules(tempdir.path(), SYNTHETIC_RULES_PER_FAMILY);
-    let mut engine = engine();
+    let mut engine = engine(SigmaMatchMode::Best);
     engine
         .load_rules(tempdir.path())
         .expect("bench rules should load");
@@ -239,5 +256,35 @@ fn bench_evaluate_event_large(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_evaluate_event, bench_evaluate_event_large);
+fn bench_overlapping_matches(c: &mut Criterion) {
+    const OVERLAPPING_RULES: usize = 250;
+
+    let tempdir = TempDir::new().expect("bench tempdir");
+    write_overlapping_rules(tempdir.path(), OVERLAPPING_RULES);
+    let event = sample_events()
+        .into_iter()
+        .next()
+        .expect("sample process event");
+
+    for mode in [SigmaMatchMode::Best, SigmaMatchMode::All] {
+        let mut engine = engine(mode);
+        engine
+            .load_rules(tempdir.path())
+            .expect("overlapping bench rules should load");
+        let name = match mode {
+            SigmaMatchMode::Best => "evaluate_event/overlapping_best",
+            SigmaMatchMode::All => "evaluate_event/overlapping_all",
+        };
+        c.bench_function(name, |b| {
+            b.iter(|| black_box(engine.evaluate_event(black_box(&event))));
+        });
+    }
+}
+
+criterion_group!(
+    benches,
+    bench_evaluate_event,
+    bench_evaluate_event_large,
+    bench_overlapping_matches
+);
 criterion_main!(benches);

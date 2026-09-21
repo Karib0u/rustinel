@@ -93,6 +93,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         description: "Sigma rules directory, loaded recursively.",
     },
     ConfigOption {
+        key: "scanner.sigma_match_mode",
+        default_note: None,
+        description: "`best` emits the highest-severity detection per pass; `all` emits every matching detection rule.",
+    },
+    ConfigOption {
         key: "scanner.yara_enabled",
         default_note: None,
         description: "Scan new process executables and qualifying files written to disk with YARA.",

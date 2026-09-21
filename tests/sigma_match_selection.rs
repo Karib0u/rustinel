@@ -1,9 +1,7 @@
-//! Single-alert selection policy.
+//! Sigma detection-alert selection policy.
 //!
-//! Rustinel emits at most one Sigma alert per event. When several rules match,
-//! the winner is the highest normalized severity, with equal severities broken
-//! deterministically by rule id and then rule title. These tests pin that
-//! policy and assert it does not depend on the order rules were loaded in.
+//! The default emits the highest-ranked match. The opt-in `all` mode emits
+//! every matching detection rule. Both modes use the same deterministic order.
 
 #[cfg(test)]
 mod common;
@@ -11,13 +9,18 @@ mod common;
 use std::time::Instant;
 
 use common::{process_start_event, SigmaFixture, TestNormalizer};
-use rustinel::engine::Engine;
+use rustinel::engine::{Engine, SigmaMatchMode};
 use rustinel::models::{AlertSeverity, MatchDebugLevel, NormalizedEvent};
 use rustinel::sensor::Platform;
 
 fn engine_with(fixture: &SigmaFixture) -> Engine {
+    engine_with_mode(fixture, SigmaMatchMode::Best)
+}
+
+fn engine_with_mode(fixture: &SigmaFixture, mode: SigmaMatchMode) -> Engine {
     let mut engine =
-        Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off);
+        Engine::new_for_platform_with_match_debug(Platform::Linux, MatchDebugLevel::Off)
+            .with_sigma_match_mode(mode);
     engine
         .load_rules(fixture.rules_dir())
         .expect("sigma rules should load");
@@ -27,6 +30,73 @@ fn engine_with(fixture: &SigmaFixture) -> Engine {
         "no rule should fail to load"
     );
     engine
+}
+
+#[test]
+fn all_mode_emits_every_match_in_deterministic_rank_order() {
+    let low = matching_rule(
+        "Broad Low Rule",
+        "11111111-1111-1111-1111-111111111111",
+        "low",
+    );
+    let critical = matching_rule(
+        "Specific Critical Rule",
+        "22222222-2222-2222-2222-222222222222",
+        "critical",
+    );
+    let normalized = linux_process_event();
+
+    for yaml in [rules_file(&low, &critical), rules_file(&critical, &low)] {
+        let fixture = SigmaFixture::new();
+        fixture.write_rule("overlapping.yml", &yaml);
+
+        let alerts = engine_with_mode(&fixture, SigmaMatchMode::All).check_event(&normalized);
+        assert_eq!(
+            alerts
+                .iter()
+                .map(|alert| alert.rule_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Specific Critical Rule", "Broad Low Rule"]
+        );
+    }
+}
+
+#[test]
+fn presentation_mode_does_not_change_correlation_input() {
+    let critical = matching_rule("Critical Match", "critical-match", "critical");
+    let low = matching_rule("Low Match", "low-match", "low");
+    let correlation = r#"title: Both Matches
+id: both-matches
+correlation:
+  type: temporal
+  rules:
+    - critical-match
+    - low-match
+  timespan: 1m
+  condition:
+    gte: 2
+level: high
+"#;
+    let yaml = format!("{critical}---\n{low}---\n{correlation}");
+
+    for (mode, expected) in [
+        (SigmaMatchMode::Best, vec!["Critical Match", "Both Matches"]),
+        (
+            SigmaMatchMode::All,
+            vec!["Critical Match", "Low Match", "Both Matches"],
+        ),
+    ] {
+        let fixture = SigmaFixture::new();
+        fixture.write_rule("correlation.yml", &yaml);
+        let alerts = engine_with_mode(&fixture, mode).check_event(&linux_process_event());
+        assert_eq!(
+            alerts
+                .iter()
+                .map(|alert| alert.rule_name.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
 }
 
 fn linux_process_event() -> NormalizedEvent {

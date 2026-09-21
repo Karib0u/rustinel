@@ -14,6 +14,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::engine::SigmaMatchMode;
 use crate::models::MatchDebugLevel;
 use crate::scanner::{self, ScanLimits};
 
@@ -312,6 +313,7 @@ pub struct AppConfig {
 pub struct ScannerConfig {
     pub sigma_enabled: bool,
     pub sigma_rules_path: PathBuf,
+    pub sigma_match_mode: SigmaMatchMode,
     pub yara_enabled: bool,
     pub yara_rules_path: PathBuf,
     pub yara_allowlist_paths: Vec<String>,
@@ -509,6 +511,7 @@ impl AppConfig {
             // Scanner
             .set_default("scanner.sigma_enabled", true)?
             .set_default("scanner.sigma_rules_path", "rules/current/sigma")?
+            .set_default("scanner.sigma_match_mode", "best")?
             .set_default("scanner.yara_enabled", true)?
             .set_default("scanner.yara_rules_path", "rules/current/yara")?
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
@@ -809,6 +812,7 @@ impl Default for AppConfig {
             scanner: ScannerConfig {
                 sigma_enabled: true,
                 sigma_rules_path: PathBuf::from("rules/current/sigma"),
+                sigma_match_mode: SigmaMatchMode::Best,
                 yara_enabled: true,
                 yara_rules_path: PathBuf::from("rules/current/yara"),
                 yara_allowlist_paths: Vec::new(),
