@@ -43,8 +43,7 @@ The rest are skipped: they target another platform, a cloud or network product, 
 A rule that loads can still reference a field the platform never fills.
 Such a rule never fires.
 Those fields are listed in [Field availability](field-availability.md), and `rustinel doctor` reports loaded rules with no collector as `sigma_rules_inert`.
-Use `rustinel sigma doctor --platform <platform>` for condition-aware, per-rule
-field and collector compatibility.
+Use `rustinel sigma doctor --platform <platform>` for condition-aware, per-rule field and collector compatibility.
 
 !!! note "Rule count is not coverage"
     A 3,000-rule pack on Linux does not give 3,000 detections: most SigmaHQ rules are written for Windows.

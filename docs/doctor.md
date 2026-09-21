@@ -19,10 +19,9 @@ Run it with `sudo` or as Administrator to check platform prerequisites.
 
 ## Rules
 
-Use `rustinel sigma doctor` for the per-document compatibility report. It checks
-the configured Sigma directory against a selected platform and explains field,
-collector, logsource, fidelity, filter, and correlation dependency limits. See
-[Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
+Use `rustinel sigma doctor` for the per-document compatibility report.
+It checks the configured Sigma directory against a selected platform and explains field, collector, logsource, fidelity, filter, and correlation dependency limits.
+See [Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
 
 | Check | Verifies |
 | --- | --- |
