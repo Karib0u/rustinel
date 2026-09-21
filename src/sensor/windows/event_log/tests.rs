@@ -1,4 +1,5 @@
 use super::*;
+use crate::sensor::SensorPayload;
 use crate::telemetry::event_log::WINDOWS_EVENT_LOG;
 
 #[test]
@@ -158,6 +159,37 @@ fn receive(rx: &mut tokio::sync::mpsc::Receiver<SensorEvent>) -> SensorEvent {
         );
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// Subscribes to the real classic PowerShell channel and starts a fresh host.
+#[test]
+#[ignore = "requires a Windows lab with the classic PowerShell channel"]
+fn native_powershell_classic_start_subscription() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("Windows PowerShell.xml");
+    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let worker = EventLogSubscription::start(
+        powershell_classic::source(),
+        tx,
+        Arc::clone(&shutdown),
+        path,
+    )
+    .unwrap();
+
+    powershell("Write-Output rustinel-323 | Out-Null");
+    let event = receive(&mut rx);
+    assert_eq!(event.normalization.event_id, 400);
+    assert_eq!(event.provider, "windows_event_log");
+    let SensorPayload::PowerShellClassicStart(fields) = event.payload else {
+        panic!("expected classic PowerShell start payload");
+    };
+    let data = fields.data.expect("event 400 Data");
+    assert!(data.contains("HostApplication="));
+    assert!(data.contains("EngineVersion="));
+
+    shutdown.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
 }
 
 /// Creates and removes only a dedicated test channel. Requires elevation.
