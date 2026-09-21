@@ -45,6 +45,8 @@ tests/**/*
 # manifest, the rules it must fire, and the script that produced it are the
 # regression, not build output. See docs/detection.md.
 !tests/fixtures/replay/**
+# Stable Sigma doctor schema and condition-analysis fixture.
+!tests/fixtures/sigma_compatibility/**
 
 *.exe
 *.pdb

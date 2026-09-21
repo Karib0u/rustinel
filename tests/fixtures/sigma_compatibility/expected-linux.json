@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "platform": "linux",
+  "field_view": "sysmon",
+  "rules_path": "<fixture>",
+  "summary": {
+    "documents": 5,
+    "verdicts": {
+      "can_fire": 3,
+      "degraded": 1,
+      "can_never_fire": 1
+    },
+    "reasons": {
+      "unavailable_field": 2
+    }
+  },
+  "exit_code": 1,
+  "documents": [
+    {
+      "source": "rules.yml",
+      "kind": "detection",
+      "title": "Alternative process fields",
+      "id": "alternative-process-fields",
+      "verdict": "degraded",
+      "logsource": {
+        "product": "linux",
+        "category": "process_creation",
+        "collector_active": true
+      },
+      "fields": [
+        {
+          "field": "OriginalFileName",
+          "availability": "never",
+          "reasons": [
+            "PE version resources are Windows-only"
+          ]
+        },
+        {
+          "field": "ProcessId",
+          "availability": "always"
+        }
+      ],
+      "reasons": [
+        {
+          "code": "unavailable_field",
+          "message": "PE version resources are Windows-only",
+          "field": "OriginalFileName"
+        }
+      ]
+    },
+    {
+      "source": "rules.yml",
+      "kind": "detection",
+      "title": "Compatible process rule",
+      "id": "compatible-process",
+      "verdict": "can-fire",
+      "logsource": {
+        "product": "linux",
+        "category": "process_creation",
+        "collector_active": true
+      },
+      "fields": [
+        {
+          "field": "ProcessId",
+          "availability": "always"
+        }
+      ],
+      "reasons": []
+    },
+    {
+      "source": "rules.yml",
+      "kind": "detection",
+      "title": "Unavailable process field",
+      "id": "unavailable-process-field",
+      "verdict": "can-never-fire",
+      "logsource": {
+        "product": "linux",
+        "category": "process_creation",
+        "collector_active": true
+      },
+      "fields": [
+        {
+          "field": "OriginalFileName",
+          "availability": "never",
+          "reasons": [
+            "PE version resources are Windows-only"
+          ]
+        }
+      ],
+      "reasons": [
+        {
+          "code": "unavailable_field",
+          "message": "PE version resources are Windows-only",
+          "field": "OriginalFileName"
+        }
+      ]
+    },
+    {
+      "source": "rules.yml",
+      "kind": "correlation",
+      "title": "Compatible process count",
+      "id": "compatible-process-count",
+      "verdict": "can-fire",
+      "fields": [
+        {
+          "field": "ProcessId",
+          "availability": "always"
+        }
+      ],
+      "dependencies": [
+        "compatible-process"
+      ],
+      "reasons": []
+    },
+    {
+      "source": "rules.yml",
+      "kind": "filter",
+      "title": "Compatible process filter",
+      "id": "compatible-process-filter",
+      "verdict": "can-fire",
+      "fields": [
+        {
+          "field": "ProcessId",
+          "availability": "always"
+        }
+      ],
+      "dependencies": [
+        "compatible-process"
+      ],
+      "reasons": []
+    }
+  ]
+}
