@@ -19,7 +19,7 @@ use serde::Serialize;
 
 use crate::config::AppConfig;
 use crate::field_availability::{Availability, EventFieldContract, FIELD_AVAILABILITY};
-use crate::models::Fidelity;
+use crate::models::{Fidelity, FieldViewName};
 use crate::sensor::{Platform, SensorAction};
 
 use super::{Engine, LogSourceKey, LogSourceStatus};
@@ -221,6 +221,7 @@ pub struct SigmaCompatibilityReport {
 impl SigmaCompatibilityReport {
     fn new(
         platform: Platform,
+        field_view: FieldViewName,
         rules_path: PathBuf,
         mut documents: Vec<DocumentCompatibility>,
     ) -> Self {
@@ -264,7 +265,7 @@ impl SigmaCompatibilityReport {
         Self {
             schema_version: SIGMA_COMPATIBILITY_SCHEMA_VERSION,
             platform: platform.as_str().to_string(),
-            field_view: "sysmon".to_string(),
+            field_view: field_view.as_str().to_string(),
             rules_path,
             summary,
             exit_code,
@@ -275,6 +276,7 @@ impl SigmaCompatibilityReport {
     pub fn fatal(platform: Platform, rules_path: PathBuf, message: impl Into<String>) -> Self {
         Self::new(
             platform,
+            FieldViewName::DEFAULT,
             rules_path,
             vec![DocumentCompatibility {
                 source: "<configuration>".to_string(),
@@ -375,6 +377,7 @@ pub fn analyze_rules(
     config: &AppConfig,
 ) -> Result<SigmaCompatibilityReport> {
     let parsed = parse_documents(rules_path)?;
+    let field_view = FieldViewName::DEFAULT;
     let engine = Engine::new_for_platform(platform);
     let mut reports = Vec::new();
     let mut detections = Vec::new();
@@ -407,11 +410,12 @@ pub fn analyze_rules(
     let mut identities: HashMap<String, usize> = HashMap::new();
     let mut detection_contracts: HashMap<String, Vec<&'static EventFieldContract>> = HashMap::new();
     for (source, rule) in &detections {
-        let report = analyze_detection(source, rule, platform, config, &engine);
+        let report = analyze_detection(source, rule, platform, field_view, config, &engine);
         let index = reports.len();
         add_detection_identity(&mut identities, rule, index);
         let contracts = contracts_for_logsource(
             platform,
+            field_view,
             &LogSourceKey {
                 product: normalize(rule.logsource.product.as_deref()),
                 service: normalize(rule.logsource.service.as_deref()),
@@ -464,6 +468,7 @@ pub fn analyze_rules(
 
     let filter_context = FilterAnalysisContext {
         platform,
+        field_view,
         config,
         engine: &engine,
         reports: &reports,
@@ -479,6 +484,7 @@ pub fn analyze_rules(
 
     Ok(SigmaCompatibilityReport::new(
         platform,
+        field_view,
         rules_path.to_path_buf(),
         reports,
     ))
@@ -560,6 +566,7 @@ fn analyze_detection(
     source: &str,
     rule: &SigmaRule,
     platform: Platform,
+    field_view: FieldViewName,
     config: &AppConfig,
     engine: &Engine,
 ) -> DocumentCompatibility {
@@ -628,7 +635,7 @@ fn analyze_detection(
         return report;
     }
 
-    let contracts = contracts_for_logsource(platform, &key);
+    let contracts = contracts_for_logsource(platform, field_view, &key);
     if contracts.is_empty() {
         report.reasons.push(CompatibilityReason::new(
             ReasonCode::NoPlatformTelemetry,
@@ -732,6 +739,7 @@ fn analyze_correlation(
 
 struct FilterAnalysisContext<'a> {
     platform: Platform,
+    field_view: FieldViewName,
     config: &'a AppConfig,
     engine: &'a Engine,
     reports: &'a [DocumentCompatibility],
@@ -791,7 +799,7 @@ fn analyze_filter(
                 .copied()
                 .collect::<Vec<_>>()
         },
-        |key| contracts_for_logsource(context.platform, key),
+        |key| contracts_for_logsource(context.platform, context.field_view, key),
     );
     let mut fields = BTreeMap::new();
     let mut viable = false;
@@ -1329,11 +1337,13 @@ fn value_matches(value: &SigmaValue, invariant: &str) -> bool {
 
 fn contracts_for_logsource(
     platform: Platform,
+    field_view: FieldViewName,
     logsource: &LogSourceKey,
 ) -> Vec<&'static EventFieldContract> {
     FIELD_AVAILABILITY
         .iter()
         .filter(|contract| contract.platform == platform)
+        .filter(|contract| contract.view == field_view)
         .filter(|contract| contract_matches_logsource(contract, logsource))
         .collect()
 }
