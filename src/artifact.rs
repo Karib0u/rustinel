@@ -1235,8 +1235,14 @@ impl ArtifactResolver {
         done_rx: &std::sync::mpsc::Receiver<()>,
         latest_deadline: &mut Instant,
     ) {
-        let deadline_at = job
-            .enqueued_at
+        let eligible_at = if job.target.kind == ArtifactKind::WrittenFile {
+            job.enqueued_at
+                .checked_add(WRITTEN_FILE_SETTLE_DELAY)
+                .unwrap_or(job.enqueued_at)
+        } else {
+            job.enqueued_at
+        };
+        let deadline_at = eligible_at
             .checked_add(job.plan.deadline)
             .unwrap_or_else(Instant::now);
         while active.load(Ordering::Acquire) >= ARTIFACT_IO_ISOLATION_LIMIT {
@@ -3362,6 +3368,45 @@ level: high
         assert_eq!(opens.load(Ordering::Relaxed), 1);
         let snapshot = state.snapshot();
         assert_eq!(snapshot.queued, 2);
+        assert_eq!(snapshot.resolved, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn written_file_settle_delay_does_not_consume_scan_timeout() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("dropped.exe");
+        std::fs::write(&path, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        let scanner = Scanner::new(temp.path().join("yara")).unwrap().with_limits(
+            crate::scanner::ScanLimits {
+                timeout: Duration::from_millis(100),
+                max_file_bytes: 1024,
+            },
+        );
+        runtime
+            .detectors
+            .as_ref()
+            .unwrap()
+            .swap_yara(Arc::new(scanner));
+        runtime.written_files = Some(select_all());
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness.ingress.handle_event(&file_event(
+            &path,
+            FILE_CREATE_OPCODE,
+            Some(object_identity(&path)),
+        ));
+        let state = harness.finish();
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.deadline_exceeded, 0);
         assert_eq!(snapshot.resolved, 1);
     }
 
