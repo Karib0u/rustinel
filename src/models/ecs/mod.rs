@@ -189,6 +189,7 @@ impl From<&Alert> for EcsAlert {
             edr_powershell_script_block_id: None,
             edr_powershell_context_info: None,
             edr_powershell_payload: None,
+            edr_powershell_data: None,
             edr_wmi_operation: None,
             edr_wmi_query: None,
             edr_wmi_namespace: None,
@@ -343,6 +344,9 @@ impl From<&Alert> for EcsAlert {
                 apply_user_fields(&mut ecs, f.user.as_deref());
                 ecs.edr_powershell_context_info = f.context_info.clone();
                 ecs.edr_powershell_payload = f.payload.clone();
+            }
+            EventFields::PowerShellClassicStart(f) => {
+                ecs.edr_powershell_data = f.data.clone();
             }
             EventFields::WmiEvent(f) => {
                 ecs.process_executable = f.image.clone();

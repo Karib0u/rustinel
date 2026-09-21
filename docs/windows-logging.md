@@ -11,6 +11,8 @@ Without the policy, the matching rules load and stay silent.
 | `ps_module` (event 4103) | [Module Logging](#powershell-module-logging) |
 | `ps_script` (event 4104) for ordinary scripts | [Script Block Logging](#powershell-script-block-logging) |
 
+`ps_classic_start` uses event 400 from the `Windows PowerShell` channel and needs no additional host policy.
+
 ## Audit policy
 
 Each Security event is written only when its audit subcategory is enabled.
@@ -107,7 +109,8 @@ Get-ItemProperty HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ScriptBloc
 
 ## Limits
 
-- Only Windows PowerShell 5.1 is collected.
-  PowerShell 7 (`pwsh`) uses a different provider.
+- Script block and module content is collected from Windows PowerShell 5.1.
+  Classic engine starts also include version 2 through event 400.
+  PowerShell 7 (`pwsh`) uses a different provider and is not collected.
 - `ContextInfo` and `Payload` (4103) are written in the host's display language.
   A rule that matches an English label such as `Host Application =` fires only on English hosts.

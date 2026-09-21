@@ -118,6 +118,9 @@ pub fn extract(event: &NormalizedEvent) -> Observables<'_> {
                 windows,
             );
         }
+        EventFields::PowerShellClassicStart(f) => {
+            push_text(&mut out, f.data.as_deref(), Text::Prose, windows);
+        }
         EventFields::WmiEvent(f) => {
             push_domain(&mut out, f.destination_hostname.as_deref());
             push_text(&mut out, f.query.as_deref(), Text::Prose, windows);

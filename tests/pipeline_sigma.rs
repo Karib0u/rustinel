@@ -4,11 +4,11 @@ mod common;
 use common::{
     assert_ecs_field_eq, assert_ecs_field_present, assert_normalized_field_eq, dns_query_event,
     ecs_json, file_create_event, file_delete_event, file_rename_event, image_for,
-    network_connect_event, powershell_module_event, process_start_event, provider_for,
-    renamed_test_file_path, service_installation_event, test_file_path, SigmaFixture,
-    TestNormalizer, TEST_DESTINATION_IP, TEST_DESTINATION_PORT, TEST_PID, TEST_PS_MODULE_CONTEXT,
-    TEST_PS_MODULE_PAYLOAD, TEST_SERVICE_IMAGE_PATH, TEST_SERVICE_NAME, TEST_SERVICE_PROVIDER,
-    TEST_SOURCE_IP, TEST_USER,
+    network_connect_event, powershell_classic_start_event, powershell_module_event,
+    process_start_event, provider_for, renamed_test_file_path, service_installation_event,
+    test_file_path, SigmaFixture, TestNormalizer, TEST_DESTINATION_IP, TEST_DESTINATION_PORT,
+    TEST_PID, TEST_PS_CLASSIC_DATA, TEST_PS_MODULE_CONTEXT, TEST_PS_MODULE_PAYLOAD,
+    TEST_SERVICE_IMAGE_PATH, TEST_SERVICE_NAME, TEST_SERVICE_PROVIDER, TEST_SOURCE_IP, TEST_USER,
 };
 use rustinel::{
     engine::Engine,
@@ -228,6 +228,65 @@ level: medium
     let ecs = ecs_json(&alert);
     assert_ecs_field_eq(&ecs, "event.dataset", "edr.scripting");
     assert_ecs_field_eq(&ecs, "event.action", "powershell-script");
+}
+
+#[test]
+fn sigma_ps_classic_start_event_400_matches_data() {
+    let fixture = SigmaFixture::new();
+    fixture.write_ps_classic_start_rule();
+    let engine = load_engine(Platform::Windows, &fixture);
+    assert_eq!(engine.stats().total_rules, 1);
+    assert_eq!(engine.stats().inactive_collector_rules, 0);
+
+    let normalized = TestNormalizer::new()
+        .normalizer
+        .normalize(&powershell_classic_start_event())
+        .expect("classic PowerShell start should normalize");
+
+    assert_eq!(normalized.category, EventCategory::PowerShellClassicStart);
+    assert_eq!(normalized.event_id, 400);
+    assert_eq!(normalized.provider, "windows_event_log");
+    assert!(matches!(
+        normalized.fields,
+        EventFields::PowerShellClassicStart(_)
+    ));
+    assert_normalized_field_eq(&normalized, "Channel", "Windows PowerShell");
+    assert_normalized_field_eq(&normalized, "Data", TEST_PS_CLASSIC_DATA);
+
+    let alert = engine
+        .check_event(&normalized)
+        .into_iter()
+        .next()
+        .expect("ps_classic_start Sigma rule should match");
+    assert_sigma_alert(&alert, "Test PowerShell Downgrade");
+
+    let ecs = ecs_json(&alert);
+    assert_ecs_field_eq(&ecs, "event.dataset", "edr.powershell_classic_start");
+    assert_ecs_field_eq(&ecs, "event.action", "powershell-classic-start");
+    assert_ecs_field_eq(&ecs, "edr.powershell.data", TEST_PS_CLASSIC_DATA);
+
+    let service_fixture = SigmaFixture::new();
+    service_fixture.write_rule(
+        "powershell_classic_service.yml",
+        r#"title: Test PowerShell Classic Service Route
+logsource:
+  product: windows
+  service: powershell-classic
+detection:
+  selection:
+    Data|contains: "HostName=ConsoleHost"
+  condition: selection
+level: medium
+"#,
+    );
+    let service_engine = load_engine(Platform::Windows, &service_fixture);
+    assert_eq!(service_engine.stats().inactive_collector_rules, 0);
+    let service_alert = service_engine
+        .check_event(&normalized)
+        .into_iter()
+        .next()
+        .expect("powershell-classic service rule should match");
+    assert_sigma_alert(&service_alert, "Test PowerShell Classic Service Route");
 }
 
 #[test]

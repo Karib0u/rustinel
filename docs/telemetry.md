@@ -15,7 +15,7 @@ All counters start at zero when the agent starts.
 | `artifact_resolver` | Single-open executable resolution outcomes and store occupancy |
 | `linux_ebpf` | Linux kernel and userspace counters |
 | `macos_collectors` | macOS Endpoint Security and packet capture loss |
-| `windows_event_log` | Windows System and Security subscription health |
+| `windows_event_log` | Windows System, Security, and classic PowerShell subscription health |
 | `field_fidelity` | Counts by populated field and [fidelity limitation](output.md#field-provenance) at normalization |
 | `field_contract_violations` | Count of populated canonical fields declared `Never` by the matching field-availability contract |
 | `windows_process_command_line` | Windows process starts with and without a command line |
@@ -137,7 +137,7 @@ Webhook losses never remove an alert from the alert file.
 
 ## `windows_event_log`
 
-One entry per channel (`System`, `Security`):
+One entry per channel (`System`, `Security`, `Windows PowerShell`):
 
 | Field | Meaning |
 | --- | --- |

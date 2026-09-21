@@ -394,7 +394,9 @@ impl EtwRouting {
             EventCategory::Dns => SensorAction::Query,
             EventCategory::Wmi => SensorAction::Execute,
             EventCategory::Task => SensorAction::Register,
-            EventCategory::Service | EventCategory::Security => {
+            EventCategory::Service
+            | EventCategory::Security
+            | EventCategory::PowerShellClassicStart => {
                 unreachable!("event log categories use the event log sources")
             }
             EventCategory::Process

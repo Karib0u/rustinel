@@ -604,6 +604,12 @@ pub struct EcsAlert {
     )]
     pub edr_powershell_payload: Option<String>,
 
+    #[serde(
+        rename = "edr.powershell.data",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_powershell_data: Option<String>,
+
     // ========================================================================
     // WMI Fields
     // ========================================================================

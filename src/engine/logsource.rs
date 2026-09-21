@@ -233,6 +233,7 @@ impl Engine {
                 | "image_load"
                 | "ps_script"
                 | "ps_module"
+                | "ps_classic_start"
                 | "wmi_event"
                 | "service_creation"
                 | "task_creation"
@@ -363,6 +364,8 @@ impl Engine {
                     Some("microsoft-windows-powershell"),
                     Some("ps_module"),
                 ),
+                LogSourceKey::from_parts(Some("windows"), None, Some("ps_classic_start")),
+                LogSourceKey::from_parts(Some("windows"), Some("powershell-classic"), None),
                 LogSourceKey::from_parts(Some("windows"), Some("wmi"), Some("wmi_event")),
                 LogSourceKey::from_parts(Some("windows"), Some("system"), Some("service_creation")),
                 LogSourceKey::from_parts(Some("windows"), Some("security"), None),
@@ -675,6 +678,13 @@ impl Engine {
                     Some("windows"),
                     Some("microsoft-windows-powershell"),
                     Some("ps_module"),
+                ));
+            }
+            EventCategory::PowerShellClassicStart => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("powershell-classic"),
+                    Some("ps_classic_start"),
                 ));
             }
             EventCategory::Wmi => {
