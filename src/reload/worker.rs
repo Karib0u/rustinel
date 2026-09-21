@@ -88,7 +88,8 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        let mut engine = Engine::new_with_match_debug(match_debug);
+                        let mut engine = Engine::new_with_match_debug(match_debug)
+                            .with_sigma_match_mode(scanner_cfg.sigma_match_mode);
 
                         match engine.load_rules(&scanner_cfg.sigma_rules_path) {
                             Ok(()) => {

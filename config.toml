@@ -5,6 +5,7 @@
 [scanner]
 sigma_enabled = true
 sigma_rules_path = "rules/sigma"
+sigma_match_mode = "best"      # "all" emits one alert per matching Sigma rule
 yara_enabled = true
 yara_rules_path = "rules/yara"
 

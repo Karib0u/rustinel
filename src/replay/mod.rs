@@ -107,7 +107,8 @@ impl Replay {
         // it. This is what lets a Windows recording be replayed anywhere.
         let platform = recording.manifest().platform;
         let mut sigma =
-            Engine::new_for_platform_with_match_debug(platform, config.alerts.match_debug);
+            Engine::new_for_platform_with_match_debug(platform, config.alerts.match_debug)
+                .with_sigma_match_mode(config.scanner.sigma_match_mode);
 
         let mut configuration = Vec::new();
 
