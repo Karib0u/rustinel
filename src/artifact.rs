@@ -3381,7 +3381,9 @@ level: high
         let mut runtime = runtime_with_consumers(temp.path(), bytes);
         let scanner = Scanner::new(temp.path().join("yara")).unwrap().with_limits(
             crate::scanner::ScanLimits {
-                timeout: Duration::from_millis(100),
+                // Stay below the 250 ms settle delay while leaving enough
+                // headroom for thread scheduling on loaded CI runners.
+                timeout: Duration::from_millis(200),
                 max_file_bytes: 1024,
             },
         );
