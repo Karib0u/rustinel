@@ -41,7 +41,7 @@
 - **Test rules against recorded behavior.**
   Capture activity once, then replay it on any machine as your rules change.
 - **See the gaps.**
-  `rustinel doctor` reports rules that can never fire and events dropped under load.
+  `rustinel sigma doctor` explains which rules can fire, while `rustinel doctor` reports runtime health and events dropped under load.
 
 ## Quickstart
 

@@ -20,6 +20,76 @@ Rules are loaded recursively from `scanner.sigma_rules_path`.
 A correlation or filter can reference a rule in another file.
 A reference to a rule that does not apply to this platform is dropped and reported by `rustinel doctor`.
 
+## Compatibility diagnostics
+
+Run the focused compatibility report before deploying a rules pack:
+
+```bash
+rustinel sigma doctor --platform windows
+rustinel sigma doctor --platform linux --json
+rustinel sigma doctor --platform macos --rules ./candidate/sigma
+```
+
+The platform defaults to the current host. The rules directory defaults to
+`scanner.sigma_rules_path`. `--rules` makes it possible to inspect a candidate
+pack without changing configuration. The current field view is `sysmon`; the
+field view is included in JSON so future views can be distinguished without
+guessing from the platform.
+
+Every detection, correlation, and filter document receives one verdict:
+
+| Verdict | Meaning |
+| --- | --- |
+| `can-fire` | The document parses, compiles, routes to an active collector, and has a condition that an emitted event shape can satisfy. |
+| `degraded` | The document can evaluate, but at least one referenced field is conditional, unavailable on some branch, derived, best-effort, truncated, or stale. |
+| `can-never-fire` | Parsing, compilation, routing, collector configuration, field availability, or a missing dependency prevents the document from evaluating successfully. |
+
+Field availability is read from the same
+[`FIELD_AVAILABILITY`](field-availability.md) contract used by event access.
+The analysis follows the condition structure. An unavailable selection behind
+`or` does not make an available alternative inert, and negating an unavailable
+selection can still produce a true condition. Exact `EventID` selections are
+checked against individual event shapes, including the optional Windows
+Filtering Platform collector.
+
+Correlation and filter entries list their referenced documents. A missing
+reference is `missing_reference`; an existing dependency that cannot fire is
+`dependency_unavailable`. Temporal correlations require every dependency.
+Count and aggregation correlations can remain degraded when another dependency
+still contributes events. A filter with several explicit targets remains
+usable when at least one target is compatible.
+
+### JSON contract
+
+`--json` emits `schema_version: 1`, the selected `platform` and `field_view`,
+aggregate verdict and reason counts, and a deterministic `documents` array.
+Each document includes source path, kind, identity, verdict, logsource,
+referenced fields, dependencies, and stable reason codes. Source paths are
+relative to the inspected rules directory.
+
+The schema version changes only for an incompatible rename, removal, type
+change, or semantic change. New optional fields, new reason codes, and new
+document kinds are additive and keep the current schema version. Consumers
+must ignore unknown object fields and reason codes. Array order is stable for a
+given ruleset, but consumers should identify documents by source, kind, and id
+or title rather than by array position.
+
+Stable reason codes in schema version 1 are:
+
+`parse_error`, `compile_error`, `product_mismatch`, `deferred_logsource`,
+`unknown_logsource`, `inactive_collector`, `collector_disabled`,
+`no_platform_telemetry`, `unavailable_field`, `conditional_field`,
+`derived_field`, `best_effort_field`, `truncated_field`, `stale_field`,
+`missing_reference`, and `dependency_unavailable`.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Every document is `can-fire`. |
+| `1` | At least one document is `degraded` or `can-never-fire` for a coverage reason. |
+| `2` | Configuration, parsing, or compilation prevented a reliable report. |
+
 ## Logsources
 
 | Logsource | Windows | Linux | macOS |

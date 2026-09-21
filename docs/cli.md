@@ -105,6 +105,26 @@ rustinel doctor [--json]
 | --- | --- |
 | `--json` | Emit structured JSON output. |
 
+## `rustinel sigma`
+
+Inspect Sigma rule compatibility.
+
+### `rustinel sigma doctor`
+
+Explain which Sigma documents can fire on a platform.
+
+Exits 0 when every document can fire, 1 when coverage is degraded or unavailable, and 2 when a document cannot be parsed or compiled.
+
+```text
+rustinel sigma doctor [--json] [--platform <PLATFORM>] [--rules <PATH>]
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` | Emit the stable, versioned JSON report. |
+| `--platform <PLATFORM>` | Platform whose collectors and field availability should be checked. One of `windows`, `linux`, `macos`. |
+| `--rules <PATH>` | Sigma rules directory; defaults to scanner.sigma_rules_path. |
+
 ## `rustinel service`
 
 Manage the native service (SCM on Windows, systemd on Linux, launchd on macOS).
@@ -212,6 +232,7 @@ rustinel rules install <PACK> [--catalog-url <URL>] [--rules-dir <PATH>]
 | Command | Code | Meaning |
 | --- | --- | --- |
 | `doctor` | `0`, `1`, `2` | All checks passed, a warning, a failure |
+| `sigma doctor` | `0`, `1`, `2` | Full compatibility, a coverage gap, a parse or compile failure |
 | every other command | `0`, `1` | Success, error |
 
 ## Environment variables
