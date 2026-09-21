@@ -20,7 +20,7 @@ warnings = "deny"
 # Sigma detection engine: rule parsing (rsigma-parser) plus stateless detection
 # and stateful correlation evaluation (rsigma-eval). Rustinel keeps ownership of
 # normalization, logsource routing, ECS alerts, hot reload, and IOC/YARA.
-rsigma-parser = "0.21"
+rsigma-parser = "0.22"
 rsigma-eval = "0.21"
 
 regex = "1.10"
