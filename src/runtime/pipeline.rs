@@ -266,7 +266,7 @@ impl LivePipeline {
                     &cfg.scanner.yara_allowlist_paths,
                 ),
                 pe_metadata: platform == Platform::Windows,
-                written_files: None,
+                written_files: Some(crate::artifact::written_file_scan_selector()),
             },
         );
 

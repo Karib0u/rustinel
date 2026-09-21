@@ -48,7 +48,7 @@ rule ExampleMarkerString {
 ```
 
 Files ending in `.yar` or `.yara` are loaded.
-YARA scans an executable when it starts, so a file that is written but never run is not scanned.
+YARA scans an executable when it starts and qualifying files written to disk after a 250 ms settle delay.
 
 ## Add indicators
 
