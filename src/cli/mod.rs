@@ -101,6 +101,11 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect Sigma rule compatibility
+    Sigma {
+        #[command(subcommand)]
+        action: SigmaAction,
+    },
     /// Manage the native service (SCM on Windows, systemd on Linux, launchd on macOS)
     Service {
         #[command(subcommand)]
@@ -117,6 +122,42 @@ pub enum Commands {
 pub enum SetupPack {
     Essential,
     Advanced,
+}
+
+#[derive(clap::Subcommand, Clone)]
+pub enum SigmaAction {
+    /// Explain which Sigma documents can fire on a platform
+    ///
+    /// Exits 0 when every document can fire, 1 when coverage is degraded or
+    /// unavailable, and 2 when a document cannot be parsed or compiled.
+    Doctor {
+        /// Emit the stable, versioned JSON report
+        #[arg(long)]
+        json: bool,
+        /// Platform whose collectors and field availability should be checked
+        #[arg(long, value_enum)]
+        platform: Option<SigmaPlatform>,
+        /// Sigma rules directory; defaults to scanner.sigma_rules_path
+        #[arg(long, value_name = "PATH")]
+        rules: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SigmaPlatform {
+    Windows,
+    Linux,
+    Macos,
+}
+
+impl SigmaPlatform {
+    pub fn sensor_platform(self) -> crate::sensor::Platform {
+        match self {
+            Self::Windows => crate::sensor::Platform::Windows,
+            Self::Linux => crate::sensor::Platform::Linux,
+            Self::Macos => crate::sensor::Platform::MacOS,
+        }
+    }
 }
 
 impl SetupPack {
@@ -452,6 +493,37 @@ mod tests {
         match cli.command {
             Some(Commands::Doctor { json }) => assert!(json),
             _ => panic!("expected doctor command"),
+        }
+    }
+
+    #[test]
+    fn sigma_doctor_accepts_platform_json_and_rules_path() {
+        let cli = Cli::try_parse_from([
+            "rustinel",
+            "sigma",
+            "doctor",
+            "--platform",
+            "windows",
+            "--rules",
+            "/tmp/sigma",
+            "--json",
+        ])
+        .expect("valid Sigma doctor command");
+
+        match cli.command {
+            Some(Commands::Sigma {
+                action:
+                    SigmaAction::Doctor {
+                        json,
+                        platform,
+                        rules,
+                    },
+            }) => {
+                assert!(json);
+                assert_eq!(platform, Some(SigmaPlatform::Windows));
+                assert_eq!(rules, Some(std::path::PathBuf::from("/tmp/sigma")));
+            }
+            _ => panic!("expected Sigma doctor command"),
         }
     }
 

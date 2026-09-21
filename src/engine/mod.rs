@@ -16,6 +16,7 @@
 //! - `alert` — mapping RSigma evaluation results onto Rustinel's [`Alert`].
 
 mod alert;
+pub mod compatibility;
 mod deferred;
 mod detect;
 mod detectors;

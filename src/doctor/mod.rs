@@ -3,6 +3,7 @@ pub mod path;
 pub mod prerequisites;
 pub mod rules;
 pub mod services;
+pub mod sigma;
 mod telemetry;
 
 pub use inspect::{

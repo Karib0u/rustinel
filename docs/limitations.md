@@ -30,6 +30,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Rule count is not coverage.
 - **Silent: fields never filled.**
   A rule that needs a field listed in [Field availability](field-availability.md) never matches.
+  `rustinel sigma doctor` reports the affected rule and field, while respecting alternatives and negation in the rule condition.
 - **Unsupported modifiers reject the rule.**
   The rule is dropped at load and reported, never partly applied.
 - **One alert per event.**

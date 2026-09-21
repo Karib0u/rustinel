@@ -1,0 +1,52 @@
+title: Compatible process rule
+id: compatible-process
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    ProcessId|exists: true
+  condition: selection
+---
+title: Unavailable process field
+id: unavailable-process-field
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    OriginalFileName: whoami.exe
+  condition: selection
+---
+title: Alternative process fields
+id: alternative-process-fields
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  unavailable:
+    OriginalFileName: whoami.exe
+  available:
+    ProcessId|exists: true
+  condition: unavailable or available
+---
+title: Compatible process count
+id: compatible-process-count
+correlation:
+  type: event_count
+  rules:
+    - compatible-process
+  group-by:
+    - ProcessId
+  timespan: 5m
+  condition:
+    gte: 2
+---
+title: Compatible process filter
+id: compatible-process-filter
+filter:
+  rules:
+    - compatible-process
+  selection:
+    ProcessId|exists: true
+  condition: selection
