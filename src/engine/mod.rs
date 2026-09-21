@@ -38,6 +38,7 @@ pub use stats::{EngineStats, UnsupportedRule, UnsupportedRuleKind};
 pub(crate) use store::CORRELATION_REORDER_BUDGET;
 
 use rsigma_eval::EvaluationResult;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -49,10 +50,25 @@ pub(crate) struct SigmaAlert {
     pub(crate) process_start_key: Option<ProcessStartKey>,
 }
 
+/// Controls which Sigma detection matches become alerts.
+///
+/// Correlation always receives every matching detection, independently of
+/// this presentation setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SigmaMatchMode {
+    /// Emit only the deterministic highest-ranked detection from each pass.
+    #[default]
+    Best,
+    /// Emit one alert for every matching detection rule.
+    All,
+}
+
 /// Ranking key for the default one-Sigma-alert-per-event policy.
 ///
-/// Several rules can match the same event, and Rustinel emits a single Sigma
-/// alert, so the engine needs a total order over matches. The policy is:
+/// Several rules can match the same event, and `best` mode emits a single
+/// Sigma alert per pass, so the engine needs a total order over matches. The
+/// policy is:
 ///
 /// 1. Highest normalized severity (`critical > high > medium > low`).
 /// 2. On equal severity, rules carrying an `id` win over rules without one.
@@ -64,7 +80,7 @@ pub(crate) struct SigmaAlert {
 /// ruleset was loaded. The best match is the *smallest* `MatchRank`; a fully
 /// equal rank keeps the first candidate seen.
 ///
-/// Correlation results are appended after this single detection result.
+/// Correlation results are appended after the selected detection results.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct MatchRank<'a> {
     /// Reversed so that a higher severity yields a smaller rank.
@@ -134,6 +150,9 @@ pub struct Engine {
 
     /// Controls whether match debug details are attached to alerts.
     match_debug: MatchDebugLevel,
+
+    /// Controls which detection matches are presented as alerts.
+    sigma_match_mode: SigmaMatchMode,
 }
 
 impl Engine {
@@ -178,7 +197,14 @@ impl Engine {
             unknown_logsource_counts: HashMap::new(),
             inactive_collector_counts: HashMap::new(),
             match_debug,
+            sigma_match_mode: SigmaMatchMode::Best,
         }
+    }
+
+    /// Set the detection-alert presentation mode.
+    pub fn with_sigma_match_mode(mut self, sigma_match_mode: SigmaMatchMode) -> Self {
+        self.sigma_match_mode = sigma_match_mode;
+        self
     }
 
     /// Evaluate an event against every loaded rule.
@@ -191,9 +217,10 @@ impl Engine {
 
     /// Evaluate the rules of one detection pass against an event.
     ///
-    /// Each pass contributes at most one detection alert, selected by
-    /// `MatchRank` among that pass's rules, followed by every correlation alert
-    /// its detections fired. Detection results are deduplicated before they
+    /// In `best` mode, each pass contributes at most one detection alert,
+    /// selected by `MatchRank` among that pass's rules. In `all` mode, every
+    /// matching detection rule contributes an alert. Every correlation alert
+    /// follows the detection alerts. Detection results are deduplicated before they
     /// reach the stateful correlation engine because a partial logsource can
     /// match through more than one concrete event alias. Detection alerts are
     /// returned immediately. Correlation updates wait behind any earlier
@@ -221,7 +248,7 @@ impl Engine {
         pass: DetectionPass,
     ) -> Vec<SigmaAlert> {
         let deferred_rules = self.store.deferred();
-        let (best, correlations) = {
+        let (selected, correlations) = {
             let mut state = self.store.lock();
             let mut admission = Vec::new();
             let mut deferred = Vec::new();
@@ -262,16 +289,12 @@ impl Engine {
                 }
             }
 
-            let mut best = Vec::with_capacity(2);
+            let mut selected = Vec::new();
             if pass.includes_admission() {
-                if let Some(result) = self.best_detection(&admission) {
-                    best.push(result);
-                }
+                selected.extend(self.select_detections(&admission));
             }
             if pass.includes_deferred() {
-                if let Some(result) = self.best_detection(&deferred) {
-                    best.push(result);
-                }
+                selected.extend(self.select_detections(&deferred));
             }
 
             let key = correlation_event_key(event);
@@ -358,11 +381,11 @@ impl Engine {
                     }
                 }
             }
-            (best, correlations)
+            (selected, correlations)
         };
 
-        let mut alerts = Vec::with_capacity(best.len() + correlations.len());
-        for result in best {
+        let mut alerts = Vec::with_capacity(selected.len() + correlations.len());
+        for result in selected {
             alerts.push(SigmaAlert {
                 alert: self.build_alert(result, event),
                 process_start_key,
@@ -378,15 +401,24 @@ impl Engine {
         alerts
     }
 
-    fn best_detection(&self, results: &[EvaluationResult]) -> Option<EvaluationResult> {
+    fn select_detections(&self, results: &[EvaluationResult]) -> Vec<EvaluationResult> {
+        let restore_id = |mut result: EvaluationResult| {
+            self.store.restore_synthetic_detection_id(&mut result);
+            result
+        };
+        if self.sigma_match_mode == SigmaMatchMode::Best {
+            return results
+                .iter()
+                .cloned()
+                .map(restore_id)
+                .min_by(|left, right| alert::result_rank(left).cmp(&alert::result_rank(right)))
+                .into_iter()
+                .collect();
+        }
+
+        let mut results = results.iter().cloned().map(restore_id).collect::<Vec<_>>();
+        results.sort_by(|left, right| alert::result_rank(left).cmp(&alert::result_rank(right)));
         results
-            .iter()
-            .cloned()
-            .map(|mut result| {
-                self.store.restore_synthetic_detection_id(&mut result);
-                result
-            })
-            .min_by(|left, right| alert::result_rank(left).cmp(&alert::result_rank(right)))
     }
 
     /// Artifact fields the deferred pass needs for this event, or empty when

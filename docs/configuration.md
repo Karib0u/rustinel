@@ -68,6 +68,7 @@ Sigma and YARA rules, YARA scan limits, and optional memory scanning.
 | --- | --- | --- |
 | `sigma_enabled` | `true` | Evaluate Sigma rules. |
 | `sigma_rules_path` | `"rules/current/sigma"` | Sigma rules directory, loaded recursively. |
+| `sigma_match_mode` | `"best"` | `best` emits the highest-severity detection per pass; `all` emits every matching detection rule. |
 | `yara_enabled` | `true` | Scan new process executables and qualifying files written to disk with YARA. |
 | `yara_rules_path` | `"rules/current/yara"` | Directory of `.yar` and `.yara` files, loaded recursively. |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Path prefixes YARA never scans. Replaces `allowlist.paths` for YARA once set. |

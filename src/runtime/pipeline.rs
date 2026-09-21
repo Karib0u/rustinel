@@ -56,7 +56,8 @@ impl LivePipeline {
     ) -> Self {
         // Sigma engine
         let mut sigma_engine =
-            Engine::new_for_platform_with_match_debug(platform, cfg.alerts.match_debug);
+            Engine::new_for_platform_with_match_debug(platform, cfg.alerts.match_debug)
+                .with_sigma_match_mode(cfg.scanner.sigma_match_mode);
 
         if cfg.scanner.sigma_enabled {
             info!(rules_path = ?cfg.scanner.sigma_rules_path, "Loading Sigma rules");

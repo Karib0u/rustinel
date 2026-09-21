@@ -4,7 +4,7 @@ Rustinel runs three engines over the same events.
 
 | Engine | Checks | When | Alerts per event |
 | --- | --- | --- | --- |
-| Sigma | Every event | Inline; rules on `Hashes` or `Imphash` after artifact resolution | At most one, plus correlation alerts; see [Deferred pass](#deferred-pass) |
+| Sigma | Every event | Inline; rules on `Hashes` or `Imphash` after artifact resolution | One per pass by default, or every matching rule in `all` mode, plus correlation alerts; see [Deferred pass](#deferred-pass) |
 | IOC (IP, domain, path) | Every event | Inline | One per matching indicator |
 | IOC (hash) | Executable of each new process | Background | One per matching hash |
 | YARA | Executable of each new process, and optionally its memory | Background | One per matching rule |
@@ -142,6 +142,23 @@ Active response accepts `low` as its least severe threshold, so informational al
 An unrecognized Sigma level does not silently become a valid low level: rule loading logs a warning and `rustinel doctor` reports the parser diagnostic under `sigma_rules_parse`.
 The rule continues to load with the explicit low fallback.
 
+## Sigma match mode
+
+`scanner.sigma_match_mode` controls which matching detection rules become alerts:
+
+| Value | Behavior |
+| --- | --- |
+| `best` | Default. Emit the highest-severity detection from each admission or deferred pass. Ties resolve deterministically by rule ID and title. |
+| `all` | Emit one alert for every matching detection rule, ordered by the same deterministic rank. |
+
+Correlation always receives every matching detection result in both modes.
+The setting changes alert presentation only.
+
+`all` mode increases alert construction work and can substantially increase output volume when rules overlap.
+Candidate evaluation still examines the applicable rules in either mode.
+
+See [Deduplication](#deduplication) and [active response](active-response.md) for downstream behavior.
+
 ## Sigma metadata in alerts
 
 Rustinel preserves this bounded, operator-facing subset of Sigma metadata from rule loading through alert construction and NDJSON serialization:
@@ -170,6 +187,7 @@ Arbitrary Sigma custom attributes are not copied into alerts.
 Identical alerts within `dedup.window_secs` (60 by default) are collapsed.
 Two alerts are identical when they share the engine, rule, scan source, process executable, parent executable, user, and bounded Sigma metadata.
 The scan source applies to YARA alerts, so a file hit and a process-memory hit are never collapsed together.
+In Sigma `all` mode, each matching rule has a separate key, so repeated events can produce one first alert and one rollup per rule.
 
 - The first alert is written immediately.
 - At the end of the window, one rollup alert is written with `event.count` set to the number of repeats that were suppressed.

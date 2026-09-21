@@ -11,6 +11,8 @@ It acts after the event, so the process may already have done its work.
 
 Severity comes from the rule: the Sigma `level`, always `critical` for YARA, and `ioc.default_severity` for indicators.
 `low` is the least severe response threshold; Sigma `informational` alerts are written normally but never trigger active response.
+With `scanner.sigma_match_mode = "all"`, every emitted Sigma alert is considered independently, so overlapping rules may request a response for the same process.
+Response safeguards and the configured severity threshold still apply.
 
 Rustinel never kills:
 

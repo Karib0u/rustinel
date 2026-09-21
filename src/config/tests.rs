@@ -15,6 +15,10 @@ fn test_exe_dir_config_base_is_next_to_executable() {
 fn test_config_loads_defaults() {
     let cfg = AppConfig::default();
     assert!(cfg.scanner.sigma_enabled);
+    assert_eq!(
+        cfg.scanner.sigma_match_mode,
+        crate::engine::SigmaMatchMode::Best
+    );
     assert_eq!(cfg.logging.level, "info");
     assert!(cfg.logging.filter.is_none());
     assert!(!cfg.logging.console_output);
@@ -28,6 +32,17 @@ fn test_config_loads_defaults() {
     assert_eq!(cfg.alerts.match_debug, MatchDebugLevel::Off);
     assert!(cfg.telemetry.enabled);
     assert_eq!(cfg.telemetry.snapshot_interval_secs, 30);
+}
+
+#[test]
+fn sigma_match_mode_accepts_all() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let cfg = load_config_file(&temp, "[scanner]\nsigma_match_mode = \"all\"\n")
+        .expect("all is a valid Sigma match mode");
+    assert_eq!(
+        cfg.scanner.sigma_match_mode,
+        crate::engine::SigmaMatchMode::All
+    );
 }
 
 #[test]
@@ -663,6 +678,7 @@ fn configuration_type_and_enum_errors_never_carry_input_values() {
     for (content, key) in [
         ("[[alerts.webhook]]\nurl = \"https://hooks.example/\"\ntimeout_ms = \"PRIVATE-VALUE\"\n", "timeout_ms"),
         ("[alerts]\nmatch_debug = \"PRIVATE-VALUE\"\n", "match_debug"),
+        ("[scanner]\nsigma_match_mode = \"PRIVATE-VALUE\"\n", "sigma_match_mode"),
     ] {
         let error = load_config_file(&temp, content).expect_err("invalid value");
         for rendered in [error.to_string(), format!("{error:?}")] {
