@@ -81,8 +81,10 @@ See [macOS permissions](macos-permissions.md#start-up-errors).
 
 ## YARA did not scan a file
 
-- YARA scans executables when they start.
-  A file that never runs is not scanned.
+- Process executables are scanned when they start.
+  Written files must be non-empty and have a supported executable, script, archive, or document extension or file signature.
+- Written-file scans require event-time file identity from the sensor.
+  Missing identities are counted under `artifact_resolver.identity_unavailable`.
 - The path is under a trusted prefix (`scanner.yara_allowlist_paths`).
 - The file is larger than `scanner.yara_max_file_mb`, or the scan hit `scanner.yara_scan_timeout_ms`.
 - The shared artifact queue was full: `rustinel doctor` reports `artifact_resolution` drops and an `artifact_resolver` queue-saturation outcome.
@@ -93,7 +95,7 @@ Refusals are logged at `trace` level.
 
 ## A hash indicator did not fire
 
-Hashes are checked only when at least one hash is loaded, for executables of new processes, outside trusted paths, and below `ioc.max_file_size_mb`.
+Hashes are checked only when at least one hash is loaded, for new process executables and qualifying written files outside trusted paths and below `ioc.max_file_size_mb`.
 
 ## Rule edits are ignored
 

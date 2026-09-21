@@ -33,8 +33,8 @@ Username lookups are cached, including failed lookups; inventory coverage and st
 ## Detection
 
 - **Sigma** and **IP, domain, and path indicators** run on every event as it arrives.
-- **YARA**, **hash indicators**, and Windows PE metadata run through one background artifact resolver when a process starts.
-  It opens and reads the executable once for all requested consumers.
+- **YARA**, **hash indicators**, and Windows PE metadata run through one background artifact resolver for process starts and qualifying file writes.
+  It opens and reads each identity-validated artifact once for all requested consumers.
 
 See [Detection](detection.md) for how each engine picks what to alert on.
 

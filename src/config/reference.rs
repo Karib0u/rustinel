@@ -95,7 +95,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "scanner.yara_enabled",
         default_note: None,
-        description: "Scan executables with YARA when they start.",
+        description: "Scan new process executables and qualifying files written to disk with YARA.",
     },
     ConfigOption {
         key: "scanner.yara_rules_path",
@@ -307,7 +307,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "ioc.max_file_size_mb",
         default_note: None,
-        description: "Larger executables are not hashed.",
+        description: "Larger files are not hashed.",
     },
     ConfigOption {
         key: "ioc.hash_allowlist_paths",

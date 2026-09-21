@@ -15,8 +15,9 @@ Fields each platform never fills are listed in [Field availability](field-availa
   The only action is killing the process, after its event was processed.
   It may have finished already.
   There is no quarantine, file deletion, network isolation, or rollback.
-- **YARA scans only executables that run.**
-  A file written to disk and never executed is not scanned.
+- **Written-file scanning depends on sensor identity.**
+  A file event without event-time object identity is skipped and counted rather than opened by path alone.
+  Unsupported extensions without a recognized file signature are not scanned.
   Memory scanning is optional and needs privileges.
 - **Memory-only and living-off-the-land activity** leaves little telemetry.
 - **Rule packs are not signed.**

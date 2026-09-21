@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
@@ -49,6 +49,10 @@ const ARTIFACT_DEADLINE: Duration = Duration::from_secs(10);
 const ARTIFACT_MAX_READ_BYTES: u64 = 256 * 1024 * 1024;
 const PE_MAX_READ_BYTES: u64 = 128 * 1024 * 1024;
 const ARTIFACT_IO_ISOLATION_LIMIT: usize = 4;
+/// File create and modify events can arrive before the writer has finished.
+/// Delay their background resolution so short writes settle before opening.
+const WRITTEN_FILE_SETTLE_DELAY: Duration = Duration::from_millis(250);
+const WRITTEN_FILE_MAGIC_BYTES: usize = 16;
 /// Longest Sigma-visible enrichment may hold an event at admission. Past it
 /// the event is admitted, still in ingest order, without those fields.
 pub(crate) const ADMISSION_BUDGET: Duration = Duration::from_millis(100);
@@ -329,6 +333,12 @@ impl ArtifactResolverHandle {
 pub(crate) type WrittenFileSelector =
     Arc<dyn Fn(&CanonicalEvent, &FileEventFields) -> bool + Send + Sync>;
 
+/// Select complete canonical file paths for written-file content inspection.
+/// Content qualification happens on the resolver's identity-validated handle.
+pub(crate) fn written_file_scan_selector() -> WrittenFileSelector {
+    Arc::new(|_, fields| fields.path_truncated.is_none())
+}
+
 #[derive(Clone)]
 pub(crate) struct ArtifactRuntime {
     pub detectors: Option<Arc<DetectorStore>>,
@@ -598,6 +608,11 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             self.admit(event, None, false);
             return;
         };
+        let plan = ResolvePlan::snapshot(&self.runtime, event, &target);
+        if plan.needs.is_empty() {
+            self.admit(event, None, false);
+            return;
+        }
         if target.kind == ArtifactKind::WrittenFile && target.expected.is_none() {
             // Without an event-time identity the resolver could scan whatever
             // replaced the file and report it as the file this event wrote.
@@ -605,11 +620,6 @@ impl CanonicalEventHandler for ArtifactEventHandler {
                 .counters
                 .identity_unavailable
                 .fetch_add(1, Ordering::Relaxed);
-            self.admit(event, None, false);
-            return;
-        }
-        let plan = ResolvePlan::snapshot(&self.runtime, event, &target);
-        if plan.needs.is_empty() {
             self.admit(event, None, false);
             return;
         }
@@ -1111,48 +1121,97 @@ impl ArtifactResolver {
         let active = Arc::new(AtomicUsize::new(0));
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let mut latest_deadline = Instant::now();
-        while let Some(job) = rx.blocking_recv() {
-            let deadline_at = job
-                .enqueued_at
-                .checked_add(job.plan.deadline)
-                .unwrap_or_else(Instant::now);
-            while active.load(Ordering::Acquire) >= ARTIFACT_IO_ISOLATION_LIMIT {
-                let remaining = deadline_at.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    break;
-                }
-                let _ = done_rx.recv_timeout(remaining);
-            }
-            if Instant::now() >= deadline_at {
-                self.state
-                    .counters
-                    .deadline_exceeded
-                    .fetch_add(1, Ordering::Relaxed);
+        let timer = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("artifact resolver timer runtime");
+        let mut settling = Vec::<ArtifactJob>::new();
+        let mut channel_closed = false;
+        loop {
+            let now = Instant::now();
+            if let Some(index) = settling.iter().position(|job| {
+                now.saturating_duration_since(job.enqueued_at) >= WRITTEN_FILE_SETTLE_DELAY
+            }) {
+                let job = settling.swap_remove(index);
+                self.dispatch_job(
+                    job,
+                    &open,
+                    &active,
+                    &done_tx,
+                    &done_rx,
+                    &mut latest_deadline,
+                );
                 continue;
             }
 
-            let resolver = self.clone();
-            let open = Arc::clone(&open);
-            let slot = Arc::clone(&active);
-            let done = done_tx.clone();
-            slot.fetch_add(1, Ordering::AcqRel);
-            let spawned = std::thread::Builder::new()
-                .name("artifact-io".to_string())
-                .spawn(move || {
-                    resolver.resolve_job(job, deadline_at, |path| open(path));
-                    slot.fetch_sub(1, Ordering::AcqRel);
-                    let _ = done.send(());
-                });
-            match spawned {
-                Ok(_detached) => latest_deadline = latest_deadline.max(deadline_at),
-                Err(error) => {
-                    active.fetch_sub(1, Ordering::AcqRel);
-                    self.state
-                        .counters
-                        .worker_saturated
-                        .fetch_add(1, Ordering::Relaxed);
-                    debug!(target: "artifact", %error, "Could not isolate artifact I/O");
+            if channel_closed {
+                if settling.is_empty() {
+                    break;
                 }
+                let wait = settling
+                    .iter()
+                    .map(|job| {
+                        job.enqueued_at
+                            .checked_add(WRITTEN_FILE_SETTLE_DELAY)
+                            .unwrap_or_else(Instant::now)
+                            .saturating_duration_since(now)
+                    })
+                    .min()
+                    .unwrap_or_default();
+                std::thread::sleep(wait);
+                continue;
+            }
+
+            if settling.len() >= ARTIFACT_QUEUE_CAPACITY {
+                let wait = settling
+                    .iter()
+                    .map(|job| {
+                        job.enqueued_at
+                            .checked_add(WRITTEN_FILE_SETTLE_DELAY)
+                            .unwrap_or_else(Instant::now)
+                            .saturating_duration_since(now)
+                    })
+                    .min()
+                    .unwrap_or_default();
+                std::thread::sleep(wait);
+                continue;
+            }
+
+            let wait = settling.iter().map(|job| {
+                job.enqueued_at
+                    .checked_add(WRITTEN_FILE_SETTLE_DELAY)
+                    .unwrap_or_else(Instant::now)
+                    .saturating_duration_since(now)
+            });
+            let received = match wait.min() {
+                Some(wait) => timer
+                    .block_on(async { tokio::time::timeout(wait, rx.recv()).await })
+                    .ok()
+                    .flatten(),
+                None => timer.block_on(rx.recv()),
+            };
+            let Some(job) = received else {
+                channel_closed = rx.is_closed();
+                continue;
+            };
+            if job.target.kind == ArtifactKind::WrittenFile {
+                if let Some(existing) = settling.iter_mut().find(|existing| {
+                    existing.target.path == job.target.path
+                        && existing.target.expected == job.target.expected
+                }) {
+                    *existing = job;
+                } else {
+                    settling.push(job);
+                }
+            } else {
+                self.dispatch_job(
+                    job,
+                    &open,
+                    &active,
+                    &done_tx,
+                    &done_rx,
+                    &mut latest_deadline,
+                );
             }
         }
         // In-flight work gets until its own deadline. A thread still blocked
@@ -1165,6 +1224,59 @@ impl ArtifactResolver {
             let _ = done_rx.recv_timeout(remaining);
         }
         info!(target: "artifact", "Artifact resolver worker stopped");
+    }
+
+    fn dispatch_job(
+        &self,
+        job: ArtifactJob,
+        open: &ArtifactOpener,
+        active: &Arc<AtomicUsize>,
+        done_tx: &std::sync::mpsc::Sender<()>,
+        done_rx: &std::sync::mpsc::Receiver<()>,
+        latest_deadline: &mut Instant,
+    ) {
+        let deadline_at = job
+            .enqueued_at
+            .checked_add(job.plan.deadline)
+            .unwrap_or_else(Instant::now);
+        while active.load(Ordering::Acquire) >= ARTIFACT_IO_ISOLATION_LIMIT {
+            let remaining = deadline_at.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let _ = done_rx.recv_timeout(remaining);
+        }
+        if Instant::now() >= deadline_at {
+            self.state
+                .counters
+                .deadline_exceeded
+                .fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+
+        let resolver = self.clone();
+        let open = Arc::clone(open);
+        let slot = Arc::clone(active);
+        let done = done_tx.clone();
+        slot.fetch_add(1, Ordering::AcqRel);
+        let spawned = std::thread::Builder::new()
+            .name("artifact-io".to_string())
+            .spawn(move || {
+                resolver.resolve_job(job, deadline_at, |path| open(path));
+                slot.fetch_sub(1, Ordering::AcqRel);
+                let _ = done.send(());
+            });
+        match spawned {
+            Ok(_detached) => *latest_deadline = (*latest_deadline).max(deadline_at),
+            Err(error) => {
+                active.fetch_sub(1, Ordering::AcqRel);
+                self.state
+                    .counters
+                    .worker_saturated
+                    .fetch_add(1, Ordering::Relaxed);
+                debug!(target: "artifact", %error, "Could not isolate artifact I/O");
+            }
+        }
     }
 
     fn resolve_job<F>(&self, mut job: ArtifactJob, deadline_at: Instant, open: F)
@@ -1282,6 +1394,38 @@ impl ArtifactResolver {
             identity: Some(identity.clone()),
             ..Artifact::default()
         };
+        let size = file
+            .metadata()
+            .map_err(|error| {
+                self.state
+                    .counters
+                    .read_failed
+                    .fetch_add(1, Ordering::Relaxed);
+                ResolveError::Read(error)
+            })?
+            .len();
+        if plan.max_read_bytes == 0 || size > plan.max_read_bytes {
+            self.state
+                .counters
+                .oversized
+                .fetch_add(1, Ordering::Relaxed);
+            return Err(ResolveError::TooLarge {
+                size,
+                limit: plan.max_read_bytes,
+            });
+        }
+        if target.kind == ArtifactKind::WrittenFile
+            && !written_file_qualifies(&target.path, &mut file, size).map_err(|error| {
+                self.state
+                    .counters
+                    .read_failed
+                    .fetch_add(1, Ordering::Relaxed);
+                ResolveError::Read(error)
+            })?
+        {
+            return Ok(artifact);
+        }
+
         let mut missing = plan.needs;
         {
             let mut stores = self
@@ -1312,27 +1456,6 @@ impl ArtifactResolver {
             .counters
             .cache_misses
             .fetch_add(1, Ordering::Relaxed);
-
-        let size = file
-            .metadata()
-            .map_err(|error| {
-                self.state
-                    .counters
-                    .read_failed
-                    .fetch_add(1, Ordering::Relaxed);
-                ResolveError::Read(error)
-            })?
-            .len();
-        if plan.max_read_bytes == 0 || size > plan.max_read_bytes {
-            self.state
-                .counters
-                .oversized
-                .fetch_add(1, Ordering::Relaxed);
-            return Err(ResolveError::TooLarge {
-                size,
-                limit: plan.max_read_bytes,
-            });
-        }
 
         if missing.pe_metadata && size > PE_MAX_READ_BYTES {
             missing.pe_metadata = false;
@@ -1601,6 +1724,113 @@ impl ArtifactResolver {
             }
         }
     }
+}
+
+fn written_file_qualifies(path: &Path, file: &mut File, size: u64) -> io::Result<bool> {
+    if size == 0 {
+        return Ok(false);
+    }
+    if path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(qualifying_written_file_extension)
+    {
+        return Ok(true);
+    }
+
+    let mut magic = [0u8; WRITTEN_FILE_MAGIC_BYTES];
+    let read = file.read(&mut magic)?;
+    file.seek(SeekFrom::Start(0))?;
+    Ok(qualifying_written_file_magic(&magic[..read]))
+}
+
+fn qualifying_written_file_extension(extension: &str) -> bool {
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "exe"
+            | "dll"
+            | "sys"
+            | "scr"
+            | "com"
+            | "cpl"
+            | "msi"
+            | "msp"
+            | "ps1"
+            | "bat"
+            | "cmd"
+            | "vbs"
+            | "vbe"
+            | "js"
+            | "jse"
+            | "wsf"
+            | "wsh"
+            | "hta"
+            | "jar"
+            | "class"
+            | "sh"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "py"
+            | "pyw"
+            | "pl"
+            | "rb"
+            | "php"
+            | "elf"
+            | "so"
+            | "dylib"
+            | "dmg"
+            | "pkg"
+            | "deb"
+            | "rpm"
+            | "apk"
+            | "zip"
+            | "rar"
+            | "7z"
+            | "gz"
+            | "bz2"
+            | "xz"
+            | "tar"
+            | "cab"
+            | "iso"
+            | "img"
+            | "pdf"
+            | "doc"
+            | "docx"
+            | "docm"
+            | "xls"
+            | "xlsx"
+            | "xlsm"
+            | "ppt"
+            | "pptx"
+            | "pptm"
+            | "rtf"
+            | "lnk"
+    )
+}
+
+fn qualifying_written_file_magic(bytes: &[u8]) -> bool {
+    const PREFIXES: &[&[u8]] = &[
+        b"MZ",
+        b"\x7fELF",
+        b"#!",
+        b"PK\x03\x04",
+        b"PK\x05\x06",
+        b"PK\x07\x08",
+        b"Rar!\x1a\x07",
+        b"7z\xbc\xaf\x27\x1c",
+        b"\x1f\x8b",
+        b"BZh",
+        b"\xfd7zXZ\x00",
+        b"%PDF-",
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
+        b"\xfe\xed\xfa\xce",
+        b"\xce\xfa\xed\xfe",
+        b"\xfe\xed\xfa\xcf",
+        b"\xcf\xfa\xed\xfe",
+        b"\xca\xfe\xba\xbe",
+    ];
+    PREFIXES.iter().any(|prefix| bytes.starts_with(prefix))
 }
 
 fn open_artifact(path: &Path) -> io::Result<File> {
@@ -2994,6 +3224,52 @@ level: high
         Arc::new(|_, _| true)
     }
 
+    #[test]
+    fn written_file_selector_rejects_truncated_paths() {
+        let selector = written_file_scan_selector();
+        let complete = file_event(Path::new("/tmp/payload.exe"), FILE_CREATE_OPCODE, None);
+        let EventFields::FileEvent(complete_fields) = &complete.normalized().fields else {
+            unreachable!();
+        };
+        assert!(selector(&complete, complete_fields));
+
+        let mut truncated = complete.clone().into_normalized();
+        let EventFields::FileEvent(fields) = &mut truncated.fields else {
+            unreachable!();
+        };
+        fields.path_truncated = Some("target".into());
+        let truncated = CanonicalEvent::from_normalized(truncated);
+        let EventFields::FileEvent(truncated_fields) = &truncated.normalized().fields else {
+            unreachable!();
+        };
+        assert!(!selector(&truncated, truncated_fields));
+    }
+
+    #[test]
+    fn written_file_gate_accepts_extension_or_magic_but_not_partial_content() {
+        let temp = tempfile::tempdir().unwrap();
+
+        let extension = temp.path().join("payload.EXE");
+        std::fs::write(&extension, b"plain bytes").unwrap();
+        let mut extension_file = File::open(&extension).unwrap();
+        let extension_size = extension_file.metadata().unwrap().len();
+        assert!(written_file_qualifies(&extension, &mut extension_file, extension_size).unwrap());
+
+        let magic = temp.path().join("payload.unknown");
+        std::fs::write(&magic, b"\x7fELFmore bytes").unwrap();
+        let mut magic_file = File::open(&magic).unwrap();
+        let magic_size = magic_file.metadata().unwrap().len();
+        assert!(written_file_qualifies(&magic, &mut magic_file, magic_size).unwrap());
+
+        for (name, bytes) in [("empty", &b""[..]), ("partial", &b"M"[..])] {
+            let path = temp.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            let mut file = File::open(&path).unwrap();
+            let size = file.metadata().unwrap().len();
+            assert!(!written_file_qualifies(&path, &mut file, size).unwrap());
+        }
+    }
+
     #[cfg(unix)]
     fn object_identity(path: &Path) -> FileObjectIdentity {
         use std::os::unix::fs::MetadataExt;
@@ -3055,10 +3331,46 @@ level: high
 
     #[cfg(unix)]
     #[test]
+    fn repeated_written_file_events_debounce_to_one_resolution() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("dropped.exe");
+        std::fs::write(&path, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.written_files = Some(select_all());
+        let opens = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&opens);
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(move |path| {
+                counted.fetch_add(1, Ordering::Relaxed);
+                open_artifact(path)
+            }),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        let identity = Some(object_identity(&path));
+
+        harness
+            .ingress
+            .handle_event(&file_event(&path, FILE_CREATE_OPCODE, identity));
+        harness
+            .ingress
+            .handle_event(&file_event(&path, FILE_CREATE_OPCODE, identity));
+        let state = harness.finish();
+
+        assert_eq!(opens.load(Ordering::Relaxed), 1);
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.queued, 2);
+        assert_eq!(snapshot.resolved, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn written_file_scans_its_validated_handle_and_rejects_a_replacement() {
         let temp = tempfile::tempdir().unwrap();
         let bytes = b"evil!!";
-        let path = temp.path().join("dropped.bin");
+        let path = temp.path().join("dropped.exe");
         std::fs::write(&path, bytes).unwrap();
         let mut runtime = runtime_with_consumers(temp.path(), bytes);
         runtime.written_files = Some(select_all());
@@ -3140,7 +3452,7 @@ level: high
     fn written_file_alerts_describe_the_file_and_its_writer() {
         let temp = tempfile::tempdir().unwrap();
         let bytes = b"evil!!";
-        let path = temp.path().join("dropped.bin");
+        let path = temp.path().join("dropped.exe");
         std::fs::write(&path, bytes).unwrap();
         let alerts_path = temp.path().join("alerts.ndjson");
         let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());

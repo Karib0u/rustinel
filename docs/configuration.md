@@ -68,7 +68,7 @@ Sigma and YARA rules, YARA scan limits, and optional memory scanning.
 | --- | --- | --- |
 | `sigma_enabled` | `true` | Evaluate Sigma rules. |
 | `sigma_rules_path` | `"rules/current/sigma"` | Sigma rules directory, loaded recursively. |
-| `yara_enabled` | `true` | Scan executables with YARA when they start. |
+| `yara_enabled` | `true` | Scan new process executables and qualifying files written to disk with YARA. |
 | `yara_rules_path` | `"rules/current/yara"` | Directory of `.yar` and `.yara` files, loaded recursively. |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Path prefixes YARA never scans. Replaces `allowlist.paths` for YARA once set. |
 | `yara_scan_timeout_ms` | `10000` | Time limit for one file scan, or for all memory reads of one process. `0` disables it. |
@@ -158,7 +158,7 @@ Indicator files for hashes, IPs, domains, and path patterns.
 | `domains_path` | `"rules/current/ioc/domains.txt"` | Domains. A leading `.` or `*.` also matches subdomains. |
 | `paths_regex_path` | `"rules/current/ioc/paths_regex.txt"` | Path regular expressions, matched case-insensitively. |
 | `default_severity` | `"high"` | Severity of IOC alerts: `low`, `medium`, `high`, or `critical`. |
-| `max_file_size_mb` | `50` | Larger executables are not hashed. |
+| `max_file_size_mb` | `50` | Larger files are not hashed. |
 | `hash_allowlist_paths` | inherits `allowlist.paths` | Path prefixes that are never hashed. Replaces `allowlist.paths` for hashing once set. |
 
 ### `[process]`

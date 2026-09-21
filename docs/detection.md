@@ -30,9 +30,9 @@ Correlation state lives in memory, so a Sigma reload starts new windows.
 
 ## YARA
 
-YARA scans the executable of every new process, skipping trusted paths.
-Results are cached per file, so an unchanged executable is scanned once.
-Files that are written but never run are not scanned.
+YARA scans the executable of every new process and qualifying files written to disk, skipping trusted paths.
+Written files settle for 250 ms, then must be non-empty and match a supported executable, script, archive, or document extension or file signature.
+Results are cached per file identity, so unchanged content is scanned once.
 The shared artifact resolver supplies YARA and IOC hashing from one identity-validated file read.
 Its queue and per-artifact deadline are bounded; a saturated or expired job skips the scan and records the unavailable enrichment in telemetry.
 YARA results carry the active rule generation, so a successful rule reload invalidates YARA results without discarding immutable hash or PE metadata entries.
