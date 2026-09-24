@@ -114,6 +114,7 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
         EventCategory::PowerShellClassicStart => SensorAction::Start,
         EventCategory::Wmi | EventCategory::Service | EventCategory::Task => SensorAction::Register,
         EventCategory::Security => SensorAction::Access,
+        EventCategory::Application => SensorAction::Access,
     }
 }
 

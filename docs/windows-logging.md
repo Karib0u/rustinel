@@ -13,6 +13,14 @@ Without the policy, the matching rules load and stay silent.
 
 `ps_classic_start` uses event 400 from the `Windows PowerShell` channel and needs no additional host policy.
 
+## Application channel
+
+Rustinel subscribes to selected Application channel provider and event ID pairs used by the SigmaHQ corpus. The originating Windows provider is exposed as `Provider_Name`; `event.provider` identifies the Rustinel Event Log collector. The source program must be installed and produce its events for a rule to fire. SQL Server instance providers are accepted when their name contains `MSSQL` and the event ID is in the supported set.
+
+`Data` joins non-empty raw `EventData` values with newlines. For Application Error event 1000, the positional values also populate `AppName`, `AppVersion`, `ModuleName`, and `ExceptionCode` when present. `Level` retains the numeric value from the Windows system header. Formatted, localized `Message` text is unavailable, so rules requiring `Message` are reported as unsatisfiable by `sigma doctor`.
+
+The supported provider and event ID pairs are recorded in the [field availability table](field-availability.md).
+
 ## Audit policy
 
 Each Security event is written only when its audit subcategory is enabled.

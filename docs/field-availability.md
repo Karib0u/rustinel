@@ -43,6 +43,20 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `OriginalFileName` | PE version resources are Windows-only |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `Product` | PE version resources are Windows-only |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `TargetImage` | a process-creation event has no target process |
+| `sysmon` | windows | `application` | `1000 / access` | `Application Error` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `1 / access` | `Audit-CVE` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `216 / access, 325 / access, 326 / access, 327 / access` | `ESENT` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `4 / access` | `MSExchange Control Panel` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `2027 / access` | `MSMQ` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `15457 / access, 18456 / access, 33205 / access, 8128 / access` | `MSSQL*` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `1 / access` | `Microsoft-Windows-Audit-CVE` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `524 / access` | `Microsoft-Windows-Backup` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `865 / access, 866 / access, 867 / access, 868 / access, 882 / access` | `Microsoft-Windows-SoftwareRestrictionPolicies` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `1511 / access` | `Microsoft-Windows-User Profiles Service` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `1033 / access, 1034 / access, 1040 / access, 1042 / access, 11724 / access` | `MsiInstaller` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `200 / access, 201 / access` | `ScreenConnect` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `1001 / access` | `Windows Error Reporting` | `Message` | formatted, localized messages are not rendered by the XML subscription |
+| `sysmon` | windows | `application` | `7053 / access` | `Windows Server Update Services` | `Message` | formatted, localized messages are not rendered by the XML subscription |
 | `sysmon` | windows | `create_remote_thread` | `8` | `none` | `*` | no Rustinel sensor produces remote-thread creation telemetry |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `RecordType` | the subscribed DNS Client events do not expose the query record type |
 | `sysmon` | windows | `file_event` | `create, delete, modify, rename, set` | `Microsoft-Windows-Kernel-File` | `CreationUtcTime` | Kernel-File reports the information class, not the new timestamp |

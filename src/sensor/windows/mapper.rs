@@ -56,6 +56,7 @@ fn action_code_for_record(
         // Event Log sources decode their own normalization; no ETW record
         // reaches this mapping with a Security category.
         EventCategory::Security => 0,
+        EventCategory::Application => 0,
     }
 }
 
@@ -95,6 +96,7 @@ fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &Ev
         EventCategory::Service => record.event_id(),
         EventCategory::Task => record.event_id(),
         EventCategory::Security => record.event_id(),
+        EventCategory::Application => record.event_id(),
     }
 }
 
@@ -140,7 +142,8 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
         | EventCategory::PowerShellClassicStart
         | EventCategory::Service
         | EventCategory::Task
-        | EventCategory::Security => raw_event_id,
+        | EventCategory::Security
+        | EventCategory::Application => raw_event_id,
     }
 }
 
