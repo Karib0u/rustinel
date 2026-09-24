@@ -369,6 +369,7 @@ impl Engine {
                 LogSourceKey::from_parts(Some("windows"), None, Some("ps_classic_start")),
                 LogSourceKey::from_parts(Some("windows"), Some("powershell-classic"), None),
                 LogSourceKey::from_parts(Some("windows"), Some("wmi"), Some("wmi_event")),
+                LogSourceKey::from_parts(Some("windows"), Some("wmi"), None),
                 LogSourceKey::from_parts(Some("windows"), Some("system"), Some("service_creation")),
                 LogSourceKey::from_parts(Some("windows"), Some("security"), None),
                 LogSourceKey::from_parts(Some("windows"), Some("windefend"), None),
@@ -692,11 +693,15 @@ impl Engine {
                 ));
             }
             EventCategory::Wmi => {
-                aliases.push(LogSourceKey::from_parts(
-                    Some("windows"),
-                    Some("wmi"),
-                    Some("wmi_event"),
-                ));
+                if (5857..=5861).contains(&event.event_id) {
+                    aliases.push(LogSourceKey::from_parts(Some("windows"), Some("wmi"), None));
+                } else {
+                    aliases.push(LogSourceKey::from_parts(
+                        Some("windows"),
+                        Some("wmi"),
+                        Some("wmi_event"),
+                    ));
+                }
             }
             EventCategory::Service => {
                 aliases.push(LogSourceKey::from_parts(
