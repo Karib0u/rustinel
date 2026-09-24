@@ -677,6 +677,7 @@ pub enum EventCategory {
     Service,
     Task,
     Security,
+    Defender,
 }
 
 #[cfg(test)]

@@ -65,6 +65,7 @@ impl EventFields {
             EventCategory::Service => serde_json::from_value(payload).map(Self::ServiceCreation),
             EventCategory::Task => serde_json::from_value(payload).map(Self::TaskCreation),
             EventCategory::Security => serde_json::from_value(payload).map(Self::SecurityAudit),
+            EventCategory::Defender => serde_json::from_value(payload).map(Self::SecurityAudit),
         }
     }
 }
@@ -589,7 +590,7 @@ pub struct TaskCreationFields {
     pub image: Option<String>,
 }
 
-/// Windows Security channel audit fields (Sigma: `windows/security`).
+/// Named Windows Event Log fields for Security and Defender Operational.
 ///
 /// Every other category is a single event shape, so a struct of named options
 /// models it exactly. The Security channel is not: one logsource carries event
@@ -604,9 +605,8 @@ pub struct TaskCreationFields {
 /// against: `SubjectLogonId` matches `0x3e4`, not `996`, and `AccessList`
 /// matches the raw `%%4417` access-right codes.
 ///
-/// The set is not open-ended. `sensor::windows::event_log::security` holds one
-/// allowlist per supported event ID, and that table is the single statement of
-/// which fields this collector populates.
+/// The set is not open-ended. The event log decoders use the field availability
+/// table as an allowlist for each supported event ID.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SecurityAuditFields {

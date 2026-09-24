@@ -281,6 +281,7 @@ pub enum RawPayload {
     Service(ServiceCreationFields),
     Task(TaskCreationFields),
     Security(SecurityAuditFields),
+    Defender(SecurityAuditFields),
 }
 
 /// Compatibility name retained for unmigrated call sites.
@@ -303,6 +304,7 @@ impl RawPayload {
             Self::Service(_) => EventCategory::Service,
             Self::Task(_) => EventCategory::Task,
             Self::Security(_) => EventCategory::Security,
+            Self::Defender(_) => EventCategory::Defender,
         }
     }
 
@@ -323,6 +325,7 @@ impl RawPayload {
             Self::Service(fields) => EventFields::ServiceCreation(fields),
             Self::Task(fields) => EventFields::TaskCreation(fields),
             Self::Security(fields) => EventFields::SecurityAudit(fields),
+            Self::Defender(fields) => EventFields::SecurityAudit(fields),
         }
     }
 }

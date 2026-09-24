@@ -12,9 +12,71 @@ use common::{
 };
 use rustinel::{
     engine::Engine,
-    models::{DetectionEngine, EventCategory, EventFields},
-    sensor::{Platform, SensorPayload},
+    models::{DetectionEngine, EventCategory, EventFields, SecurityAuditFields},
+    sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload},
 };
+
+#[test]
+fn defender_exclusion_change_reaches_sigma_and_ecs() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "defender_exclusion.yml",
+        r#"title: Test Defender Exclusion
+logsource:
+  product: windows
+  service: windefend
+detection:
+  selection:
+    EventID: 5007
+    NewValue|contains: Exclusions
+    Provider_Name: Microsoft-Windows-Windows Defender
+  condition: selection
+level: high
+"#,
+    );
+    let mut fields = SecurityAuditFields::default();
+    fields.insert("Provider_Name", "Microsoft-Windows-Windows Defender");
+    fields.insert("Old Value", "-");
+    fields.insert(
+        "New Value",
+        r"HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths\C:\Tools = 0x0",
+    );
+    fields.insert(
+        "NewValue",
+        r"HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths\C:\Tools = 0x0",
+    );
+    let raw = SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
+        platform: Platform::Windows,
+        provider: "windows_event_log",
+        action: SensorAction::Modify,
+        normalization: SensorNormalization {
+            event_id: 5007,
+            action_code: 0,
+        },
+        pid: None,
+        timestamp: std::time::SystemTime::now(),
+        source_seq: Some(1),
+        process_start_key: None,
+        parent_process_start_key: None,
+        payload: SensorPayload::Defender(fields),
+    };
+    let normalized = TestNormalizer::new().normalizer.normalize(&raw).unwrap();
+    assert_eq!(normalized.category, EventCategory::Defender);
+    assert_normalized_field_eq(
+        &normalized,
+        "Channel",
+        "Microsoft-Windows-Windows Defender/Operational",
+    );
+    let alert = load_engine(Platform::Windows, &fixture)
+        .check_event(&normalized)
+        .into_iter()
+        .next()
+        .expect("Defender Sigma rule should match");
+    assert_sigma_alert(&alert, "Test Defender Exclusion");
+    assert_ecs_field_eq(&ecs_json(&alert), "event.dataset", "edr.windefend");
+}
 
 fn load_engine(platform: Platform, fixture: &SigmaFixture) -> Engine {
     let mut engine = Engine::new_for_platform(platform);

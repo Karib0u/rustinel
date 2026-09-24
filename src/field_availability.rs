@@ -57,6 +57,8 @@ const SINCE_PROCESS_USER: Option<&str> = Some("1.7.1");
 const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.7.1");
 /// Classic Windows PowerShell event 400 collection (#323).
 const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.8.0");
+/// Defender Operational event collection (#483).
+const SINCE_DEFENDER: Option<&str> = Some("1.8.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -591,6 +593,190 @@ const WINDOWS_POWERSHELL_CLASSIC_START: &[FieldContract] = &[
     ),
     always("Data", SINCE_POWERSHELL_CLASSIC_START),
 ];
+
+const DEFENDER_CHANNEL: &str = "Microsoft-Windows-Windows Defender/Operational";
+const DEFENDER_FIELD_REASON: &str = "the Defender event template supplies this value";
+
+macro_rules! defender_fields {
+    ($($field:literal),*; aliases: $($alias:literal),* $(,)?) => {
+        &[
+            always_value("Channel", SINCE_DEFENDER, DEFENDER_CHANNEL),
+            always("Provider_Name", SINCE_DEFENDER),
+            $(conditional($field, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+            $(conditional($alias, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+        ]
+    };
+    ($($field:literal),* $(,)?) => {
+        defender_fields!($($field),*; aliases:)
+    };
+}
+
+const WINDOWS_DEFENDER_5001: &[FieldContract] = defender_fields!("Product Name", "Product Version");
+const WINDOWS_DEFENDER_5007: &[FieldContract] = defender_fields!("Product Name", "Product Version", "Old Value", "New Value"; aliases: "OldValue", "NewValue");
+const WINDOWS_DEFENDER_5013: &[FieldContract] =
+    defender_fields!("Product Name", "Product Version", "Changed Type", "Value");
+const WINDOWS_DEFENDER_1006: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Detection ID",
+    "Detection Source Index",
+    "Detection Source",
+    "Process Name",
+    "Domain",
+    "User",
+    "SID",
+    "Threat Name",
+    "Threat ID",
+    "Severity ID",
+    "Category ID",
+    "FWLink",
+    "Path Found",
+    "Detection Origin Index",
+    "Detection Origin",
+    "Execution Status Index",
+    "Execution Status",
+    "Detection Type Index",
+    "Detection Type",
+    "Severity Name",
+    "Category Name",
+    "Security intelligence Version",
+    "Engine Version"; aliases: "ProcessName", "ThreatName"
+);
+const WINDOWS_DEFENDER_1015: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Detection ID",
+    "Detection Source Index",
+    "Detection Source",
+    "Process Name",
+    "Domain",
+    "User",
+    "SID",
+    "Threat Name",
+    "Threat ID",
+    "Severity ID",
+    "Category ID",
+    "FWLink",
+    "Path Found",
+    "Detection Origin Index",
+    "Detection Origin",
+    "Execution Status Index",
+    "Execution Status",
+    "Detection Type Index",
+    "Detection Type",
+    "Severity Name",
+    "Category Name",
+    "Security intelligence Version",
+    "Engine Version",
+    "Process ID",
+    "Security intelligence ID",
+    "FidelityValue",
+    "FidelityLabel",
+    "Image File Hash",
+    "TargetFileName",
+    "TargetFileHash"; aliases: "ProcessName", "ThreatName"
+);
+const WINDOWS_DEFENDER_1009: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Domain",
+    "User",
+    "SID",
+    "Threat Name",
+    "Threat ID",
+    "Severity ID",
+    "Category ID",
+    "FWLink",
+    "Path",
+    "Severity Name",
+    "Category Name",
+    "Security intelligence Version",
+    "Engine Version"; aliases: "ThreatName"
+);
+const WINDOWS_DEFENDER_1013: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Timestamp",
+    "Domain",
+    "User",
+    "SID"
+);
+const WINDOWS_DEFENDER_1116: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Detection ID",
+    "Detection Time",
+    "Threat ID",
+    "Threat Name",
+    "Severity ID",
+    "Severity Name",
+    "Category ID",
+    "Category Name",
+    "FWLink",
+    "Status Code",
+    "Status Description",
+    "State",
+    "Source ID",
+    "Source Name",
+    "Process Name",
+    "Detection User",
+    "Path",
+    "Origin ID",
+    "Origin Name",
+    "Execution ID",
+    "Execution Name",
+    "Type ID",
+    "Type Name",
+    "Pre Execution Status",
+    "Action ID",
+    "Action Name",
+    "Error Code",
+    "Error Description",
+    "Post Clean Status",
+    "Additional Actions ID",
+    "Additional Actions String",
+    "Remediation User",
+    "Security intelligence Version",
+    "Engine Version"; aliases: "ProcessName", "SourceName", "ThreatName"
+);
+const WINDOWS_DEFENDER_1121: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "ID",
+    "Detection Time",
+    "User",
+    "Path",
+    "Process Name",
+    "Security intelligence Version",
+    "Engine Version",
+    "RuleType",
+    "Target Commandline",
+    "Parent Commandline",
+    "Involved File",
+    "Inhertiance Flags"; aliases: "ProcessName"
+);
+const WINDOWS_DEFENDER_3002: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Feature Name",
+    "Reason",
+    "Error Code",
+    "Error Description",
+    "Feature ID"; aliases: "Feature_Name"
+);
+const WINDOWS_DEFENDER_3007: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Feature Name",
+    "Reason",
+    "Feature ID"; aliases: "Feature_Name"
+);
+const WINDOWS_DEFENDER_5101: &[FieldContract] = defender_fields!(
+    "Product Name",
+    "Product Version",
+    "Error Code",
+    "Error Description"
+);
 
 const WINDOWS_WMI: &[FieldContract] = &[
     always_value(
@@ -1619,6 +1805,150 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     ),
     contract!(
         Windows,
+        "windefend",
+        Some(5001),
+        Set,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_5001
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(5010),
+        Set,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_5001
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(5012),
+        Set,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_5001
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(5007),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_5007
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(5013),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_5013
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1006),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1006
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1015),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1015
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1116),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1116
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1117),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1116
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1119),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1116
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1009),
+        Delete,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1009
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1013),
+        Delete,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1013
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(1121),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_1121
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(3002),
+        Set,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_3002
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(3007),
+        Set,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_3007
+    ),
+    contract!(
+        Windows,
+        "windefend",
+        Some(5101),
+        Set,
+        "windows_event_log",
+        "Microsoft-Windows-Windows Defender",
+        WINDOWS_DEFENDER_5101
+    ),
+    contract!(
+        Windows,
         "security",
         Some(4624),
         Start,
@@ -2123,6 +2453,7 @@ pub const fn category_name(category: EventCategory) -> &'static str {
         EventCategory::Service => "service_creation",
         EventCategory::Task => "task_creation",
         EventCategory::Security => "security",
+        EventCategory::Defender => "windefend",
     }
 }
 

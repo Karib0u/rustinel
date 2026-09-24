@@ -71,6 +71,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
                 self.normalize_task(event, fields.clone(), &mut provenance)
             }
             SensorPayload::Security(fields) => Some(EventFields::SecurityAudit(fields.clone())),
+            SensorPayload::Defender(fields) => Some(EventFields::SecurityAudit(fields.clone())),
         }?;
 
         let normalized = NormalizedEvent {

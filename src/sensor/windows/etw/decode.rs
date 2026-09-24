@@ -163,7 +163,7 @@ pub(super) fn decode_single_record(
             unreachable!("classic PowerShell events use the event log source")
         }
         EventCategory::Wmi => decode_wmi(&parser, record),
-        EventCategory::Service | EventCategory::Security => {
+        EventCategory::Service | EventCategory::Security | EventCategory::Defender => {
             unreachable!("event log categories use the event log sources")
         }
         EventCategory::Task => decode_task(&parser, record),
