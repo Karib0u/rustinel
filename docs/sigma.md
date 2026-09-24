@@ -142,7 +142,8 @@ Things that differ from Sysmon:
   `Hashes` lists only the algorithms loaded rules name, in Sysmon's order.
 - **`Provider_Name`** is the Windows provider that wrote an Event Log record, such as `Service Control Manager`.
   It is not the ECS `event.provider`.
-- **Application `Message`** is unavailable. `Data` contains the raw XML values separated by newlines, and `Level` is numeric.
+- **Application `Message`** is unavailable.
+  `Data` contains the raw XML values separated by newlines, and `Level` is numeric.
 - **Security events** keep Windows' formatting: `SubjectLogonId` is `0x3e4`, not `996`, and `AccessList` holds `%%4417`-style codes.
 - **PowerShell `ContextInfo` and `Payload`** are free text in the host's display language.
 - **Classic PowerShell `Data`** is the raw event 400 engine-start description from the `Windows PowerShell` channel.

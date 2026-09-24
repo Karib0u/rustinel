@@ -41,7 +41,10 @@ Rules that load against a collector on each platform:
 
 The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `auditd`.
 
-The Application channel source moves 32 rules in this pinned corpus from unknown logsource to a collector. The field audit reports 29 as potentially satisfiable and three as unsatisfiable: two require formatted `Message` text, and one selects the text `Error` where the collector exposes a numeric `Level`. The issue's rough estimate of 50 exceeds the 32 Application rules in this pinned corpus. Rule loading alone does not guarantee that a selector can be populated; use `sigma doctor` for field-level verdicts.
+The Application channel source moves 32 rules in this pinned corpus from unknown logsource to a collector.
+The field audit reports 29 as potentially satisfiable and three as unsatisfiable: two require formatted `Message` text, and one selects the text `Error` where the collector exposes a numeric `Level`.
+The issue's rough estimate of 50 exceeds the 32 Application rules in this pinned corpus.
+Rule loading alone does not guarantee that a selector can be populated; use `sigma doctor` for field-level verdicts.
 
 A rule that loads can still reference a field the platform never fills.
 Such a rule never fires.
