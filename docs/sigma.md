@@ -215,9 +215,11 @@ WMI events come from `Microsoft-Windows-WMI-Activity`, which numbers events diff
 A `wmi_event` rule that selects on `EventID` never matches.
 Rules on `Operation`, `Query`, `EventNamespace`, `Image`, `User`, or `DestinationHostname` work.
 Operational events 5857 through 5861 route under `product: windows, service: wmi` without a `category`.
-Event 5861 reports a permanent filter-to-consumer binding. `ConsumerText` and `Destination` contain its consumer definition, including `CommandLineTemplate` or script content when supplied by WMI.
+Event 5861 reports a permanent filter-to-consumer binding.
+`ConsumerText` and `Destination` contain its consumer definition, including `CommandLineTemplate` or script content when supplied by WMI.
 `PossibleCause` holds the full binding detail, while `ConsumerClass`, `ConsumerName`, and `FilterName` identify its parts.
-The sensor sees new bindings. It does not enumerate bindings already present before it starts.
+The sensor sees new bindings.
+It does not enumerate bindings already present before it starts.
 
 ## Modifiers
 
