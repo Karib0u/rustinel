@@ -12,6 +12,8 @@ Without the policy, the matching rules load and stay silent.
 | `ps_script` (event 4104) for ordinary scripts | [Script Block Logging](#powershell-script-block-logging) |
 
 `ps_classic_start` uses event 400 from the `Windows PowerShell` channel and needs no additional host policy.
+`service: windefend` reads the `Microsoft-Windows-Windows Defender/Operational` channel.
+Check that this channel is enabled with `wevtutil gl "Microsoft-Windows-Windows Defender/Operational"`.
 
 ## Application channel
 

@@ -1389,6 +1389,7 @@ fn contract_matches_logsource(contract: &EventFieldContract, logsource: &LogSour
         if let Some(service) = logsource.service.as_deref() {
             let categories: &[&str] = match service {
                 "security" => &["security"],
+                "windefend" => &["windefend"],
                 "application" => &["application"],
                 "system" => &["service_creation"],
                 "taskscheduler" | "task scheduler" => &["task_creation"],
@@ -1859,6 +1860,32 @@ detection:
             report.documents[0].reasons[0].code,
             ReasonCode::CollectorDisabled
         );
+    }
+
+    #[test]
+    fn defender_operational_rule_has_a_backed_logsource_and_fields() {
+        let report = report(
+            r#"title: Defender exclusion added
+logsource:
+  product: windows
+  service: windefend
+detection:
+  selection:
+    EventID: 5007
+    NewValue|contains: Exclusions
+    Provider_Name: Microsoft-Windows-Windows Defender
+  condition: selection
+"#,
+            Platform::Windows,
+        );
+        assert_ne!(
+            report.documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+        assert!(!report.documents[0]
+            .reasons
+            .iter()
+            .any(|reason| reason.code == ReasonCode::InactiveCollector));
     }
 
     #[test]

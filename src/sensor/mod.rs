@@ -281,6 +281,7 @@ pub enum RawPayload {
     Service(ServiceCreationFields),
     Task(TaskCreationFields),
     Security(SecurityAuditFields),
+    Defender(SecurityAuditFields),
     Application(ApplicationEventFields),
 }
 
@@ -304,6 +305,7 @@ impl RawPayload {
             Self::Service(_) => EventCategory::Service,
             Self::Task(_) => EventCategory::Task,
             Self::Security(_) => EventCategory::Security,
+            Self::Defender(_) => EventCategory::Defender,
             Self::Application(_) => EventCategory::Application,
         }
     }
@@ -325,6 +327,7 @@ impl RawPayload {
             Self::Service(fields) => EventFields::ServiceCreation(fields),
             Self::Task(fields) => EventFields::TaskCreation(fields),
             Self::Security(fields) => EventFields::SecurityAudit(fields),
+            Self::Defender(fields) => EventFields::SecurityAudit(fields),
             Self::Application(fields) => EventFields::ApplicationEvent(fields),
         }
     }

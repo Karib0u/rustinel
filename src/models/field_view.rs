@@ -317,7 +317,7 @@ impl<'a> FieldView<'a> {
             }
         }
 
-        // Native, allowlisted Security fields and test-only generic payloads
+        // Native, allowlisted Event Log fields and test-only generic payloads
         // are already named for the default compatibility view. They stay
         // behind the view boundary rather than making the canonical model
         // string-addressable or leaking automatically into future views.
@@ -390,6 +390,7 @@ mod tests {
         for contract in FIELD_AVAILABILITY
             .iter()
             .filter(|contract| contract.view == FieldViewName::SYSMON)
+            .filter(|contract| !matches!(contract.category, "security" | "windefend"))
             .filter(|contract| !matches!(contract.category, "security" | "application"))
         {
             for field in contract

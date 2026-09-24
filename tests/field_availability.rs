@@ -241,6 +241,11 @@ fn windows_shapes_record_the_verified_channel_names() {
         ),
         ("service_creation", 7045, "System"),
         ("security", 4624, "Security"),
+        (
+            "windefend",
+            5007,
+            "Microsoft-Windows-Windows Defender/Operational",
+        ),
     ] {
         let contract = FIELD_AVAILABILITY
             .iter()

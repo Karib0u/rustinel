@@ -679,6 +679,7 @@ pub enum EventCategory {
     Service,
     Task,
     Security,
+    Defender,
     Application,
 }
 

@@ -245,6 +245,7 @@ impl Engine {
             service,
             "sysmon"
                 | "security"
+                | "windefend"
                 | "application"
                 | "system"
                 | "taskscheduler"
@@ -370,6 +371,7 @@ impl Engine {
                 LogSourceKey::from_parts(Some("windows"), Some("wmi"), Some("wmi_event")),
                 LogSourceKey::from_parts(Some("windows"), Some("system"), Some("service_creation")),
                 LogSourceKey::from_parts(Some("windows"), Some("security"), None),
+                LogSourceKey::from_parts(Some("windows"), Some("windefend"), None),
                 LogSourceKey::from_parts(Some("windows"), Some("application"), None),
                 LogSourceKey::from_parts(
                     Some("windows"),
@@ -721,6 +723,13 @@ impl Engine {
                 aliases.push(LogSourceKey::from_parts(
                     Some("windows"),
                     Some("security"),
+                    None,
+                ));
+            }
+            EventCategory::Defender => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some("windefend"),
                     None,
                 ));
             }
