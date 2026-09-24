@@ -102,14 +102,13 @@ impl EtwProviders {
         POWERSHELL_EVENT_MODULE_LOGGING,
         POWERSHELL_EVENT_SCRIPT_BLOCK,
     ];
-    // Native WMI-Activity numbering is unrelated to Sysmon's, but both reach
-    // the engine under `(windows, wmi, wmi_event)`, so any collected ID that
-    // happens to equal a Sysmon `wmi_event` ID (19 = filter, 20 = consumer,
-    // 21 = filter-to-consumer binding) makes stock SigmaHQ rules fire on the
-    // wrong event. 19 and 20 are excluded for that reason (#291); mapping them
-    // is not an option, because the native events do not carry the WMI
-    // persistence fields those rules read.
-    pub(super) const WMI_EVENT_IDS: &'static [u16] = &[1, 2, 11, 12, 14, 15, 16, 17, 22, 23, 24];
+    // Trace events keep their existing wmi_event route. Operational events
+    // 5857-5861 use the service: wmi route and the Operational keyword below.
+    // Neither family aliases Sysmon's wmi_event IDs 19, 20, or 21 (#291).
+    pub(super) const WMI_EVENT_IDS: &'static [u16] = &[
+        1, 2, 11, 12, 14, 15, 16, 17, 22, 23, 24, 5857, 5858, 5859, 5860, 5861,
+    ];
+    pub(super) const WMI_OPERATIONAL_KEYWORD: u64 = 0x4000_0000_0000_0000;
     pub(super) const TASK_EVENT_IDS: &'static [u16] = &[106];
 
     pub(super) fn kernel_process() -> EtwProvider {
@@ -180,7 +179,7 @@ impl EtwProviders {
             guid: GUID::from(Self::WMI_ACTIVITY_GUID),
             name: "Microsoft-Windows-WMI-Activity",
             level: 4,
-            keywords: Self::OPERATIONAL_KEYWORD,
+            keywords: Self::OPERATIONAL_KEYWORD | Self::WMI_OPERATIONAL_KEYWORD,
             event_ids: Self::WMI_EVENT_IDS,
         }
     }
@@ -334,6 +333,10 @@ mod tests {
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&13));
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&18));
+        assert_eq!(
+            EtwProviders::wmi_activity().keywords,
+            EtwProviders::OPERATIONAL_KEYWORD | EtwProviders::WMI_OPERATIONAL_KEYWORD
+        );
     }
 
     #[test]

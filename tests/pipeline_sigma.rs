@@ -12,7 +12,7 @@ use common::{
 };
 use rustinel::{
     engine::Engine,
-    models::{DetectionEngine, EventCategory, EventFields, SecurityAuditFields},
+    models::{DetectionEngine, EventCategory, EventFields, SecurityAuditFields, WmiEventFields},
     sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload},
 };
 
@@ -349,6 +349,89 @@ level: medium
         .next()
         .expect("powershell-classic service rule should match");
     assert_sigma_alert(&service_alert, "Test PowerShell Classic Service Route");
+}
+
+#[test]
+fn wmi_binding_5861_routes_to_service_without_sysmon_aliases() {
+    let service_rules = SigmaFixture::new();
+    service_rules.write_rule(
+        "wmi_binding.yml",
+        r#"title: WMI Binding Consumer Command
+logsource:
+  product: windows
+  service: wmi
+detection:
+  selection:
+    EventID: 5861
+    ConsumerClass: CommandLineEventConsumer
+    Destination|contains: 'cmd.exe /c exit 0'
+  condition: selection
+level: high
+"#,
+    );
+    let raw = SensorEvent {
+        process_name: None,
+        provenance: Default::default(),
+        platform: Platform::Windows,
+        provider: "etw",
+        action: SensorAction::Execute,
+        normalization: SensorNormalization {
+            event_id: 5861,
+            action_code: 0,
+        },
+        pid: None,
+        timestamp: std::time::SystemTime::now(),
+        source_seq: Some(1),
+        process_start_key: None,
+        parent_process_start_key: None,
+        payload: SensorPayload::Wmi(WmiEventFields {
+            event_namespace: Some("//./root/subscription".into()),
+            filter_name: Some("RustinelWmiFixture".into()),
+            consumer_class: Some("CommandLineEventConsumer".into()),
+            consumer_name: Some("RustinelWmiFixture".into()),
+            consumer_text: Some("CommandLineTemplate = \"cmd.exe /c exit 0\";".into()),
+            destination: Some("CommandLineTemplate = \"cmd.exe /c exit 0\";".into()),
+            possible_cause: Some("Binding EventFilter: ... Perm. Consumer: CommandLineTemplate = \"cmd.exe /c exit 0\";".into()),
+            ..Default::default()
+        }),
+    };
+    let normalized = TestNormalizer::new().normalizer.normalize(&raw).unwrap();
+    assert_normalized_field_eq(
+        &normalized,
+        "Channel",
+        "Microsoft-Windows-WMI-Activity/Operational",
+    );
+    assert_normalized_field_eq(&normalized, "ConsumerName", "RustinelWmiFixture");
+    assert_eq!(normalized.get_field("EventID"), Some("5861"));
+    assert_sigma_alert(
+        &load_engine(Platform::Windows, &service_rules)
+            .check_event(&normalized)
+            .into_iter()
+            .next()
+            .expect("service: wmi rule should match 5861"),
+        "WMI Binding Consumer Command",
+    );
+
+    let sysmon_rules = SigmaFixture::new();
+    sysmon_rules.write_rule(
+        "sysmon_wmi.yml",
+        r#"title: Sysmon WMI Subscription IDs
+logsource:
+  product: windows
+  category: wmi_event
+detection:
+  selection:
+    EventID:
+      - 19
+      - 20
+      - 21
+  condition: selection
+level: high
+"#,
+    );
+    assert!(load_engine(Platform::Windows, &sysmon_rules)
+        .check_event(&normalized)
+        .is_empty());
 }
 
 #[test]

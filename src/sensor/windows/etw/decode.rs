@@ -240,6 +240,16 @@ pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
                 || fields.event_namespace.is_some()
                 || fields.event_type.is_some()
                 || fields.destination_hostname.is_some()
+                || fields.consumer_class.is_some()
+                || fields.consumer_name.is_some()
+                || fields.consumer_text.is_some()
+                || fields.filter_name.is_some()
+                || fields.possible_cause.is_some()
+                || fields.provider_name.is_some()
+                || fields.provider_path.is_some()
+                || fields.host_process.is_some()
+                || fields.component.is_some()
+                || fields.result_code.is_some()
         }
         SensorPayload::Service(fields) => {
             fields.service_name.is_some()
@@ -904,23 +914,61 @@ pub(super) fn decode_powershell_module(
 
 pub(super) fn decode_wmi(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::wmi_event_mappings();
+    let possible_cause = try_get_string(parser, "PossibleCause");
+    let consumer = try_get_string(parser, "CONSUMER");
+    let (consumer_class, consumer_name) = consumer
+        .as_deref()
+        .and_then(|value| value.split_once('='))
+        .map(|(class, name)| {
+            (
+                Some(class.trim().to_string()),
+                Some(name.trim().trim_matches('"').to_string()),
+            )
+        })
+        .unwrap_or((None, None));
+    let consumer_text = if record.event_id() == 5861 {
+        possible_cause.as_deref().map(|text| {
+            text.split_once("Perm. Consumer:")
+                .map_or(text, |(_, consumer)| consumer)
+                .trim()
+                .to_string()
+        })
+    } else {
+        None
+    };
     let fields = WmiEventFields {
         operation: try_get_string(parser, mappings.get_etw_field("Operation")?),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
         query: try_get_string(parser, mappings.get_etw_field("Query")?)
             .or_else(|| try_get_string(parser, "Commandline")),
         process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?)
-            .or_else(|| try_get_uint(parser, "ClientProcessId")),
+            .or_else(|| try_get_uint(parser, "ClientProcessId"))
+            .or_else(|| try_get_uint(parser, "processid")),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
         event_namespace: try_get_string(parser, mappings.get_etw_field("EventNamespace")?)
-            .or_else(|| try_get_string(parser, "NamespaceName")),
+            .or_else(|| try_get_string(parser, "NamespaceName"))
+            .or_else(|| try_get_string(parser, "Namespace")),
         event_type: try_get_string(parser, mappings.get_etw_field("EventType")?),
         destination_hostname: try_get_string(
             parser,
             mappings.get_etw_field("DestinationHostname")?,
         )
-        .or_else(|| try_get_string(parser, "ClientMachine")),
+        .or_else(|| try_get_string(parser, "ClientMachine"))
+        .or_else(|| try_get_string(parser, "MachineName")),
+        consumer_class,
+        consumer_name,
+        destination: consumer_text.clone(),
+        consumer_text,
+        filter_name: try_get_string(parser, "ESS"),
+        possible_cause,
+        provider_name: try_get_string_any(parser, &["ProviderName", "providerName"]),
+        provider_path: try_get_string(parser, "ProviderPath"),
+        host_process: try_get_string(parser, "HostProcess"),
+        component: try_get_string(parser, "Component"),
+        result_code: try_get_uint_as_u64(parser, "ResultCode")
+            .or_else(|| try_get_uint_as_u64(parser, "Code"))
+            .map(|code| format!("0x{code:X}")),
     };
 
     Some(DecodedEtwEvent {

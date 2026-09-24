@@ -184,6 +184,12 @@ def run_windows_case(expected):
     child = subprocess.Popen([sys.executable, "-c", code, marker])
     expected["windows"] = child.pid
     child.wait(timeout=10)
+    fixture = Path(__file__).parent / "fixtures" / "windows-wmi-subscription.ps1"
+    subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(fixture)],
+        check=True,
+        timeout=30,
+    )
 
 
 def assert_windows(events, expected):
@@ -202,6 +208,18 @@ def assert_windows(events, expected):
     ]
     assert loads, f"no normalized winhttp.dll image load for PID {pid}"
     assert any(event.get("event_id") == 7 and event.get("opcode") == 10 for event in loads), loads
+
+    bindings = [
+        event
+        for event in events
+        if event.get("category") == "Wmi" and event.get("event_id") == 5861
+    ]
+    assert any(
+        event.get("fields", {}).get("ConsumerClass") == "CommandLineEventConsumer"
+        and event.get("fields", {}).get("ConsumerName") == "RustinelWmiFixture"
+        and "cmd.exe /c exit 0" in event.get("fields", {}).get("Destination", "")
+        for event in bindings
+    ), f"no normalized 5861 binding with consumer command: {bindings}"
 
 
 def main():

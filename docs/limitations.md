@@ -80,7 +80,8 @@ Fields each platform never fills are listed in [Field availability](field-availa
   5156, 5157, and 5152 are read only with `windows.security_filtering_platform_connections = true`.
 - **Silent: WMI event IDs are not Sysmon's.**
   `wmi_event` rules that select on `EventID` never match.
-  WMI persistence is not collected.
+  Permanent subscription bindings emit native 5861 events under `service: wmi`.
+  Existing subscriptions are not enumerated at startup, and removing a binding does not emit another 5861 event.
 - **PowerShell:** script block and module content is limited to Windows PowerShell 5.1.
   Classic engine starts include version 2 through event 400.
   PowerShell 7 is not collected.

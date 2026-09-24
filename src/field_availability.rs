@@ -59,6 +59,8 @@ const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.7.1");
 const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.8.0");
 /// Defender Operational event collection (#483).
 const SINCE_DEFENDER: Option<&str> = Some("1.8.0");
+/// WMI-Activity Operational events (#481). Set the shipped release at release time.
+const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.8.0");
 /// Application channel collection (#316). Set the shipped release at release time.
 const SINCE_APPLICATION: Option<&str> = Some("1.8.0");
 
@@ -825,6 +827,171 @@ const WINDOWS_WMI: &[FieldContract] = &[
         "DestinationHostname",
         SINCE_BASELINE,
         "the native WMI event family carries a client machine",
+    ),
+];
+
+const WINDOWS_WMI_5857: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WMI_OPERATIONAL,
+        "Microsoft-Windows-WMI-Activity/Operational",
+    ),
+    conditional(
+        "ProviderName",
+        SINCE_WMI_OPERATIONAL,
+        "the provider start record names its provider",
+    ),
+    conditional(
+        "Provider_Name",
+        SINCE_WMI_OPERATIONAL,
+        "alias of the reported provider name",
+    ),
+    conditional(
+        "ProviderPath",
+        SINCE_WMI_OPERATIONAL,
+        "the provider start record names its module",
+    ),
+    conditional(
+        "HostProcess",
+        SINCE_WMI_OPERATIONAL,
+        "the provider start record names its host",
+    ),
+    conditional(
+        "ProcessId",
+        SINCE_WMI_OPERATIONAL,
+        "the provider start record carries a process ID",
+    ),
+    conditional(
+        "ResultCode",
+        SINCE_WMI_OPERATIONAL,
+        "the provider start record carries a result code",
+    ),
+    conditional(
+        "Code",
+        SINCE_WMI_OPERATIONAL,
+        "alias of the provider start result code",
+    ),
+];
+const WINDOWS_WMI_5858: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WMI_OPERATIONAL,
+        "Microsoft-Windows-WMI-Activity/Operational",
+    ),
+    conditional(
+        "Operation",
+        SINCE_WMI_OPERATIONAL,
+        "the failed operation is reported",
+    ),
+    conditional("User", SINCE_WMI_OPERATIONAL, "the client user is reported"),
+    conditional(
+        "ProcessId",
+        SINCE_WMI_OPERATIONAL,
+        "the client process is reported",
+    ),
+    conditional(
+        "DestinationHostname",
+        SINCE_WMI_OPERATIONAL,
+        "the client machine is reported",
+    ),
+    conditional(
+        "Component",
+        SINCE_WMI_OPERATIONAL,
+        "the failing component is reported",
+    ),
+    conditional(
+        "ResultCode",
+        SINCE_WMI_OPERATIONAL,
+        "the failed operation has a result code",
+    ),
+    conditional(
+        "PossibleCause",
+        SINCE_WMI_OPERATIONAL,
+        "the provider reports a possible cause",
+    ),
+];
+const WINDOWS_WMI_5859_5860: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WMI_OPERATIONAL,
+        "Microsoft-Windows-WMI-Activity/Operational",
+    ),
+    conditional(
+        "EventNamespace",
+        SINCE_WMI_OPERATIONAL,
+        "the subscription namespace is reported",
+    ),
+    conditional(
+        "Query",
+        SINCE_WMI_OPERATIONAL,
+        "the subscription query is reported",
+    ),
+    conditional(
+        "User",
+        SINCE_WMI_OPERATIONAL,
+        "the subscriber user is reported",
+    ),
+    conditional(
+        "ProcessId",
+        SINCE_WMI_OPERATIONAL,
+        "the subscriber process is reported",
+    ),
+    conditional(
+        "ProviderName",
+        SINCE_WMI_OPERATIONAL,
+        "event 5859 names its provider",
+    ),
+    conditional(
+        "DestinationHostname",
+        SINCE_WMI_OPERATIONAL,
+        "event 5860 names its machine",
+    ),
+    conditional(
+        "PossibleCause",
+        SINCE_WMI_OPERATIONAL,
+        "the provider reports a possible cause",
+    ),
+];
+const WINDOWS_WMI_5861: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_WMI_OPERATIONAL,
+        "Microsoft-Windows-WMI-Activity/Operational",
+    ),
+    conditional(
+        "EventNamespace",
+        SINCE_WMI_OPERATIONAL,
+        "the binding namespace is reported",
+    ),
+    conditional(
+        "FilterName",
+        SINCE_WMI_OPERATIONAL,
+        "the event filter name is reported",
+    ),
+    conditional(
+        "ConsumerClass",
+        SINCE_WMI_OPERATIONAL,
+        "the consumer identity is reported",
+    ),
+    conditional(
+        "ConsumerName",
+        SINCE_WMI_OPERATIONAL,
+        "the consumer identity is reported",
+    ),
+    conditional(
+        "ConsumerText",
+        SINCE_WMI_OPERATIONAL,
+        "the provider includes the consumer definition",
+    ),
+    conditional(
+        "Destination",
+        SINCE_WMI_OPERATIONAL,
+        "the consumer definition carries the command or script",
+    ),
+    conditional(
+        "PossibleCause",
+        SINCE_WMI_OPERATIONAL,
+        "the binding details are reported",
     ),
 ];
 
@@ -1843,6 +2010,51 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "windows_event_log",
         "PowerShell",
         WINDOWS_POWERSHELL_CLASSIC_START
+    ),
+    contract!(
+        Windows,
+        "wmi_event",
+        Some(5857),
+        Execute,
+        "etw",
+        "Microsoft-Windows-WMI-Activity",
+        WINDOWS_WMI_5857
+    ),
+    contract!(
+        Windows,
+        "wmi_event",
+        Some(5858),
+        Execute,
+        "etw",
+        "Microsoft-Windows-WMI-Activity",
+        WINDOWS_WMI_5858
+    ),
+    contract!(
+        Windows,
+        "wmi_event",
+        Some(5859),
+        Execute,
+        "etw",
+        "Microsoft-Windows-WMI-Activity",
+        WINDOWS_WMI_5859_5860
+    ),
+    contract!(
+        Windows,
+        "wmi_event",
+        Some(5860),
+        Execute,
+        "etw",
+        "Microsoft-Windows-WMI-Activity",
+        WINDOWS_WMI_5859_5860
+    ),
+    contract!(
+        Windows,
+        "wmi_event",
+        Some(5861),
+        Execute,
+        "etw",
+        "Microsoft-Windows-WMI-Activity",
+        WINDOWS_WMI_5861
     ),
     contract!(
         Windows,

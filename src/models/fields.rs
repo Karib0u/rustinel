@@ -500,8 +500,8 @@ pub struct PowerShellClassicStartFields {
     pub data: Option<String>,
 }
 
-/// WMI event fields (Sigma: wmi_event)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// WMI trace and Operational event fields.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WmiEventFields {
     #[serde(rename = "Operation", skip_serializing_if = "Option::is_none")]
     pub operation: Option<String>,
@@ -529,6 +529,39 @@ pub struct WmiEventFields {
         skip_serializing_if = "Option::is_none"
     )]
     pub destination_hostname: Option<String>,
+
+    #[serde(rename = "ConsumerClass", skip_serializing_if = "Option::is_none")]
+    pub consumer_class: Option<String>,
+
+    #[serde(rename = "ConsumerName", skip_serializing_if = "Option::is_none")]
+    pub consumer_name: Option<String>,
+
+    #[serde(rename = "ConsumerText", skip_serializing_if = "Option::is_none")]
+    pub consumer_text: Option<String>,
+
+    #[serde(rename = "Destination", skip_serializing_if = "Option::is_none")]
+    pub destination: Option<String>,
+
+    #[serde(rename = "FilterName", skip_serializing_if = "Option::is_none")]
+    pub filter_name: Option<String>,
+
+    #[serde(rename = "PossibleCause", skip_serializing_if = "Option::is_none")]
+    pub possible_cause: Option<String>,
+
+    #[serde(rename = "ProviderName", skip_serializing_if = "Option::is_none")]
+    pub provider_name: Option<String>,
+
+    #[serde(rename = "ProviderPath", skip_serializing_if = "Option::is_none")]
+    pub provider_path: Option<String>,
+
+    #[serde(rename = "HostProcess", skip_serializing_if = "Option::is_none")]
+    pub host_process: Option<String>,
+
+    #[serde(rename = "Component", skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+
+    #[serde(rename = "ResultCode", skip_serializing_if = "Option::is_none")]
+    pub result_code: Option<String>,
 }
 
 /// Service creation event fields

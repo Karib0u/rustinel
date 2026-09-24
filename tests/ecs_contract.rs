@@ -347,6 +347,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                     event_namespace: Some("root\\cimv2".to_string()),
                     event_type: Some("Consumer".to_string()),
                     destination_hostname: Some("host1".to_string()),
+                    ..Default::default()
                 }),
             ),
             "edr.wmi",

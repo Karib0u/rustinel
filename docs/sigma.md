@@ -92,6 +92,7 @@ Stable reason codes in schema version 1 are:
 | `ps_module` | ✓ | | |
 | `ps_classic_start` (also `service: powershell-classic`) | ✓ | | |
 | `wmi_event` | ✓ | | |
+| `service: wmi` | ✓ | | |
 | `service_creation` | ✓ | | |
 | `task_creation` | ✓ | | |
 | `service: security` | ✓ | | |
@@ -122,6 +123,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | Defender Operational | `Provider_Name` and the native fields for each event ID, including `Old Value`, `New Value`, `Feature Name`, `Threat Name`, and `Path`. Rule aliases such as `OldValue`, `NewValue`, `Feature_Name`, and `ThreatName` are also available. |
 | Application channel | `Provider_Name`, `Level`, `Data`; Application Error 1000 also has `AppName`, `AppVersion`, `ModuleName`, `ExceptionCode` when present |
 | PowerShell | `ScriptBlockText`, `ScriptBlockId`, `Path` (`ps_script`); `ContextInfo`, `Payload` (`ps_module`); `Data` (`ps_classic_start`) |
+| WMI Operational | `EventNamespace`, `Query`, `User`, `ProcessId`, `PossibleCause`; 5857 has `ProviderName`, `ProviderPath`, `HostProcess`, and `Code`; 5861 also has `FilterName`, `ConsumerClass`, `ConsumerName`, `ConsumerText`, and `Destination` |
 
 Things that differ from Sysmon:
 
@@ -212,7 +214,12 @@ It exists only on Windows, and `CreationUtcTime` is never filled, so match on `T
 WMI events come from `Microsoft-Windows-WMI-Activity`, which numbers events differently from Sysmon's 19, 20, and 21.
 A `wmi_event` rule that selects on `EventID` never matches.
 Rules on `Operation`, `Query`, `EventNamespace`, `Image`, `User`, or `DestinationHostname` work.
-WMI persistence events are not collected.
+Operational events 5857 through 5861 route under `product: windows, service: wmi` without a `category`.
+Event 5861 reports a permanent filter-to-consumer binding.
+`ConsumerText` and `Destination` contain its consumer definition, including `CommandLineTemplate` or script content when supplied by WMI.
+`PossibleCause` holds the full binding detail, while `ConsumerClass`, `ConsumerName`, and `FilterName` identify its parts.
+The sensor sees new bindings.
+It does not enumerate bindings already present before it starts.
 
 ## Modifiers
 
