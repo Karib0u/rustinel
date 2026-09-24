@@ -39,7 +39,8 @@ Rules that load against a collector on each platform:
 | Linux | 178 |
 | macOS | 86 |
 
-The Defender Operational source backs 17 `windows/windefend` rules in this pinned corpus. Field compatibility reports 7 with no field caveats and 10 dependent on optional event fields; none are inert.
+The Defender Operational source backs 17 `windows/windefend` rules in this pinned corpus.
+Field compatibility reports 7 with no field caveats and 10 dependent on optional event fields; none are inert.
 
 The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `auditd`.
 

@@ -4,7 +4,8 @@ target = "bpfel-unknown-none"
 [target.bpfel-unknown-none]
 linker = "bpf-linker"
 # v3 enables atomic fetch-add, which supplies a unique global source sequence.
-rustflags = ["-C", "target-cpu=v3", "-C", "link-arg=--btf"]
+# The pinned linker reports an LLVM library lookup on stderr even when linking succeeds.
+rustflags = ["-C", "target-cpu=v3", "-C", "link-arg=--btf", "-A", "linker-messages"]
 
 [unstable]
 build-std = ["core"]
