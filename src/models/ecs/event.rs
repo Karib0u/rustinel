@@ -32,6 +32,7 @@ pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<
         // they touched in `ObjectType`, which the field mapper reads to refine
         // this default.
         EventCategory::Security => strings(security_event_shape(event_id).category),
+        EventCategory::Application => vec!["configuration".to_string()],
     }
 }
 
@@ -180,6 +181,7 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
             }
         }
         EventCategory::Security => strings(security_event_shape(event_id).kind),
+        EventCategory::Application => vec!["info".to_string()],
     }
 }
 
@@ -228,6 +230,7 @@ pub(super) fn ecs_event_action(
             }
         }
         EventCategory::Security => security_event_shape(event_id).action,
+        EventCategory::Application => "application-event",
     };
     Some(action.to_string())
 }
@@ -247,6 +250,7 @@ pub(super) fn event_dataset(category: EventCategory) -> String {
         EventCategory::Service => "service",
         EventCategory::Task => "task",
         EventCategory::Security => "security",
+        EventCategory::Application => "application",
     };
     format!("{}.{}", EVENT_MODULE, suffix)
 }

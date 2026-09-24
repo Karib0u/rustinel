@@ -57,6 +57,8 @@ const SINCE_PROCESS_USER: Option<&str> = Some("1.7.1");
 const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.7.1");
 /// Classic Windows PowerShell event 400 collection (#323).
 const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.8.0");
+/// Application channel collection (#316). Set the shipped release at release time.
+const SINCE_APPLICATION: Option<&str> = Some("1.8.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -977,6 +979,58 @@ const WINDOWS_SECURITY_6416: &[FieldContract] = security_family!(subject:
     "LocationInformation",
 );
 
+const WINDOWS_APPLICATION: &[FieldContract] = &[
+    always_value("Channel", SINCE_APPLICATION, "Application"),
+    always("Provider_Name", SINCE_APPLICATION),
+    always("Level", SINCE_APPLICATION),
+    conditional(
+        "Data",
+        SINCE_APPLICATION,
+        "the event has non-empty EventData values",
+    ),
+    never(
+        "Message",
+        SINCE_APPLICATION,
+        "formatted, localized messages are not rendered by the XML subscription",
+    ),
+];
+
+const WINDOWS_APPLICATION_ERROR: &[FieldContract] = &[
+    always_value("Channel", SINCE_APPLICATION, "Application"),
+    always("Provider_Name", SINCE_APPLICATION),
+    always("Level", SINCE_APPLICATION),
+    conditional(
+        "Data",
+        SINCE_APPLICATION,
+        "the event has non-empty EventData values",
+    ),
+    conditional(
+        "AppName",
+        SINCE_APPLICATION,
+        "Application Error event 1000 supplies the first positional value",
+    ),
+    conditional(
+        "AppVersion",
+        SINCE_APPLICATION,
+        "Application Error event 1000 supplies the second positional value",
+    ),
+    conditional(
+        "ModuleName",
+        SINCE_APPLICATION,
+        "Application Error event 1000 supplies the fourth positional value",
+    ),
+    conditional(
+        "ExceptionCode",
+        SINCE_APPLICATION,
+        "Application Error event 1000 supplies the seventh positional value",
+    ),
+    never(
+        "Message",
+        SINCE_APPLICATION,
+        "formatted, localized messages are not rendered by the XML subscription",
+    ),
+];
+
 const LINUX_PROCESS: &[FieldContract] = &[
     always("Image", SINCE_BASELINE),
     always("ImageSource", SINCE_1_6_0),
@@ -1432,6 +1486,20 @@ macro_rules! contract {
             source: $source,
             fields: $fields,
         }
+    };
+}
+
+macro_rules! application_contract {
+    ($event:literal, $source:literal, $fields:ident) => {
+        contract!(
+            Windows,
+            "application",
+            Some($event),
+            Access,
+            "windows_event_log",
+            $source,
+            $fields
+        )
     };
 }
 
@@ -1959,6 +2027,61 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "Microsoft-Windows-Security-Auditing",
         WINDOWS_SECURITY_6416
     ),
+    // The Application channel shares event IDs across independent providers.
+    // Each row names the producer and the fields its decoder may populate.
+    application_contract!(1000, "Application Error", WINDOWS_APPLICATION_ERROR),
+    application_contract!(1001, "Windows Error Reporting", WINDOWS_APPLICATION),
+    application_contract!(1, "Microsoft-Windows-Audit-CVE", WINDOWS_APPLICATION),
+    application_contract!(1, "Audit-CVE", WINDOWS_APPLICATION),
+    application_contract!(
+        865,
+        "Microsoft-Windows-SoftwareRestrictionPolicies",
+        WINDOWS_APPLICATION
+    ),
+    application_contract!(
+        866,
+        "Microsoft-Windows-SoftwareRestrictionPolicies",
+        WINDOWS_APPLICATION
+    ),
+    application_contract!(
+        867,
+        "Microsoft-Windows-SoftwareRestrictionPolicies",
+        WINDOWS_APPLICATION
+    ),
+    application_contract!(
+        868,
+        "Microsoft-Windows-SoftwareRestrictionPolicies",
+        WINDOWS_APPLICATION
+    ),
+    application_contract!(
+        882,
+        "Microsoft-Windows-SoftwareRestrictionPolicies",
+        WINDOWS_APPLICATION
+    ),
+    application_contract!(1033, "MsiInstaller", WINDOWS_APPLICATION),
+    application_contract!(1034, "MsiInstaller", WINDOWS_APPLICATION),
+    application_contract!(1040, "MsiInstaller", WINDOWS_APPLICATION),
+    application_contract!(1042, "MsiInstaller", WINDOWS_APPLICATION),
+    application_contract!(11724, "MsiInstaller", WINDOWS_APPLICATION),
+    application_contract!(216, "ESENT", WINDOWS_APPLICATION),
+    application_contract!(325, "ESENT", WINDOWS_APPLICATION),
+    application_contract!(326, "ESENT", WINDOWS_APPLICATION),
+    application_contract!(327, "ESENT", WINDOWS_APPLICATION),
+    application_contract!(8128, "MSSQL*", WINDOWS_APPLICATION),
+    application_contract!(15457, "MSSQL*", WINDOWS_APPLICATION),
+    application_contract!(18456, "MSSQL*", WINDOWS_APPLICATION),
+    application_contract!(33205, "MSSQL*", WINDOWS_APPLICATION),
+    application_contract!(524, "Microsoft-Windows-Backup", WINDOWS_APPLICATION),
+    application_contract!(200, "ScreenConnect", WINDOWS_APPLICATION),
+    application_contract!(201, "ScreenConnect", WINDOWS_APPLICATION),
+    application_contract!(
+        1511,
+        "Microsoft-Windows-User Profiles Service",
+        WINDOWS_APPLICATION
+    ),
+    application_contract!(7053, "Windows Server Update Services", WINDOWS_APPLICATION),
+    application_contract!(2027, "MSMQ", WINDOWS_APPLICATION),
+    application_contract!(4, "MSExchange Control Panel", WINDOWS_APPLICATION),
     EventFieldContract {
         view: FieldViewName::SYSMON,
         platform: Platform::Windows,
@@ -2123,6 +2246,7 @@ pub const fn category_name(category: EventCategory) -> &'static str {
         EventCategory::Service => "service_creation",
         EventCategory::Task => "task_creation",
         EventCategory::Security => "security",
+        EventCategory::Application => "application",
     }
 }
 
@@ -2199,6 +2323,28 @@ pub fn contract_for_event_id(
     })
 }
 
+/// Find an Application contract by both event ID and native provider.
+pub fn application_contract(
+    event_id: u16,
+    native_provider: &str,
+) -> Option<&'static EventFieldContract> {
+    platform_contracts(Platform::Windows)
+        .iter()
+        .find(|contract| {
+            contract.category == "application"
+                && contract.event_id == Some(event_id)
+                && application_source_matches(contract.source, native_provider)
+        })
+}
+
+fn application_source_matches(source: &str, provider: &str) -> bool {
+    if source == "MSSQL*" {
+        provider.contains("MSSQL")
+    } else {
+        source == provider
+    }
+}
+
 fn event_contract(
     view: FieldViewName,
     event: &NormalizedEvent,
@@ -2208,6 +2354,13 @@ fn event_contract(
             && contract.category == category_name(event.category)
             && contract.provider == event.provider
             && contract.event_id.is_none_or(|id| id == event.event_id)
+            && (event.category != EventCategory::Application
+                || match &event.fields {
+                    crate::models::EventFields::ApplicationEvent(fields) => fields
+                        .get("Provider_Name")
+                        .is_some_and(|provider| application_source_matches(contract.source, provider)),
+                    _ => false,
+                })
             // Event Log records identify their schema by event ID and do not
             // carry the synthetic action opcode used by native sensors.
             && (event.provider == "windows_event_log"

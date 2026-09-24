@@ -656,7 +656,9 @@ impl NormalizedEvent {
                 Field::ProcessImage => f.image.as_deref().map(Value::String),
                 _ => None,
             },
-            EventFields::SecurityAudit(_) | EventFields::Generic(_) => None,
+            EventFields::SecurityAudit(_)
+            | EventFields::ApplicationEvent(_)
+            | EventFields::Generic(_) => None,
         }
     }
 }
@@ -677,6 +679,7 @@ pub enum EventCategory {
     Service,
     Task,
     Security,
+    Application,
 }
 
 #[cfg(test)]

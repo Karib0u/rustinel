@@ -125,13 +125,14 @@ fn keys_are_unique_and_limited_statuses_have_reasons() {
     for contract in FIELD_AVAILABILITY {
         for field in contract.fields {
             let key = format!(
-                "{}|{:?}|{}|{:?}|{:?}|{}|{}",
+                "{}|{:?}|{}|{:?}|{:?}|{}|{}|{}",
                 contract.view.as_str(),
                 contract.platform,
                 contract.category,
                 contract.event_id,
                 contract.action,
                 contract.provider,
+                contract.source,
                 field.field
             );
             assert!(keys.insert(key.clone()), "duplicate contract key: {key}");
