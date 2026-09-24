@@ -441,6 +441,9 @@ impl From<&Alert> for EcsAlert {
                     ecs.edr_security = Some(f.fields.clone());
                 }
             }
+            EventFields::ApplicationEvent(f) => {
+                ecs.edr_event_log_provider_name = f.get("Provider_Name").map(str::to_string);
+            }
             EventFields::Generic(_) => {
                 // Generic events don't have structured field mapping
             }

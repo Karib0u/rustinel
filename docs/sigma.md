@@ -120,6 +120,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | DNS | `QueryName`, `QueryResults`, `RecordType`, or the aliases `query`, `answer`, `record_type` |
 | Service (7045) | `ServiceName`, `ImagePath` (also `ServiceFileName`), `ServiceType`, `StartType`, `AccountName`, `Provider_Name` |
 | Defender Operational | `Provider_Name` and the native fields for each event ID, including `Old Value`, `New Value`, `Feature Name`, `Threat Name`, and `Path`. Rule aliases such as `OldValue`, `NewValue`, `Feature_Name`, and `ThreatName` are also available. |
+| Application channel | `Provider_Name`, `Level`, `Data`; Application Error 1000 also has `AppName`, `AppVersion`, `ModuleName`, `ExceptionCode` when present |
 | PowerShell | `ScriptBlockText`, `ScriptBlockId`, `Path` (`ps_script`); `ContextInfo`, `Payload` (`ps_module`); `Data` (`ps_classic_start`) |
 
 Things that differ from Sysmon:
@@ -143,6 +144,8 @@ Things that differ from Sysmon:
   `Hashes` lists only the algorithms loaded rules name, in Sysmon's order.
 - **`Provider_Name`** is the Windows provider that wrote an Event Log record, such as `Service Control Manager`.
   It is not the ECS `event.provider`.
+- **Application `Message`** is unavailable.
+  `Data` contains the raw XML values separated by newlines, and `Level` is numeric.
 - **Security events** keep Windows' formatting: `SubjectLogonId` is `0x3e4`, not `996`, and `AccessList` holds `%%4417`-style codes.
 - **PowerShell `ContextInfo` and `Payload`** are free text in the host's display language.
 - **Classic PowerShell `Data`** is the raw event 400 engine-start description from the `Windows PowerShell` channel.

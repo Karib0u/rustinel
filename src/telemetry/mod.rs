@@ -1082,6 +1082,7 @@ fn sensor_event_category(category: EventCategory) -> (usize, &'static str) {
         EventCategory::Security => (11, "security"),
         EventCategory::PowerShellClassicStart => (12, "powershell_classic_start"),
         EventCategory::Defender => (13, "windefend"),
+        EventCategory::Application => (13, "application"),
     }
 }
 
@@ -1101,6 +1102,7 @@ fn sensor_event_category_snapshots() -> Vec<SensorEventCategorySnapshot> {
         EventCategory::Security,
         EventCategory::PowerShellClassicStart,
         EventCategory::Defender,
+        EventCategory::Application,
     ]
     .into_iter()
     .filter_map(|category| {

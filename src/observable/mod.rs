@@ -139,6 +139,7 @@ pub fn extract(event: &NormalizedEvent) -> Observables<'_> {
         EventFields::PowerShellModule(_)
         | EventFields::TaskCreation(_)
         | EventFields::SecurityAudit(_)
+        | EventFields::ApplicationEvent(_)
         | EventFields::Generic(_) => {}
     }
 

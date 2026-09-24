@@ -2,8 +2,9 @@
 //!
 //! Each source supplies a channel, an XPath query, and an XML decoder. The
 //! subscription lifecycle, native handles, shutdown, and sensor-channel
-//! delivery stay shared across System, Security, and Application sources.
+//! delivery stay shared across System, Security, Defender, and Application sources.
 
+mod application;
 mod defender;
 mod powershell_classic;
 mod security;
@@ -72,6 +73,7 @@ impl EventLogSubscriptions {
         security_filtering_platform_connections: bool,
     ) -> Result<Self> {
         let sources = [
+            application::source(),
             service::source(),
             powershell_classic::source(),
             security::source(security_filtering_platform_connections),

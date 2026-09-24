@@ -16,6 +16,7 @@
 | Service installs, scheduled tasks | ✓ | | |
 | Security audit events | ✓ ³ | | |
 | Microsoft Defender Operational events | ✓ | | |
+| Application channel events | ✓ | | |
 | Remote threads, process access, named pipes, drivers | | | |
 
 1. Captured from the network and matched to a process on a best-effort basis.
@@ -35,12 +36,17 @@ Rules that load against a collector on each platform:
 
 | Platform | Rules |
 | --- | ---: |
-| Windows | 2,677 |
+| Windows | 2,709 |
 | Linux | 178 |
 | macOS | 86 |
 
 The Defender Operational source backs 17 `windows/windefend` rules in this pinned corpus.
 Field compatibility reports 7 with no field caveats and 10 dependent on optional event fields; none are inert.
+
+The Application channel source moves 32 rules in this pinned corpus from unknown logsource to a collector.
+The field audit reports 29 as potentially satisfiable and three as unsatisfiable: two require formatted `Message` text, and one selects the text `Error` where the collector exposes a numeric `Level`.
+The issue's rough estimate of 50 exceeds the 32 Application rules in this pinned corpus.
+Rule loading alone does not guarantee that a selector can be populated; use `sigma doctor` for field-level verdicts.
 
 The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `auditd`.
 
@@ -61,7 +67,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
-| `sysmon` | windows | 111 | 856 | 36 |
+| `sysmon` | windows | 198 | 889 | 65 |
 | `sysmon` | linux | 19 | 45 | 15 |
 | `sysmon` | macos | 27 | 24 | 26 |
 

@@ -1116,6 +1116,17 @@ fn evaluate_item(
         };
     }
 
+    if contract.category == "application"
+        && field == "Level"
+        && item.field.modifiers.is_empty()
+        && !item.values.is_empty()
+        && item.values.iter().all(|value| {
+            matches!(value, SigmaValue::String(text) if text.as_plain().is_some_and(|text| text.parse::<u8>().is_err()))
+        })
+    {
+        return Truth::FALSE;
+    }
+
     if let Some(invariant) = invariant_value(contract, field) {
         if item.field.modifiers.is_empty() {
             let matched = item
@@ -1313,6 +1324,10 @@ fn invariant_value(contract: &EventFieldContract, field: &str) -> Option<String>
     if field == "EventID" {
         return contract.event_id.map(|event_id| event_id.to_string());
     }
+    if contract.category == "application" && field == "Provider_Name" && contract.source != "MSSQL*"
+    {
+        return Some(contract.source.to_string());
+    }
     contract
         .fields
         .iter()
@@ -1375,6 +1390,7 @@ fn contract_matches_logsource(contract: &EventFieldContract, logsource: &LogSour
             let categories: &[&str] = match service {
                 "security" => &["security"],
                 "windefend" => &["windefend"],
+                "application" => &["application"],
                 "system" => &["service_creation"],
                 "taskscheduler" | "task scheduler" => &["task_creation"],
                 "powershell" | "powershell-classic" | "microsoft-windows-powershell" => {

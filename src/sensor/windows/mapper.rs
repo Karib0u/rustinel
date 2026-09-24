@@ -57,6 +57,7 @@ fn action_code_for_record(
         // reaches this mapping with a Security category.
         EventCategory::Security => 0,
         EventCategory::Defender => 0,
+        EventCategory::Application => 0,
     }
 }
 
@@ -97,6 +98,7 @@ fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &Ev
         EventCategory::Task => record.event_id(),
         EventCategory::Security => record.event_id(),
         EventCategory::Defender => record.event_id(),
+        EventCategory::Application => record.event_id(),
     }
 }
 
@@ -143,7 +145,8 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
         | EventCategory::Service
         | EventCategory::Task
         | EventCategory::Security
-        | EventCategory::Defender => raw_event_id,
+        | EventCategory::Defender
+        | EventCategory::Application => raw_event_id,
     }
 }
 

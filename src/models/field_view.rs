@@ -326,6 +326,7 @@ impl<'a> FieldView<'a> {
         }
         match &self.event.fields {
             EventFields::SecurityAudit(fields) => fields.get(name).map(CanonicalValue::String),
+            EventFields::ApplicationEvent(fields) => fields.get(name).map(CanonicalValue::String),
             EventFields::Generic(fields) => fields
                 .get(name)
                 .map(String::as_str)
@@ -344,6 +345,12 @@ impl<'a> FieldView<'a> {
         }
         match &self.event.fields {
             EventFields::SecurityAudit(fields) => Box::new(
+                fields
+                    .fields
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+            ),
+            EventFields::ApplicationEvent(fields) => Box::new(
                 fields
                     .fields
                     .iter()
@@ -384,6 +391,7 @@ mod tests {
             .iter()
             .filter(|contract| contract.view == FieldViewName::SYSMON)
             .filter(|contract| !matches!(contract.category, "security" | "windefend"))
+            .filter(|contract| !matches!(contract.category, "security" | "application"))
         {
             for field in contract
                 .fields

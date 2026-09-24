@@ -30,8 +30,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 
 use crate::models::{
-    DnsQueryFields, EventCategory, EventFields, FileEventFields, ImageLoadFields,
-    NetworkConnectionFields, PowerShellClassicStartFields, PowerShellModuleFields,
+    ApplicationEventFields, DnsQueryFields, EventCategory, EventFields, FileEventFields,
+    ImageLoadFields, NetworkConnectionFields, PowerShellClassicStartFields, PowerShellModuleFields,
     PowerShellScriptFields, RegistryEventFields, SecurityAuditFields, ServiceCreationFields,
     TaskCreationFields, WmiEventFields,
 };
@@ -282,6 +282,7 @@ pub enum RawPayload {
     Task(TaskCreationFields),
     Security(SecurityAuditFields),
     Defender(SecurityAuditFields),
+    Application(ApplicationEventFields),
 }
 
 /// Compatibility name retained for unmigrated call sites.
@@ -305,6 +306,7 @@ impl RawPayload {
             Self::Task(_) => EventCategory::Task,
             Self::Security(_) => EventCategory::Security,
             Self::Defender(_) => EventCategory::Defender,
+            Self::Application(_) => EventCategory::Application,
         }
     }
 
@@ -326,6 +328,7 @@ impl RawPayload {
             Self::Task(fields) => EventFields::TaskCreation(fields),
             Self::Security(fields) => EventFields::SecurityAudit(fields),
             Self::Defender(fields) => EventFields::SecurityAudit(fields),
+            Self::Application(fields) => EventFields::ApplicationEvent(fields),
         }
     }
 }
@@ -347,6 +350,7 @@ impl TryFrom<EventFields> for RawPayload {
             EventFields::ServiceCreation(fields) => Ok(Self::Service(fields)),
             EventFields::TaskCreation(fields) => Ok(Self::Task(fields)),
             EventFields::SecurityAudit(fields) => Ok(Self::Security(fields)),
+            EventFields::ApplicationEvent(fields) => Ok(Self::Application(fields)),
             other => Err(other),
         }
     }

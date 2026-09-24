@@ -41,6 +41,7 @@ pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<
                 vec!["configuration".to_string()]
             }
         }
+        EventCategory::Application => vec!["configuration".to_string()],
     }
 }
 
@@ -198,6 +199,7 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
                 vec!["change".to_string()]
             }
         }
+        EventCategory::Application => vec!["info".to_string()],
     }
 }
 
@@ -247,6 +249,7 @@ pub(super) fn ecs_event_action(
         }
         EventCategory::Security => security_event_shape(event_id).action,
         EventCategory::Defender => "defender-event",
+        EventCategory::Application => "application-event",
     };
     Some(action.to_string())
 }
@@ -267,6 +270,7 @@ pub(super) fn event_dataset(category: EventCategory) -> String {
         EventCategory::Task => "task",
         EventCategory::Security => "security",
         EventCategory::Defender => "windefend",
+        EventCategory::Application => "application",
     };
     format!("{}.{}", EVENT_MODULE, suffix)
 }

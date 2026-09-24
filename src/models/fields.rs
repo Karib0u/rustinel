@@ -27,6 +27,7 @@ pub enum EventFields {
     ServiceCreation(ServiceCreationFields),
     TaskCreation(TaskCreationFields),
     SecurityAudit(SecurityAuditFields),
+    ApplicationEvent(ApplicationEventFields),
     Generic(HashMap<String, String>),
 }
 
@@ -66,6 +67,9 @@ impl EventFields {
             EventCategory::Task => serde_json::from_value(payload).map(Self::TaskCreation),
             EventCategory::Security => serde_json::from_value(payload).map(Self::SecurityAudit),
             EventCategory::Defender => serde_json::from_value(payload).map(Self::SecurityAudit),
+            EventCategory::Application => {
+                serde_json::from_value(payload).map(Self::ApplicationEvent)
+            }
         }
     }
 }
@@ -611,6 +615,25 @@ pub struct TaskCreationFields {
 #[serde(transparent)]
 pub struct SecurityAuditFields {
     pub fields: BTreeMap<String, String>,
+}
+
+/// Allowlisted properties from one Windows Application channel record.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ApplicationEventFields {
+    pub fields: BTreeMap<String, String>,
+}
+
+impl ApplicationEventFields {
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.fields.get(name).map(String::as_str)
+    }
+
+    pub fn insert(&mut self, name: &str, value: &str) {
+        if !value.is_empty() {
+            self.fields.insert(name.to_string(), value.to_string());
+        }
+    }
 }
 
 impl SecurityAuditFields {

@@ -397,6 +397,7 @@ impl EtwRouting {
             EventCategory::Service
             | EventCategory::Security
             | EventCategory::Defender
+            | EventCategory::Application
             | EventCategory::PowerShellClassicStart => {
                 unreachable!("event log categories use the event log sources")
             }
