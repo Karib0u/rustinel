@@ -505,6 +505,10 @@ impl AppConfig {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
+        if let Some(path) = selected_config.as_deref() {
+            crate::utils::trust::verify_input(path)
+                .map_err(|err| config::ConfigError::Message(format!("{err:#}")))?;
+        }
 
         let builder = config::Config::builder()
             // --- Defaults ---

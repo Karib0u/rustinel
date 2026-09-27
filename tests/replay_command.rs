@@ -15,6 +15,18 @@ fn escape(path: &Path) -> String {
     path.display().to_string().replace('\\', "\\\\")
 }
 
+/// Copy the fixture rules into `root`. The checkout's permissions depend on the
+/// CI runner, and the agent refuses rules that other accounts can change.
+fn private_rules(root: &Path) -> PathBuf {
+    let rules = root.join("sigma");
+    std::fs::create_dir_all(&rules).expect("create rules directory");
+    for entry in std::fs::read_dir(fixtures().join("sigma")).expect("read fixture rules") {
+        let entry = entry.expect("fixture rule entry");
+        std::fs::copy(entry.path(), rules.join(entry.file_name())).expect("copy fixture rule");
+    }
+    rules
+}
+
 fn write_config(root: &Path) -> PathBuf {
     let config_path = root.join("config.toml");
     std::fs::write(
@@ -27,7 +39,7 @@ fn write_config(root: &Path) -> PathBuf {
              \n[ioc]\nenabled = false\n\
              \n[alerts]\ndirectory = \"{alerts}\"\n\
              \n[logging]\nlevel = \"error\"\ndirectory = \"{logs}\"\n",
-            sigma = escape(&fixtures().join("sigma")),
+            sigma = escape(&private_rules(root)),
             alerts = escape(&root.join("alerts")),
             logs = escape(&root.join("logs")),
         ),

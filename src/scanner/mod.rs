@@ -242,6 +242,7 @@ impl Scanner {
         let mut files_compiled = 0;
         let mut files_failed = 0;
 
+        crate::utils::trust::verify_input(rules_dir)?;
         info!("Loading YARA rules from: {:?} (recursive)", rules_dir);
 
         if rules_dir.exists() && rules_dir.is_dir() {

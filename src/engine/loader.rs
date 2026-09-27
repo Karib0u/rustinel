@@ -140,6 +140,7 @@ impl Engine {
             return Ok(());
         }
 
+        crate::utils::trust::verify_input(rules_dir)?;
         info!("Loading Sigma rules from: {:?} (recursive)", rules_dir);
 
         self.load_rules_recursive(rules_dir)?;
