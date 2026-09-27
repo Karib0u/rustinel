@@ -592,6 +592,7 @@ impl AppConfig {
             .build()
             .map_err(redact_config_error)?;
 
+        reject_unknown_keys(&s)?;
         let mut cfg: Self = s.try_deserialize().map_err(redact_config_error)?;
         if let Some(config_dir) = config_dir {
             cfg.resolve_relative_paths(&config_dir, environment.as_ref());
@@ -604,7 +605,25 @@ impl AppConfig {
     /// Checks that deserialization cannot express, made at load time so a bad
     /// value stops startup instead of failing later at runtime.
     pub fn validate(&self) -> Result<(), config::ConfigError> {
-        webhook::validate_all(&self.alerts.webhook).map_err(config::ConfigError::Message)
+        webhook::validate_all(&self.alerts.webhook).map_err(config::ConfigError::Message)?;
+        if !matches!(
+            self.response
+                .min_severity
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "critical" | "high" | "medium" | "low"
+        ) {
+            return Err(config::ConfigError::Message(
+                "response.min_severity must be critical, high, medium, or low".to_string(),
+            ));
+        }
+        if self.response.enabled && self.response.allowlist_paths.is_empty() {
+            return Err(config::ConfigError::Message(
+                "active response needs allowlist.paths or response.allowlist_paths".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     fn resolve_relative_paths(
@@ -710,6 +729,116 @@ impl AppConfig {
             self.scanner.yara_allowlist_paths = self.allowlist.paths.clone();
         }
     }
+}
+
+const WEBHOOK_KEYS: &[&str] = &[
+    "name",
+    "url",
+    "headers",
+    "secret",
+    "timeout_ms",
+    "tls_verify",
+    "ca_file",
+    "queue_capacity",
+    "max_attempts",
+    "retry_initial_ms",
+    "retry_max_ms",
+    "max_payload_bytes",
+];
+
+fn reject_unknown_keys(config: &config::Config) -> Result<(), config::ConfigError> {
+    let value: serde_json::Value = config
+        .clone()
+        .try_deserialize()
+        .map_err(redact_config_error)?;
+    let Some(sections) = value.as_object() else {
+        return Ok(());
+    };
+    for (section, options) in sections {
+        if !reference::CONFIG_SECTIONS
+            .iter()
+            .any(|known| known.name == section)
+        {
+            return Err(unknown_key(
+                section,
+                section,
+                reference::CONFIG_SECTIONS.iter().map(|s| s.name),
+            ));
+        }
+        let Some(options) = options.as_object() else {
+            continue;
+        };
+        let prefix = format!("{section}.");
+        let known = || {
+            reference::CONFIG_OPTIONS
+                .iter()
+                .filter_map(|option| option.key.strip_prefix(&prefix))
+        };
+        for (key, value) in options {
+            let path = format!("{section}.{key}");
+            if !reference::CONFIG_OPTIONS
+                .iter()
+                .any(|option| option.key == path)
+            {
+                return Err(unknown_key(&path, key, known()));
+            }
+            if path == "alerts.webhook" {
+                if let Some(webhooks) = value.as_array() {
+                    for (index, webhook) in webhooks.iter().enumerate() {
+                        if let Some(fields) = webhook.as_object() {
+                            for field in fields.keys() {
+                                if !WEBHOOK_KEYS.contains(&field.as_str()) {
+                                    let path = format!("alerts.webhook[{index}].{field}");
+                                    return Err(unknown_key(
+                                        &path,
+                                        field,
+                                        WEBHOOK_KEYS.iter().copied(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn unknown_key<'a>(
+    path: &str,
+    key: &str,
+    candidates: impl Iterator<Item = &'a str>,
+) -> config::ConfigError {
+    let suggestion = candidates
+        .min_by_key(|candidate| edit_distance(key, candidate))
+        .unwrap_or("");
+    let parent = path.rsplit_once('.').map_or("", |(parent, _)| parent);
+    let suggestion = if parent.is_empty() {
+        suggestion.to_string()
+    } else {
+        format!("{parent}.{suggestion}")
+    };
+    config::ConfigError::Message(format!(
+        "unknown configuration key {path}; did you mean {suggestion}?"
+    ))
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right: Vec<char> = right.chars().collect();
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    for (row, left_char) in left.chars().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right_char) in right.iter().enumerate() {
+            current.push(
+                (previous[column + 1] + 1)
+                    .min(current[column] + 1)
+                    .min(previous[column] + usize::from(left_char != *right_char)),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }
 
 // Parser excerpts and deserialization errors can contain credentials before

@@ -757,6 +757,31 @@ mod tests {
     }
 
     #[test]
+    fn inspect_reports_unknown_config_keys() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = temp.path().join("bad.toml");
+        std::fs::write(&config, "[response]\nprevention_enabeld = true\n").expect("write config");
+
+        let report = inspect_with_options(ConfigLoadOptions {
+            explicit_config: Some(config),
+            env_config: None,
+            managed_config: temp.path().join("managed.toml"),
+            exe_config: None,
+            cwd_config: temp.path().join("cwd.toml"),
+        });
+
+        let result = report
+            .results
+            .iter()
+            .find(|result| result.id == "config_parse")
+            .expect("config parse result");
+        assert_eq!(result.status, DiagnosticStatus::Fail);
+        let detail = result.detail.as_deref().expect("failure detail");
+        assert!(detail.contains("response.prevention_enabeld"), "{detail}");
+        assert!(detail.contains("response.prevention_enabled"), "{detail}");
+    }
+
+    #[test]
     fn inspect_reports_a_missing_explicit_config_during_discovery() {
         let temp = tempfile::tempdir().expect("tempdir");
         let config = temp.path().join("missing.toml");

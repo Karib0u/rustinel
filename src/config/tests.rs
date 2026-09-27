@@ -94,10 +94,8 @@ paths_regex_path = "rules/ioc/paths_regex.txt"
 }
 
 #[test]
-fn retired_network_aggregation_section_still_loads() {
-    // v1.5 and earlier shipped a `[network]` section for the connection
-    // aggregator. The aggregator is gone; a fleet that still carries those keys
-    // must keep starting rather than fail to load its configuration.
+fn retired_network_aggregation_section_is_rejected() {
+    // Retired sections must be removed rather than silently ignored.
     let temp = tempfile::tempdir().expect("tempdir");
     let explicit = temp.path().join("legacy.toml");
     std::fs::write(
@@ -115,7 +113,7 @@ aggregation_interval_buffer_size = 50
     )
     .expect("write legacy config");
 
-    let cfg = AppConfig::from_options_with_environment(
+    let err = AppConfig::from_options_with_environment(
         ConfigLoadOptions {
             explicit_config: Some(explicit),
             env_config: None,
@@ -125,11 +123,93 @@ aggregation_interval_buffer_size = 50
         },
         Some(config::Map::new()),
     )
-    .expect("a config carrying the retired [network] section should still load");
+    .expect_err("retired section must be rejected")
+    .to_string();
+    assert!(err.contains("network"), "{err}");
+}
 
-    // The surrounding sections are still applied, so the retired keys are
-    // ignored rather than aborting the load partway through.
-    assert_eq!(cfg.process.max_entries, 4096);
+#[test]
+fn unknown_file_keys_include_paths_and_suggestions() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (body, path, suggestion) in [
+        ("[scaner]\nsigma_enabled = false\n", "scaner", "scanner"),
+        (
+            "[response]\nprevention_enabeld = true\n",
+            "response.prevention_enabeld",
+            "response.prevention_enabled",
+        ),
+        (
+            "[[alerts.webhook]]\nurl = \"https://example.com\"\nmax_atempts = 2\n",
+            "alerts.webhook[0].max_atempts",
+            "alerts.webhook[0].max_attempts",
+        ),
+    ] {
+        let err = load_config_file(&temp, body).expect_err(body).to_string();
+        assert!(err.contains(path) && err.contains(suggestion), "{err}");
+    }
+}
+
+#[test]
+fn unknown_environment_keys_are_rejected() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut environment = config::Map::new();
+    environment.insert("EDR__RESPONSE__PREVENTION_ENABELD".into(), "true".into());
+    let err = AppConfig::from_options_with_environment(
+        ConfigLoadOptions {
+            explicit_config: None,
+            env_config: None,
+            managed_config: temp.path().join("missing-managed.toml"),
+            exe_config: None,
+            cwd_config: temp.path().join("missing-cwd.toml"),
+        },
+        Some(environment),
+    )
+    .expect_err("unknown environment key")
+    .to_string();
+    assert!(err.contains("response.prevention_enabeld"), "{err}");
+    assert!(err.contains("response.prevention_enabled"), "{err}");
+}
+
+#[test]
+fn doctor_failure_checks_stop_config_loading() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let err = load_config_file(&temp, "[response]\nmin_severity = \"hihg\"\n")
+        .expect_err("invalid severity")
+        .to_string();
+    assert!(err.contains("response.min_severity"), "{err}");
+
+    let err = load_config_file(
+        &temp,
+        "[response]\nenabled = true\n[allowlist]\npaths = []\n",
+    )
+    .expect_err("empty active response allowlist")
+    .to_string();
+    assert!(err.contains("allowlist.paths"), "{err}");
+}
+
+#[test]
+fn repository_example_config_loads() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let body = include_str!("../../config.toml");
+    load_config_file(&temp, body).expect("repository config loads");
+
+    for (document, markdown) in [
+        (
+            "configuration.md",
+            include_str!("../../docs/configuration.md"),
+        ),
+        (
+            "active-response.md",
+            include_str!("../../docs/active-response.md"),
+        ),
+        ("output.md", include_str!("../../docs/output.md")),
+    ] {
+        for snippet in markdown.split("```toml\n").skip(1) {
+            let body = snippet.split("```").next().expect("closing code fence");
+            load_config_file(&temp, body)
+                .unwrap_or_else(|err| panic!("{document} config example failed: {err}"));
+        }
+    }
 }
 
 #[test]
