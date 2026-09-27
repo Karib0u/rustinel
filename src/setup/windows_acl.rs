@@ -388,7 +388,12 @@ mod tests {
         fs::write(&log, "{}\n").expect("write log file");
 
         secure_directory(&logs, ManagedAccess::AdminOnly, &[]).expect("secure logs");
-        secure_directory(&dir.0, ManagedAccess::UsersRead, &[logs.clone()]).expect("secure parent");
+        secure_directory(
+            &dir.0,
+            ManagedAccess::UsersRead,
+            std::slice::from_ref(&logs),
+        )
+        .expect("secure parent");
 
         for path in [&logs, &log] {
             let sddl = dacl_sddl(path);
