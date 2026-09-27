@@ -47,6 +47,9 @@ Values are parsed as TOML, so lists use brackets:
     ```
 
 Priority, highest first: CLI flags, `EDR__` variables, the config file, defaults.
+Unknown sections and options in the file or `EDR__` overrides stop startup.
+The error names the key and suggests a valid one.
+`rustinel doctor` reports the same error.
 
 ## What reloads
 
