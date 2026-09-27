@@ -72,14 +72,32 @@ fn create_managed_directories(
             .with_context(|| format!("create managed directory {}", path.display()))?;
     }
     #[cfg(windows)]
-    for (path, access) in windows_protected_directories(layout, service_paths) {
-        windows_acl::secure_directory(&path, access)?;
+    {
+        use windows_acl::ManagedAccess;
+
+        let protected = windows_protected_directories(layout, service_paths);
+        for (path, access) in &protected {
+            if *access == ManagedAccess::AdminOnly {
+                windows_acl::secure_directory(path, *access, &[])?;
+            }
+        }
+        for (path, access) in &protected {
+            if *access == ManagedAccess::UsersRead {
+                let excluded: Vec<PathBuf> = protected
+                    .iter()
+                    .filter(|(child, child_access)| {
+                        *child_access == ManagedAccess::AdminOnly && child.starts_with(path)
+                    })
+                    .map(|(child, _)| child.clone())
+                    .collect();
+                windows_acl::secure_directory(path, *access, &excluded)?;
+            }
+        }
     }
     Ok(())
 }
 
-/// Managed Windows directories and the access each one gets, parents first so
-/// a child's stricter DACL is applied after its parent's has propagated.
+/// Managed Windows directories and the access each one gets.
 #[cfg(windows)]
 fn windows_protected_directories(
     layout: &InstallLayout,
