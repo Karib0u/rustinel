@@ -239,7 +239,8 @@ fn hashes_value_needs(values: &[SigmaValue]) -> ArtifactFieldNeeds {
 /// whose logsource the filter's logsource contains.
 fn filter_applies(filter: &FilterRule, rule: &SigmaRule) -> bool {
     let targeted = match &filter.rules {
-        FilterRuleTarget::Any => true,
+        // The loader rejects untargeted filters, so they never apply.
+        FilterRuleTarget::Any => false,
         FilterRuleTarget::Specific(references) => references
             .iter()
             .any(|reference| rule.id.as_deref() == Some(reference) || rule.title == *reference),

@@ -119,7 +119,7 @@ pub fn spawn_reload_worker(
                                         target: "reload",
                                         path = ?scanner_cfg.sigma_rules_path,
                                         unsupported = ?stats.unsupported_rules,
-                                        "Some Sigma documents were dropped because their references are unavailable"
+                                        "Some Sigma documents were dropped as unresolved or untargeted"
                                     );
                                 }
                                 store.swap_sigma(Arc::new(engine));

@@ -8,18 +8,23 @@ use super::Engine;
 pub enum UnsupportedRuleKind {
     /// The document names a detection or correlation rule that was not kept.
     UnresolvedReference,
+    /// A filter that does not name the rules it applies to. RSigma treats
+    /// `rules: any`, an empty list, or a missing `rules` key as "every rule",
+    /// so one such file would suppress matches across the whole ruleset.
+    UntargetedFilter,
 }
 
 impl fmt::Display for UnsupportedRuleKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnresolvedReference => f.write_str("unresolved_reference"),
+            Self::UntargetedFilter => f.write_str("untargeted_filter"),
         }
     }
 }
 
-/// Context for a parsed Sigma document that was dropped because one or more of
-/// its referenced rules were not loaded for the active platform.
+/// Context for a parsed Sigma document that was left out of the active
+/// collection, see [`UnsupportedRuleKind`] for the reasons.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedRule {
     pub source_path: String,

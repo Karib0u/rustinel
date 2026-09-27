@@ -315,12 +315,14 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Vec<Diagn
             DiagnosticResult::warn(
                 "sigma_rules_unsupported",
                 format!(
-                    "{} Sigma documents were dropped because their references are unavailable",
+                    "{} Sigma documents were dropped as unresolved or untargeted",
                     stats.unsupported_rules.len()
                 ),
                 detail,
             )
-            .with_fix("Restore the referenced rules or remove the dependent documents"),
+            .with_fix(
+                "Restore the referenced rules, list explicit filter targets, or remove the documents",
+            ),
         );
     }
 

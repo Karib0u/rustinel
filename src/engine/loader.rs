@@ -458,21 +458,38 @@ fn retain_filters(
     filters
         .into_iter()
         .filter_map(|filter| {
-            let keep = match &filter.rules {
-                FilterRuleTarget::Any => true,
-                FilterRuleTarget::Specific(references) => references
-                    .iter()
-                    .any(|reference| loaded_rule_keys.contains(reference)),
+            let source_path = sources.filter_path(&filter);
+            let identity = document_identity(filter.id.as_deref(), &filter.title);
+            let FilterRuleTarget::Specific(references) = &filter.rules else {
+                // A filter only removes matches, so accepting an untargeted one
+                // would let a single file silence every rule in the tree.
+                warn!(
+                    source = %source_path,
+                    identity = %identity,
+                    "Sigma filter does not list its target rules and was not loaded"
+                );
+                engine.record_unsupported_source(
+                    &source_path,
+                    UnsupportedRuleKind::UntargetedFilter,
+                    identity,
+                    "filter does not list target rules; name each rule id or title under filter.rules",
+                );
+                return None;
             };
 
-            if keep {
+            if references
+                .iter()
+                .any(|reference| loaded_rule_keys.contains(reference))
+            {
+                info!(
+                    source = %source_path,
+                    identity = %identity,
+                    targets = %references.join(", "),
+                    "Sigma filter loaded"
+                );
                 Some(filter)
             } else {
-                let source_path = sources.filter_path(&filter);
-                engine.record_unresolved_reference(
-                    &source_path,
-                    document_identity(filter.id.as_deref(), &filter.title),
-                );
+                engine.record_unresolved_reference(&source_path, identity);
                 None
             }
         })
