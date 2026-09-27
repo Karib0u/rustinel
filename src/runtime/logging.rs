@@ -1,10 +1,11 @@
 use crate::alerts::AlertSink;
 use crate::config;
-use std::fs;
+use crate::utils::fs::{ensure_output_directory, open_output_file};
+use anyhow::{bail, Context};
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use tracing::info;
-use tracing_appender::rolling;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -14,22 +15,21 @@ pub const TARGET_CONSOLE: &str = "console";
 const DEFAULT_CONSOLE_FILTER: &str = "warn,console=info,engine=info,response=info";
 
 struct RestrictedFileAppender {
-    inner: rolling::RollingFileAppender,
+    inner: File,
     directory: PathBuf,
     filename_prefix: String,
-    permission_date: chrono::NaiveDate,
+    date: chrono::NaiveDate,
 }
 
 impl Write for RestrictedFileAppender {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let written = self.inner.write(buf)?;
-        // RollingFileAppender's daily rotation boundary is UTC.
         let current_date = chrono::Utc::now().date_naive();
-        if current_date != self.permission_date {
-            restrict_log_file_permissions(&self.directory, &self.filename_prefix)?;
-            self.permission_date = current_date;
+        if current_date != self.date {
+            ensure_output_directory(&self.directory)?;
+            self.inner = open_log_file(&self.directory, &self.filename_prefix, current_date)?;
+            self.date = current_date;
         }
-        Ok(written)
+        self.inner.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -119,13 +119,13 @@ pub fn log_startup_banner(runtime: &str) {
 #[cfg(windows)]
 pub fn init_logging(
     cfg: &config::AppConfig,
-) -> (
+) -> anyhow::Result<(
     tracing_appender::non_blocking::WorkerGuard,
     tracing_appender::non_blocking::WorkerGuard,
     AlertSink,
-) {
+)> {
     let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
+        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename)?;
     let base_filter = build_log_filter(&cfg.logging);
     let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
@@ -137,7 +137,7 @@ pub fn init_logging(
         .with_filter(base_filter.clone());
 
     let (alert_writer, alert_guard) =
-        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename);
+        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename)?;
     let alert_sink = AlertSink::new(alert_writer);
 
     let ansi_supported = std::env::var("WT_SESSION").is_ok();
@@ -158,19 +158,19 @@ pub fn init_logging(
         .with(console_layer)
         .init();
 
-    (app_guard, alert_guard, alert_sink)
+    Ok((app_guard, alert_guard, alert_sink))
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn init_logging(
     cfg: &config::AppConfig,
-) -> (
+) -> anyhow::Result<(
     tracing_appender::non_blocking::WorkerGuard,
     tracing_appender::non_blocking::WorkerGuard,
     AlertSink,
-) {
+)> {
     let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
+        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename)?;
     let base_filter = build_log_filter(&cfg.logging);
     let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
@@ -182,7 +182,7 @@ pub fn init_logging(
         .with_filter(base_filter.clone());
 
     let (alert_writer, alert_guard) =
-        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename);
+        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename)?;
 
     if cfg.logging.console_output {
         let console_layer = fmt::layer()
@@ -198,7 +198,7 @@ pub fn init_logging(
         tracing_subscriber::registry().with(app_layer).init();
     }
 
-    (app_guard, alert_guard, AlertSink::new(alert_writer))
+    Ok((app_guard, alert_guard, AlertSink::new(alert_writer)))
 }
 
 /// Initialize operational logging only, without the alert pipeline.
@@ -208,9 +208,9 @@ pub fn init_logging(
 /// to it, blurring the line between recordings and detection output.
 pub fn init_operational_logging(
     cfg: &config::AppConfig,
-) -> tracing_appender::non_blocking::WorkerGuard {
+) -> anyhow::Result<tracing_appender::non_blocking::WorkerGuard> {
     let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename);
+        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename)?;
     let base_filter = build_log_filter(&cfg.logging);
     let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
@@ -238,7 +238,7 @@ pub fn init_operational_logging(
         .with(console_layer)
         .init();
 
-    app_guard
+    Ok(app_guard)
 }
 
 /// Initialize logging to stderr only, touching no log directory.
@@ -277,152 +277,91 @@ fn build_daily_writer(
     label: &str,
     directory: &Path,
     filename: &str,
-) -> (
-    tracing_appender::non_blocking::NonBlocking,
-    tracing_appender::non_blocking::WorkerGuard,
-) {
-    if let Some(writer) = try_build_daily_writer(label, directory, filename) {
-        return writer;
-    }
-
-    let fallback_directory = std::env::temp_dir().join("rustinel-logs");
-    if let Some(writer) = try_build_daily_writer(label, &fallback_directory, filename) {
-        eprintln!(
-            "Falling back to {:?} for {} logs",
-            fallback_directory, label
-        );
-        return writer;
-    }
-
-    eprintln!(
-        "Unable to initialize {} file logging; using a sink writer instead",
-        label
-    );
-    tracing_appender::non_blocking(std::io::sink())
-}
-
-fn try_build_daily_writer(
-    label: &str,
-    directory: &Path,
-    filename: &str,
-) -> Option<(
+) -> anyhow::Result<(
     tracing_appender::non_blocking::NonBlocking,
     tracing_appender::non_blocking::WorkerGuard,
 )> {
-    if let Err(err) = fs::create_dir_all(directory) {
-        eprintln!(
-            "Unable to create {} log directory {:?}: {}",
-            label, directory, err
-        );
-        return None;
+    if Path::new(filename).file_name() != Some(std::ffi::OsStr::new(filename)) {
+        bail!("invalid {} log filename {:?}", label, filename);
     }
-
-    if let Err(err) = restrict_log_directory_permissions(directory) {
-        eprintln!(
-            "Unable to restrict {} log directory permissions for {:?}: {}",
-            label, directory, err
-        );
-        return None;
-    }
-
-    match rolling::RollingFileAppender::builder()
-        .rotation(rolling::Rotation::DAILY)
-        .filename_prefix(filename)
-        .build(directory)
-    {
-        Ok(appender) => {
-            if let Err(err) = restrict_log_file_permissions(directory, filename) {
-                eprintln!(
-                    "Unable to restrict {} log file permissions in {:?}: {}",
-                    label, directory, err
-                );
-                return None;
-            }
-            Some(tracing_appender::non_blocking(RestrictedFileAppender {
-                inner: appender,
-                directory: directory.to_path_buf(),
-                filename_prefix: filename.to_owned(),
-                permission_date: chrono::Utc::now().date_naive(),
-            }))
-        }
-        Err(err) => {
-            eprintln!(
-                "Unable to initialize {} rolling log appender in {:?}: {}",
-                label, directory, err
-            );
-            None
-        }
-    }
+    ensure_output_directory(directory).with_context(|| {
+        format!(
+            "failed to prepare {} log directory {}",
+            label,
+            directory.display()
+        )
+    })?;
+    let date = chrono::Utc::now().date_naive();
+    let appender = RestrictedFileAppender {
+        inner: open_log_file(directory, filename, date).with_context(|| {
+            format!(
+                "failed to open {} log file in {}",
+                label,
+                directory.display()
+            )
+        })?,
+        directory: directory.to_path_buf(),
+        filename_prefix: filename.to_owned(),
+        date,
+    };
+    Ok(tracing_appender::non_blocking(appender))
 }
 
-#[cfg(unix)]
-fn restrict_log_directory_permissions(directory: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
-}
-
-#[cfg(not(unix))]
-fn restrict_log_directory_permissions(_directory: &Path) -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn restrict_log_file_permissions(directory: &Path, filename_prefix: &str) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let expected_prefix = format!("{filename_prefix}.");
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        if entry.file_type()?.is_file()
-            && entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(&expected_prefix)
-        {
-            fs::set_permissions(entry.path(), fs::Permissions::from_mode(0o600))?;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_log_file_permissions(_directory: &Path, _filename_prefix: &str) -> io::Result<()> {
-    Ok(())
+fn open_log_file(directory: &Path, filename: &str, date: chrono::NaiveDate) -> io::Result<File> {
+    open_output_file(&directory.join(format!("{filename}.{date}")), true)
 }
 
 #[cfg(all(test, unix))]
 mod permission_tests {
-    use super::{restrict_log_directory_permissions, restrict_log_file_permissions};
+    use super::{build_daily_writer, open_log_file, RestrictedFileAppender};
     use std::fs;
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn restricts_log_directory_and_matching_files() {
+    fn existing_directory_keeps_its_permissions() {
         let temp = tempfile::tempdir().unwrap();
         let directory = temp.path().join("logs");
         fs::create_dir(&directory).unwrap();
-        let log_file = directory.join("alerts.json.2026-07-12");
-        let unrelated_file = directory.join("other.log");
-        fs::write(&log_file, b"alert").unwrap();
-        fs::write(&unrelated_file, b"other").unwrap();
-        fs::set_permissions(&unrelated_file, fs::Permissions::from_mode(0o644)).unwrap();
-
-        restrict_log_directory_permissions(&directory).unwrap();
-        restrict_log_file_permissions(&directory, "alerts.json").unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o1777)).unwrap();
+        let (_writer, guard) = build_daily_writer("alerts", &directory, "alerts.json").unwrap();
+        drop(guard);
 
         assert_eq!(
-            fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
-            0o700
+            fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+            0o1777
         );
-        assert_eq!(
-            fs::metadata(&log_file).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
-        assert_eq!(
-            fs::metadata(&unrelated_file).unwrap().permissions().mode() & 0o777,
-            0o644
-        );
+    }
+
+    #[test]
+    fn symlinked_alert_file_is_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target");
+        fs::write(&target, b"safe").unwrap();
+        let date = chrono::Utc::now().date_naive();
+        std::os::unix::fs::symlink(&target, temp.path().join(format!("alerts.json.{date}")))
+            .unwrap();
+        assert!(build_daily_writer("alerts", temp.path(), "alerts.json").is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"safe");
+    }
+
+    #[test]
+    fn rotation_rejects_symlinked_alert_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let today = chrono::Utc::now().date_naive();
+        let yesterday = today.pred_opt().unwrap();
+        let target = temp.path().join("target");
+        fs::write(&target, b"safe").unwrap();
+        std::os::unix::fs::symlink(&target, temp.path().join(format!("alerts.json.{today}")))
+            .unwrap();
+        let mut appender = RestrictedFileAppender {
+            inner: open_log_file(temp.path(), "alerts.json", yesterday).unwrap(),
+            directory: temp.path().to_path_buf(),
+            filename_prefix: "alerts.json".to_owned(),
+            date: yesterday,
+        };
+        assert!(appender.write_all(b"alert").is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"safe");
     }
 }
 

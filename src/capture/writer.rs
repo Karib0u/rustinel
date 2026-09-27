@@ -10,7 +10,7 @@
 //! event is counted as lost and the recording is finalized as
 //! [`CaptureStatus::Incomplete`] — capture never silently discards an event.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -28,7 +28,7 @@ use crate::capture::manifest::{
 };
 use crate::models::CanonicalEvent;
 use crate::sensor::Platform;
-use crate::utils::fs::{restrict_directory_permissions, restrict_file_permissions};
+use crate::utils::fs::{ensure_output_directory, open_output_file};
 use crate::utils::{now_timestamp_string, LogRateLimiter};
 
 /// Target name for capture operational logs.
@@ -283,50 +283,27 @@ impl CaptureRecorder {
 }
 
 fn create_payload_file(payload_path: &Path) -> anyhow::Result<File> {
-    if let Some(directory) = payload_path
+    let directory = payload_path
         .parent()
         .filter(|dir| !dir.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(directory).with_context(|| {
-            format!("failed to create capture directory {}", directory.display())
-        })?;
-        if let Err(err) = restrict_directory_permissions(directory) {
-            warn!(
-                target: TARGET_CAPTURE,
-                directory = %directory.display(),
-                error = %err,
-                "Unable to restrict capture directory permissions"
-            );
-        }
-    }
-
-    let file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(payload_path)
-        .with_context(|| format!("failed to create recording {}", payload_path.display()))?;
-
-    restrict_file_permissions(payload_path).with_context(|| {
+        .unwrap_or_else(|| Path::new("."));
+    ensure_output_directory(directory).with_context(|| {
         format!(
-            "failed to restrict permissions on recording {}",
-            payload_path.display()
+            "failed to prepare capture directory {}",
+            directory.display()
         )
     })?;
 
-    Ok(file)
+    open_output_file(payload_path, false)
+        .with_context(|| format!("failed to create recording {}", payload_path.display()))
 }
 
 fn write_manifest(manifest_path: &Path, manifest: &CaptureManifest) -> anyhow::Result<()> {
     let body = serde_json::to_string_pretty(manifest).context("failed to serialize manifest")?;
-    std::fs::write(manifest_path, format!("{body}\n"))
+    let mut file = open_output_file(manifest_path, false)
+        .with_context(|| format!("failed to open manifest {}", manifest_path.display()))?;
+    file.write_all(format!("{body}\n").as_bytes())
         .with_context(|| format!("failed to write manifest {}", manifest_path.display()))?;
-    restrict_file_permissions(manifest_path).with_context(|| {
-        format!(
-            "failed to restrict permissions on manifest {}",
-            manifest_path.display()
-        )
-    })?;
     Ok(())
 }
 
@@ -636,5 +613,32 @@ mod tests {
         assert_eq!(mode(&payload), 0o600);
         assert_eq!(mode(&manifest_path), 0o600);
         assert_eq!(mode(payload.parent().expect("parent")), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_capture_directory_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("shared");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        create_payload_file(&directory.join("capture.ndjson")).unwrap();
+        assert_eq!(
+            std::fs::metadata(&directory).unwrap().permissions().mode() & 0o7777,
+            0o1777
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_capture_file_is_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target");
+        std::fs::write(&target, b"safe").unwrap();
+        std::os::unix::fs::symlink(&target, temp.path().join("capture.ndjson")).unwrap();
+        assert!(create_payload_file(&temp.path().join("capture.ndjson")).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"safe");
     }
 }

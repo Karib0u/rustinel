@@ -68,7 +68,7 @@ impl CaptureContext {
             }
         }
 
-        let log_guard = init_operational_logging(&config);
+        let log_guard = init_operational_logging(&config)?;
         log_startup_banner(runtime_label);
 
         Ok(Self {
