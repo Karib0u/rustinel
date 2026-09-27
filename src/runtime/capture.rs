@@ -22,6 +22,8 @@ use crate::capture::{CaptureRecorder, CaptureStatus};
 use crate::config::AppConfig;
 use crate::engine::NormalizedEventHandler;
 use crate::runtime::logging::{init_operational_logging, log_startup_banner};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use crate::runtime::signals::ShutdownSignals;
 use crate::sensor::{Platform, RawEvent, SensorEventRouter};
 use crate::state::HostState;
 
@@ -196,11 +198,11 @@ impl CaptureSession {
     }
 
     /// Wait for a clean shutdown request.
-    #[cfg(not(windows))]
-    pub(crate) async fn wait_for_shutdown() {
-        match tokio::signal::ctrl_c().await {
-            Ok(()) => info!("Received Ctrl+C, finalizing recording"),
-            Err(err) => error!("Failed to listen for Ctrl+C: {}", err),
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) async fn wait_for_shutdown(signals: &mut ShutdownSignals) {
+        match signals.recv().await {
+            Some(signal) => info!("Received {}, finalizing recording", signal),
+            None => error!("Shutdown signal listener closed unexpectedly"),
         }
     }
 

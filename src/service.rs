@@ -156,6 +156,8 @@ ExecStart={} run --config {} --no-console\n\
 WorkingDirectory={}\n\
 Restart=on-failure\n\
 RestartSec=5s\n\
+KillSignal=SIGINT\n\
+TimeoutStopSec=30s\n\
 User=root\n\
 AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE\n\
 CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE\n\
@@ -209,6 +211,8 @@ impl LaunchdDefinition {
     <true/>\n\
     <key>KeepAlive</key>\n\
     <true/>\n\
+    <key>ExitTimeOut</key>\n\
+    <integer>30</integer>\n\
     <key>ProcessType</key>\n\
     <string>Interactive</string>\n\
     <key>StandardOutPath</key>\n\
@@ -347,6 +351,8 @@ mod tests {
         assert!(!definition.contents.contains("Wants=time-sync.target"));
         assert!(!definition.contents.contains("Requires=time-sync.target"));
         assert!(definition.contents.contains("WantedBy=multi-user.target"));
+        assert!(definition.contents.contains("KillSignal=SIGINT"));
+        assert!(definition.contents.contains("TimeoutStopSec=30s"));
     }
 
     #[test]
@@ -364,6 +370,9 @@ mod tests {
         assert!(definition
             .contents
             .contains("<string>/Library/Logs/Rustinel/launchd.err.log</string>"));
+        assert!(definition
+            .contents
+            .contains("<key>ExitTimeOut</key>\n<integer>30</integer>"));
     }
 
     #[test]

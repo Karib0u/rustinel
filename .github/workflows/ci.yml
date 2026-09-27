@@ -136,6 +136,12 @@ jobs:
             --artifacts-dir .ci/ebpf-load-runner
           sudo -E python3 tests/native_capture_contract.py \
             --binary "$GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/release/rustinel"
+      - name: Check graceful systemd stop on runner kernel
+        if: matrix.kernel == 'runner'
+        run: |
+          sudo -E python3 tests/systemd_stop_smoke.py \
+            --binary "$GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/release/rustinel" \
+            --rules-dir "$GITHUB_WORKSPACE/rules/sigma"
       - name: Load and exercise eBPF on Linux 5.10
         if: matrix.kernel == '5.10'
         uses: cilium/little-vm-helper@f86d344aca812dda5aef167867a9a0a90ca6cca5 # v0.0.31

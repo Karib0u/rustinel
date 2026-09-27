@@ -2,6 +2,7 @@ use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::pipeline::{LivePipeline, SharedState};
+use crate::runtime::signals::ShutdownSignals;
 use crate::runtime::startup::{load_config, RuntimeLogging};
 use crate::sensor::linux::EbpfSensor;
 use crate::sensor::{Platform, RawEvent, Sensor};
@@ -26,6 +27,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {
         let context = CaptureContext::load(&options, "Linux eBPF")?;
+        let mut shutdown_signals = ShutdownSignals::new()?;
         let session = context.start_recording(&options, Platform::Linux)?;
         let (sensor_tx, sensor_worker) = session.sensor_channel();
 
@@ -40,7 +42,7 @@ pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
         }
         session.announce_ready();
 
-        CaptureSession::wait_for_shutdown().await;
+        CaptureSession::wait_for_shutdown(&mut shutdown_signals).await;
         sensor.shutdown();
         session.finish(sensor_worker, 0).await
     })
@@ -61,6 +63,7 @@ async fn run_linux_edr(
         telemetry_reporter,
         _guards,
     } = RuntimeLogging::start(&cfg, "Linux eBPF", resolved_config_path.as_deref())?;
+    let mut shutdown_signals = ShutdownSignals::new()?;
 
     info!(target: TARGET_CONSOLE, "Agent initializing");
 
@@ -111,10 +114,9 @@ async fn run_linux_edr(
         "Agent ready; press Ctrl+C to stop gracefully"
     );
 
-    // Wait for Ctrl+C
-    match tokio::signal::ctrl_c().await {
-        Ok(()) => info!(target: TARGET_CONSOLE, "Received Ctrl+C, shutting down"),
-        Err(e) => error!("Failed to listen for Ctrl+C: {}", e),
+    match shutdown_signals.recv().await {
+        Some(signal) => info!(target: TARGET_CONSOLE, "Received {}, shutting down", signal),
+        None => error!("Shutdown signal listener closed unexpectedly"),
     }
     sensor.shutdown();
 

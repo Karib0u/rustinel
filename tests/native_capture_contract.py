@@ -90,13 +90,13 @@ def stop_capture(process):
     if sys.platform == "win32":
         process.send_signal(signal.CTRL_BREAK_EVENT)
     else:
-        process.send_signal(signal.SIGINT)
+        process.send_signal(signal.SIGTERM)
     try:
         process.wait(timeout=SHUTDOWN_TIMEOUT)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
-        raise AssertionError(f"capture did not stop after Ctrl-C\n{stderr_text(process)}")
+        raise AssertionError(f"capture did not stop after shutdown signal\n{stderr_text(process)}")
     stderr = stderr_text(process)
     if process.returncode != 0:
         raise AssertionError(f"capture exited {process.returncode}\n{stderr}")
