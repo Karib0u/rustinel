@@ -118,8 +118,9 @@ pub fn open_output_file(path: &Path, append: bool) -> io::Result<fs::File> {
     Ok(file)
 }
 
+/// Fail unless `file` is owned by SYSTEM or the Administrators group.
 #[cfg(windows)]
-fn check_windows_owner(file: &fs::File, path: &Path) -> io::Result<()> {
+pub(crate) fn check_windows_owner(file: &fs::File, path: &Path) -> io::Result<()> {
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::{LocalFree, HANDLE, HLOCAL};
     use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
@@ -156,7 +157,7 @@ fn check_windows_owner(file: &fs::File, path: &Path) -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
-                "output path {} is not owned by SYSTEM or Administrators",
+                "{} is not owned by SYSTEM or Administrators",
                 path.display()
             ),
         ));

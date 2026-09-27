@@ -11,6 +11,8 @@ use crate::rules::{self, Catalog, CatalogPack, InstallOutcome};
 use crate::service::{ManagedServicePaths, ServiceCommandResult, ServiceStatus};
 
 mod command_path;
+#[cfg(windows)]
+mod windows_acl;
 
 pub struct SetupOptions {
     pub pack: Option<SetupPack>,
@@ -69,7 +71,40 @@ fn create_managed_directories(
         fs::create_dir_all(&path)
             .with_context(|| format!("create managed directory {}", path.display()))?;
     }
+    #[cfg(windows)]
+    for (path, access) in windows_protected_directories(layout, service_paths) {
+        windows_acl::secure_directory(&path, access)?;
+    }
     Ok(())
+}
+
+/// Managed Windows directories and the access each one gets, parents first so
+/// a child's stricter DACL is applied after its parent's has propagated.
+#[cfg(windows)]
+fn windows_protected_directories(
+    layout: &InstallLayout,
+    service_paths: &ManagedServicePaths,
+) -> Vec<(PathBuf, windows_acl::ManagedAccess)> {
+    use windows_acl::ManagedAccess;
+
+    let mut dirs: Vec<(PathBuf, ManagedAccess)> = Vec::new();
+    let mut push = |path: &Path, access: ManagedAccess| {
+        if !dirs.iter().any(|(existing, _)| existing == path) {
+            dirs.push((path.to_path_buf(), access));
+        }
+    };
+    if let Some(parent) = layout.config_file.parent() {
+        push(parent, ManagedAccess::UsersRead);
+    }
+    if let Some(parent) = service_paths.binary_path.parent() {
+        push(parent, ManagedAccess::UsersRead);
+    }
+    push(&service_paths.working_dir, ManagedAccess::UsersRead);
+    push(&layout.rules_dir, ManagedAccess::UsersRead);
+    push(&layout.logs_dir, ManagedAccess::AdminOnly);
+    push(&layout.alerts_dir, ManagedAccess::AdminOnly);
+    dirs.sort_by_key(|(path, _)| path.components().count());
+    dirs
 }
 
 fn managed_directories(
