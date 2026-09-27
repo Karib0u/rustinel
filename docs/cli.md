@@ -67,7 +67,6 @@ rustinel run [--console] [--no-console]
 Record endpoint behavior to a replayable file without evaluating detections.
 
 Capture is passive: start it first, then run the sample, script, or test you want to record, and press Ctrl-C when the session is complete.
-On Linux and macOS, SIGTERM and SIGHUP also finalize the recording and its manifest.
 
 ```text
 rustinel capture [--output <PATH>]
@@ -157,7 +156,6 @@ rustinel service start
 ### `rustinel service stop`
 
 Stop the service.
-On Linux and macOS, a managed stop drains queued work and writes the final `telemetry.json` snapshot before exiting. The service manager allows up to 30 seconds for shutdown.
 
 ```text
 rustinel service stop

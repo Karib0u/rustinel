@@ -238,6 +238,7 @@ Events are recorded before any rule runs, so they carry no alert fields and are 
 ```
 
 `status` is `complete` only when capture stopped cleanly with no lost events.
+On Linux and macOS, SIGINT, SIGTERM, and SIGHUP all finalize the recording and its manifest.
 It stays `incomplete` when capture was killed, the writer fell behind (`lost`), or the OS dropped events first (`source_lost`).
 Replay rejects incomplete recordings, and any payload whose checksum does not match.
 Never edit a recording by hand.
