@@ -68,6 +68,8 @@ rustinel service uninstall  # keeps config, rules, and logs
 ```
 
 Use `sudo` on Linux and macOS, and an elevated shell on Windows, for every action except `status`.
+On Linux and macOS, a managed stop drains queued work and writes the final `telemetry.json` snapshot before exiting.
+The service manager allows up to 30 seconds for shutdown.
 
 The service definitions are:
 

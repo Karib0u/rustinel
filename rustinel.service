@@ -9,6 +9,8 @@ ExecStart=/opt/rustinel/rustinel run --config /etc/rustinel/config.toml --no-con
 WorkingDirectory=/opt/rustinel
 Restart=on-failure
 RestartSec=5s
+KillSignal=SIGINT
+TimeoutStopSec=30s
 User=root
 
 # Allow eBPF program loading and network observability without full root.
