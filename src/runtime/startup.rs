@@ -58,7 +58,7 @@ impl RuntimeLogging {
         runtime_label: &str,
         config_path: Option<&std::path::Path>,
     ) -> anyhow::Result<Self> {
-        let (app_guard, alert_guard, mut alert_sink) = init_logging(cfg);
+        let (app_guard, alert_guard, mut alert_sink) = init_logging(cfg)?;
         let _guards = (app_guard, alert_guard);
 
         // 2a. Webhook destinations, attached before the dedup worker takes its
