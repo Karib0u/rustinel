@@ -65,7 +65,7 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | `process_inventory` | Startup inventory failed or seeded no processes; reports duration and coverage |
 | `artifact_resolver` | Artifact queues or I/O threads saturated, jobs expired, PE metadata missed the admission budget, a deferred Sigma pass ran without `Hashes`/`Imphash` because its budget expired or its queue was full, exceeded size limits, changed identity or had none to validate, or failed file/consumer work; reports every artifact store in one snapshot |
 | `field_contract_violations` | A normalized event populated a field declared `Never`; detection filters the contradictory field until the decoder or contract is corrected |
-| `pipeline_telemetry` | Any queue dropped events. Also warns when `telemetry.enabled = false` |
+| `pipeline_telemetry` | Warns when a pipeline queue dropped events or `telemetry.enabled = false`. Fails when the alert writer dropped alerts |
 | `alert_webhooks` | An alert failed, was dropped, was too large, or was abandoned at shutdown for a [webhook](output.md#webhooks). The alert file still has it |
 | `linux_ebpf` | A kernel ring or map filled, records were short or unusable, file paths could not be rebuilt, or counters do not add up |
 | `linux_ebpf_<feature>_capability` | A kernel hook is missing, so that feature is degraded. The rest keeps working |

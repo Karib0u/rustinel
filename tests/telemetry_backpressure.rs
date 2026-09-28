@@ -12,6 +12,7 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 
 use common::{process_start_event, TestNormalizer};
+use rustinel::alerts::AlertSink;
 use rustinel::config::AppConfig;
 use rustinel::runtime::telemetry::TelemetryReporter;
 use rustinel::scanner::YaraMemoryEventHandler;
@@ -233,7 +234,7 @@ fn doctor_confirms_when_no_telemetry_was_lost() {
     assert!(check["message"]
         .as_str()
         .expect("message")
-        .contains("No pipeline channel drops across 250000 events"));
+        .contains("No channel drops across 250000 items"));
 }
 
 /// An endpoint where the agent has never run must not look like a failure.
@@ -262,7 +263,10 @@ async fn the_runtime_publishes_counters_while_running_and_at_shutdown() {
     cfg.logging.directory = logs_dir.clone();
     cfg.telemetry.snapshot_interval_secs = 1;
 
-    let reporter = TelemetryReporter::start(&cfg).expect("telemetry is enabled by default");
+    let (writer, _guard) = tracing_appender::non_blocking(std::io::sink());
+    let alert_sink = AlertSink::new(writer);
+    let reporter =
+        TelemetryReporter::start(&cfg, &alert_sink).expect("telemetry is enabled by default");
 
     // The reporter creates the log directory itself, as it must on a fresh
     // portable install whose first run has not written a log yet.
@@ -271,7 +275,8 @@ async fn the_runtime_publishes_counters_while_running_and_at_shutdown() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     let periodic = TelemetrySnapshot::read_from(&path).expect("a snapshot was published");
-    assert_eq!(periodic.channels.len(), ChannelId::ALL.len());
+    assert_eq!(periodic.channels.len(), ChannelId::ALL.len() + 1);
+    assert_eq!(periodic.channels.last().unwrap().channel, "alert_writer");
 
     reporter.finish().await;
 
@@ -292,6 +297,7 @@ async fn disabling_telemetry_publishes_nothing() {
     cfg.logging.directory = temp.path().to_path_buf();
     cfg.telemetry.enabled = false;
 
-    assert!(TelemetryReporter::start(&cfg).is_none());
+    let (writer, _guard) = tracing_appender::non_blocking(std::io::sink());
+    assert!(TelemetryReporter::start(&cfg, &AlertSink::new(writer)).is_none());
     assert!(!snapshot_path(temp.path()).exists());
 }

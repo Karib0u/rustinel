@@ -14,27 +14,56 @@ pub mod webhook;
 use crate::models::ecs::EcsAlert;
 use crate::models::{Alert, YaraScanSource};
 use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{error, info};
-use tracing_appender::non_blocking::NonBlocking;
+use tracing_appender::non_blocking::{ErrorCounter, NonBlocking};
 
 pub use dedup::Deduplicator;
 pub use webhook::WebhookDispatcher;
 
 #[derive(Clone)]
+pub(crate) struct AlertWriterMetrics {
+    dropped: ErrorCounter,
+    offered: Arc<AtomicU64>,
+}
+
+impl AlertWriterMetrics {
+    pub(crate) fn dropped(&self) -> u64 {
+        self.dropped.dropped_lines() as u64
+    }
+
+    pub(crate) fn accepted(&self) -> u64 {
+        self.offered
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.dropped())
+    }
+}
+
+#[derive(Clone)]
 pub struct AlertSink {
     writer: NonBlocking,
+    writer_metrics: AlertWriterMetrics,
     dedup: Option<Arc<Deduplicator>>,
     webhooks: Option<Arc<WebhookDispatcher>>,
 }
 
 impl AlertSink {
     pub fn new(writer: NonBlocking) -> Self {
+        let writer_metrics = AlertWriterMetrics {
+            dropped: writer.error_counter(),
+            offered: Arc::new(AtomicU64::new(0)),
+        };
         Self {
             writer,
+            writer_metrics,
             dedup: None,
             webhooks: None,
         }
+    }
+
+    pub(crate) fn writer_metrics(&self) -> AlertWriterMetrics {
+        self.writer_metrics.clone()
     }
 
     /// Attach webhook destinations.  Call before handing the sink to any
@@ -68,6 +97,7 @@ impl AlertSink {
                 // newline must travel in the same write as the object: with
                 // writeln! two concurrent alerts can land as `{A}{B}\n\n`.
                 line.push('\n');
+                self.writer_metrics.offered.fetch_add(1, Ordering::Relaxed);
                 let mut writer = self.writer.clone();
                 let written = writer.write_all(line.as_bytes());
                 // Webhook delivery is independent of the file: neither a file
@@ -132,7 +162,8 @@ impl AlertSink {
 mod tests {
     use super::*;
     use crate::models::{AlertSeverity, DetectionEngine, NormalizedEvent};
-    use std::sync::{Barrier, Mutex};
+    use crate::telemetry::TelemetrySnapshot;
+    use std::sync::{mpsc, Barrier, Mutex};
 
     #[derive(Clone)]
     struct SharedWriter(Arc<Mutex<Vec<u8>>>);
@@ -146,6 +177,79 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    struct SlowWriter {
+        started: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+        blocked: bool,
+    }
+
+    impl Write for SlowWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            if !self.blocked {
+                self.blocked = true;
+                self.started.send(()).unwrap();
+                self.release.recv().unwrap();
+            }
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn saturated_alert_writer_appears_in_telemetry_snapshot() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+            .buffered_lines_limit(1)
+            .finish(SlowWriter {
+                started: started_tx,
+                release: release_rx,
+                blocked: false,
+            });
+        let sink = AlertSink::new(writer);
+        let event: NormalizedEvent = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-09-13T20:29:41Z",
+            "platform": "linux",
+            "provider": "ebpf",
+            "category": "Process",
+            "event_id": 1,
+            "opcode": 1,
+            "fields": { "Image": "/bin/true", "ProcessId": "3051" }
+        }))
+        .unwrap();
+        let alert = Alert {
+            severity: AlertSeverity::High,
+            rule_name: "slow writer".into(),
+            rule_description: None,
+            rule_id: None,
+            sigma_metadata: None,
+            engine: DetectionEngine::Sigma,
+            event,
+            match_details: None,
+        };
+
+        sink.write_alert(&alert);
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        for _ in 0..9 {
+            sink.write_alert(&alert);
+        }
+
+        let snapshot = TelemetrySnapshot::capture_with_alert_writer(&sink.writer_metrics());
+        release_tx.send(()).unwrap();
+        drop(sink);
+        drop(guard);
+
+        let channel = snapshot.channels.last().unwrap();
+        assert_eq!(channel.channel, "alert_writer");
+        assert_eq!(channel.dropped, 8);
+        assert_eq!(channel.accepted, 2);
     }
 
     #[test]

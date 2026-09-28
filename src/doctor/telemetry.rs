@@ -57,13 +57,18 @@ pub(crate) fn telemetry_results(
     results.extend(field_fidelity_results(&snapshot));
     results.extend(alert_webhook_results(&snapshot));
     let dropping = snapshot.dropping_channels();
+    let alert_writer_drops = snapshot
+        .channels
+        .iter()
+        .find(|channel| channel.channel == "alert_writer")
+        .map_or(0, |channel| channel.dropped);
     if dropping.is_empty() {
         results.insert(
             0,
             DiagnosticResult::pass(
                 "pipeline_telemetry",
                 format!(
-                    "No pipeline channel drops across {} events (snapshot from {})",
+                    "No channel drops across {} items (snapshot from {})",
                     snapshot.total_accepted(),
                     snapshot.captured_at
                 ),
@@ -78,20 +83,28 @@ pub(crate) fn telemetry_results(
         .collect::<Vec<_>>()
         .join("; ");
 
-    let result = DiagnosticResult::warn(
-        "pipeline_telemetry",
-        format!(
+    let result = if alert_writer_drops > 0 {
+        let message = format!(
+            "{} alerts were dropped by the alert writer ({} total channel drops; snapshot from {})",
+            alert_writer_drops,
+            snapshot.total_dropped(),
+            snapshot.captured_at
+        );
+        DiagnosticResult::fail("pipeline_telemetry", message, detail).with_fix(
+            "Alert file output lost records. Check disk health and alert volume, then re-run to confirm the count stops growing",
+        )
+    } else {
+        let message = format!(
             "{} events were shed by pipeline channels (snapshot from {})",
             snapshot.total_dropped(),
             snapshot.captured_at
-        ),
-        detail,
-    )
-    .with_fix(
-        "Detection gaps are proportional to these counts. Reduce event volume - narrow broad \
-         rules, widen trusted-path allowlists - and re-run to confirm the totals stop growing; \
-         see https://docs.rustinel.io/telemetry-loss/",
-    );
+        );
+        DiagnosticResult::warn("pipeline_telemetry", message, detail).with_fix(
+            "Detection gaps are proportional to these counts. Reduce event volume - narrow broad \
+             rules, widen trusted-path allowlists - and re-run to confirm the totals stop growing; \
+             see https://docs.rustinel.io/telemetry-loss/",
+        )
+    };
 
     results.insert(0, result);
     (results, Some(snapshot))
@@ -1083,7 +1096,7 @@ mod tests {
         let (results, read) = telemetry_results(&AppConfig::default(), temp.path());
 
         assert_eq!(results[0].status, DiagnosticStatus::Pass);
-        assert!(results[0].message.contains("5000 events"));
+        assert!(results[0].message.contains("5000 items"));
         assert_eq!(read.expect("snapshot").pid, 7);
     }
 
@@ -1111,6 +1124,24 @@ mod tests {
         assert!(detail.starts_with("sensor_events: 1000 dropped of 10000 offered (10.00%)"));
         assert!(detail.contains("artifact_resolution: 25 dropped of 125 offered"));
         assert!(results[0].fix.is_some());
+    }
+
+    #[test]
+    fn alert_writer_drops_fail_doctor() {
+        let temp = tempfile::tempdir().unwrap();
+        snapshot(vec![channel("alert_writer", 2, 8)])
+            .write_to(&snapshot_path(temp.path()))
+            .unwrap();
+
+        let (results, read) = telemetry_results(&AppConfig::default(), temp.path());
+        assert_eq!(results[0].status, DiagnosticStatus::Fail);
+        assert!(results[0].message.contains("8 alerts were dropped"));
+        assert!(results[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("alert_writer: 8 dropped"));
+        assert_eq!(read.unwrap().channels[0].dropped, 8);
     }
 
     #[test]
