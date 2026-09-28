@@ -2,6 +2,7 @@ use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::pipeline::{LivePipeline, SharedState};
+use crate::runtime::shutdown::exit_on_critical_worker_failure;
 use crate::runtime::signals::ShutdownSignals;
 use crate::runtime::startup::{load_config, RuntimeLogging};
 use crate::sensor::linux::EbpfSensor;
@@ -75,7 +76,7 @@ async fn run_linux_edr(
     let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
 
     let host = Arc::clone(&state.host);
-    let pipeline = LivePipeline::new(
+    let mut pipeline = LivePipeline::new(
         &cfg,
         resolved_config_path,
         Platform::Linux,
@@ -96,7 +97,7 @@ async fn run_linux_edr(
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(8192);
     let router_for_worker = Arc::clone(&pipeline.router);
     let host_state = Arc::clone(&pipeline.host_state);
-    let sensor_worker_handle = tokio::task::spawn_blocking(move || {
+    let mut sensor_worker_handle = tokio::task::spawn_blocking(move || {
         while let Some(event) = sensor_rx.blocking_recv() {
             if let Some(event) = host_state.canonicalize(event) {
                 router_for_worker.route_event(&event);
@@ -114,9 +115,16 @@ async fn run_linux_edr(
         "Agent ready; press Ctrl+C to stop gracefully"
     );
 
-    match shutdown_signals.recv().await {
-        Some(signal) => info!(target: TARGET_CONSOLE, "Received {}, shutting down", signal),
-        None => error!("Shutdown signal listener closed unexpectedly"),
+    let mut response_worker_handle = response_worker_handle;
+    tokio::select! {
+        biased;
+        signal = shutdown_signals.recv() => match signal {
+            Some(signal) => info!(target: TARGET_CONSOLE, "Received {}, shutting down", signal),
+            None => anyhow::bail!("Shutdown signal listener closed unexpectedly"),
+        },
+        (name, result) = pipeline.critical_worker_exit(&mut sensor_worker_handle, &mut response_worker_handle) => {
+            exit_on_critical_worker_failure(name, result, _guards);
+        }
     }
     sensor.shutdown();
 
