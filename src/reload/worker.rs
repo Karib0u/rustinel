@@ -10,11 +10,32 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use super::ReloadTarget;
+use crate::alerts::AlertSink;
 use crate::config::{IocConfig, ReloadConfig, ScannerConfig};
 use crate::engine::{DetectorStore, Engine};
 use crate::ioc::IocEngine;
 use crate::models::MatchDebugLevel;
+use crate::response::ResponseEngine;
 use crate::scanner;
+use crate::state::HostState;
+
+pub struct ReloadAlertContext {
+    pub host_state: Arc<HostState>,
+    pub alert_sink: AlertSink,
+    pub response_engine: ResponseEngine,
+}
+
+impl ReloadAlertContext {
+    fn emit(&self, alerts: Vec<crate::engine::SigmaAlert>) {
+        for result in alerts {
+            let mut alert = result.alert;
+            self.host_state
+                .enrich_process_context(&mut alert.event, result.process_start_key);
+            self.alert_sink.write_alert(&alert);
+            self.response_engine.handle_alert(&alert);
+        }
+    }
+}
 
 // The worker is wired from the platform runtime with the full detector,
 // config, and channel context; grouping these into a struct would only obscure
@@ -28,6 +49,7 @@ pub fn spawn_reload_worker(
     match_debug: MatchDebugLevel,
     config_path: Option<PathBuf>,
     response_config: Arc<ArcSwap<crate::config::ResponseConfig>>,
+    alert_context: Option<ReloadAlertContext>,
     mut reload_rx: mpsc::UnboundedReceiver<ReloadTarget>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -121,6 +143,10 @@ pub fn spawn_reload_worker(
                                         unsupported = ?stats.unsupported_rules,
                                         "Some Sigma documents were dropped as unresolved or untargeted"
                                     );
+                                }
+                                let pending_alerts = store.sigma().flush_pending_with_origins();
+                                if let Some(context) = &alert_context {
+                                    context.emit(pending_alerts);
                                 }
                                 store.swap_sigma(Arc::new(engine));
                                 info!(
