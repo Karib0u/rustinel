@@ -254,7 +254,7 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
             results.extend(pipeline_results);
 
             let rule_pack = inspect_rule_pack(&paths, &mut results);
-            let service = inspect_service(mode, &mut results);
+            let service = inspect_service(mode, Some(&cfg), &mut results);
 
             DoctorReport::from_results(
                 platform_label(platform),
@@ -281,7 +281,7 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
                 );
             }
             results.extend(platform_prerequisite_results());
-            let service = inspect_service(mode, &mut results);
+            let service = inspect_service(mode, None, &mut results);
 
             DoctorReport::from_results(
                 platform_label(platform),

@@ -159,8 +159,8 @@ RestartSec=5s\n\
 KillSignal=SIGINT\n\
 TimeoutStopSec=30s\n\
 User=root\n\
-AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE\n\
-CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE\n\
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE CAP_KILL CAP_SYS_PTRACE CAP_DAC_READ_SEARCH\n\
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_RESOURCE CAP_KILL CAP_SYS_PTRACE CAP_DAC_READ_SEARCH\n\
 NoNewPrivileges=true\n\
 StandardOutput=journal\n\
 StandardError=journal\n\
@@ -353,6 +353,16 @@ mod tests {
         assert!(definition.contents.contains("WantedBy=multi-user.target"));
         assert!(definition.contents.contains("KillSignal=SIGINT"));
         assert!(definition.contents.contains("TimeoutStopSec=30s"));
+        for directive in ["AmbientCapabilities", "CapabilityBoundingSet"] {
+            let line = definition
+                .contents
+                .lines()
+                .find(|line| line.starts_with(directive))
+                .expect("capability directive");
+            for capability in ["CAP_KILL", "CAP_SYS_PTRACE", "CAP_DAC_READ_SEARCH"] {
+                assert!(line.split_whitespace().any(|value| value == capability));
+            }
+        }
     }
 
     #[test]

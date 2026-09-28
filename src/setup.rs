@@ -507,7 +507,12 @@ fn start_service(
     layout: &InstallLayout,
     service_paths: &ManagedServicePaths,
 ) -> Result<ServiceStatus> {
-    if let Err(err) = crate::platform::run_service_action(ServiceAction::Start) {
+    let action = if status_or_unknown() == ServiceStatus::Running {
+        ServiceAction::Restart
+    } else {
+        ServiceAction::Start
+    };
+    if let Err(err) = crate::platform::run_service_action(action) {
         let status = status_or_unknown();
         print_service_start_recovery(layout, service_paths, status, &err);
         return Err(err);
