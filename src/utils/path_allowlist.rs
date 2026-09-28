@@ -4,6 +4,7 @@
 //! boundaries, while IOC configuration accepts raw prefixes (including empty
 //! prefixes). Response comparisons fold ASCII case on Unix too. Unifying these
 //! policies would change which files are scanned or which responses are allowed.
+//! Excluded directory prefixes use a leading `!` in the effective module lists.
 
 use super::normalize_path_for_comparison;
 
@@ -40,7 +41,9 @@ impl PathAllowlistPolicy {
             .filter(|value| self == Self::IocPrefix || !value.trim().is_empty())
             .map(|value| {
                 let mut normalized = self.normalize_path(value);
-                if self != Self::IocPrefix && !normalized.ends_with(separator) {
+                if (self != Self::IocPrefix || normalized.starts_with('!'))
+                    && !normalized.ends_with(separator)
+                {
                     normalized.push(separator);
                 }
                 normalized
@@ -57,7 +60,14 @@ impl PathAllowlistPolicy {
 }
 
 pub(crate) fn matches_normalized(path: &str, normalized_prefixes: &[String]) -> bool {
+    if normalized_prefixes.iter().any(|prefix| {
+        prefix
+            .strip_prefix('!')
+            .is_some_and(|excluded| path.starts_with(excluded))
+    }) {
+        return false;
+    }
     normalized_prefixes
         .iter()
-        .any(|prefix| path.starts_with(prefix))
+        .any(|prefix| !prefix.starts_with('!') && path.starts_with(prefix))
 }
