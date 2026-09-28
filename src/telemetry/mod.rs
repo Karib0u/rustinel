@@ -36,11 +36,12 @@ use tracing::warn;
 use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
-    snapshot_path, spawn_reporter, write_final_snapshot, ChannelSnapshot, EtwDecodeFailureSnapshot,
-    EtwDecodeSnapshot, FileAttributionSnapshot, FileRundownSnapshot, LinuxEbpfFamilySnapshot,
+    snapshot_path, ChannelSnapshot, EtwDecodeFailureSnapshot, EtwDecodeSnapshot,
+    FileAttributionSnapshot, FileRundownSnapshot, LinuxEbpfFamilySnapshot,
     LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot,
     SensorEventCategorySnapshot, TelemetrySnapshot, SNAPSHOT_FILE_NAME,
 };
+pub(crate) use snapshot::{spawn_reporter, write_final_snapshot};
 
 use crate::models::EventCategory;
 use crate::sensor::RawEvent;

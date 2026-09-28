@@ -17,6 +17,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use super::{ChannelId, PROCESS_START, TARGET_TELEMETRY};
+use crate::alerts::AlertWriterMetrics;
 use crate::runtime::logging::TARGET_CONSOLE;
 use crate::utils::fs::restrict_file_permissions;
 
@@ -68,6 +69,15 @@ impl ChannelSnapshot {
 
     /// One-line operator summary of this channel.
     pub fn describe(&self) -> String {
+        if self.channel == "alert_writer" {
+            return format!(
+                "{}: {} dropped of {} offered ({:.2}%)",
+                self.channel,
+                self.dropped,
+                self.accepted.saturating_add(self.dropped),
+                self.drop_rate_pct(),
+            );
+        }
         format!(
             "{}: {} dropped of {} offered ({:.2}%), peak depth {}/{}",
             self.channel,
@@ -549,6 +559,19 @@ impl TelemetrySnapshot {
         }
     }
 
+    pub(crate) fn capture_with_alert_writer(alert_writer: &AlertWriterMetrics) -> Self {
+        let mut snapshot = Self::capture();
+        snapshot.channels.push(ChannelSnapshot {
+            channel: "alert_writer".to_string(),
+            capacity: tracing_appender::non_blocking::DEFAULT_BUFFERED_LINES_LIMIT,
+            accepted: alert_writer.accepted(),
+            dropped: alert_writer.dropped(),
+            dropped_channel_closed: 0,
+            high_water_mark: 0,
+        });
+        snapshot
+    }
+
     /// Total items shed across every channel.
     pub fn total_dropped(&self) -> u64 {
         self.channels
@@ -622,7 +645,11 @@ impl TelemetrySnapshot {
 ///
 /// The returned task runs until it is aborted; the runtime writes one final
 /// snapshot on shutdown so the last interval's drops are not lost with it.
-pub fn spawn_reporter(path: PathBuf, interval: Duration) -> JoinHandle<()> {
+pub(crate) fn spawn_reporter(
+    path: PathBuf,
+    interval: Duration,
+    alert_writer: AlertWriterMetrics,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         // Never busy-loop, however the interval was configured.
         let interval = interval.max(Duration::from_secs(1));
@@ -635,7 +662,10 @@ pub fn spawn_reporter(path: PathBuf, interval: Duration) -> JoinHandle<()> {
 
         loop {
             tokio::time::sleep(interval).await;
-            persist(&TelemetrySnapshot::capture(), &path);
+            persist(
+                &TelemetrySnapshot::capture_with_alert_writer(&alert_writer),
+                &path,
+            );
         }
     })
 }
@@ -644,8 +674,8 @@ pub fn spawn_reporter(path: PathBuf, interval: Duration) -> JoinHandle<()> {
 ///
 /// The summary goes to the log here — and only here — so the totals survive
 /// even if the snapshot cannot be written.
-pub fn write_final_snapshot(path: &Path) {
-    let snapshot = TelemetrySnapshot::capture();
+pub(crate) fn write_final_snapshot(path: &Path, alert_writer: &AlertWriterMetrics) {
+    let snapshot = TelemetrySnapshot::capture_with_alert_writer(alert_writer);
     let active_channels = snapshot.active_channels();
 
     if !active_channels.is_empty() {

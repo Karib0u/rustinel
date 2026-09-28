@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tokio::task::JoinHandle;
 
+use crate::alerts::{AlertSink, AlertWriterMetrics};
 use crate::config::AppConfig;
 use crate::telemetry::{snapshot_path, spawn_reporter, write_final_snapshot};
 
@@ -15,21 +16,28 @@ use crate::telemetry::{snapshot_path, spawn_reporter, write_final_snapshot};
 pub struct TelemetryReporter {
     path: PathBuf,
     handle: JoinHandle<()>,
+    alert_writer: AlertWriterMetrics,
 }
 
 impl TelemetryReporter {
     /// Start publishing, unless the operator turned persistence off.
-    pub fn start(cfg: &AppConfig) -> Option<Self> {
+    pub fn start(cfg: &AppConfig, alert_sink: &AlertSink) -> Option<Self> {
         if !cfg.telemetry.enabled {
             return None;
         }
 
         let path = snapshot_path(&cfg.logging.directory);
+        let alert_writer = alert_sink.writer_metrics();
         let handle = spawn_reporter(
             path.clone(),
             Duration::from_secs(cfg.telemetry.snapshot_interval_secs),
+            alert_writer.clone(),
         );
-        Some(Self { path, handle })
+        Some(Self {
+            path,
+            handle,
+            alert_writer,
+        })
     }
 
     /// Stop publishing after one final write.
@@ -40,6 +48,6 @@ impl TelemetryReporter {
     pub async fn finish(self) {
         self.handle.abort();
         let _ = self.handle.await;
-        write_final_snapshot(&self.path);
+        write_final_snapshot(&self.path, &self.alert_writer);
     }
 }

@@ -102,6 +102,8 @@ Webhook losses never remove an alert from the alert file.
 | `dropped_channel_closed` | Items dropped during shutdown. Not a gap |
 | `high_water_mark` | Deepest the queue got |
 
+The `alert_writer` entry counts alerts offered to the file writer and lines dropped when its queue filled. Its `high_water_mark` is zero because the writer does not expose queue depth.
+
 ## `linux_ebpf`
 
 `families` has one entry per kernel ring (process, network, file, DNS):

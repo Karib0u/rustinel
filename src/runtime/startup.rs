@@ -91,7 +91,7 @@ impl RuntimeLogging {
         info!(target: TARGET_CONSOLE, "Alerts: {}", cfg.alerts.directory.display());
 
         // 2c. Pipeline drop counters, published for `rustinel doctor`
-        let telemetry_reporter = TelemetryReporter::start(cfg);
+        let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink);
 
         Ok(Self {
             alert_sink,
@@ -99,5 +99,29 @@ impl RuntimeLogging {
             telemetry_reporter,
             _guards,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_fails_when_alert_file_cannot_be_opened() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = config::AppConfig::default();
+        cfg.logging.directory = temp.path().join("logs");
+        cfg.alerts.directory = temp.path().join("alerts");
+        std::fs::create_dir(&cfg.alerts.directory).unwrap();
+        let today = chrono::Utc::now().date_naive();
+        std::fs::create_dir(
+            cfg.alerts
+                .directory
+                .join(format!("{}.{today}", cfg.alerts.filename)),
+        )
+        .unwrap();
+
+        let error = RuntimeLogging::start(&cfg, "test", None).err().unwrap();
+        assert!(error.to_string().contains("failed to open alerts log file"));
     }
 }
