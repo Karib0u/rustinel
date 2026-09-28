@@ -14,18 +14,22 @@ use rustinel::{
 };
 
 async fn check(prefix: &str, path: &str, expected: [bool; 3]) {
+    check_paths(vec![prefix.into()], path, expected).await;
+}
+
+async fn check_paths(paths: Vec<String>, path: &str, expected: [bool; 3]) {
     let fixture = common::IocFixture::new();
     let mut ioc_cfg = fixture.config();
-    ioc_cfg.hash_allowlist_paths = vec![prefix.into()];
+    ioc_cfg.hash_allowlist_paths = paths.clone();
     let ioc = IocEngine::load(&ioc_cfg);
-    let yara_paths = normalize_allowlist_paths(&[prefix.into()]);
+    let yara_paths = normalize_allowlist_paths(&paths);
 
     let mut response_cfg = AppConfig::default().response;
     response_cfg.enabled = true;
-    response_cfg.prevention_enabled = false;
+    response_cfg.prevention_enabled = true;
     response_cfg.min_severity = "low".into();
     response_cfg.allowlist_images.clear();
-    response_cfg.allowlist_paths = vec![prefix.into()];
+    response_cfg.allowlist_paths = paths.clone();
     let (response, worker) =
         ResponseEngine::new(Arc::new(arc_swap::ArcSwap::from_pointee(response_cfg)));
     let mut event = common::TestNormalizer::new()
@@ -49,7 +53,7 @@ async fn check(prefix: &str, path: &str, expected: [bool; 3]) {
     });
     assert!(matches!(
         decision,
-        ResponseDecision::Allowlisted { .. } | ResponseDecision::DryRun { .. }
+        ResponseDecision::Allowlisted { .. } | ResponseDecision::Terminate { .. }
     ));
     assert_eq!(
         [
@@ -58,10 +62,25 @@ async fn check(prefix: &str, path: &str, expected: [bool; 3]) {
             matches!(decision, ResponseDecision::Allowlisted { .. }),
         ],
         expected,
-        "YARA, IOC, response: prefix {prefix:?}, path {path:?}",
+        "YARA, IOC, response: paths {paths:?}, path {path:?}",
     );
     drop(response);
     worker.await.unwrap();
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_defaults_scan_writable_folders_and_skip_system_binaries() {
+    let paths = AppConfig::default().scanner.yara_allowlist_paths;
+    check_paths(paths.clone(), r"C:\Windows\Temp\payload.exe", [false; 3]).await;
+    check_paths(paths.clone(), r"C:\Windows\Tasks\payload.exe", [false; 3]).await;
+    check_paths(
+        paths.clone(),
+        r"C:\Windows\System32\spool\drivers\color\payload.exe",
+        [false; 3],
+    )
+    .await;
+    check_paths(paths, r"C:\Windows\System32\cmd.exe", [true; 3]).await;
 }
 
 #[tokio::test]
@@ -104,4 +123,25 @@ async fn case_and_separator_contracts_are_platform_specific() {
         check("/Trusted", "/Trusted/app", [true, true, true]).await;
         check("/trusted", "/trusted\\app", [false, true, false]).await;
     }
+}
+
+#[tokio::test]
+async fn excluded_directory_overrides_each_module_trust_prefix() {
+    let (root, excluded, binary) = if cfg!(windows) {
+        (
+            r"C:\Trusted\",
+            r"C:\Trusted\Writable\",
+            r"C:\Trusted\System\app.exe",
+        )
+    } else {
+        ("/trusted/", "/trusted/writable/", "/trusted/system/app")
+    };
+    let paths = vec![root.to_string(), format!("!{excluded}")];
+    check_paths(paths.clone(), binary, [true; 3]).await;
+    check_paths(paths.clone(), &format!("{excluded}payload"), [false; 3]).await;
+    let sibling = format!(
+        "{}Other/payload",
+        excluded.trim_end_matches(&['/', '\\'][..])
+    );
+    check_paths(paths, &sibling, [true; 3]).await;
 }

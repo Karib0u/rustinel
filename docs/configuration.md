@@ -94,6 +94,7 @@ Trusted path prefixes shared by YARA, IOC hashing, and active response.
 | Option | Default | Description |
 | --- | --- | --- |
 | `paths` | OS directories, see below | Trusted path prefixes. Each module uses this list until its own allowlist is set. |
+| `excluded_paths` | Windows writable folders, see below; empty elsewhere | Directory prefixes never trusted by YARA, IOC hashing, or active response, even with module-specific allowlists. |
 
 ### `[reload]`
 
@@ -243,7 +244,11 @@ Header values, `secret`, and the URL path are treated as credentials: they are n
 
 === "Windows"
 
-    `C:\Windows\`, `C:\Program Files\`, `C:\Program Files (x86)\`
+    `C:\Windows\System32\`, `C:\Windows\SysWOW64\`, `C:\Windows\WinSxS\`, `C:\Program Files\`, `C:\Program Files (x86)\`
+
+    `allowlist.excluded_paths` defaults to `C:\Windows\Temp\`, `C:\Windows\Tasks\`, `C:\Windows\Tracing\`, `C:\Windows\System32\Tasks\`, and `C:\Windows\System32\spool\drivers\color\`.
+    Exclusions take precedence over shared and module-specific trusted paths.
+    Set `excluded_paths = [...]` under `[allowlist]` to replace the defaults.
 
 === "Linux"
 
@@ -257,6 +262,7 @@ Header values, `secret`, and the URL path are treated as credentials: they are n
 
 Paths are prefixes and are not resolved, so symlinks are not followed.
 Matching ignores case on Windows, and for active response on every platform.
+Excluded paths use directory boundaries, including for IOC hashing.
 
 ## File permissions
 

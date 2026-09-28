@@ -4,6 +4,14 @@
 Configuration, rules, logs, and recordings are kept.
 Rule packs are updated separately, see [Manage rule packs](rule-packs.md).
 
+## Windows path trust change
+
+From v1.9.0, the default trusted paths under `C:\Windows\` are limited to `System32`, `SysWOW64`, and `WinSxS`.
+Known writable subfolders are excluded even when a broader trusted path is configured.
+Executables in `C:\Windows\Temp\`, `Tasks`, and `Tracing` are now eligible for YARA scanning, IOC hashing, and active response.
+Check `rustinel doctor` for the effective exclusions.
+To change them, set `allowlist.excluded_paths` in the configuration.
+
 ## Managed install
 
 === "Linux and macOS"

@@ -420,8 +420,24 @@ fn portable_layout_stays_under_executable_directory() {
 #[test]
 fn test_global_allowlist_propagates_to_modules() {
     let cfg = AppConfig::default();
-    assert_eq!(cfg.response.allowlist_paths, cfg.allowlist.paths);
-    assert_eq!(cfg.ioc.hash_allowlist_paths, cfg.allowlist.paths);
+    let mut expected = cfg.allowlist.paths.clone();
+    expected.extend(
+        cfg.allowlist
+            .excluded_paths
+            .iter()
+            .map(|path| format!("!{path}")),
+    );
+    assert_eq!(cfg.response.allowlist_paths, expected);
+    assert_eq!(cfg.ioc.hash_allowlist_paths, expected);
+    assert_eq!(cfg.scanner.yara_allowlist_paths, expected);
+}
+
+#[test]
+fn empty_exclusion_does_not_expand_to_the_config_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let cfg = load_config_file(&temp, "[allowlist]\nexcluded_paths = [\"\"]\n")
+        .expect("empty exclusion is ignored");
+    assert!(cfg.allowlist.excluded_paths.is_empty());
     assert_eq!(cfg.scanner.yara_allowlist_paths, cfg.allowlist.paths);
 }
 
@@ -516,6 +532,7 @@ fn test_module_specific_allowlist_not_overwritten() {
     let mut cfg = AppConfig::default();
     // Reset to simulate module-specific override scenario
     cfg.allowlist.paths = vec!["C:\\Shared\\".to_string()];
+    cfg.allowlist.excluded_paths = vec!["C:\\Shared\\Temp\\".to_string()];
     cfg.response.allowlist_paths = vec!["C:\\ResponseOnly\\".to_string()];
     cfg.ioc.hash_allowlist_paths = Vec::new();
     cfg.scanner.yara_allowlist_paths = Vec::new();
@@ -523,15 +540,24 @@ fn test_module_specific_allowlist_not_overwritten() {
 
     assert_eq!(
         cfg.response.allowlist_paths,
-        vec!["C:\\ResponseOnly\\".to_string()]
+        vec![
+            "C:\\ResponseOnly\\".to_string(),
+            "!C:\\Shared\\Temp\\".to_string()
+        ]
     );
     assert_eq!(
         cfg.ioc.hash_allowlist_paths,
-        vec!["C:\\Shared\\".to_string()]
+        vec![
+            "C:\\Shared\\".to_string(),
+            "!C:\\Shared\\Temp\\".to_string()
+        ]
     );
     assert_eq!(
         cfg.scanner.yara_allowlist_paths,
-        vec!["C:\\Shared\\".to_string()]
+        vec![
+            "C:\\Shared\\".to_string(),
+            "!C:\\Shared\\Temp\\".to_string()
+        ]
     );
 }
 

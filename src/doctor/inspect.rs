@@ -516,6 +516,21 @@ fn platform_support_result() -> DiagnosticResult {
 fn config_safety_results(cfg: &AppConfig) -> Vec<DiagnosticResult> {
     let mut results = Vec::new();
 
+    results.push(
+        DiagnosticResult::pass(
+            "allowlist_exclusions",
+            format!(
+                "{} effective trusted-path exclusions",
+                cfg.allowlist.excluded_paths.len()
+            ),
+        )
+        .with_detail(if cfg.allowlist.excluded_paths.is_empty() {
+            "none".to_string()
+        } else {
+            cfg.allowlist.excluded_paths.join(", ")
+        }),
+    );
+
     let severity = cfg.response.min_severity.trim().to_ascii_lowercase();
     if matches!(severity.as_str(), "critical" | "high" | "medium" | "low") {
         results.push(DiagnosticResult::pass(
@@ -533,7 +548,13 @@ fn config_safety_results(cfg: &AppConfig) -> Vec<DiagnosticResult> {
         );
     }
 
-    if cfg.response.enabled && cfg.response.allowlist_paths.is_empty() {
+    let trusted_path_count = cfg
+        .response
+        .allowlist_paths
+        .iter()
+        .filter(|path| !path.starts_with('!'))
+        .count();
+    if cfg.response.enabled && trusted_path_count == 0 {
         results.push(
             DiagnosticResult::fail(
                 "active_response_allowlist",
@@ -547,7 +568,7 @@ fn config_safety_results(cfg: &AppConfig) -> Vec<DiagnosticResult> {
             "active_response_allowlist",
             format!(
                 "Active response prevention has {} trusted path prefixes",
-                cfg.response.allowlist_paths.len()
+                trusted_path_count
             ),
         ));
     } else if cfg.response.enabled {
@@ -631,6 +652,18 @@ impl ResolvedPaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn doctor_reports_effective_path_exclusions() {
+        let mut cfg = AppConfig::default();
+        cfg.allowlist.excluded_paths = vec!["/untrusted/".to_string()];
+        let result = config_safety_results(&cfg)
+            .into_iter()
+            .find(|result| result.id == "allowlist_exclusions")
+            .expect("exclusion diagnostic");
+        assert_eq!(result.status, DiagnosticStatus::Pass);
+        assert_eq!(result.detail.as_deref(), Some("/untrusted/"));
+    }
 
     fn service() -> ServiceDiagnostic {
         ServiceDiagnostic {
