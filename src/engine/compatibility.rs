@@ -83,6 +83,7 @@ pub enum ReasonCode {
     StaleField,
     MissingReference,
     DependencyUnavailable,
+    UntargetedFilter,
 }
 
 impl ReasonCode {
@@ -104,6 +105,7 @@ impl ReasonCode {
             Self::StaleField => "stale_field",
             Self::MissingReference => "missing_reference",
             Self::DependencyUnavailable => "dependency_unavailable",
+            Self::UntargetedFilter => "untargeted_filter",
         }
     }
 }
@@ -754,7 +756,22 @@ fn analyze_filter(
     context: &FilterAnalysisContext<'_>,
 ) -> DocumentCompatibility {
     let dependencies = match &filter.rules {
-        FilterRuleTarget::Any => Vec::new(),
+        FilterRuleTarget::Any => {
+            return DocumentCompatibility {
+                source: source.to_string(),
+                kind: DocumentKind::Filter,
+                title: filter.title.clone(),
+                id: filter.id.clone(),
+                verdict: CompatibilityVerdict::CanNeverFire,
+                logsource: None,
+                fields: Vec::new(),
+                dependencies: Vec::new(),
+                reasons: vec![CompatibilityReason::new(
+                    ReasonCode::UntargetedFilter,
+                    "filter does not list target rules; name each rule id or title under filter.rules",
+                )],
+            };
+        }
         FilterRuleTarget::Specific(references) => sorted_unique(references.clone()),
     };
     let (dependency_state, mut reasons) = if dependencies.is_empty() {
@@ -1907,5 +1924,23 @@ correlation:
             report.documents[0].reasons[0].code,
             ReasonCode::MissingReference
         );
+    }
+
+    #[test]
+    fn untargeted_filter_can_never_fire() {
+        let report = report(
+            r#"title: Suppress everything
+filter:
+  rules: any
+  selection:
+    Image|exists: true
+  condition: not selection
+"#,
+            Platform::Linux,
+        );
+        let filter = &report.documents[0];
+        assert_eq!(filter.kind, DocumentKind::Filter);
+        assert_eq!(filter.verdict, CompatibilityVerdict::CanNeverFire);
+        assert_eq!(filter.reasons[0].code, ReasonCode::UntargetedFilter);
     }
 }

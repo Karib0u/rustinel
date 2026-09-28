@@ -26,10 +26,11 @@ See [Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
 | Check | Verifies |
 | --- | --- |
 | `sigma_rules_dir`, `yara_rules_dir` | The rule folders exist |
-| `sigma_rules_parse`, `yara_rules_parse` | Every rule compiles. Lists the files that do not |
+| `sigma_rules_parse`, `yara_rules_parse` | Every rule compiles, and no other account can change the rules. Lists the files that do not |
 | `sigma_rules_unsupported` | Correlation or filter documents dropped because a rule they reference does not apply here |
 | `sigma_rules_inert` | Rules that loaded but have no collector on this platform, grouped by logsource. They never fire |
 | `ioc_files`, `ioc_parse`, `ioc_hashes`, `ioc_ips`, `ioc_domains`, `ioc_paths_regex` | Indicator files exist and parse |
+| `ioc_inputs_trust` | No other account can change the indicator files, see [Input trust](configuration.md#input-trust) |
 | `field_availability` | The field availability contract loaded. Names fields this platform never fills |
 | `rules_pack_state`, `rules_pack_manifest`, `rules_pack_schema`, `rules_pack_checksum`, `rules_pack_compatibility` | The installed pack is intact and fits this Rustinel version |
 

@@ -835,3 +835,72 @@ min_severity = "critical"
     response_worker.abort();
     handle.abort();
 }
+
+/// A reload whose input another account can write is refused as a whole, and
+/// the previous detectors stay active.
+#[cfg(unix)]
+#[tokio::test]
+async fn reload_rejects_inputs_writable_by_other_accounts() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sigma = SigmaFixture::new();
+    let platform = host_platform();
+    sigma.write_process_rule(platform);
+    let yara = YaraFixture::new();
+    yara.write_rule("a.yar", "RuleA", "AAA_RELOAD_MARKER");
+    let ioc = common::IocFixture::new();
+    ioc.write_domains("old.example.test");
+
+    let mut engine = Engine::new_for_platform(platform);
+    engine.load_rules(sigma.rules_dir()).expect("load sigma");
+    let store = DetectorStore::new(
+        Arc::new(engine),
+        Arc::new(Scanner::new(yara.rules_dir()).expect("load yara")),
+        Arc::new(IocEngine::load(&ioc.config())),
+    );
+    let previous_sigma = store.sigma();
+    let previous_yara = store.yara();
+    let previous_ioc = store.ioc();
+
+    let world_writable = |path: std::path::PathBuf| {
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))
+            .expect("make input world-writable");
+    };
+    world_writable(sigma.write_rule(
+        "planted.yml",
+        "title: Planted\nlogsource:\n  category: process_creation\ndetection:\n  selection:\n    Image|exists: true\n  condition: selection\n",
+    ));
+    world_writable(yara.write_rule("b.yar", "RuleB", "BBB_RELOAD_MARKER"));
+    world_writable(ioc.write_domains("new.example.test"));
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handle = spawn_reload_worker(
+        Arc::clone(&store),
+        scanner_cfg(&sigma, &yara),
+        ioc.config(),
+        ReloadConfig {
+            enabled: true,
+            debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
+        },
+        MatchDebugLevel::Off,
+        None,
+        dummy_response_config(),
+        rx,
+    );
+    for target in [ReloadTarget::Sigma, ReloadTarget::Yara, ReloadTarget::Ioc] {
+        tx.send(target).expect("send reload");
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    assert!(Arc::ptr_eq(&store.sigma(), &previous_sigma));
+    assert!(Arc::ptr_eq(&store.yara(), &previous_yara));
+    assert!(Arc::ptr_eq(&store.ioc(), &previous_ioc));
+    assert!(store
+        .yara()
+        .scan_bytes(b"BBB_RELOAD_MARKER", MatchDebugLevel::Off)
+        .unwrap()
+        .is_empty());
+    drop(tx);
+    handle.abort();
+}

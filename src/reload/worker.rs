@@ -119,7 +119,7 @@ pub fn spawn_reload_worker(
                                         target: "reload",
                                         path = ?scanner_cfg.sigma_rules_path,
                                         unsupported = ?stats.unsupported_rules,
-                                        "Some Sigma documents were dropped because their references are unavailable"
+                                        "Some Sigma documents were dropped as unresolved or untargeted"
                                     );
                                 }
                                 store.swap_sigma(Arc::new(engine));
@@ -137,7 +137,7 @@ pub fn spawn_reload_worker(
                                     target: "reload",
                                     component = "sigma",
                                     path = ?scanner_cfg.sigma_rules_path,
-                                    error = %err,
+                                    error = format!("{err:#}"),
                                     "Sigma reload failed; keeping previous engine"
                                 );
                             }
@@ -184,7 +184,7 @@ pub fn spawn_reload_worker(
                                     target: "reload",
                                     component = "yara",
                                     path = ?scanner_cfg.yara_rules_path,
-                                    error = %err,
+                                    error = format!("{err:#}"),
                                     "YARA reload failed; keeping previous scanner"
                                 );
                             }
@@ -196,7 +196,18 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        let ioc = IocEngine::load(&ioc_cfg);
+                        let ioc = match IocEngine::try_load(&ioc_cfg) {
+                            Ok(ioc) => ioc,
+                            Err(err) => {
+                                warn!(
+                                    target: "reload",
+                                    component = "ioc",
+                                    error = format!("{err:#}"),
+                                    "IOC reload failed; keeping previous indicators"
+                                );
+                                continue;
+                            }
+                        };
                         let stats = ioc.stats();
                         let total = stats.total();
                         if total == 0 {

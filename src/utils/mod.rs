@@ -15,6 +15,7 @@ pub(crate) mod path_allowlist;
 pub mod pe;
 pub mod process;
 pub mod time;
+pub mod trust;
 pub mod user;
 
 pub use log_rate_limiter::LogRateLimiter;

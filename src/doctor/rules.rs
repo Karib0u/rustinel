@@ -252,9 +252,11 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Vec<Diagn
         return vec![DiagnosticResult::fail(
             "sigma_rules_parse",
             "Sigma rule loading failed",
-            format!("{err}"),
+            format!("{err:#}"),
         )
-        .with_fix("Fix unreadable or invalid Sigma rule files")];
+        .with_fix(
+            "Fix unreadable or invalid Sigma rule files, or remove write access for other accounts",
+        )];
     }
 
     let stats = engine.stats();
@@ -315,12 +317,14 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Vec<Diagn
             DiagnosticResult::warn(
                 "sigma_rules_unsupported",
                 format!(
-                    "{} Sigma documents were dropped because their references are unavailable",
+                    "{} Sigma documents were dropped as unresolved or untargeted",
                     stats.unsupported_rules.len()
                 ),
                 detail,
             )
-            .with_fix("Restore the referenced rules or remove the dependent documents"),
+            .with_fix(
+                "Restore the referenced rules, list explicit filter targets, or remove the documents",
+            ),
         );
     }
 
@@ -379,13 +383,23 @@ fn validate_yara_rules(cfg: &AppConfig) -> DiagnosticResult {
         Err(err) => DiagnosticResult::fail(
             "yara_rules_parse",
             "YARA rule loading failed",
-            format!("{err}"),
+            format!("{err:#}"),
         )
-        .with_fix("Fix unreadable or invalid YARA rule files"),
+        .with_fix(
+            "Fix unreadable or invalid YARA rule files, or remove write access for other accounts",
+        ),
     }
 }
 
 fn validate_ioc_files(cfg: &AppConfig) -> Vec<DiagnosticResult> {
+    if let Err(err) = crate::ioc::IocEngine::try_load(&cfg.ioc) {
+        return vec![DiagnosticResult::fail(
+            "ioc_inputs_trust",
+            "IOC indicators would be refused",
+            format!("{err:#}"),
+        )
+        .with_fix("Remove write access for other accounts from the IOC files and their folders")];
+    }
     vec![
         validate_ioc_hashes(&cfg.ioc.hashes_path),
         validate_ioc_ips(&cfg.ioc.ips_path),

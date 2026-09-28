@@ -510,6 +510,62 @@ filter:
     );
 }
 
+/// A filter that does not name its targets would apply to every rule, so any
+/// file placed in the rules tree could silence the whole ruleset.
+#[test]
+fn rejects_filters_without_explicit_targets() {
+    let untargeted = [
+        ("any", "  rules: any\n"),
+        ("missing", ""),
+        ("empty", "  rules: []\n"),
+    ];
+    for (label, rules) in untargeted {
+        let fixture = TempDir::new().expect("temporary rule directory");
+        fs::write(
+            fixture.path().join("rules.yml"),
+            format!(
+                r#"title: Curl Process
+id: curl-process
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image: /usr/bin/curl
+  condition: selection
+---
+title: Suppress Everything
+id: suppress-everything
+logsource:
+  product: linux
+  category: process_creation
+filter:
+{rules}  selection:
+    Image|exists: true
+  condition: not selection
+"#
+            ),
+        )
+        .expect("write untargeted filter fixture");
+
+        let engine = engine_for(fixture.path());
+        let stats = engine.stats();
+        assert_eq!(stats.total_rules, 1, "{label}");
+        assert_eq!(stats.unsupported_rules.len(), 1, "{label}");
+        let dropped = &stats.unsupported_rules[0];
+        assert_eq!(
+            dropped.kind,
+            UnsupportedRuleKind::UntargetedFilter,
+            "{label}"
+        );
+        assert!(dropped.identity.contains("suppress-everything"), "{label}");
+
+        let matches = engine.check_event(&process_event("2026-01-01T00:00:00Z", "alice"));
+        assert_eq!(matches.len(), 1, "{label}: the rule must still fire");
+        assert_eq!(matches[0].rule_name, "Curl Process", "{label}");
+    }
+}
+
 #[test]
 fn temporal_without_condition_requires_every_referenced_rule() {
     let fixture = TempDir::new().expect("temporary rule directory");

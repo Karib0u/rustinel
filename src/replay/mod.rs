@@ -130,7 +130,7 @@ impl Replay {
             ));
             if !stats.unsupported_rules.is_empty() {
                 configuration.push(format!(
-                    "             {} rule documents were dropped because their references are unavailable",
+                    "             {} rule documents were dropped as unresolved or untargeted",
                     stats.unsupported_rules.len()
                 ));
             }

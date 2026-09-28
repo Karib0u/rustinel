@@ -22,6 +22,18 @@ fn recording() -> PathBuf {
     fixtures().join("windows-powershell.ndjson")
 }
 
+/// Copy the fixture rules into `root`. The checkout's permissions depend on the
+/// CI runner, and the agent refuses rules that other accounts can change.
+fn private_rules(root: &Path) -> PathBuf {
+    let rules = root.join("sigma");
+    std::fs::create_dir_all(&rules).expect("create rules directory");
+    for entry in std::fs::read_dir(fixtures().join("sigma")).expect("read fixture rules") {
+        let entry = entry.expect("fixture rule entry");
+        std::fs::copy(entry.path(), rules.join(entry.file_name())).expect("copy fixture rule");
+    }
+    rules
+}
+
 /// Write a configuration that points the detectors at the fixture rules and
 /// keeps every output path inside `root`.
 fn write_config(root: &Path, extra: &str) -> PathBuf {
@@ -36,8 +48,7 @@ fn write_config(root: &Path, extra: &str) -> PathBuf {
              \n[ioc]\nenabled = false\n\
              \n[alerts]\ndirectory = \"{alerts}\"\n\
              \n[logging]\nlevel = \"error\"\ndirectory = \"{logs}\"\n{extra}",
-            sigma = fixtures()
-                .join("sigma")
+            sigma = private_rules(root)
                 .display()
                 .to_string()
                 .replace('\\', "\\\\"),

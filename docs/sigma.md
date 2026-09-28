@@ -18,6 +18,9 @@ Fields a platform never fills are listed in [Field availability](field-availabil
 
 Rules are loaded recursively from `scanner.sigma_rules_path`.
 A correlation or filter can reference a rule in another file.
+A filter must name its target rules by id, name, or title under `filter.rules`.
+A filter with `rules: any`, an empty list, or no `rules` key is not loaded, because it would suppress matches for every rule in the tree; `rustinel doctor` reports it as `untargeted_filter`.
+Each loaded filter is logged with its targets.
 A reference to a rule that does not apply to this platform is dropped and reported by `rustinel doctor`.
 
 ## Compatibility diagnostics
@@ -50,6 +53,7 @@ Exact `EventID` selections are checked against individual event shapes, includin
 
 Correlation and filter entries list their referenced documents.
 A missing reference is `missing_reference`; an existing dependency that cannot fire is `dependency_unavailable`.
+A filter without explicit targets is `untargeted_filter` and can never fire.
 Temporal correlations require every dependency.
 Count and aggregation correlations can remain degraded when another dependency still contributes events.
 A filter with several explicit targets remains usable when at least one target is compatible.
@@ -67,7 +71,7 @@ Array order is stable for a given ruleset, but consumers should identify documen
 
 Stable reason codes in schema version 1 are:
 
-`parse_error`, `compile_error`, `product_mismatch`, `deferred_logsource`, `unknown_logsource`, `inactive_collector`, `collector_disabled`, `no_platform_telemetry`, `unavailable_field`, `conditional_field`, `derived_field`, `best_effort_field`, `truncated_field`, `stale_field`, `missing_reference`, and `dependency_unavailable`.
+`parse_error`, `compile_error`, `product_mismatch`, `deferred_logsource`, `unknown_logsource`, `inactive_collector`, `collector_disabled`, `no_platform_telemetry`, `unavailable_field`, `conditional_field`, `derived_field`, `best_effort_field`, `truncated_field`, `stale_field`, `missing_reference`, `dependency_unavailable`, and `untargeted_filter`.
 
 ### Exit codes
 

@@ -62,7 +62,11 @@ impl LivePipeline {
         if cfg.scanner.sigma_enabled {
             info!(rules_path = ?cfg.scanner.sigma_rules_path, "Loading Sigma rules");
             if let Err(e) = sigma_engine.load_rules(&cfg.scanner.sigma_rules_path) {
-                warn!(error = %e, "Failed to load Sigma rules");
+                warn!(
+                    target: TARGET_CONSOLE,
+                    error = format!("{e:#}"),
+                    "Failed to load Sigma rules; Sigma detection has no rules"
+                );
             } else {
                 let stats = sigma_engine.stats();
                 if stats.total_rules == 0 {
@@ -128,7 +132,11 @@ impl LivePipeline {
                     Arc::new(s)
                 }
                 Err(e) => {
-                    warn!(error = %e, "Failed to load YARA rules; YARA scanning disabled");
+                    warn!(
+                        target: TARGET_CONSOLE,
+                        error = format!("{e:#}"),
+                        "Failed to load YARA rules; YARA scanning disabled"
+                    );
                     Arc::new(scanner::Scanner::empty())
                 }
             }
@@ -141,7 +149,14 @@ impl LivePipeline {
             scanner::normalize_allowlist_paths(&cfg.scanner.yara_allowlist_paths);
 
         // IOC engine
-        let ioc_engine = Arc::new(IocEngine::load(&cfg.ioc));
+        let ioc_engine = Arc::new(IocEngine::try_load(&cfg.ioc).unwrap_or_else(|e| {
+            warn!(
+                target: TARGET_CONSOLE,
+                error = format!("{e:#}"),
+                "Failed to load IOC indicators; IOC detection disabled"
+            );
+            IocEngine::disabled()
+        }));
         if ioc_engine.is_enabled() {
             let stats = ioc_engine.stats();
             if stats.total() == 0 {
