@@ -155,6 +155,23 @@ fn prepare_config(layout: &InstallLayout, force: bool) -> Result<()> {
     }
 
     let contents = managed_config_toml(layout);
+    #[cfg(unix)]
+    {
+        let mut file = crate::utils::fs::open_output_file(&layout.config_file, false)
+            .with_context(|| {
+                format!(
+                    "open managed configuration {}",
+                    layout.config_file.display()
+                )
+            })?;
+        file.write_all(contents.as_bytes()).with_context(|| {
+            format!(
+                "write managed configuration {}",
+                layout.config_file.display()
+            )
+        })?;
+    }
+    #[cfg(not(unix))]
     fs::write(&layout.config_file, contents).with_context(|| {
         format!(
             "write managed configuration {}",
@@ -328,6 +345,8 @@ fn install_binary(binary_path: &Path) -> Result<()> {
 }
 
 fn install_macos_bundle(current_exe: &Path, binary_path: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    validate_macos_binary_parents(binary_path)?;
     let resolved_exe = current_exe
         .canonicalize()
         .with_context(|| format!("resolve executable path {}", current_exe.display()))?;
@@ -380,6 +399,34 @@ fn install_macos_bundle(current_exe: &Path, binary_path: &Path) -> Result<()> {
     })?;
     set_executable_permissions(binary_path)?;
     println!("Installed managed app to {}", destination_app.display());
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn validate_macos_binary_parents(binary_path: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut parent = binary_path.parent();
+    while let Some(path) = parent {
+        let metadata = fs::symlink_metadata(path)
+            .with_context(|| format!("inspect managed binary parent {}", path.display()))?;
+        if !metadata.is_dir()
+            || (metadata.uid() != 0 && metadata.uid() != unsafe { libc::geteuid() })
+        {
+            bail!(
+                "managed binary parent {} is not a trusted directory",
+                path.display()
+            );
+        }
+        let mode = metadata.mode();
+        if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+            bail!(
+                "managed binary parent {} is writable by other accounts",
+                path.display()
+            );
+        }
+        parent = path.parent();
+    }
     Ok(())
 }
 
@@ -571,6 +618,88 @@ fn print_macos_privacy_warning(platform: InstallPlatform) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_config_writes_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut layout = InstallLayout::managed(InstallPlatform::current());
+        layout.config_file = temp.path().join("config.toml");
+
+        prepare_config(&layout, false).expect("write new config");
+        assert_eq!(
+            fs::metadata(&layout.config_file)
+                .expect("config metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+
+        fs::set_permissions(&layout.config_file, fs::Permissions::from_mode(0o644))
+            .expect("relax config mode");
+        prepare_config(&layout, true).expect("replace config");
+        assert_eq!(
+            fs::metadata(&layout.config_file)
+                .expect("config metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_config_is_preserved_without_force() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut layout = InstallLayout::managed(InstallPlatform::current());
+        layout.config_file = temp.path().join("config.toml");
+        let existing = format!("{}\n# keep this comment\n", managed_config_toml(&layout));
+        fs::write(&layout.config_file, &existing).expect("write existing config");
+        fs::set_permissions(&layout.config_file, fs::Permissions::from_mode(0o644))
+            .expect("set existing mode");
+
+        prepare_config(&layout, false).expect("preserve config");
+
+        assert_eq!(
+            fs::read_to_string(&layout.config_file).expect("read config"),
+            existing
+        );
+        assert_eq!(
+            fs::metadata(&layout.config_file)
+                .expect("config metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o644
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_binary_parents_must_be_trusted() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().canonicalize().expect("resolve tempdir");
+        let parent = root.join("managed");
+        fs::create_dir(&parent).expect("managed directory");
+        let binary = parent.join("Rustinel.app/Contents/MacOS/rustinel");
+
+        validate_macos_binary_parents(&binary).expect_err("missing parents must fail");
+        fs::create_dir_all(binary.parent().expect("binary parent")).expect("binary directories");
+        validate_macos_binary_parents(&binary).expect("trusted parents");
+
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o777))
+            .expect("make parent writable");
+        let err = validate_macos_binary_parents(&binary).expect_err("unsafe parent must fail");
+        assert!(err.to_string().contains("writable by other accounts"));
+    }
 
     #[test]
     fn managed_config_contains_managed_paths() {
