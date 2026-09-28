@@ -352,7 +352,7 @@ pub fn fetch_catalog(catalog_url: &Url) -> Result<Catalog> {
 
 fn parse_verified_catalog(bytes: &[u8], signature: &[u8]) -> Result<Catalog> {
     crate::signature::verify(bytes, signature).context("verify rules catalog signature")?;
-    Catalog::from_slice(&bytes)
+    Catalog::from_slice(bytes)
 }
 
 pub fn fetch_url_bytes(url: &Url, max_bytes: u64) -> Result<Vec<u8>> {
