@@ -62,6 +62,7 @@ flate2 = "1"
 tar = "0.4"
 self-replace = "1.5"
 tempfile = "3.8"
+minisign-verify = "0.3"
 
 # Configuration
 config = "0.15.23"

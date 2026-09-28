@@ -25,6 +25,7 @@ pub mod scanner;
 pub mod sensor;
 pub mod service;
 pub mod setup;
+mod signature;
 pub mod state;
 pub mod telemetry;
 pub mod update;
