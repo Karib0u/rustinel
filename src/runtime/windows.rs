@@ -2,6 +2,7 @@ use crate::response::ResponseEngine;
 use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
 use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::pipeline::{LivePipeline, SharedState};
+use crate::runtime::shutdown::exit_on_critical_worker_failure;
 use crate::runtime::startup::{load_config, RuntimeLogging};
 use crate::sensor::windows::EtwSensor;
 use crate::sensor::{Platform, RawEvent, Sensor};
@@ -372,7 +373,7 @@ async fn run_edr(
         ),
     );
 
-    let pipeline = LivePipeline::new(
+    let mut pipeline = LivePipeline::new(
         &cfg,
         resolved_config_path,
         Platform::Windows,
@@ -398,7 +399,7 @@ async fn run_edr(
     let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(SENSOR_EVENT_CHANNEL_CAPACITY);
     let router_clone = Arc::clone(&pipeline.router);
     let host_state = Arc::clone(&pipeline.host_state);
-    let sensor_worker_handle = tokio::task::spawn_blocking(move || {
+    let mut sensor_worker_handle = tokio::task::spawn_blocking(move || {
         info!(target: "sensor", "Sensor event worker thread started");
         while let Some(event) = sensor_rx.blocking_recv() {
             if let Some(event) = host_state.canonicalize(event) {
@@ -433,8 +434,10 @@ async fn run_edr(
         }
     }
 
-    // Wait for either shutdown signal or trace completion.
+    // Wait for shutdown, trace completion, or a critical pipeline worker.
+    let mut response_worker_handle = response_worker_handle;
     tokio::select! {
+        biased;
         _ = shutdown_handler => {
             info!("Shutdown signal received, waiting for ETW session to close...");
             match trace_handle.await {
@@ -442,6 +445,9 @@ async fn run_edr(
                 Ok(Err(err)) => warn!("ETW sensor exited with error during shutdown: {err:#}"),
                 Err(e) => error!("Failed to join ETW sensor thread: {}", e),
             }
+        }
+        (name, result) = pipeline.critical_worker_exit(&mut sensor_worker_handle, &mut response_worker_handle) => {
+            exit_on_critical_worker_failure(name, result, _guards);
         }
         // CRITICAL: If trace finishes unexpectedly, the ETW sensor died.
         // This means the agent is "blind" - still running but not collecting events.

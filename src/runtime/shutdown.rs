@@ -8,6 +8,44 @@ use crate::runtime::pipeline::LivePipeline;
 use crate::runtime::telemetry::TelemetryReporter;
 
 impl LivePipeline {
+    /// Any of these workers ending while the agent is running leaves detection incomplete.
+    pub async fn critical_worker_exit(
+        &mut self,
+        sensor_worker: &mut JoinHandle<()>,
+        response_worker: &mut JoinHandle<()>,
+    ) -> (&'static str, Result<(), tokio::task::JoinError>) {
+        tokio::select! {
+            result = sensor_worker => ("sensor event", result),
+            result = &mut self.artifact_worker_handle => ("artifact resolver", result),
+            result = response_worker => ("response", result),
+            result = async {
+                match &mut self.yara_memory_worker_handle {
+                    Some(handle) => handle.await,
+                    None => std::future::pending().await,
+                }
+            } => ("YARA memory", result),
+        }
+    }
+}
+
+pub fn exit_on_critical_worker_failure(
+    name: &str,
+    result: Result<(), tokio::task::JoinError>,
+    guards: (
+        tracing_appender::non_blocking::WorkerGuard,
+        tracing_appender::non_blocking::WorkerGuard,
+    ),
+) -> ! {
+    error!(
+        worker = name,
+        ?result,
+        "Critical worker exited before shutdown; restarting agent"
+    );
+    drop(guards);
+    std::process::exit(1);
+}
+
+impl LivePipeline {
     /// The caller must stop sensors and drop its response-engine sender first.
     /// The sensor worker retains the router until its queued events are drained.
     /// No other router clones may outlive that worker, since they own job senders.
@@ -74,6 +112,50 @@ mod tests {
     use tokio::sync::mpsc;
 
     struct Stopped(Arc<AtomicBool>);
+
+    #[tokio::test]
+    async fn detects_sensor_worker_panic_before_shutdown() {
+        let mut sensor = tokio::spawn(async { panic!("sensor failed") });
+        let artifact = tokio::spawn(std::future::pending());
+        let mut response = tokio::spawn(std::future::pending());
+        let mut pipeline = LivePipeline {
+            router: Arc::new(crate::sensor::SensorEventRouter::new()),
+            host_state: Arc::new(crate::state::HostState::default()),
+            artifact_worker_handle: artifact,
+            artifact_resolver_handle: crate::artifact::ArtifactResolverHandle::empty(),
+            yara_memory_worker_handle: None,
+            reload_poller: None,
+            reload_worker_handle: None,
+            reload_tx: None,
+        };
+        let (name, result) = pipeline
+            .critical_worker_exit(&mut sensor, &mut response)
+            .await;
+        assert_eq!(name, "sensor event");
+        assert!(result.expect_err("worker should panic").is_panic());
+        pipeline.artifact_worker_handle.abort();
+        response.abort();
+    }
+
+    #[test]
+    fn critical_worker_failure_exits_nonzero() {
+        const CHILD: &str = "RUSTINEL_TEST_CRITICAL_EXIT";
+        if std::env::var_os(CHILD).is_some() {
+            let (_, app_guard) = tracing_appender::non_blocking(std::io::sink());
+            let (_, alert_guard) = tracing_appender::non_blocking(std::io::sink());
+            exit_on_critical_worker_failure("sensor event", Ok(()), (app_guard, alert_guard));
+        }
+
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "runtime::shutdown::tests::critical_worker_failure_exits_nonzero",
+            ])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(1));
+    }
 
     impl Drop for Stopped {
         fn drop(&mut self) {
