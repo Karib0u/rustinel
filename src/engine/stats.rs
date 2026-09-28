@@ -86,6 +86,7 @@ impl Engine {
                 .map(|(key, count)| (key.display(), *count))
                 .collect(),
             deferred_pass_rules: self.store.deferred().len(),
+            early_deferred_evictions: self.store.lock().early_deferred_evictions,
         }
     }
 }
@@ -111,6 +112,9 @@ pub struct EngineStats {
     /// Loaded rules that select on `Hashes` or `Imphash` and are evaluated
     /// only in the deferred pass, after artifact resolution.
     pub deferred_pass_rules: usize,
+    /// Deferred results dropped because no admission arrived within the
+    /// correlation reorder budget.
+    pub early_deferred_evictions: u64,
 }
 
 impl EngineStats {

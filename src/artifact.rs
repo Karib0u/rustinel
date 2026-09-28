@@ -67,6 +67,7 @@ pub(crate) const DEFERRED_DETECTION_BUDGET: Duration = crate::engine::CORRELATIO
 /// artifact events of one budget window. When it is full, the event keeps
 /// every rule at admission instead.
 const DEFERRED_QUEUE_CAPACITY: usize = 1024;
+const CORRELATION_FLUSH_TICK: Duration = Duration::from_millis(100);
 type ArtifactOpener = Arc<dyn Fn(&Path) -> io::Result<File> + Send + Sync>;
 
 /// Work requested from one shared artifact read.
@@ -767,24 +768,38 @@ struct DeferredDetection {
 
 impl DeferredDetection {
     fn run(self) {
-        while let Ok(mut entry) = self.rx.recv() {
+        loop {
+            let mut entry = match self.rx.recv_timeout(CORRELATION_FLUSH_TICK) {
+                Ok(entry) => entry,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    self.flush_due();
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
             let fields = match entry.fields.try_recv() {
                 Ok(fields) => Some(fields),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
-                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                Err(std::sync::mpsc::TryRecvError::Empty) => loop {
                     let remaining = entry.evaluate_by.saturating_duration_since(Instant::now());
-                    match entry.fields.recv_timeout(remaining) {
-                        Ok(fields) => Some(fields),
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
+                    match entry
+                        .fields
+                        .recv_timeout(remaining.min(CORRELATION_FLUSH_TICK))
+                    {
+                        Ok(fields) => break Some(fields),
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break None,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            self.state
-                                .counters
-                                .deferred_budget_exceeded
-                                .fetch_add(1, Ordering::Relaxed);
-                            None
+                            self.flush_due();
+                            if Instant::now() >= entry.evaluate_by {
+                                self.state
+                                    .counters
+                                    .deferred_budget_exceeded
+                                    .fetch_add(1, Ordering::Relaxed);
+                                break None;
+                            }
                         }
                     }
-                }
+                },
             };
             let enriched = fields.is_some_and(|fields| {
                 if let Some(metadata) = &fields.pe_metadata {
@@ -804,6 +819,30 @@ impl DeferredDetection {
             };
             counter.fetch_add(1, Ordering::Relaxed);
             self.evaluate(&entry.event);
+            self.flush_due();
+        }
+        self.emit_sigma_alerts(self.detectors.sigma().flush_pending_with_origins());
+    }
+
+    fn flush_due(&self) {
+        self.emit_sigma_alerts(
+            self.detectors
+                .sigma()
+                .flush_due_with_origins(Instant::now()),
+        );
+    }
+
+    fn emit_sigma_alerts(&self, alerts: Vec<crate::engine::SigmaAlert>) {
+        for result in alerts {
+            let mut alert = result.alert;
+            self.host_state
+                .enrich_process_context(&mut alert.event, result.process_start_key);
+            if let Some(sink) = &self.alert_sink {
+                sink.write_alert(&alert);
+            }
+            if let Some(response) = &self.response_engine {
+                response.handle_alert(&alert);
+            }
         }
     }
 
@@ -3623,6 +3662,75 @@ level: high
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn deferred_stage_flushes_correlation_without_another_event() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("sample.exe");
+        std::fs::write(&image, b"sample").unwrap();
+        let (runtime, detectors, alerts_path, guard) = detecting_runtime(
+            temp.path(),
+            &[
+                r#"title: Image
+id: image
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: sample.exe
+  condition: selection
+"#
+                .to_string(),
+                r#"title: Image Count
+id: image-count
+correlation:
+  type: event_count
+  rules:
+    - image
+  timespan: 1m
+  condition:
+    gte: 1
+"#
+                .to_string(),
+            ],
+        );
+        let event = process_event(&image, Platform::Windows);
+        detectors
+            .sigma()
+            .evaluate_event_pass(event.normalized(), DetectionPass::Admission);
+
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            DeferredDetection {
+                rx,
+                detectors,
+                host_state: Arc::new(HostState::default()),
+                alert_sink: runtime.alert_sink,
+                response_engine: None,
+                state: Arc::new(ResolverState::new()),
+            }
+            .run();
+        });
+        let deadline = Instant::now() + DEFERRED_DETECTION_BUDGET + Duration::from_secs(1);
+        while Instant::now() < deadline
+            && !std::fs::read_to_string(&alerts_path)
+                .unwrap()
+                .contains("Image Count")
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            std::fs::read_to_string(&alerts_path)
+                .unwrap()
+                .contains("Image Count"),
+            "the timer must emit the alert while the deferred queue is still open"
+        );
+        drop(tx);
+        worker.join().unwrap();
+        drop(guard);
+        assert_eq!(rule_names(&read_alerts(&alerts_path)), vec!["Image Count"]);
     }
 
     #[test]

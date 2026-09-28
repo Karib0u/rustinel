@@ -121,6 +121,7 @@ fn scan_platform(corpus_dir: &Path, platform: Platform) -> anyhow::Result<Platfo
         inactive_collector_categories,
         inactive_collector_logsources: _,
         deferred_pass_rules: _,
+        early_deferred_evictions: _,
     } = engine.stats();
 
     anyhow::ensure!(

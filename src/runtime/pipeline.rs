@@ -202,6 +202,11 @@ impl LivePipeline {
                 cfg.alerts.match_debug,
                 resolved_config_path.clone(),
                 response_config.clone(),
+                Some(reload::ReloadAlertContext {
+                    host_state: Arc::clone(&state.host),
+                    alert_sink: alert_sink.clone(),
+                    response_engine: response_engine.clone(),
+                }),
                 rx,
             ));
             reload_poller = Some(reload::spawn_reload_poller(

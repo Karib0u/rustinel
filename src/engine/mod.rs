@@ -50,6 +50,8 @@ pub(crate) struct SigmaAlert {
     pub(crate) process_start_key: Option<ProcessStartKey>,
 }
 
+type CorrelationResult = (EvaluationResult, NormalizedEvent, Option<ProcessStartKey>);
+
 /// Controls which Sigma detection matches become alerts.
 ///
 /// Correlation always receives every matching detection, independently of
@@ -308,11 +310,18 @@ impl Engine {
                     evaluate_by: Instant::now(),
                 }),
                 DetectionPass::Admission => {
-                    let early = state.early_deferred.remove(&key);
+                    let early = state.early_deferred.remove(&key).and_then(|entry| {
+                        if entry.received_at.elapsed() >= store::CORRELATION_REORDER_BUDGET {
+                            state.early_deferred_evictions += 1;
+                            None
+                        } else {
+                            Some(entry)
+                        }
+                    });
                     let complete = early.is_some();
                     let mut passes = vec![admission];
-                    if let Some(deferred) = early {
-                        passes.push(deferred);
+                    if let Some(early) = early {
+                        passes.push(early.detections);
                     }
                     state.pending.push_back(store::PendingCorrelation {
                         key,
@@ -333,54 +342,32 @@ impl Engine {
                                 entry.passes.push(deferred);
                                 entry.complete = true;
                             }
-                        } else if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY
-                        {
-                            tracing::warn!(
-                                target: "engine",
-                                ingest_seq = event.ingest_seq,
-                                "Deferred Sigma correlation result arrived without admission and the bounded reorder buffer is full"
-                            );
-                            state.remember_expired(key);
                         } else {
-                            state.early_deferred.entry(key).or_insert(deferred);
+                            if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY {
+                                Self::evict_early_deferred(&mut state, Instant::now());
+                            }
+                            if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY {
+                                tracing::warn!(
+                                    target: "engine",
+                                    ingest_seq = event.ingest_seq,
+                                    "Deferred Sigma correlation result arrived without admission and the bounded reorder buffer is full"
+                                );
+                                state.remember_expired(key);
+                            } else {
+                                state
+                                    .early_deferred
+                                    .entry(key)
+                                    .or_insert(store::EarlyDeferred {
+                                        detections: deferred,
+                                        received_at: Instant::now(),
+                                    });
+                            }
                         }
                     }
                 }
             }
 
-            let mut correlations = Vec::new();
-            loop {
-                let now = Instant::now();
-                let Some(front) = state.pending.front() else {
-                    break;
-                };
-                let forced = !front.complete
-                    && (now >= front.evaluate_by
-                        || state.pending.len() > store::CORRELATION_REORDER_CAPACITY);
-                if !front.complete && !forced {
-                    break;
-                }
-                let entry = state.pending.pop_front().expect("front exists");
-                if forced {
-                    tracing::warn!(
-                        target: "engine",
-                        ingest_seq = entry.event.ingest_seq,
-                        "Deferred Sigma correlation pass missed its reorder budget; continuing without it"
-                    );
-                    state.remember_expired(entry.key);
-                }
-                let adapter = event::RsigmaEvent::new(&entry.event);
-                for detections in entry.passes {
-                    for result in state
-                        .engine
-                        .correlate_detections(&adapter, detections)
-                        .into_iter()
-                        .filter(EvaluationResult::is_correlation)
-                    {
-                        correlations.push((result, entry.event.clone(), entry.process_start_key));
-                    }
-                }
-            }
+            let correlations = Self::drain_correlations(&mut state, Instant::now(), false);
             (selected, correlations)
         };
 
@@ -391,14 +378,94 @@ impl Engine {
                 process_start_key,
             });
         }
-        for (mut result, event, process_start_key) in correlations {
-            self.store.restore_synthetic_detection_id(&mut result);
-            alerts.push(SigmaAlert {
-                alert: self.build_alert(result, &event),
-                process_start_key,
-            });
-        }
+        alerts.extend(self.correlation_alerts(correlations));
         alerts
+    }
+
+    /// Drain correlations whose deferred pass reached its deadline, even when
+    /// no further events arrive.
+    pub fn flush_due(&self, now: Instant) -> Vec<Alert> {
+        self.flush_due_with_origins(now)
+            .into_iter()
+            .map(|result| result.alert)
+            .collect()
+    }
+
+    pub(crate) fn flush_due_with_origins(&self, now: Instant) -> Vec<SigmaAlert> {
+        let correlations = {
+            let mut state = self.store.lock();
+            Self::evict_early_deferred(&mut state, now);
+            Self::drain_correlations(&mut state, now, false)
+        };
+        self.correlation_alerts(correlations)
+    }
+
+    pub(crate) fn flush_pending_with_origins(&self) -> Vec<SigmaAlert> {
+        let correlations = {
+            let mut state = self.store.lock();
+            Self::evict_early_deferred(&mut state, Instant::now());
+            Self::drain_correlations(&mut state, Instant::now(), true)
+        };
+        self.correlation_alerts(correlations)
+    }
+
+    fn evict_early_deferred(state: &mut store::CorrelationState, now: Instant) {
+        let before = state.early_deferred.len();
+        state.early_deferred.retain(|_, entry| {
+            now.saturating_duration_since(entry.received_at) < store::CORRELATION_REORDER_BUDGET
+        });
+        state.early_deferred_evictions += (before - state.early_deferred.len()) as u64;
+    }
+
+    fn drain_correlations(
+        state: &mut store::CorrelationState,
+        now: Instant,
+        flush_all: bool,
+    ) -> Vec<CorrelationResult> {
+        let mut correlations = Vec::new();
+        while let Some(front) = state.pending.front() {
+            let forced = !front.complete
+                && (flush_all
+                    || now >= front.evaluate_by
+                    || state.pending.len() > store::CORRELATION_REORDER_CAPACITY);
+            if !front.complete && !forced {
+                break;
+            }
+            let entry = state.pending.pop_front().expect("front exists");
+            if forced {
+                tracing::warn!(
+                    target: "engine",
+                    ingest_seq = entry.event.ingest_seq,
+                    "Deferred Sigma correlation pass missed its reorder budget; continuing without it"
+                );
+                state.remember_expired(entry.key);
+            }
+            let adapter = event::RsigmaEvent::new(&entry.event);
+            for detections in entry.passes {
+                for result in state
+                    .engine
+                    .correlate_detections(&adapter, detections)
+                    .into_iter()
+                    .filter(EvaluationResult::is_correlation)
+                {
+                    correlations.push((result, entry.event.clone(), entry.process_start_key));
+                }
+            }
+        }
+        correlations
+    }
+
+    fn correlation_alerts(&self, correlations: Vec<CorrelationResult>) -> Vec<SigmaAlert> {
+        correlations
+            .into_iter()
+            .map(|(mut result, event, process_start_key)| {
+                self.store.restore_synthetic_detection_id(&mut result);
+                SigmaAlert {
+                    alert: self.build_alert(result, &event),
+                    process_start_key,
+                }
+            })
+            .collect()
     }
 
     fn select_detections(&self, results: &[EvaluationResult]) -> Vec<EvaluationResult> {
@@ -1072,6 +1139,84 @@ correlation:
             rule_names(&engine.evaluate_event_pass(&event, DetectionPass::Deferred))
                 .contains(&"Image Then Hash".to_string())
         );
+    }
+
+    #[test]
+    fn timer_flushes_pending_correlation_without_another_event() {
+        let engine = engine_with_rules(
+            Platform::Windows,
+            &[
+                IMAGE_RULE,
+                r#"title: One Whoami
+id: one-whoami
+correlation:
+  type: event_count
+  rules:
+    - 44444444-4444-4444-8444-444444444444
+  timespan: 1m
+  condition:
+    gte: 1
+"#,
+            ],
+        );
+        let event = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
+        );
+        assert_eq!(
+            rule_names(&engine.evaluate_event_pass(&event, DetectionPass::Admission)),
+            vec!["Whoami Image"]
+        );
+        assert!(engine.flush_due(Instant::now()).is_empty());
+        let due = Instant::now() + store::CORRELATION_REORDER_BUDGET;
+        assert_eq!(rule_names(&engine.flush_due(due)), vec!["One Whoami"]);
+        assert!(engine.flush_due(due).is_empty());
+    }
+
+    #[test]
+    fn shutdown_flushes_pending_correlation() {
+        let engine = engine_with_rules(
+            Platform::Windows,
+            &[
+                IMAGE_RULE,
+                r#"title: One Whoami
+id: one-whoami
+correlation:
+  type: event_count
+  rules:
+    - 44444444-4444-4444-8444-444444444444
+  timespan: 1m
+  condition:
+    gte: 1
+"#,
+            ],
+        );
+        let event = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
+        );
+        engine.evaluate_event_pass(&event, DetectionPass::Admission);
+        let alerts = engine.flush_pending_with_origins();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].alert.rule_name, "One Whoami");
+        assert!(engine.flush_pending_with_origins().is_empty());
+    }
+
+    #[test]
+    fn early_deferred_results_expire_and_are_counted() {
+        let engine = engine_with_rule(Platform::Windows, HASH_RULE);
+        let event = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
+        );
+        engine.evaluate_event_pass(&event, DetectionPass::Deferred);
+        assert_eq!(engine.store.lock().early_deferred.len(), 1);
+        engine.flush_due(Instant::now() + store::CORRELATION_REORDER_BUDGET);
+        assert!(engine.store.lock().early_deferred.is_empty());
+        assert_eq!(engine.stats().early_deferred_evictions, 1);
     }
 
     #[test]

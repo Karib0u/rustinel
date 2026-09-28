@@ -37,10 +37,16 @@ pub(crate) struct PendingCorrelation {
     pub(crate) evaluate_by: Instant,
 }
 
+pub(crate) struct EarlyDeferred {
+    pub(crate) detections: Vec<EvaluationResult>,
+    pub(crate) received_at: Instant,
+}
+
 pub(crate) struct CorrelationState {
     pub(crate) engine: CorrelationEngine,
     pub(crate) pending: VecDeque<PendingCorrelation>,
-    pub(crate) early_deferred: HashMap<CorrelationEventKey, Vec<EvaluationResult>>,
+    pub(crate) early_deferred: HashMap<CorrelationEventKey, EarlyDeferred>,
+    pub(crate) early_deferred_evictions: u64,
     pub(crate) expired: HashSet<CorrelationEventKey>,
     pub(crate) expired_order: VecDeque<CorrelationEventKey>,
 }
@@ -51,6 +57,7 @@ impl CorrelationState {
             engine,
             pending: VecDeque::new(),
             early_deferred: HashMap::new(),
+            early_deferred_evictions: 0,
             expired: HashSet::new(),
             expired_order: VecDeque::new(),
         }
