@@ -348,10 +348,14 @@ jobs:
         if: matrix.platform == 'linux'
         working-directory: rustinel-rules
         run: |
+          # The hosted runner leaves /opt writable by other accounts.
+          # The agent requires trusted parent directories for rules.
+          sudo chmod go-w /opt
+          sudo install -d -m 755 /opt/rustinel
           sudo -E python3 tests/atomic/run_atomics.py \
             --platform linux \
-            --engine-bin "$GITHUB_WORKSPACE/target/release/rustinel" \
-            --engine-dir "$GITHUB_WORKSPACE/rustinel-rules/tests/atomic/.engine" \
+            --engine-bin "$GITHUB_WORKSPACE/scripts/atomic_managed_service.sh" \
+            --engine-dir /opt/rustinel \
             --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
             --pack auto
         shell: bash
@@ -384,8 +388,13 @@ jobs:
       - name: Prepare atomic logs for upload (Unix)
         if: always() && matrix.platform != 'windows'
         run: |
-          if [ -d rustinel-rules/tests/atomic/.engine/logs ]; then
-            sudo chown -R "$(id -u):$(id -g)" rustinel-rules/tests/atomic/.engine/logs
+          if [ -d /opt/rustinel/logs ]; then
+            sudo cp -a /opt/rustinel/logs rustinel-rules/tests/atomic/managed-logs
+            sudo chown -R "$(id -u):$(id -g)" rustinel-rules/tests/atomic/managed-logs
+          fi
+          if [ -f /opt/rustinel/engine.stdout.log ]; then
+            sudo cp /opt/rustinel/engine.stdout.log rustinel-rules/tests/atomic/engine.stdout.log
+            sudo chown "$(id -u):$(id -g)" rustinel-rules/tests/atomic/engine.stdout.log
           fi
         shell: bash
 
@@ -398,6 +407,8 @@ jobs:
             rustinel-rules/tests/atomic/report-*.json
             rustinel-rules/tests/atomic/.engine/engine.stdout.log
             rustinel-rules/tests/atomic/.engine/logs/
+            rustinel-rules/tests/atomic/engine.stdout.log
+            rustinel-rules/tests/atomic/managed-logs/
           include-hidden-files: true
           if-no-files-found: warn
 
