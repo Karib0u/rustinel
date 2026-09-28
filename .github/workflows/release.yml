@@ -393,6 +393,14 @@ jobs:
         if: matrix.platform == 'windows'
         working-directory: rustinel-rules
         run: |
+          # The runner's D:\a grants Users write, and the agent refuses inputs
+          # other accounts can change. The harness copies the pack into an
+          # existing engine dir, so a protected one keeps the copies private.
+          $engineDir = "$env:GITHUB_WORKSPACE\rustinel-rules\tests\atomic\.engine"
+          New-Item -ItemType Directory -Path $engineDir -Force | Out-Null
+          $runner = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          icacls $engineDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*${runner}:(OI)(CI)F"
+          if ($LASTEXITCODE -ne 0) { throw "icacls failed on $engineDir" }
           python tests\atomic\run_atomics.py `
             --platform windows `
             --engine-bin "$env:RUSTINEL_ENGINE_BIN" `
