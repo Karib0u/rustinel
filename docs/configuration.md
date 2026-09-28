@@ -247,7 +247,8 @@ Header values, `secret`, and the URL path are treated as credentials: they are n
     `C:\Windows\System32\`, `C:\Windows\SysWOW64\`, `C:\Windows\WinSxS\`, `C:\Program Files\`, `C:\Program Files (x86)\`
 
     `allowlist.excluded_paths` defaults to `C:\Windows\Temp\`, `C:\Windows\Tasks\`, `C:\Windows\Tracing\`, `C:\Windows\System32\Tasks\`, and `C:\Windows\System32\spool\drivers\color\`.
-    Exclusions take precedence over shared and module-specific trusted paths. Set `excluded_paths = [...]` under `[allowlist]` to replace the defaults.
+    Exclusions take precedence over shared and module-specific trusted paths.
+    Set `excluded_paths = [...]` under `[allowlist]` to replace the defaults.
 
 === "Linux"
 
