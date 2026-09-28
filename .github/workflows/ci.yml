@@ -348,6 +348,9 @@ jobs:
         if: matrix.platform == 'linux'
         working-directory: rustinel-rules
         run: |
+          # The hosted runner leaves /opt writable by other accounts.
+          # The agent requires trusted parent directories for rules.
+          sudo chmod go-w /opt
           sudo install -d -m 755 /opt/rustinel
           sudo -E python3 tests/atomic/run_atomics.py \
             --platform linux \

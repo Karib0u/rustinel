@@ -23,6 +23,10 @@ if ! systemctl start rustinel.service; then
   journalctl -u rustinel.service --no-pager -n 80
   exit 1
 fi
+sleep 3
+if grep -E 'Failed to load (Sigma|YARA|IOC)' /opt/rustinel/logs/rustinel.log*; then
+  exit 1
+fi
 while systemctl is-active --quiet rustinel.service; do
   sleep 1
 done
