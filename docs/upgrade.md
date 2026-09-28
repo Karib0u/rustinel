@@ -59,6 +59,7 @@ To verify the rules catalog, download `index.json` and `index.json.minisig` from
 
 The signing key is configured as `RELEASE_MINISIGN_KEY` in both release repositories.
 During an authorized key rotation, update the embedded public key and both repository secrets together before publishing another release.
+Existing binaries trust only the old key, so publish a transition release that trusts both keys first or require a manual install after rotation.
 If the Apple signing team changes, update the pinned Team ID in the updater and macOS release validation in the same change, then publish a release signed by the existing Minisign key so installed clients can authenticate it.
 
 ## After upgrading
