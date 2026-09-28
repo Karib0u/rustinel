@@ -367,6 +367,11 @@ jobs:
           app="$(find "$RUNNER_TEMP/rustinel-package" -type d -name Rustinel.app -print -quit)"
           test -n "$app"
           codesign --verify --deep --strict "$app"
+          codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "37TYDYTJ3M"' "$app"
+          if codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "AAAAAAAAAA"' "$app"; then
+            echo "::error::A bundle signed by another team passed identity verification"
+            exit 1
+          fi
           binary="$app/Contents/MacOS/rustinel"
           test -x "$binary"
           echo "RUSTINEL_ENGINE_BIN=$binary" >> "$GITHUB_ENV"
@@ -579,6 +584,20 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
 
+      - name: Sign SHA256 checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_MINISIGN_KEY: ${{ secrets.RELEASE_MINISIGN_KEY }}
+        run: |
+          : "${RELEASE_MINISIGN_KEY:?RELEASE_MINISIGN_KEY is required}"
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          umask 077
+          printf '%s\n' "$RELEASE_MINISIGN_KEY" > "$RUNNER_TEMP/minisign.key"
+          checksum="rustinel-${VERSION}-checksums-sha256.txt"
+          minisign -S -s "$RUNNER_TEMP/minisign.key" -m "$checksum" -x "$checksum.minisig"
+          minisign -V -p release-minisign.pub -m "$checksum" -x "$checksum.minisig"
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -589,6 +608,7 @@ jobs:
             rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz
             rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz
             rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt
+            rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt.minisig
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -600,6 +620,7 @@ jobs:
             rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz
             rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz
             rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt
+            rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt.minisig
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -640,7 +661,7 @@ jobs:
 
             Quickstart, configuration, and SIEM guides: https://docs.rustinel.io/getting-started/
 
-            Scripts install published release binaries only. Verify downloads with `rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt`.
+            Scripts install published release binaries only. Verify downloads with the signed `rustinel-${{ steps.version.outputs.version }}-checksums-sha256.txt` and its `.minisig` file.
 
             ## Provenance
 

@@ -12,3 +12,11 @@ docs/cli.md text eol=lf
 docs/configuration.md text eol=lf
 docs/coverage.md text eol=lf
 docs/field-availability.md text eol=lf
+
+# Signatures cover exact bytes. Preserve the embedded key and signed fixtures
+# when Windows checks out the repository.
+release-minisign.pub text eol=lf
+tests/fixtures/*.json text eol=lf
+tests/fixtures/*.txt text eol=lf
+tests/fixtures/*.minisig text eol=lf
+tests/fixtures/*.tar.gz -text
