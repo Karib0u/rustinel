@@ -8,6 +8,7 @@ The full contract, including fields that are only sometimes filled, is in [`comp
 
 Each contract entry names its `view` and has a `since` value.
 A version string is the first released Rustinel version where that field reached its current `availability`; `null` means the current availability existed at or before the oldest supported release.
+`unreleased` marks availability on the development branch that no release has shipped yet; a released contract never contains it.
 If availability narrows, such as from `always` to `conditional`, `since` is the release that introduced the narrower guarantee.
 The same rule applies to `never`: when a formerly populated field becomes unavailable, `since` records the release that introduced that regression.
 
