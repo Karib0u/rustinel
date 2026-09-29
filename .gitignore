@@ -47,6 +47,9 @@ tests/**/*
 !tests/fixtures/replay/**
 # Stable Sigma doctor schema and condition-analysis fixture.
 !tests/fixtures/sigma_compatibility/**
+# One recorded event per Windows and Linux event shape, read by the Sigma
+# adapter tests and the sigma_engine benchmark.
+!tests/fixtures/field_views/**
 
 *.exe
 *.pdb

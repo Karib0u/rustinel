@@ -2888,7 +2888,24 @@ fn application_source_matches(source: &str, provider: &str) -> bool {
     }
 }
 
-fn event_contract(
+/// Availability of `field` within an already-resolved event contract.
+///
+/// Resolving the contract is a scan of the platform's table, so callers that
+/// read many fields of one event resolve it once with [`event_contract`].
+pub(crate) fn availability_in_contract(
+    contract: Option<&'static EventFieldContract>,
+    field: &str,
+) -> Option<Availability> {
+    contract.and_then(|contract| {
+        contract
+            .fields
+            .iter()
+            .find(|entry| entry.field == field || entry.field == "*")
+            .map(|entry| entry.availability)
+    })
+}
+
+pub(crate) fn event_contract(
     view: FieldViewName,
     event: &NormalizedEvent,
 ) -> Option<&'static EventFieldContract> {
@@ -2952,13 +2969,7 @@ pub fn availability_for_view(
     event: &NormalizedEvent,
     field: &str,
 ) -> Option<Availability> {
-    event_contract(view, event).and_then(|contract| {
-        contract
-            .fields
-            .iter()
-            .find(|entry| entry.field == field || entry.field == "*")
-            .map(|entry| entry.availability)
-    })
+    availability_in_contract(event_contract(view, event), field)
 }
 
 /// Look up a field in the default Sysmon compatibility view.

@@ -256,6 +256,129 @@ fn bench_evaluate_event_large(c: &mut Criterion) {
     });
 }
 
+/// Logsources and fields of a SigmaHQ-sized Windows ruleset. Spreading rules
+/// over this many fields is what makes the candidate index probe the event
+/// once per indexed field.
+const WINDOWS_RULE_FIELDS: &[(&str, &[&str])] = &[
+    (
+        "category: process_creation",
+        &[
+            "Image",
+            "CommandLine",
+            "ParentImage",
+            "ParentCommandLine",
+            "OriginalFileName",
+            "User",
+            "IntegrityLevel",
+            "CurrentDirectory",
+            "Product",
+            "Company",
+            "Description",
+            "Hashes",
+        ],
+    ),
+    ("category: file_event", &["TargetFilename", "Image"]),
+    (
+        "category: registry_set",
+        &["TargetObject", "Details", "Image"],
+    ),
+    (
+        "category: image_load",
+        &["ImageLoaded", "Image", "OriginalFileName", "Hashes"],
+    ),
+    (
+        "category: network_connection",
+        &[
+            "DestinationIp",
+            "DestinationPort",
+            "DestinationHostname",
+            "SourcePort",
+            "Image",
+        ],
+    ),
+    ("category: dns_query", &["QueryName", "Image"]),
+    ("category: ps_module", &["ContextInfo", "Payload"]),
+    ("category: wmi_event", &["Destination", "Query", "Consumer"]),
+    (
+        "service: security",
+        &[
+            "TargetUserName",
+            "SubjectUserName",
+            "LogonType",
+            "ProcessName",
+            "IpAddress",
+            "TargetDomainName",
+        ],
+    ),
+];
+
+/// Non-matching Windows rules spread over [`WINDOWS_RULE_FIELDS`], with one
+/// keyword rule per hundred, about SigmaHQ's share.
+fn write_windows_field_rules(dir: &std::path::Path, count: usize) {
+    let pairs: Vec<(&str, &str)> = WINDOWS_RULE_FIELDS
+        .iter()
+        .flat_map(|(logsource, fields)| fields.iter().map(move |field| (*logsource, *field)))
+        .collect();
+    let documents = (0..count)
+        .map(|index| {
+            let (logsource, field) = pairs[index % pairs.len()];
+            if index % 100 == 99 {
+                return format!(
+                    "title: Windows Keyword {index}\n\
+                     logsource:\n  product: windows\n  {logsource}\n\
+                     detection:\n  keywords:\n    - synthkeyword{index}\n\
+                     \x20 condition: keywords\nlevel: low\n"
+                );
+            }
+            format!(
+                "title: Windows Field {index}\n\
+                 logsource:\n  product: windows\n  {logsource}\n\
+                 detection:\n  selection:\n    {field}|contains: synthtoken{index}\n\
+                 \x20 condition: selection\nlevel: low\n"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("---\n");
+    std::fs::write(dir.join("windows_fields.yml"), documents).expect("write windows rules");
+}
+
+/// One recorded event of every shape in a real Windows capture, as the typed
+/// field views see them. Synthetic `Generic` events skip that path.
+fn recorded_windows_events() -> Vec<NormalizedEvent> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/field_views/windows.ndjson");
+    std::fs::read_to_string(path)
+        .expect("read recorded Windows shapes")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("recorded event parses"))
+        .collect()
+}
+
+fn bench_recorded_windows_shapes(c: &mut Criterion) {
+    let events = recorded_windows_events();
+    // A rule pack's size and a SigmaHQ-sized corpus.
+    for rules in [20, 2_000] {
+        let tempdir = TempDir::new().expect("bench tempdir");
+        write_windows_field_rules(tempdir.path(), rules);
+        let mut engine =
+            Engine::new_for_platform_with_match_debug(Platform::Windows, MatchDebugLevel::Off);
+        engine
+            .load_rules(tempdir.path())
+            .expect("windows bench rules should load");
+
+        c.bench_function(
+            &format!("evaluate_event/windows_recorded_shapes/{rules}"),
+            |b| {
+                b.iter(|| {
+                    for ev in &events {
+                        black_box(engine.evaluate_event(black_box(ev)));
+                    }
+                });
+            },
+        );
+    }
+}
+
 fn bench_overlapping_matches(c: &mut Criterion) {
     const OVERLAPPING_RULES: usize = 250;
 
@@ -285,6 +408,7 @@ criterion_group!(
     benches,
     bench_evaluate_event,
     bench_evaluate_event_large,
+    bench_recorded_windows_shapes,
     bench_overlapping_matches
 );
 criterion_main!(benches);
