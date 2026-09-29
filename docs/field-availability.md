@@ -6,10 +6,7 @@ A Sigma rule that requires one of these fields loads but never matches.
 The full contract, including fields that are only sometimes filled, is in [`compatibility/field-availability.json`](https://github.com/Karib0u/rustinel/blob/main/compatibility/field-availability.json).
 `rustinel doctor` summarizes it for the current platform as `field_availability`.
 
-Each contract entry names its `view` and has a `since` value.
-A version string is the first released Rustinel version where that field reached its current `availability`; `null` means the current availability existed at or before the oldest supported release.
-If availability narrows, such as from `always` to `conditional`, `since` is the release that introduced the narrower guarantee.
-The same rule applies to `never`: when a formerly populated field becomes unavailable, `since` records the release that introduced that regression.
+In the JSON, each entry's `since` is the first release with its current availability, or `null` when it predates the oldest supported release.
 
 <!-- BEGIN GENERATED FIELD AVAILABILITY -->
 This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.
@@ -77,18 +74,3 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `task_creation` | `106 / register` | `Microsoft-Windows-TaskScheduler` | `TaskContent` | TaskScheduler event 106 does not carry the task XML definition |
 | `sysmon` | windows | `task_creation` | `106 / register` | `Microsoft-Windows-TaskScheduler` | `User` | TaskScheduler event 106 has UserContext, not a Sysmon User field |
 <!-- END GENERATED FIELD AVAILABILITY -->
-
-## Windows process user validation
-
-Windows process `User` is measured from the SID in the correlated classic ETW process record.
-Account-name lookup happens after collection, and the resolved Sysmon-style name is marked as derived.
-`ParentUser` is derived only through the stable parent process identity, so PID reuse cannot select a different process.
-
-The ignored native test can be run from an Administrator shell:
-
-```powershell
-cargo test --locked --test windows_process_user -- --ignored --nocapture
-```
-
-On 2026-09-17, Windows 11 build 26200.9457 populated `User` for 64 of 64 short-lived `cmd.exe` starts and `ParentUser` for 64 of 64.
-The same run started a temporary LocalSystem service process and matched a Sigma rule requiring `User: NT AUTHORITY\SYSTEM`.

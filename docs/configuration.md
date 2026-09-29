@@ -47,9 +47,6 @@ Values are parsed as TOML, so lists use brackets:
     ```
 
 Priority, highest first: CLI flags, `EDR__` variables, the config file, defaults.
-Unknown sections and options in the file or `EDR__` overrides stop startup.
-The error names the key and suggests a valid one.
-`rustinel doctor` reports the same error.
 
 ## What reloads
 
@@ -57,7 +54,7 @@ The error names the key and suggests a valid one.
 - In the config file, only `[response]` reloads, except `channel_capacity`.
   Every other change needs a restart.
 - A reload with a rule that fails to compile, or an empty IOC set, is rejected and the previous rules stay active.
-- A reload whose files another account can change is rejected as a whole and the previous rules stay active, see [Input trust](#input-trust).
+- A reload whose files another account can change is rejected as a whole and the previous rules stay active, see [Input trust](security.md#input-trust).
 
 ## Options
 
@@ -260,23 +257,10 @@ Matching ignores case on Windows, and for active response on every platform.
 
 ## File permissions
 
-On Linux and macOS, Rustinel makes its log, alert, and recording folders readable by their owner only (`0700`) and their files `0600`.
-
-### Input trust
-
-Rustinel runs privileged and acts on what it loads: a Sigma filter suppresses alerts, and the config file drives active response.
-Before it reads the config file, the Sigma and YARA rule folders, or the IOC files, at startup and on every reload, it checks that no other account can change them.
-If any file or folder fails, that whole input is refused: startup continues without it and says so on the console, and a reload keeps the previous rules.
-An untrusted config file stops startup.
-
-No account other than the owner, root, SYSTEM, or Administrators may be able to write any file or folder in the input.
-On Linux and macOS this means no group or other write bit, unless the group is root's own or the owner's private group with no other members, and it also applies to every parent folder, except a world-writable parent with the sticky bit such as `/tmp`.
-On Windows it means no allow entry that grants write, delete, or permission changes to any other account.
-
-Inputs under the managed layout that `rustinel setup` creates must also be owned by root, SYSTEM, Administrators, or the account the agent runs as, and must not contain links.
-Other inputs, such as a folder extracted for `sudo ./rustinel run`, may have any owner, and links in them are followed and checked.
-To fix a refused input, remove write access for other accounts, for example `chmod -R go-w <path>`, or rerun `rustinel setup` for the managed layout.
+Rustinel refuses a config file or rule folder that another account can change, and writes its logs readable by their owner only.
+See [Input trust](security.md#input-trust).
 
 ## Unknown options
 
-Unknown sections and keys are ignored, so a config file written for an older release keeps loading.
+An unknown section or option, in the file or in an `EDR__` variable, stops startup.
+The error names the key and suggests a valid one, and `rustinel doctor` reports the same error.

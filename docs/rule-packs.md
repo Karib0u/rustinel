@@ -39,7 +39,7 @@ If there is nothing newer, it does nothing.
 
 !!! warning "Updates replace `rules/current`"
     Local edits under `rules/current` are overwritten.
-    Keep custom rules in their own folder, see [Write and test rules](rule-development.md#keep-custom-rules-safe-from-pack-updates).
+    Keep custom rules in their own folder, see [Write rules](rule-development.md#keep-custom-rules-safe-from-pack-updates).
 
 ## Why a restart is needed
 

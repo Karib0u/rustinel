@@ -119,6 +119,7 @@ Run them on a disposable machine:
 | --- | --- | --- |
 | Memory scanning | `cargo build --locked --example memory_target && cargo test --locked --test yara_memory -- --include-ignored` | Administrator, or root with process-memory access |
 | Active response | `cargo test --locked --test active_response -- --include-ignored` | Same |
+| Windows process user | `cargo test --locked --test windows_process_user -- --ignored --nocapture` | Administrator |
 | Linux process identity | `cargo test --test linux_task_identity live_task_identity_matches_proc -- --ignored` | root, `RUSTINEL_EBPF_OBJECT` set |
 | Linux eBPF memory scanning | `cargo build --example memory_target && cargo test --test linux_task_identity live_ebpf_process_reaches_yara_memory_scan -- --ignored` | root, process-memory access, `RUSTINEL_EBPF_OBJECT` set |
 | Linux socket fields | `cargo test --test linux_socket_tuple live_tuple_and_connection_churn -- --ignored` | root, `RUSTINEL_EBPF_OBJECT` set, a non-loopback interface |

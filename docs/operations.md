@@ -1,4 +1,4 @@
-# Run as a service
+# Deploy on an endpoint
 
 `rustinel setup` turns a downloaded release into a permanent install: managed paths, a rules pack, and a native service that starts at boot.
 
@@ -98,4 +98,4 @@ See [Configuration](configuration.md#which-file-is-used).
 
 - [Manage rule packs](rule-packs.md)
 - [Upgrade](upgrade.md)
-- [Send alerts to a SIEM](siem-demos.md)
+- [Forward alerts](siem-demos.md)

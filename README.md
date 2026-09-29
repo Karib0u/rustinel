@@ -72,7 +72,7 @@ Run `whoami` in another terminal.
 The demo rule fires and the alert lands in `rustinel/logs/alerts.json.<date>`.
 
 To install it as a service with a real rules pack, stop it with Ctrl-C and run `sudo ./rustinel setup --yes` from the `rustinel` folder (`.\rustinel.exe setup --yes` on Windows).
-See [Run as a service](https://docs.rustinel.io/operations/).
+See [Deploy on an endpoint](https://docs.rustinel.io/operations/).
 
 ## Capture once, replay as your rules improve
 
@@ -84,7 +84,7 @@ sudo chown -R "$USER" ~/captures
 ```
 
 Replay needs no privileges and works across platforms: a Windows recording replays on Linux.
-See [Write and test rules](https://docs.rustinel.io/rule-development/).
+See [Test rules with replay](https://docs.rustinel.io/replay/).
 
 ## Platform support
 
@@ -99,7 +99,8 @@ Details: [Platform coverage](https://docs.rustinel.io/coverage/) and [Limitation
 ## Know the boundaries
 
 Rustinel is built for endpoint monitoring, detection engineering, labs, and SIEM pipeline testing.
-It is not a replacement for a commercial EDR: it has no kernel self-protection, pre-execution blocking, or anti-tamper, and a privileged attacker can stop it.
+It is not a replacement for a commercial EDR: it has no anti-tamper, no pre-execution blocking, and no management console.
+See the [Security model](https://docs.rustinel.io/security/).
 
 ## Contribute
 
