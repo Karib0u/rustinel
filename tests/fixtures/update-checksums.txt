@@ -1,0 +1,1 @@
+877f21e3cc25bb6271f8d0bf66a396b953d79d2054a3aa7f8aa242c6813c9135  rustinel-9.0.0-x86_64-unknown-linux-musl.tar.gz

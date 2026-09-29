@@ -343,7 +343,16 @@ pub fn read_state(rules_dir: &Path) -> Option<RulesState> {
 pub fn fetch_catalog(catalog_url: &Url) -> Result<Catalog> {
     let bytes = fetch_url_bytes(catalog_url, MAX_CATALOG_BYTES)
         .with_context(|| format!("download catalog {catalog_url}"))?;
-    Catalog::from_slice(&bytes)
+    let mut signature_url = catalog_url.clone();
+    signature_url.set_path(&format!("{}.minisig", catalog_url.path()));
+    let signature = fetch_url_bytes(&signature_url, 4096)
+        .with_context(|| format!("download catalog signature {signature_url}"))?;
+    parse_verified_catalog(&bytes, &signature)
+}
+
+fn parse_verified_catalog(bytes: &[u8], signature: &[u8]) -> Result<Catalog> {
+    crate::signature::verify(bytes, signature).context("verify rules catalog signature")?;
+    Catalog::from_slice(bytes)
 }
 
 pub fn fetch_url_bytes(url: &Url, max_bytes: u64) -> Result<Vec<u8>> {

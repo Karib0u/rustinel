@@ -256,7 +256,9 @@ fn default_allowlist_paths() -> Vec<String> {
     #[cfg(windows)]
     {
         vec![
-            "C:\\Windows\\".to_string(),
+            "C:\\Windows\\System32\\".to_string(),
+            "C:\\Windows\\SysWOW64\\".to_string(),
+            "C:\\Windows\\WinSxS\\".to_string(),
             "C:\\Program Files\\".to_string(),
             "C:\\Program Files (x86)\\".to_string(),
         ]
@@ -288,6 +290,23 @@ fn default_allowlist_paths() -> Vec<String> {
             "/lib/".to_string(),
             "/lib64/".to_string(),
         ]
+    }
+}
+
+fn default_allowlist_excluded_paths() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        vec![
+            "C:\\Windows\\Temp\\".to_string(),
+            "C:\\Windows\\Tasks\\".to_string(),
+            "C:\\Windows\\Tracing\\".to_string(),
+            "C:\\Windows\\System32\\Tasks\\".to_string(),
+            "C:\\Windows\\System32\\spool\\drivers\\color\\".to_string(),
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
     }
 }
 
@@ -346,6 +365,8 @@ impl ScannerConfig {
 pub struct AllowlistConfig {
     /// Trusted directory prefixes, applied to response/IOC hash/YARA scan
     pub paths: Vec<String>,
+    /// Directory prefixes that take precedence over trusted paths
+    pub excluded_paths: Vec<String>,
 }
 
 /// Operational logging configuration (application debug logs)
@@ -548,6 +569,10 @@ impl AppConfig {
             // These are the default values only; override via config.toml or
             // EDR__ALLOWLIST__PATHS environment variable.
             .set_default("allowlist.paths", default_allowlist_paths())?
+            .set_default(
+                "allowlist.excluded_paths",
+                default_allowlist_excluded_paths(),
+            )?
             // Active Response
             .set_default("response.enabled", false)?
             .set_default("response.prevention_enabled", false)?
@@ -622,7 +647,13 @@ impl AppConfig {
                 "response.min_severity must be critical, high, medium, or low".to_string(),
             ));
         }
-        if self.response.enabled && self.response.allowlist_paths.is_empty() {
+        if self.response.enabled
+            && self
+                .response
+                .allowlist_paths
+                .iter()
+                .all(|path| path.starts_with('!'))
+        {
             return Err(config::ConfigError::Message(
                 "active response needs allowlist.paths or response.allowlist_paths".to_string(),
             ));
@@ -700,6 +731,15 @@ impl AppConfig {
             "ALLOWLIST__PATHS",
             environment,
         );
+        self.allowlist
+            .excluded_paths
+            .retain(|path| !path.trim().is_empty());
+        resolve_path_list_from_config(
+            &mut self.allowlist.excluded_paths,
+            base_dir,
+            "ALLOWLIST__EXCLUDED_PATHS",
+            environment,
+        );
         resolve_path_list_from_config(
             &mut self.response.allowlist_paths,
             base_dir,
@@ -721,6 +761,9 @@ impl AppConfig {
     }
 
     fn apply_allowlist_fallbacks(&mut self) {
+        self.allowlist
+            .excluded_paths
+            .retain(|path| !path.trim().is_empty());
         if self.response.allowlist_paths.is_empty() {
             self.response.allowlist_paths = self.allowlist.paths.clone();
         }
@@ -731,6 +774,13 @@ impl AppConfig {
 
         if self.scanner.yara_allowlist_paths.is_empty() {
             self.scanner.yara_allowlist_paths = self.allowlist.paths.clone();
+        }
+
+        for path in &self.allowlist.excluded_paths {
+            let excluded = format!("!{path}");
+            self.response.allowlist_paths.push(excluded.clone());
+            self.ioc.hash_allowlist_paths.push(excluded.clone());
+            self.scanner.yara_allowlist_paths.push(excluded);
         }
     }
 }
@@ -975,6 +1025,7 @@ impl Default for AppConfig {
             },
             allowlist: AllowlistConfig {
                 paths: default_allowlist_paths(),
+                excluded_paths: default_allowlist_excluded_paths(),
             },
             response: ResponseConfig {
                 enabled: false,

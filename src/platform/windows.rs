@@ -68,6 +68,27 @@ impl WindowsServiceBackend {
             _ => false,
         }
     }
+
+    fn configure_recovery(service: &windows_service::service::Service) -> anyhow::Result<()> {
+        use windows_service::service::{
+            ServiceAction, ServiceActionType, ServiceFailureActions, ServiceFailureResetPeriod,
+        };
+
+        service.update_failure_actions(ServiceFailureActions {
+            reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(86_400)),
+            reboot_msg: None,
+            command: None,
+            actions: Some(vec![
+                ServiceAction {
+                    action_type: ServiceActionType::Restart,
+                    delay: Duration::from_secs(5),
+                };
+                3
+            ]),
+        })?;
+        service.set_failure_actions_on_non_crash_failures(true)?;
+        Ok(())
+    }
 }
 
 impl ServiceBackend for WindowsServiceBackend {
@@ -92,10 +113,12 @@ impl ServiceBackend for WindowsServiceBackend {
             Ok(service) => {
                 service.change_config(&service_info)?;
                 service.set_description(SERVICE_DESCRIPTION)?;
+                Self::configure_recovery(&service)?;
             }
             Err(err) if Self::is_not_installed(&err) => {
                 let service = manager.create_service(&service_info, access)?;
                 service.set_description(SERVICE_DESCRIPTION)?;
+                Self::configure_recovery(&service)?;
             }
             Err(err) => return Err(err.into()),
         }

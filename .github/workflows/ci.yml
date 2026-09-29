@@ -348,10 +348,14 @@ jobs:
         if: matrix.platform == 'linux'
         working-directory: rustinel-rules
         run: |
+          # The hosted runner leaves /opt writable by other accounts.
+          # The agent requires trusted parent directories for rules.
+          sudo chmod go-w /opt
+          sudo install -d -m 755 /opt/rustinel
           sudo -E python3 tests/atomic/run_atomics.py \
             --platform linux \
-            --engine-bin "$GITHUB_WORKSPACE/target/release/rustinel" \
-            --engine-dir "$GITHUB_WORKSPACE/rustinel-rules/tests/atomic/.engine" \
+            --engine-bin "$GITHUB_WORKSPACE/scripts/atomic_managed_service.sh" \
+            --engine-dir /opt/rustinel \
             --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
             --pack auto
         shell: bash
@@ -360,6 +364,14 @@ jobs:
         if: matrix.platform == 'windows'
         working-directory: rustinel-rules
         run: |
+          # The runner's D:\a grants Users write, and the agent refuses inputs
+          # other accounts can change. The harness copies the pack into an
+          # existing engine dir, so a protected one keeps the copies private.
+          $engineDir = "$env:GITHUB_WORKSPACE\rustinel-rules\tests\atomic\.engine"
+          New-Item -ItemType Directory -Path $engineDir -Force | Out-Null
+          $runner = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          icacls $engineDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*${runner}:(OI)(CI)F"
+          if ($LASTEXITCODE -ne 0) { throw "icacls failed on $engineDir" }
           # Keep fixture executables inside the workspace's Defender exclusion.
           $atomicTemp = Join-Path $env:GITHUB_WORKSPACE "atomic-temp"
           New-Item -ItemType Directory -Path $atomicTemp -Force | Out-Null
@@ -376,8 +388,13 @@ jobs:
       - name: Prepare atomic logs for upload (Unix)
         if: always() && matrix.platform != 'windows'
         run: |
-          if [ -d rustinel-rules/tests/atomic/.engine/logs ]; then
-            sudo chown -R "$(id -u):$(id -g)" rustinel-rules/tests/atomic/.engine/logs
+          if [ -d /opt/rustinel/logs ]; then
+            sudo cp -a /opt/rustinel/logs rustinel-rules/tests/atomic/managed-logs
+            sudo chown -R "$(id -u):$(id -g)" rustinel-rules/tests/atomic/managed-logs
+          fi
+          if [ -f /opt/rustinel/engine.stdout.log ]; then
+            sudo cp /opt/rustinel/engine.stdout.log rustinel-rules/tests/atomic/engine.stdout.log
+            sudo chown "$(id -u):$(id -g)" rustinel-rules/tests/atomic/engine.stdout.log
           fi
         shell: bash
 
@@ -390,6 +407,8 @@ jobs:
             rustinel-rules/tests/atomic/report-*.json
             rustinel-rules/tests/atomic/.engine/engine.stdout.log
             rustinel-rules/tests/atomic/.engine/logs/
+            rustinel-rules/tests/atomic/engine.stdout.log
+            rustinel-rules/tests/atomic/managed-logs/
           include-hidden-files: true
           if-no-files-found: warn
 

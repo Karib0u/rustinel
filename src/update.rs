@@ -136,7 +136,9 @@ fn update(
     }
     let (name, binary) = package(&latest, os, arch)?;
     let archive_url = release.asset(&name)?;
-    let checksum_url = release.asset(&format!("rustinel-{latest}-checksums-sha256.txt"))?;
+    let checksum_name = format!("rustinel-{latest}-checksums-sha256.txt");
+    let checksum_url = release.asset(&checksum_name)?;
+    let signature_url = release.asset(&format!("{checksum_name}.minisig"))?;
     let mut checksum_file = tempfile::tempfile()?;
     download(checksum_url, &mut checksum_file)?;
     checksum_file.seek(SeekFrom::Start(0))?;
@@ -144,6 +146,14 @@ fn update(
     checksum_file
         .take(1024 * 1024)
         .read_to_string(&mut checksums)?;
+    let mut signature_file = tempfile::tempfile()?;
+    download(signature_url, &mut signature_file)?;
+    signature_file.rewind()?;
+    let mut signature = Vec::new();
+    signature_file.take(4097).read_to_end(&mut signature)?;
+    anyhow::ensure!(signature.len() <= 4096, "Release signature is too large");
+    crate::signature::verify(checksums.as_bytes(), &signature)
+        .context("verify release checksums signature")?;
     println!("\nDownloading {name}...");
     let mut archive = tempfile::NamedTempFile::new()?;
     download(archive_url, archive.as_file_mut())?;
@@ -201,6 +211,15 @@ fn stage_macos_bundle(
     anyhow::ensure!(
         status.success(),
         "Release app bundle signature verification failed"
+    );
+    let requirement = "anchor apple generic and certificate leaf[subject.OU] = \"37TYDYTJ3M\"";
+    let status = std::process::Command::new("/usr/bin/codesign")
+        .args(["--verify", "--strict", &format!("-R={requirement}")])
+        .arg(&path)
+        .status()?;
+    anyhow::ensure!(
+        status.success(),
+        "Release app bundle signer is not the trusted team"
     );
     Ok((staging, path))
 }
@@ -282,6 +301,10 @@ mod tests {
                     name: "rustinel-9.0.0-checksums-sha256.txt".into(),
                     browser_download_url: "checksum".into(),
                 },
+                Asset {
+                    name: "rustinel-9.0.0-checksums-sha256.txt.minisig".into(),
+                    browser_download_url: "signature".into(),
+                },
             ],
         }
     }
@@ -336,30 +359,15 @@ mod tests {
 
     #[test]
     fn verified_update_and_checksum_failure() {
-        let (name, binary) = package(&Version::new(9, 0, 0), "linux", "x86_64").unwrap();
-        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
-            Vec::new(),
-            flate2::Compression::default(),
-        ));
-        let mut header = tar::Header::new_gnu();
-        header.set_size(3);
-        header.set_mode(0o755);
-        header.set_cksum();
-        builder
-            .append_data(&mut header, binary, &b"new"[..])
-            .unwrap();
-        let archive = builder.into_inner().unwrap().finish().unwrap();
+        let archive = include_bytes!("../tests/fixtures/update-archive.tar.gz");
+        let checksums = include_bytes!("../tests/fixtures/update-checksums.txt");
+        let signature = include_bytes!("../tests/fixtures/update-checksums.txt.minisig");
         let directory = tempfile::tempdir().unwrap();
         let installed = directory.path().join("rustinel");
         let config = directory.path().join("config.toml");
         std::fs::write(&config, "preserved").unwrap();
         for (valid, blocked) in [(false, false), (true, false), (true, true)] {
             std::fs::write(&installed, "old").unwrap();
-            let hash = if valid {
-                hex::encode(Sha256::digest(&archive))
-            } else {
-                "00".repeat(32)
-            };
             let result = update(
                 release(),
                 &Version::new(1, 0, 0),
@@ -367,9 +375,15 @@ mod tests {
                 "x86_64",
                 |url, file| {
                     if url == "archive" {
-                        file.write_all(&archive)?;
+                        if valid {
+                            file.write_all(archive)?;
+                        } else {
+                            file.write_all(b"modified archive")?;
+                        }
+                    } else if url == "signature" {
+                        file.write_all(signature)?;
                     } else {
-                        writeln!(file, "{hash}  {name}")?;
+                        file.write_all(checksums)?;
                     }
                     Ok(())
                 },
@@ -393,6 +407,27 @@ mod tests {
                 if valid && !blocked { "new" } else { "old" }
             );
             assert_eq!(std::fs::read_to_string(&config).unwrap(), "preserved");
+        }
+    }
+
+    #[test]
+    fn update_rejects_missing_and_wrong_signatures_before_archive_download() {
+        let checksums = include_bytes!("../tests/fixtures/update-checksums.txt");
+        let wrong_key = include_bytes!("../tests/fixtures/update-checksums-wrong-key.minisig");
+        for signature in [b"".as_slice(), wrong_key.as_slice()] {
+            let result = update(
+                release(),
+                &Version::new(1, 0, 0),
+                "linux",
+                "x86_64",
+                |url, file| match url {
+                    "checksum" => file.write_all(checksums).map_err(Into::into),
+                    "signature" => file.write_all(signature).map_err(Into::into),
+                    _ => panic!("archive must not be downloaded"),
+                },
+                |_| panic!("invalid update must not install"),
+            );
+            assert!(result.is_err());
         }
     }
 

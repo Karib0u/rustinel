@@ -22,6 +22,8 @@ use rustinel::{
 };
 use std::{process::Stdio, time::Duration};
 
+const TEST_PID: u32 = u32::MAX;
+
 fn memory_target_exe() -> &'static str {
     if cfg!(windows) {
         "target\\debug\\examples\\memory_target.exe"
@@ -185,7 +187,7 @@ fn response_engine_skips_below_min_severity() {
 
 #[test]
 fn response_decision_outcomes_are_testable() {
-    let alert = build_yara_alert(4242, "C:\\test\\fake.exe");
+    let alert = build_yara_alert(TEST_PID, "C:\\test\\fake.exe");
     assert_eq!(
         decision_for(
             response_config(false, false, "critical", vec![], vec![]),
@@ -230,7 +232,7 @@ fn response_decision_outcomes_are_testable() {
         ResponseDecision::ProtectedPid { pid: 4 }
     );
 
-    let mut missing_pid = build_yara_alert(4242, "C:\\test\\fake.exe");
+    let mut missing_pid = build_yara_alert(TEST_PID, "C:\\test\\fake.exe");
     if let EventFields::ProcessCreation(fields) = &mut missing_pid.event.fields {
         fields.process_id = None;
     }
@@ -242,7 +244,7 @@ fn response_decision_outcomes_are_testable() {
         ResponseDecision::MissingPid
     );
 
-    let mut missing_image = build_yara_alert(4242, "C:\\test\\fake.exe");
+    let mut missing_image = build_yara_alert(TEST_PID, "C:\\test\\fake.exe");
     if let EventFields::ProcessCreation(fields) = &mut missing_image.event.fields {
         fields.image = None;
     }
@@ -251,7 +253,7 @@ fn response_decision_outcomes_are_testable() {
             response_config(true, false, "critical", vec![], vec![]),
             &missing_image
         ),
-        ResponseDecision::MissingImage { pid: 4242 }
+        ResponseDecision::MissingImage { pid: TEST_PID }
     );
 }
 
@@ -262,7 +264,7 @@ fn response_decision_respects_allowlists_and_mode() {
     } else {
         "/trusted/fake"
     };
-    let alert = build_yara_alert(4242, image);
+    let alert = build_yara_alert(TEST_PID, image);
 
     assert!(matches!(
         decision_for(
@@ -279,7 +281,7 @@ fn response_decision_respects_allowlists_and_mode() {
             ),
             &alert
         ),
-        ResponseDecision::Allowlisted { pid: 4242, .. }
+        ResponseDecision::Allowlisted { pid: TEST_PID, .. }
     ));
 
     let allowlist_path = if cfg!(windows) {
@@ -292,7 +294,7 @@ fn response_decision_respects_allowlists_and_mode() {
             response_config(true, false, "critical", vec![], vec![allowlist_path]),
             &alert
         ),
-        ResponseDecision::Allowlisted { pid: 4242, .. }
+        ResponseDecision::Allowlisted { pid: TEST_PID, .. }
     ));
 
     assert!(matches!(
@@ -300,7 +302,7 @@ fn response_decision_respects_allowlists_and_mode() {
             response_config(true, false, "critical", vec![], vec![]),
             &alert
         ),
-        ResponseDecision::DryRun { pid: 4242, .. }
+        ResponseDecision::DryRun { pid: TEST_PID, .. }
     ));
 
     assert!(matches!(
@@ -308,20 +310,20 @@ fn response_decision_respects_allowlists_and_mode() {
             response_config(true, true, "critical", vec![], vec![]),
             &alert
         ),
-        ResponseDecision::Terminate { pid: 4242, .. }
+        ResponseDecision::Terminate { pid: TEST_PID, .. }
     ));
 }
 
 #[test]
 fn response_decision_uses_detector_pipeline_severity_rules() {
-    let mut yara = build_yara_alert(4242, "C:\\test\\fake.exe");
+    let mut yara = build_yara_alert(TEST_PID, "C:\\test\\fake.exe");
     yara.severity = AlertSeverity::Low;
     assert!(matches!(
         decision_for(
             response_config(true, true, "critical", vec![], vec![]),
             &yara
         ),
-        ResponseDecision::Terminate { pid: 4242, .. }
+        ResponseDecision::Terminate { pid: TEST_PID, .. }
     ));
 
     let mut sigma = yara.clone();
@@ -329,7 +331,7 @@ fn response_decision_uses_detector_pipeline_severity_rules() {
     sigma.severity = AlertSeverity::High;
     assert!(matches!(
         decision_for(response_config(true, true, "high", vec![], vec![]), &sigma),
-        ResponseDecision::Terminate { pid: 4242, .. }
+        ResponseDecision::Terminate { pid: TEST_PID, .. }
     ));
     assert!(matches!(
         decision_for(

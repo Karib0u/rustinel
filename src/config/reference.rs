@@ -168,6 +168,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         default_note: Some("OS directories, see below"),
         description: "Trusted path prefixes. Each module uses this list until its own allowlist is set.",
     },
+    ConfigOption {
+        key: "allowlist.excluded_paths",
+        default_note: Some("Windows writable folders, see below; empty elsewhere"),
+        description: "Directory prefixes never trusted by YARA, IOC hashing, or active response, even with module-specific allowlists.",
+    },
     // reload
     ConfigOption {
         key: "reload.enabled",

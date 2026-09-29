@@ -4,6 +4,20 @@ use std::io::{Cursor, Write};
 use zip::{write::SimpleFileOptions, ZipWriter};
 
 #[test]
+fn catalog_requires_valid_release_signature() {
+    let catalog = include_bytes!("../../tests/fixtures/rules-index.json");
+    let signature = include_bytes!("../../tests/fixtures/rules-index.json.minisig");
+    let wrong_key = include_bytes!("../../tests/fixtures/update-checksums-wrong-key.minisig");
+
+    assert!(parse_verified_catalog(catalog, signature).is_ok());
+    assert!(parse_verified_catalog(catalog, b"").is_err());
+    assert!(parse_verified_catalog(catalog, wrong_key).is_err());
+    let mut modified = catalog.to_vec();
+    modified.push(b' ');
+    assert!(parse_verified_catalog(&modified, signature).is_err());
+}
+
+#[test]
 fn install_pack_replaces_current_and_writes_state() {
     let temp = tempfile::tempdir().expect("tempdir");
     let archive = pack_zip(current_os(), "demo-pack");

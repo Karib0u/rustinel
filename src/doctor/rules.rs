@@ -535,6 +535,7 @@ mod tests {
             inactive_collector_categories: categories,
             inactive_collector_logsources: BTreeMap::new(),
             deferred_pass_rules: 0,
+            early_deferred_evictions: 0,
         }
     }
 

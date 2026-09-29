@@ -16,6 +16,9 @@ resolver = "2"
 [lints.rust]
 warnings = "deny"
 
+[profile.release]
+panic = "abort"
+
 [dependencies]
 # Sigma detection engine: rule parsing (rsigma-parser) plus stateless detection
 # and stateful correlation evaluation (rsigma-eval). Rustinel keeps ownership of
@@ -62,6 +65,7 @@ flate2 = "1"
 tar = "0.4"
 self-replace = "1.5"
 tempfile = "3.8"
+minisign-verify = "0.3"
 
 # Configuration
 config = "0.15.23"

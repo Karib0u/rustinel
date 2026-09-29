@@ -2,14 +2,17 @@
 mod common;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use common::{dns_query_event, process_start_event, SigmaFixture, TestNormalizer, YaraFixture};
 use rustinel::{
+    alerts::AlertSink,
     config::{ReloadConfig, ResponseConfig, ScannerConfig},
-    engine::{DetectorStore, Engine, SigmaMatchMode},
+    engine::{DetectionPass, DetectorStore, Engine, SigmaMatchMode},
     ioc::IocEngine,
     models::{CanonicalEvent, MatchDebugLevel},
-    reload::{spawn_reload_worker, ReloadTarget},
+    reload::{spawn_reload_worker, ReloadAlertContext, ReloadTarget},
+    response::ResponseEngine,
     scanner::Scanner,
     sensor::Platform,
 };
@@ -113,6 +116,7 @@ level: high
         MatchDebugLevel::Off,
         None,
         dummy_response_config(),
+        None,
         rx,
     );
     tx.send(ReloadTarget::Sigma).expect("send reload");
@@ -138,6 +142,100 @@ level: high
     assert!(store.sigma().check_event(&network).is_empty());
     drop(tx);
     handle.abort();
+}
+
+#[tokio::test]
+async fn sigma_reload_emits_pending_correlations() {
+    let sigma = SigmaFixture::new();
+    let platform = host_platform();
+    let product = match platform {
+        Platform::Windows => "windows",
+        Platform::Linux => "linux",
+        Platform::MacOS => "macos",
+    };
+    sigma.write_rule(
+        "image.yml",
+        &format!(
+            r#"title: Reload Image
+id: reload-image
+logsource:
+  product: {product}
+  category: process_creation
+detection:
+  selection:
+    Image|contains: curl
+  condition: selection
+"#
+        ),
+    );
+    sigma.write_rule(
+        "count.yml",
+        r#"title: Reload Count
+id: reload-count
+correlation:
+  type: event_count
+  rules:
+    - reload-image
+  timespan: 1m
+  condition:
+    gte: 1
+"#,
+    );
+    let yara = YaraFixture::new();
+    yara.write_default_rule();
+    let ioc = common::IocFixture::new();
+    let mut engine = Engine::new_for_platform(platform);
+    engine.load_rules(sigma.rules_dir()).unwrap();
+    let store = DetectorStore::new(
+        Arc::new(engine),
+        Arc::new(Scanner::new(yara.rules_dir()).unwrap()),
+        Arc::new(IocEngine::load(&ioc.config())),
+    );
+    let harness = TestNormalizer::new();
+    let event = harness
+        .normalizer
+        .normalize(&process_start_event(platform))
+        .unwrap();
+    store
+        .sigma()
+        .evaluate_event_pass(&event, DetectionPass::Admission);
+
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let (writer, guard) =
+        tracing_appender::non_blocking(std::fs::File::create(output.path()).unwrap());
+    let (response_engine, response_worker) = ResponseEngine::new(dummy_response_config());
+    let context = ReloadAlertContext {
+        host_state: harness.host_state,
+        alert_sink: AlertSink::new(writer),
+        response_engine,
+    };
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handle = spawn_reload_worker(
+        Arc::clone(&store),
+        scanner_cfg(&sigma, &yara),
+        ioc.config(),
+        ReloadConfig {
+            enabled: true,
+            debounce_ms: 100,
+            fallback_poll_interval_ms: 60000,
+        },
+        MatchDebugLevel::Off,
+        None,
+        dummy_response_config(),
+        Some(context),
+        rx,
+    );
+    tx.send(ReloadTarget::Sigma).unwrap();
+    drop(tx);
+    tokio::time::timeout(Duration::from_secs(5), handle)
+        .await
+        .unwrap()
+        .unwrap();
+    response_worker.await.unwrap();
+    drop(guard);
+
+    let alerts = std::fs::read_to_string(output.path()).unwrap();
+    assert!(alerts.contains("Reload Count"), "{alerts}");
 }
 
 #[tokio::test]
@@ -173,6 +271,7 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
         MatchDebugLevel::Off,
         None,
         dummy_response_config(),
+        None,
         rx,
     );
     tx.send(ReloadTarget::Yara).expect("send yara reload");
@@ -244,6 +343,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
         MatchDebugLevel::Off,
         None,
         dummy_response_config(),
+        None,
         rx,
     );
     tx.send(ReloadTarget::Ioc).expect("send ioc reload");
@@ -495,6 +595,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
         MatchDebugLevel::Off,
         None,
         dummy_response_config(),
+        None,
         rx,
     );
 
@@ -565,6 +666,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
         MatchDebugLevel::Off,
         None,
         dummy_response_config(),
+        None,
         rx,
     );
 
@@ -655,6 +757,7 @@ min_severity = "high"
         MatchDebugLevel::Off,
         Some(config_file_path.clone()),
         response_config.clone(),
+        None,
         rx,
     );
 
@@ -784,6 +887,7 @@ min_severity = "critical"
         MatchDebugLevel::Off,
         Some(config_file_path.clone()),
         response_config.clone(),
+        None,
         rx,
     );
 
@@ -886,6 +990,7 @@ async fn reload_rejects_inputs_writable_by_other_accounts() {
         MatchDebugLevel::Off,
         None,
         dummy_response_config(),
+        None,
         rx,
     );
     for target in [ReloadTarget::Sigma, ReloadTarget::Yara, ReloadTarget::Ioc] {
