@@ -28,8 +28,26 @@ It connects out only when you ask it to:
 
 ## Downloads
 
-`rustinel update` and `rustinel rules` download over HTTPS and check each archive's SHA-256 against the release.
-Rule packs and their catalog are not signed, so trust in a pack is trust in its GitHub release.
+`rustinel update` and `rustinel rules` accept only files signed with the Rustinel release key, which is built into the binary.
+A missing or invalid signature stops the command before anything is replaced.
+
+- `update` checks the Minisign signature of the release's checksum file, then the archive's SHA-256.
+  On macOS the new `Rustinel.app` must also be signed by Apple Developer Team `37TYDYTJ3M`.
+- `rules` checks the signature of the rules catalog, then each pack's SHA-256 against the catalog.
+  `--catalog-url` must be a github.com release asset signed with the same key, such as a specific [rustinel-rules](https://github.com/Karib0u/rustinel-rules) release.
+
+### Verify a release manually
+
+Download the archive, its `rustinel-<version>-checksums-sha256.txt` file, and the matching `.minisig` file from the same release, and get [release-minisign.pub](https://github.com/Karib0u/rustinel/blob/main/release-minisign.pub) from the source repository.
+From the folder containing them:
+
+```bash
+minisign -Vm rustinel-<version>-checksums-sha256.txt -p release-minisign.pub
+sha256sum -c --ignore-missing rustinel-<version>-checksums-sha256.txt
+```
+
+On macOS, pipe the archive's line from the checksum file to `shasum -a 256 -c -` instead of `sha256sum`.
+To verify a rules catalog, download `index.json` and `index.json.minisig` from the same rules release and run `minisign -Vm index.json -p release-minisign.pub`.
 
 ## Input trust
 
