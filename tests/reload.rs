@@ -373,13 +373,14 @@ async fn test_reload_poller_fallback_polling() {
 
     let tempdir = tempfile::tempdir().expect("create tempdir");
     let non_existent_dir = tempdir.path().join("non_existent_sigma_rules");
+    let missing_yara_dir = tempdir.path().join("non_existent_yara_rules");
 
     let scanner_cfg = ScannerConfig {
         sigma_enabled: true,
         sigma_rules_path: non_existent_dir.clone(),
         sigma_match_mode: SigmaMatchMode::Best,
-        yara_enabled: false,
-        yara_rules_path: PathBuf::from(""),
+        yara_enabled: true,
+        yara_rules_path: missing_yara_dir,
         yara_allowlist_paths: Vec::new(),
         yara_scan_timeout_ms: 10_000,
         yara_max_file_mb: 64,
@@ -412,12 +413,12 @@ async fn test_reload_poller_fallback_polling() {
 
     let (reload_tx, mut reload_rx) = mpsc::unbounded_channel();
 
-    // Spawning the poller with a non-existent path will trigger the watcher failure
-    // and cause it to fall back to the 100ms polling loop (in test configuration)
+    // Keep the YARA path absent throughout the test so watcher setup must fail,
+    // even if it runs after the Sigma directory is created.
     let poller =
         rustinel::reload::spawn_reload_poller(scanner_cfg, ioc_cfg, reload_cfg, None, reload_tx);
 
-    // Give it a moment to initialize and fail watcher setup
+    // Let the poller capture the initial fingerprints before changing Sigma rules.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Now, create the directory and add a rules file to trigger a fingerprint change
