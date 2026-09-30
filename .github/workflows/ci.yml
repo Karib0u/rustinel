@@ -59,7 +59,8 @@ jobs:
       - name: Check root dependencies
         run: cargo deny --locked check
       - name: Check eBPF dependencies
-        run: cargo deny --locked --manifest-path ebpf/Cargo.toml check --config ebpf/deny.toml
+        working-directory: ebpf
+        run: cargo deny --locked check
 
   ebpf-build:
     name: Linux eBPF Build
