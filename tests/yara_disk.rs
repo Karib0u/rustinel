@@ -6,8 +6,8 @@ use common::{
 };
 use rustinel::{
     models::{
-        Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, MatchDebugLevel,
-        MatchDetails, NormalizedEvent, ProcessCreationFields, YaraMatchDetails, YaraRuleMatch,
+        Alert, DetectionEngine, EventCategory, EventFields, MatchDebugLevel, MatchDetails,
+        NormalizedEvent, ProcessCreationFields, YaraMatchDetails, YaraRuleMatch,
     },
     scanner::Scanner,
     sensor::Platform,
@@ -68,7 +68,7 @@ fn build_yara_alert(
     match_debug: MatchDebugLevel,
 ) -> Alert {
     Alert {
-        severity: AlertSeverity::Critical,
+        severity: rule_match.severity,
         rule_name: rule_match.rule.clone(),
         rule_description: None,
         rule_id: None,

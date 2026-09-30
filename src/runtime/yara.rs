@@ -2,9 +2,9 @@ use crate::alerts::AlertSink;
 use crate::engine::DetectorStore;
 use crate::memory::{self, MemoryChunk, MemoryScanConfig};
 use crate::models::{
-    Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, MatchDebugLevel,
-    MatchDetails, NormalizedEvent, ProcessCreationFields, Provenance, YaraMatchDetails,
-    YaraRuleMatch, YaraScanSource,
+    Alert, DetectionEngine, EventCategory, EventFields, MatchDebugLevel, MatchDetails,
+    NormalizedEvent, ProcessCreationFields, Provenance, YaraMatchDetails, YaraRuleMatch,
+    YaraScanSource,
 };
 use crate::response::ResponseEngine;
 use crate::scanner::{ScanError, ScanResult, YaraMemoryJob};
@@ -87,10 +87,8 @@ pub fn build_yara_match_details(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_yara_alert(
-    rule_name: &str,
-    metadata_id: Option<String>,
+    rule_match: &YaraRuleMatch,
     path: &str,
     pid: u32,
     provenance: &Provenance,
@@ -98,10 +96,13 @@ pub fn build_yara_alert(
     platform: Platform,
     provider: &str,
 ) -> Alert {
-    let rule_id = metadata_id.map(|id| format!("yara::{}", id));
+    let rule_id = rule_match
+        .metadata_id
+        .as_ref()
+        .map(|id| format!("yara::{}", id));
     let mut alert = Alert {
-        severity: AlertSeverity::Critical,
-        rule_name: rule_name.to_string(),
+        severity: rule_match.severity,
+        rule_name: rule_match.rule.clone(),
         rule_description: None,
         rule_id,
         sigma_metadata: None,
@@ -187,10 +188,8 @@ pub fn build_yara_memory_match_details(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_yara_memory_alert(
-    rule_name: &str,
-    metadata_id: Option<String>,
+    rule_match: &YaraRuleMatch,
     image: &str,
     pid: u32,
     provenance: &Provenance,
@@ -198,10 +197,13 @@ pub fn build_yara_memory_alert(
     platform: Platform,
     provider: &str,
 ) -> Alert {
-    let rule_id = metadata_id.map(|id| format!("yara::{}", id));
+    let rule_id = rule_match
+        .metadata_id
+        .as_ref()
+        .map(|id| format!("yara::{}", id));
     let mut alert = Alert {
-        severity: AlertSeverity::Critical,
-        rule_name: rule_name.to_string(),
+        severity: rule_match.severity,
+        rule_name: rule_match.rule.clone(),
         rule_description: None,
         rule_id,
         sigma_metadata: None,
@@ -380,8 +382,7 @@ pub fn spawn_yara_memory_worker(
                             let details =
                                 build_yara_memory_match_details(match_debug, rule_match, chunk);
                             let alert = build_yara_memory_alert(
-                                &rule_match.rule,
-                                rule_match.metadata_id.clone(),
+                                rule_match,
                                 &job.expected_identity.image,
                                 job.expected_identity.pid,
                                 &job.provenance,
@@ -428,7 +429,7 @@ pub fn spawn_yara_memory_worker(
 #[cfg(test)]
 mod tests {
     use super::YaraScanCounters;
-    use crate::models::{Fidelity, Provenance, YaraRuleMatch};
+    use crate::models::{AlertSeverity, Fidelity, Provenance, YaraRuleMatch};
     use crate::scanner::ScanError;
     use crate::sensor::Platform;
     use std::time::Duration;
@@ -436,6 +437,7 @@ mod tests {
     fn rule_match() -> YaraRuleMatch {
         YaraRuleMatch {
             rule: "TestRule".to_string(),
+            severity: AlertSeverity::High,
             metadata_id: None,
             tags: Vec::new(),
             namespace: None,
@@ -452,8 +454,7 @@ mod tests {
         provenance.mark_derived("CommandLine");
         for alert in [
             super::build_yara_alert(
-                "TestRule",
-                None,
+                &rule_match(),
                 "/usr/bin/sample",
                 4242,
                 &provenance,
@@ -462,8 +463,7 @@ mod tests {
                 "ebpf",
             ),
             super::build_yara_memory_alert(
-                "TestRule",
-                None,
+                &rule_match(),
                 "/usr/bin/sample",
                 4242,
                 &provenance,

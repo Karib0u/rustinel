@@ -1,7 +1,7 @@
 //! Active response engine (optional prevention).
 //!
 //! Non-blocking alert intake with a background worker that can terminate
-//! processes on critical alerts.
+//! processes on alerts that meet the configured severity threshold.
 
 use crate::config::ResponseConfig;
 use crate::models::{Alert, AlertSeverity, DetectionEngine, EventFields};
@@ -138,7 +138,7 @@ impl ResponseEngine {
         let (pid, image) = extract_process_info(alert);
 
         let task = ResponseTask {
-            severity: effective_alert_severity(alert),
+            severity: alert.severity,
             rule_name: alert.rule_name.clone(),
             engine: alert.engine,
             pid,
@@ -166,7 +166,7 @@ impl ResponseEngine {
             return ResponseDecision::Disabled;
         }
 
-        let severity = effective_alert_severity(alert);
+        let severity = alert.severity;
         let min_severity = parse_min_severity(&current_cfg.min_severity);
         if !severity_at_least(severity, min_severity) {
             return ResponseDecision::BelowSeverity {
@@ -216,13 +216,6 @@ impl PreparedConfig {
         if !Arc::ptr_eq(&self.source, current) {
             *self = Self::from_raw(current);
         }
-    }
-}
-
-fn effective_alert_severity(alert: &Alert) -> AlertSeverity {
-    match alert.engine {
-        DetectionEngine::Yara => AlertSeverity::Critical,
-        DetectionEngine::Sigma | DetectionEngine::Ioc => alert.severity,
     }
 }
 
@@ -650,6 +643,37 @@ mod tests {
         sync::{Arc, Mutex},
     };
     use tracing_subscriber::fmt::MakeWriter;
+
+    #[test]
+    fn yara_response_intake_respects_severity_and_preserves_it_in_tasks() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let engine = ResponseEngine {
+            config: Arc::new(ArcSwap::from_pointee(ResponseConfig {
+                enabled: true,
+                prevention_enabled: false,
+                min_severity: "high".to_string(),
+                channel_capacity: 4,
+                allowlist_images: vec![],
+                allowlist_paths: vec![],
+            })),
+            self_pid: std::process::id(),
+            tx,
+        };
+        let mut alert = test_process_alert(Some("99999999"), Some("/tmp/sample"));
+        alert.engine = DetectionEngine::Yara;
+
+        engine.handle_alert(&alert);
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+
+        alert.severity = AlertSeverity::High;
+        engine.handle_alert(&alert);
+        let task = rx.try_recv().expect("high YARA response task");
+        assert_eq!(task.severity, AlertSeverity::High);
+        assert_eq!(task.engine, DetectionEngine::Yara);
+    }
 
     #[derive(Clone, Default)]
     struct LogBuffer(Arc<Mutex<Vec<u8>>>);

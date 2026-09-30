@@ -318,11 +318,18 @@ fn response_decision_respects_allowlists_and_mode() {
 fn response_decision_uses_detector_pipeline_severity_rules() {
     let mut yara = build_yara_alert(TEST_PID, "C:\\test\\fake.exe");
     yara.severity = AlertSeverity::Low;
-    assert!(matches!(
+    assert_eq!(
         decision_for(
             response_config(true, true, "critical", vec![], vec![]),
             &yara
         ),
+        ResponseDecision::BelowSeverity {
+            severity: AlertSeverity::Low,
+            min_severity: AlertSeverity::Critical,
+        }
+    );
+    assert!(matches!(
+        decision_for(response_config(true, true, "low", vec![], vec![]), &yara),
         ResponseDecision::Terminate { pid: TEST_PID, .. }
     ));
 

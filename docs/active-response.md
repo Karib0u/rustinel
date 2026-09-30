@@ -9,8 +9,8 @@ Test it in dry-run mode first.
 When an alert's severity is at least `response.min_severity`, Rustinel kills the process: `TerminateProcess` on Windows, `SIGKILL` on Linux and macOS.
 It acts after the event, so the process may already have done its work.
 
-Severity comes from the rule: the Sigma `level`, always `critical` for YARA, and `ioc.default_severity` for indicators.
-`low` is the least severe response threshold; Sigma `informational` alerts are written normally but never trigger active response.
+Response uses the alert's [severity](detection.md#severity), including YARA rule metadata for file and process-memory matches.
+`low` is the least severe response threshold; `informational` alerts are written normally but never trigger active response.
 With `scanner.sigma_match_mode = "all"`, every emitted Sigma alert is considered independently, so overlapping rules may request a response for the same process.
 Response safeguards and the configured severity threshold still apply.
 
@@ -29,7 +29,7 @@ The failure is logged and the alert is still written.
 [response]
 enabled = true
 prevention_enabled = false   # log only
-min_severity = "critical"
+min_severity = "high"
 ```
 
 Changes to `[response]` apply without a restart.
