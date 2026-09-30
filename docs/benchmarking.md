@@ -62,7 +62,7 @@ Criterion benchmarks for hot paths, run on one machine:
 
 | Benchmark | Measures |
 | --- | --- |
-| `cargo bench --bench sigma_engine` | Sigma evaluation of five events against 4 and about 2,000 rules |
+| `cargo bench --bench sigma_engine` | Sigma evaluation of five events against 4 and about 2,000 rules, and of one recorded event per Windows event shape against 20 and 2,000 rules |
 | `cargo bench --bench ioc_domains` | Wildcard domain matching against 100 and 100,000 indicators |
 | `cargo bench --bench cache_eviction` | Inserts into a full bounded cache |
 

@@ -6,6 +6,7 @@
 //! changes this module, routing, and its availability contract, not a sensor.
 
 use super::{EventFields, NormalizedEvent};
+use crate::field_availability::{self, Availability, EventFieldContract};
 use serde::Serialize;
 
 /// A named rule-field vocabulary.
@@ -304,6 +305,15 @@ fn mapping(view: FieldViewName, name: &str) -> Option<&'static FieldMapping> {
         .map(|index| &mappings[index])
 }
 
+/// Whether the contract declares `name` unavailable, which hides a value a
+/// producer populated by mistake.
+fn is_never(contract: Option<&'static EventFieldContract>, name: &str) -> bool {
+    matches!(
+        field_availability::availability_in_contract(contract, name),
+        Some(Availability::Never(_))
+    )
+}
+
 /// A borrowed rendering of one event in a selected field vocabulary.
 #[derive(Debug, Clone, Copy)]
 pub struct FieldView<'a> {
@@ -321,14 +331,43 @@ impl<'a> FieldView<'a> {
     }
 
     pub fn get(self, name: &str) -> Option<CanonicalValue<'a>> {
-        if matches!(
-            crate::field_availability::availability_for_view(self.name, self.event, name),
-            Some(crate::field_availability::Availability::Never(_))
-        ) {
-            return None;
-        }
+        // Most reads miss, so the contract is resolved only for a value.
+        let value = self.get_unchecked(name)?;
+        let contract = field_availability::event_contract(self.name, self.event);
+        (!is_never(contract, name)).then_some(value)
+    }
 
-        self.get_unchecked(name)
+    /// [`Self::get`] against a contract the caller resolved once with
+    /// [`field_availability::event_contract`], for detection, which reads
+    /// hundreds of fields of the same event.
+    pub(crate) fn get_in_contract(
+        self,
+        contract: Option<&'static EventFieldContract>,
+        name: &str,
+    ) -> Option<CanonicalValue<'a>> {
+        let value = self.get_unchecked(name)?;
+        (!is_never(contract, name)).then_some(value)
+    }
+
+    /// Visit every mapped field whose value comes from the canonical model,
+    /// as [`Self::get_in_contract`] would read it, without looking each
+    /// mapping up by name again.
+    ///
+    /// Native payload names, which [`Self::get_unchecked`] falls back to, are
+    /// not visited here; [`Self::dynamic_fields`] lists them.
+    pub(crate) fn visit_mapped(
+        self,
+        contract: Option<&'static EventFieldContract>,
+        mut visit: impl FnMut(&'static FieldMapping, CanonicalValue<'a>),
+    ) {
+        for mapping in self.mappings() {
+            let Some(value) = self.event.canonical_value(mapping.canonical, self.name) else {
+                continue;
+            };
+            if !is_never(contract, mapping.name) {
+                visit(mapping, value);
+            }
+        }
     }
 
     /// Read through the mapping without applying the availability contract.
