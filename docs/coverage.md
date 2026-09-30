@@ -40,20 +40,19 @@ Rules that load against a collector on each platform:
 | Linux | 178 |
 | macOS | 86 |
 
-The Defender Operational source backs 17 `windows/windefend` rules in this pinned corpus.
-Field compatibility reports 7 with no field caveats and 10 dependent on optional event fields; none are inert.
-
-The Application channel source moves 32 rules in this pinned corpus from unknown logsource to a collector.
-The field audit reports 29 as potentially satisfiable and three as unsatisfiable: two require formatted `Message` text, and one selects the text `Error` where the collector exposes a numeric `Level`.
-The issue's rough estimate of 50 exceeds the 32 Application rules in this pinned corpus.
-Rule loading alone does not guarantee that a selector can be populated; use `sigma doctor` for field-level verdicts.
-
 The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `auditd`.
 
-A rule that loads can still reference a field the platform never fills.
-Such a rule never fires.
-Those fields are listed in [Field availability](field-availability.md), and `rustinel doctor` reports loaded rules with no collector as `sigma_rules_inert`.
-Use `rustinel sigma doctor --platform <platform>` for condition-aware, per-rule field and collector compatibility.
+## Rules that load but never fire
+
+A rule can load without error and still never fire, in two ways:
+
+- **No collector.**
+  The platform does not collect the rule's logsource.
+  `rustinel doctor` counts these rules as `sigma_rules_inert`.
+- **A field is never filled.**
+  The rule needs a field listed in [Field availability](field-availability.md).
+
+`rustinel sigma doctor --platform <platform>` gives a verdict for each rule, taking `or` branches and negation into account, see [Compatibility diagnostics](sigma.md#compatibility-diagnostics).
 
 !!! note "Rule count is not coverage"
     A 3,000-rule pack on Linux does not give 3,000 detections: most SigmaHQ rules are written for Windows.

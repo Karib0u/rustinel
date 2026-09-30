@@ -46,7 +46,7 @@ Every detection, correlation, and filter document receives one verdict:
 | `degraded` | The document can evaluate, but at least one referenced field is conditional, unavailable on some branch, derived, best-effort, truncated, or stale. |
 | `can-never-fire` | Parsing, compilation, routing, collector configuration, field availability, or a missing dependency prevents the document from evaluating successfully. |
 
-Field availability is read from the same [`FIELD_AVAILABILITY`](field-availability.md) contract used by event access.
+Field availability comes from the same [field availability](field-availability.md) contract the sensors follow.
 The analysis follows the condition structure.
 An unavailable selection behind `or` does not make an available alternative inert, and negating an unavailable selection can still produce a true condition.
 Exact `EventID` selections are checked against individual event shapes, including the optional Windows Filtering Platform collector.

@@ -51,7 +51,7 @@ Linux startup attribution also requires kernel process birth-time support.
 ## `artifact_resolver`
 
 The resolver opens each process image at most once per submitted event and shares the bytes between PE metadata, IOC and Sigma hashing, the imphash, a signature extension point, and YARA.
-Its consumer results remain in separate `FileIdentity`-keyed stores under one eviction ceiling.
+Each consumer keeps its results in its own store, keyed by file identity, under one shared eviction ceiling.
 
 | Field | Meaning |
 | --- | --- |

@@ -4,7 +4,7 @@
 
 No.
 The agent collects and evaluates locally and needs no account.
-Network access happens only when you ask for it: the install scripts, `rustinel update`, and `rustinel setup` or `rustinel rules` downloading packs.
+It connects out only for downloads and webhooks you ask for, see [Network](security.md#network).
 
 ### Do I need Administrator or root?
 
@@ -14,8 +14,8 @@ See [Requirements](installation.md#requirements).
 
 ### Why can't I read the alert file?
 
-On Linux and macOS, the log folder is readable by root only.
-Use `sudo`, or run your log shipper as root.
+On Linux and macOS, the log folder is readable by its owner only, usually root.
+Use `sudo`, or run your log shipper as root, see [Files Rustinel writes](security.md#files-rustinel-writes).
 
 ### Why is Rustinel looking in the wrong folder?
 
@@ -40,7 +40,7 @@ Sum `event.count` for the real volume, see [Deduplication](detection.md#deduplic
 ### Does Rustinel send alerts to my SIEM?
 
 It writes files.
-A shipper such as Filebeat forwards them, see [Send alerts to a SIEM](siem-demos.md).
+A shipper such as Filebeat forwards them, see [Forward alerts](siem-demos.md).
 Rustinel can also POST each alert to an HTTP endpoint, see [Webhooks](output.md#webhooks).
 
 ### Can I use SigmaHQ rules?

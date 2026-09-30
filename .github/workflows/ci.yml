@@ -42,6 +42,21 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  release-field-contract:
+    name: Release Field Contract
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Require released since versions
+        run: |
+          if grep -n '"since": "unreleased"' compatibility/field-availability.json; then
+            echo "::error file=src/field_availability.rs::Replace every Some(UNRELEASED) with the version being released, then run cargo run --bin generate-docs"
+            exit 1
+          fi
+
   supply-chain:
     name: Supply Chain
     runs-on: ubuntu-latest

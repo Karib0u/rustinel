@@ -13,7 +13,7 @@ Every drop is counted, so you can tell whether a quiet endpoint is quiet or blin
 | Attribution state | A process update has no known identity, or a directory-open update cannot name its descriptor | `host_state` |
 | Between stages | A full queue between the sensor and the detectors, artifact resolution, memory YARA, or response | `pipeline_telemetry` |
 | Alert file output | The alert writer queue fills while the file writer falls behind | `pipeline_telemetry` (FAIL) |
-| Artifact resolution | A file artifact cannot be opened/read, changes identity or has none to validate, exceeds its size/deadline budget, misses the PE admission budget or the deferred-pass budget, or the resolver or deferred queue is full | `artifact_resolver` |
+| File enrichment | A file cannot be read, changed after the event, is too large, or is not ready in time, so hashes, PE metadata, or a YARA scan are missing | `artifact_resolver` |
 
 A rule can also miss events that were never produced, because the platform or host policy does not provide them.
 That is a coverage question, see [Platform coverage](coverage.md).
