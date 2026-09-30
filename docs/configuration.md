@@ -80,7 +80,7 @@ Sigma and YARA rules, YARA scan limits, and optional memory scanning.
 | `yara_memory_delay_ms` | `750` | Wait after process start before reading memory, so packed code can unpack. |
 | `yara_memory_max_process_mb` | `64` | Stop reading a process after this many MB. |
 | `yara_memory_max_region_mb` | `8` | Most memory read from one region at a time, in MB. |
-| `yara_memory_include_private` | `true` | Scan private (anonymous) memory. |
+| `yara_memory_include_private` | `true` | Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded. |
 | `yara_memory_include_image` | `false` | Scan memory backed by executables and libraries. |
 | `yara_memory_include_mapped` | `false` | Scan memory-mapped files. |
 
