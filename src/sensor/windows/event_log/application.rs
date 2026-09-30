@@ -1,15 +1,12 @@
 //! Windows Application channel records used by the Sigma corpus.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use anyhow::{anyhow, Context, Result};
-use chrono::DateTime;
 
 use crate::field_availability::{application_contract, Availability};
 use crate::models::ApplicationEventFields;
 use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
 
-use super::EventLogSource;
+use super::{parse_system_time, EventLogSource};
 
 macro_rules! select {
     ($provider:literal; $first:literal $(, $rest:literal)* $(,)?) => {
@@ -90,15 +87,14 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .flat_map(|node| node.children().filter(|child| child.has_tag_name("Data")))
         .map(|node| node.text().unwrap_or_default())
         .collect();
-    for (index, node) in document
+    for node in document
         .descendants()
         .find(|node| node.has_tag_name("EventData"))
         .into_iter()
         .flat_map(|node| node.children().filter(|child| child.has_tag_name("Data")))
-        .enumerate()
     {
         if let Some(name) = node.attribute("Name").filter(|name| allowed(name)) {
-            fields.insert(name, values[index]);
+            fields.insert(name, node.text().unwrap_or_default());
         }
     }
     if allowed("Data") {
@@ -152,13 +148,6 @@ fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Opti
     node.children()
         .find(|child| child.has_tag_name(name))
         .and_then(|child| child.text())
-}
-
-fn parse_system_time(value: &str) -> Option<SystemTime> {
-    let timestamp = DateTime::parse_from_rfc3339(value).ok()?;
-    let seconds = timestamp.timestamp();
-    (seconds >= 0)
-        .then(|| UNIX_EPOCH + Duration::new(seconds as u64, timestamp.timestamp_subsec_nanos()))
 }
 
 #[cfg(test)]

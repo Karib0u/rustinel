@@ -11,6 +11,8 @@ pub(super) fn filetime_to_system_time(filetime: i64) -> SystemTime {
     let unix_100ns = filetime.saturating_sub(WINDOWS_EPOCH_DELTA_100NS).max(0) as u64;
     let secs = unix_100ns / 10_000_000;
     let nanos = (unix_100ns % 10_000_000) * 100;
+    // An i64 FILETIME minus the epoch delta is below Windows' u64 FILETIME
+    // limit, and nanos is below one second. Both additions are representable.
     UNIX_EPOCH + Duration::from_secs(secs) + Duration::from_nanos(nanos)
 }
 
@@ -103,4 +105,21 @@ pub(super) fn try_get_ip(
 
 pub(super) fn parse_optional_u32(value: Option<&str>) -> Option<u32> {
     value.and_then(|value| value.parse::<u32>().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filetime_extremes_are_representable_without_panicking() {
+        for timestamp in [i64::MIN, 0, WINDOWS_EPOCH_DELTA_100NS] {
+            assert_eq!(filetime_to_system_time(timestamp), UNIX_EPOCH);
+        }
+        let duration = filetime_to_system_time(i64::MAX)
+            .duration_since(UNIX_EPOCH)
+            .unwrap();
+        let expected = (i64::MAX - WINDOWS_EPOCH_DELTA_100NS) as u64;
+        assert_eq!(duration.as_nanos(), u128::from(expected) * 100);
+    }
 }

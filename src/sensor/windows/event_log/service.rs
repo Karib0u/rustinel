@@ -1,14 +1,11 @@
 //! Service Control Manager event decoding.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use anyhow::{anyhow, Context, Result};
-use chrono::DateTime;
 
 use crate::models::ServiceCreationFields;
 use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
 
-use super::EventLogSource;
+use super::{parse_system_time, EventLogSource};
 
 const SERVICE_EVENT_ID: u16 = 7045;
 const SERVICE_CHANNEL: &str = "System";
@@ -120,16 +117,6 @@ fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Opti
     node.children()
         .find(|child| child.has_tag_name(name))
         .and_then(|child| child.text())
-}
-
-fn parse_system_time(value: &str) -> Option<SystemTime> {
-    let timestamp = DateTime::parse_from_rfc3339(value).ok()?;
-    let seconds = timestamp.timestamp();
-    let nanos = timestamp.timestamp_subsec_nanos();
-    if seconds < 0 {
-        return None;
-    }
-    Some(UNIX_EPOCH + Duration::new(seconds as u64, nanos))
 }
 
 #[cfg(test)]

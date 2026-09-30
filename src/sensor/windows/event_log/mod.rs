@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::telemetry::event_log::update;
 use crate::utils::LogRateLimiter;
@@ -352,9 +352,7 @@ unsafe extern "system" fn subscription_callback(
     event: EVT_HANDLE,
 ) -> u32 {
     let context = &*(user_context as *const CallbackContext);
-    // Never unwind through the Windows callback ABI.
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut state = context.state.lock().unwrap_or_else(|e| e.into_inner());
+    guard_callback(context, |state| {
         if action == EvtSubscribeActionError {
             let code = event.0 as u32;
             let message = if code == ERROR_EVT_QUERY_RESULT_STALE.0 {
@@ -433,10 +431,24 @@ unsafe extern "system" fn subscription_callback(
                 state.failure = Some(format!("Event Log checkpoint update failed: {err}"));
             }
         }
+    });
+    0
+}
+
+fn guard_callback(context: &CallbackContext, callback: impl FnOnce(&mut CallbackState)) {
+    // Development and tests unwind: prevent unwinding through the Windows ABI
+    // and fail this source, which stops deliveries and propagates to the sensor.
+    // Release uses panic = "abort": this guard cannot recover; the service
+    // manager must restart the terminated process.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut state = context.state.lock().unwrap_or_else(|e| e.into_inner());
+        callback(&mut state);
     }));
     if outcome.is_err() {
         update(context.source.channel, |health| {
-            health.subscription_errors += 1
+            health.subscription_errors += 1;
+            health.active = false;
+            health.last_error = Some("Event Log callback panicked".into());
         });
         context
             .state
@@ -444,7 +456,6 @@ unsafe extern "system" fn subscription_callback(
             .unwrap_or_else(|e| e.into_inner())
             .failure = Some("Event Log callback panicked".into());
     }
-    0
 }
 
 fn persist_pending(context: &CallbackContext, path: &Path) -> Result<()> {
@@ -593,6 +604,12 @@ fn render_xml(event: EVT_HANDLE, flags: u32) -> Result<String> {
         .position(|value| *value == 0)
         .unwrap_or(buffer.len());
     String::from_utf16(&buffer[..length]).context("event XML was not valid UTF-16")
+}
+
+fn parse_system_time(value: &str) -> Option<SystemTime> {
+    let timestamp = chrono::DateTime::parse_from_rfc3339(value).ok()?;
+    let seconds = u64::try_from(timestamp.timestamp()).ok()?;
+    UNIX_EPOCH.checked_add(Duration::new(seconds, timestamp.timestamp_subsec_nanos()))
 }
 
 fn wide_string(value: &str) -> Vec<u16> {

@@ -78,6 +78,23 @@ The service definitions are:
 - **macOS:** `/Library/LaunchDaemons/com.rustinel.agent.plist`.
 - **Windows:** the `Rustinel` service in the Service Control Manager.
 
+## Sensor callback failures
+
+Release builds terminate the whole agent if a sensor callback panics.
+The managed service restarts it using systemd, launchd, or Windows service recovery; a foreground run needs to be started again by its operator or supervisor.
+An abort does not drain queues or write a final telemetry snapshot, so buffered events and alerts can be lost.
+
+Development builds and tests, including tests run with `--release`, use unwinding:
+
+| Callback | Panic behavior with unwinding |
+| --- | --- |
+| macOS Endpoint Security | Logs the panic, drops that event, and continues receiving events |
+| Windows Event Log | Marks the affected channel failed and ignores later deliveries; the subscription worker propagates the failure, stops the Windows sensor, and the agent exits for service recovery |
+| Windows ETW, including classic process and file rundown | The native callback guard catches the panic and exits the whole process with status 1 |
+
+Malformed Event Log records return decode errors, increment `decode_errors`, and allow later records to continue.
+Malformed or unsupported Endpoint Security and ETW events are skipped by their decoders; an unexpected panic follows the policy above.
+
 ## Check it is healthy
 
 ```bash

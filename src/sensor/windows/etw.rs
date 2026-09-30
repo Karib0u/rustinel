@@ -1,4 +1,9 @@
 //! Windows ETW sensor lifecycle and public interface.
+//!
+//! ferrisetw owns the native callback boundary for manifest, classic-process,
+//! and file-rundown traces. Its guard catches unwinding panics in development
+//! and tests and exits with status 1. Release uses panic = "abort" and terminates
+//! before that guard can run. Both paths rely on a service manager to restart.
 
 mod classic;
 mod decode;
