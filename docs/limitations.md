@@ -8,34 +8,26 @@ Fields each platform never fills are listed in [Field availability](field-availa
 
 ## Scope
 
-- **Not a commercial EDR.**
-  No kernel self-protection, pre-execution blocking, anti-tamper, or management console.
-  A privileged attacker can stop the ETW trace, unload the eBPF programs, or kill the agent.
-- **Response happens after the fact.**
-  The only action is killing the process, after its event was processed.
-  It may have finished already.
-  There is no quarantine, file deletion, network isolation, or rollback.
+- **Detection, not protection.**
+  No anti-tamper, pre-execution blocking, or quarantine, and response happens after the fact.
+  See [Security model](security.md#scope).
 - **Written-file scanning depends on sensor identity.**
   A file event without event-time object identity is skipped and counted rather than opened by path alone.
   Unsupported extensions without a recognized file signature are not scanned.
   Memory scanning is optional and needs privileges.
 - **Memory-only and living-off-the-land activity** leaves little telemetry.
-- **Rule packs are not signed.**
-  `rules install` trusts HTTPS GitHub release assets and checks their SHA-256 against the catalog, which is not signed itself.
 
 ## Detection engine
 
 - **Silent: rules without a collector.**
-  A rule for a logsource the platform does not collect loads and never fires.
-  `rustinel doctor` counts them as `sigma_rules_inert`.
-  Rule count is not coverage.
+  A rule for a logsource the platform does not collect loads and never fires, see [Platform coverage](coverage.md).
 - **Silent: fields never filled.**
   A rule that needs a field listed in [Field availability](field-availability.md) never matches.
   `rustinel sigma doctor` reports the affected rule and field, while respecting alternatives and negation in the rule condition.
 - **Unsupported modifiers reject the rule.**
   The rule is dropped at load and reported, never partly applied.
-- **One alert per event.**
-  When several rules match an event, only the highest severity one is reported.
+- **One Sigma alert per event by default.**
+  When several rules match an event, only the highest severity one is reported, unless `scanner.sigma_match_mode = "all"`.
   Correlation alerts are added separately.
 - **Correlation state resets on reload.**
   Open windows are forgotten when Sigma rules reload.
@@ -49,10 +41,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
 ## Windows
 
 - **`Hashes` and `Imphash` arrive after the event.**
-  Rules on them run in a separate pass, up to 2 seconds later, and see the file as it is when it is read.
-  An executable or DLL replaced right after it starts or loads is hashed as the replacement.
-  Images larger than 128 MB, unreadable images, and images the resolver cannot reach in time are evaluated without the fields.
-  Recordings do not carry these fields, so replay cannot reproduce a match that needed them.
+  Rules on them run up to 2 seconds later, hash the file as it is then, and cannot match in replay.
   See [Deferred pass](detection.md#deferred-pass).
 - **Command lines can be missing or cut.**
   The ETW source cuts command lines at 1,024 characters.
@@ -93,12 +82,11 @@ Fields each platform never fills are listed in [Field availability](field-availa
 
 - **Kernel 5.8 or later.**
   Many restricted containers cannot load eBPF.
-- **`Image` is the path given to `execve()`.**
-  It can be relative, and is cut at 255 bytes (`ImageTruncated` is set).
-- **Command lines are cut** at 512 bytes, 32 arguments, or 127 bytes per argument.
+- **Long values are cut.**
+  `Image` at 255 bytes, `CommandLine` at 512 bytes, 32 arguments, or 127 bytes per argument, and file paths at 511 bytes.
+  Cutting removes the end, which is what `|endswith` and extension indicators match, see [Fields](sigma.md#fields).
+- **`Image` is the path given to `execve()`**, so it can be relative.
   A process that rewrites its own arguments reports the originals.
-- **File paths are cut at 511 bytes** (`PathTruncated` is set).
-  Cutting removes the end, which is what `|endswith` and extension indicators match.
 - **File events whose path cannot be rebuilt are dropped** and counted as `unresolved_file_events`.
 - **Silent: stale directory descriptors.**
   A file path relative to a directory descriptor opened before Rustinel started, duplicated, inherited, or opened without `O_DIRECTORY` is resolved through `/proc` a moment later.
@@ -116,20 +104,15 @@ Fields each platform never fills are listed in [Field availability](field-availa
   `doctor` reports the unavailable `file_identity` hook.
 - **Parent identity** is derived for `CLONE_PARENT`, and can be missing for processes that started before Rustinel.
 - **Container context is on process start events only**, and needs cgroup v2.
-  File, network, and DNS events do not carry `ContainerId`.
-  On a cgroup v1 host, `CgroupPath`, `ContainerId`, and `ContainerRuntime` are always empty.
+  File, network, and DNS events do not carry `ContainerId`, and on a cgroup v1 host the container fields are always empty.
 - **Silent: unrecognized container layouts look like host processes.**
-  Docker, containerd, CRI-O, Podman, and LXC cgroup layouts are recognized.
-  A process in any other runtime, such as systemd-nspawn, has a `CgroupPath` and no `ContainerId`.
-- **Container name, image, and labels are not reported.**
-  Rustinel reads only what the cgroup path carries and never queries a runtime socket.
-- **A cgroup removed before enrichment leaves the event unresolved, never reported as the host.**
-  Enrichment runs moments after the exec, so this needs a backlogged pipeline and a container that is already gone.
-  The fallback scan checks at most 65536 directory entries and stops after a 10 ms work budget, with 8192 cached cgroups and a maximum depth of 32.
-  A cgroup outside the scanned part of the hierarchy can also remain unresolved.
-- **Namespace membership alone does not determine container identity.**
-  Containers can share namespaces, and namespace inode numbers are recycled.
-  `nsenter` without a cgroup change keeps the caller's cgroup attribution.
+  Docker, containerd, CRI-O, Podman, and LXC are recognized.
+  Any other runtime, such as systemd-nspawn, gives a `CgroupPath` and no `ContainerId`.
+- **Only the container ID and runtime are reported**, from the cgroup path.
+  No name, image, or labels: Rustinel never queries a runtime socket.
+- **Containers are identified by cgroup, not namespace.**
+  `nsenter` without a cgroup change keeps the caller's attribution.
+  A container removed before a backlogged event is enriched leaves that event unresolved, never reported as the host.
 - **DNS:** plain UDP on port 53 only, and long names are dropped.
   Answers are decoded for A, AAAA, and CNAME records within the first 512 bytes of a response.
   A socket connected to port 53 before Rustinel started is missed until it is reopened.

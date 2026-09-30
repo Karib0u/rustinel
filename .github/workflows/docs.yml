@@ -37,6 +37,7 @@ jobs:
         with:
           python-version: 3.x
       - run: python3 scripts/docs/reflow.py --check docs/*.md README.md CONTRIBUTING.md
+      - run: python3 scripts/docs/lint.py docs/*.md
       - run: pip install zensical
       - run: zensical build --clean --strict
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5

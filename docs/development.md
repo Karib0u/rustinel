@@ -100,6 +100,15 @@ Never use it on a normal Mac.
 
 Release signing in CI reads `MACOS_SIGN_IDENTITY`, `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `MACOS_PROVISIONING_PROFILE_BASE64`, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, and `MACOS_NOTARY_PASSWORD`.
 
+## Release signing keys
+
+Release checksum files and the rules catalog are signed with the Minisign key configured as `RELEASE_MINISIGN_KEY` in both release repositories.
+Its public half is `release-minisign.pub`, embedded in the binary, and `rustinel update` also pins the Apple Developer Team ID of the macOS app.
+
+- **Rotating the Minisign key:** update the embedded public key and both repository secrets together before publishing another release.
+  Installed binaries trust only the old key, so first publish a transition release that trusts both keys, or require a manual install after rotation.
+- **Changing the Apple signing team:** update the pinned Team ID in the updater and the macOS release validation in the same change, then publish a release signed by the existing Minisign key so installed clients can authenticate it.
+
 ## Tests
 
 ```bash
@@ -119,6 +128,7 @@ Run them on a disposable machine:
 | --- | --- | --- |
 | Memory scanning | `cargo build --locked --example memory_target && cargo test --locked --test yara_memory -- --include-ignored` | Administrator, or root with process-memory access |
 | Active response | `cargo test --locked --test active_response -- --include-ignored` | Same |
+| Windows process user | `cargo test --locked --test windows_process_user -- --ignored --nocapture` | Administrator |
 | Linux process identity | `cargo test --test linux_task_identity live_task_identity_matches_proc -- --ignored` | root, `RUSTINEL_EBPF_OBJECT` set |
 | Linux eBPF memory scanning | `cargo build --example memory_target && cargo test --test linux_task_identity live_ebpf_process_reaches_yara_memory_scan -- --ignored` | root, process-memory access, `RUSTINEL_EBPF_OBJECT` set |
 | Linux socket fields | `cargo test --test linux_socket_tuple live_tuple_and_connection_churn -- --ignored` | root, `RUSTINEL_EBPF_OBJECT` set, a non-loopback interface |

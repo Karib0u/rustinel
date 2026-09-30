@@ -1,8 +1,8 @@
-# Send alerts to a SIEM
+# Forward alerts
 
 Rustinel writes one JSON alert per line to `alerts.json.<date>` in the alert directory.
-Any shipper that tails NDJSON files can forward them.
-The [alert format](output.md) follows the ECS version documented in the output reference.
+Forward them with any shipper that tails NDJSON files, or have Rustinel POST each alert to a [webhook](#webhooks).
+The fields are described in [Alert format](output.md).
 
 The repository has runnable demos for Elastic and Splunk.
 Generate a test alert first with the [Quickstart](getting-started.md).
@@ -50,6 +50,20 @@ index=main source=rustinel sourcetype=_json event.kind=alert
 
 The demo HEC token is `rustinel-demo-token`.
 In production, create your own index and token and keep the token in a secret manager.
+
+## Webhooks
+
+Add one `[[alerts.webhook]]` table per endpoint, then restart Rustinel:
+
+```toml
+[[alerts.webhook]]
+url = "https://collector.example/rustinel"
+secret = "<shared secret>"
+```
+
+Each alert is sent as one JSON `POST`, signed with `secret`, and retried on failure.
+The alert file is always written first, so a failing endpoint never loses an alert from it.
+Options are in [Webhook destinations](configuration.md#webhook-destinations), and the request format and a receiver example in [Webhooks](output.md#webhooks).
 
 ## Production tips
 

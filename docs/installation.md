@@ -70,4 +70,4 @@ See [Development](development.md).
 ## Next steps
 
 - [Quickstart](getting-started.md): trigger a first alert.
-- [Run as a service](operations.md): install the service and a rules pack.
+- [Deploy on an endpoint](operations.md): install the service and a rules pack.

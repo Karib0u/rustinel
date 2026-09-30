@@ -41,18 +41,18 @@ Then follow the [Quickstart](getting-started.md) to trigger your first alert.
 
 ## What it is not
 
-Rustinel is not a replacement for a commercial EDR.
-It has no kernel self-protection, no pre-execution blocking, no anti-tamper, and no management console.
-A privileged attacker can stop it.
-See [Limitations](limitations.md).
+Rustinel is not a replacement for a commercial EDR: it has no anti-tamper, no pre-execution blocking, and no management console.
+See [Security model](security.md).
 
 ## Where to go next
 
 | I want to... | Go to |
 | --- | --- |
 | See a first alert | [Quickstart](getting-started.md) |
-| Deploy on an endpoint | [Run as a service](operations.md) |
-| Write or test a rule | [Write and test rules](rule-development.md) |
-| Forward alerts to Elastic or Splunk | [Send alerts to a SIEM](siem-demos.md) |
+| Deploy on an endpoint | [Deploy on an endpoint](operations.md) |
+| Write a rule | [Write rules](rule-development.md) |
+| Test rules against recorded activity | [Test rules with replay](replay.md) |
+| Forward alerts to Elastic, Splunk, or a webhook | [Forward alerts](siem-demos.md) |
+| Know what a platform can detect | [Platform coverage](coverage.md) |
 | Look up a command or option | [CLI](cli.md), [Configuration](configuration.md) |
 | Fix a problem | [Troubleshooting](troubleshooting.md) |

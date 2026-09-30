@@ -62,6 +62,9 @@ Sensor and background-worker queues are bounded channels that drop instead of bl
 Canonicalization runs synchronously in the sensor-channel worker, but file opening, reading, PE parsing, hashing, and YARA file scanning do not.
 A slow artifact delays routing by at most the admission budget, never more, because order is kept and the budget is measured from each event's own arrival.
 The deferred detection stage has its own bounded queue and budget and never holds admission.
+When that queue is full, the event keeps every rule at admission, evaluated without the fields, and the outcome is counted.
+Admission and deferred passes share one correlation state; each pass keeps its own best match.
+A recording holds the event as admitted, so replay evaluates deferred-pass rules once without the fields, and its header reports how many rules that affects.
 If the artifact queue is full, a job exceeds its deadline, or PE metadata misses the budget, the event is admitted without that enrichment and the outcome is counted.
 Opens and reads run on at most four I/O threads; a thread blocked in the OS keeps its slot until the call returns, and non-regular Unix files are opened nonblocking and rejected.
 Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
@@ -116,6 +119,7 @@ eBPF programs attach to tracepoints for exec, exit, fork, file syscalls, and DNS
 File syscall tracepoints remain the event source; optional BTF-planned probes add inode and device identity without changing path or completion semantics.
 Hook availability and struct offsets are discovered at startup from tracefs and BTF; nothing depends on the build machine's kernel.
 A missing hook degrades only its feature.
+`CurrentDirectory` is read from `/proc/<pid>/cwd` after the event leaves the ring reader, and kept only when the BTF process identity still matches the live process.
 The loader refuses an object whose event ABI does not match.
 
 ## macOS sensor

@@ -63,9 +63,11 @@ Put new content on the page of the right kind:
 | Kind | Answers | Examples |
 | --- | --- | --- |
 | Get started | How do I install and see it work? | `installation.md`, `getting-started.md` |
-| Guide | How do I do this task? | `rule-packs.md`, `upgrade.md` |
-| Concept | How does this work? | `how-it-works.md`, `telemetry-loss.md` |
+| Guide | How do I do this task? | `rule-packs.md`, `replay.md` |
+| Platform setup | What must the host provide? | `windows-logging.md`, `macos-permissions.md` |
+| Concept | How does this work, and where are its limits? | `how-it-works.md`, `limitations.md` |
 | Reference | What exactly does this option, field, or check do? | `cli.md`, `configuration.md`, `doctor.md` |
+| Help | Why is this not working? | `troubleshooting.md`, `faq.md` |
 | Contributing | How is the code built and tested? | `development.md`, `architecture.md` |
 
 **Rules:**
@@ -102,6 +104,7 @@ Tests fail when a generated section is stale, and when a config option has no de
 
 **Before opening a PR** that changes behavior, search the docs for the old behavior and update every page that mentions it.
 Preview with `zensical serve`; CI builds the site in strict mode.
+CI also runs `python3 scripts/docs/lint.py docs/*.md`, which catches dates, issue references, em dashes, source paths, and pages over 300 lines.
 
 ## Reporting security vulnerabilities
 

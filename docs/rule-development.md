@@ -1,4 +1,4 @@
-# Write and test rules
+# Write rules
 
 Rustinel loads three kinds of rules from the folders set in `config.toml`:
 
@@ -77,49 +77,12 @@ rustinel doctor
 `sigma_rules_inert` counts rules that loaded but have no collector on this platform.
 A reload that fails keeps the previous rules active and logs the error.
 
-## Test against recorded activity
-
-Record the behavior once, then replay it after every rule change.
-Replay needs no privileges and runs on any platform.
-
-1. Start a recording, preferably in a disposable VM:
-
-    ```bash
-    sudo rustinel capture --output ~/captures/session.ndjson
-    ```
-
-    Give the recording its own folder: Rustinel makes that folder readable by its owner only.
-
-2. Run the activity you want to detect in another terminal, then press Ctrl-C.
-3. The recording belongs to root.
-   Take ownership, then replay it without `sudo`:
-
-    ```bash
-    sudo chown -R "$USER" ~/captures
-    rustinel replay ~/captures/session.ndjson
-    ```
-
-4. Edit your rules and replay again.
-   The same recording and rules always produce the same result.
-
-On Windows, run `capture` from an elevated PowerShell.
-A recording made on one platform replays on any other.
-
-To compare two rule sets, point a second config at the other folders:
-
-```bash
-rustinel replay ~/captures/session.ndjson --config candidate.toml
-rustinel replay ~/captures/session.ndjson --output results.ndjson
-```
-
-Replay evaluates Sigma and IP, domain, and path indicators.
-It skips YARA and hash indicators because a recording holds events, not files.
-Replay never kills processes.
-
-Recordings contain command lines, paths, network destinations, and user names.
-Handle them like the host's logs.
-
 ## Keep custom rules safe from pack updates
 
 `rustinel rules update` replaces everything under `rules/current`.
 Keep your own rules in a separate folder under version control, and either copy them in after an update or point `scanner.sigma_rules_path` at your folder.
+
+## Next steps
+
+- [Test rules with replay](replay.md) against recorded activity.
+- [Check coverage](coverage.md#rules-that-load-but-never-fire) before relying on a rule.

@@ -81,6 +81,6 @@ Run `sudo ./rustinel doctor` (`.\rustinel.exe doctor` on Windows) and see [Troub
 
 ## Next steps
 
-- [Run as a service](operations.md) to keep Rustinel running with a real rules pack.
-- [Write and test rules](rule-development.md) to add your own detections.
-- [Send alerts to a SIEM](siem-demos.md) to forward them.
+- [Deploy on an endpoint](operations.md) to keep Rustinel running with a real rules pack.
+- [Write rules](rule-development.md) to add your own detections.
+- [Forward alerts](siem-demos.md) to a SIEM or a webhook.
