@@ -7,6 +7,7 @@ The full contract, including fields that are only sometimes filled, is in [`comp
 `rustinel doctor` summarizes it for the current platform as `field_availability`.
 
 In the JSON, each entry's `since` is the first release with its current availability, or `null` when it predates the oldest supported release.
+If availability narrows, `since` records the release that introduced the narrower guarantee.
 `unreleased` marks availability on the development branch that no release has shipped yet; a released contract never contains it.
 
 <!-- BEGIN GENERATED FIELD AVAILABILITY -->
