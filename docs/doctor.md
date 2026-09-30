@@ -30,7 +30,7 @@ See [Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
 | `sigma_rules_unsupported` | Correlation or filter documents dropped because a rule they reference does not apply here |
 | `sigma_rules_inert` | Rules that loaded but have no collector on this platform, grouped by logsource. They never fire |
 | `ioc_files`, `ioc_parse`, `ioc_hashes`, `ioc_ips`, `ioc_domains`, `ioc_paths_regex` | Indicator files exist and parse |
-| `ioc_inputs_trust` | No other account can change the indicator files, see [Input trust](configuration.md#input-trust) |
+| `ioc_inputs_trust` | No other account can change the indicator files, see [Input trust](security.md#input-trust) |
 | `field_availability` | The field availability contract loaded. Names fields this platform never fills |
 | `rules_pack_state`, `rules_pack_manifest`, `rules_pack_schema`, `rules_pack_checksum`, `rules_pack_compatibility` | The installed pack is intact and fits this Rustinel version |
 
@@ -63,7 +63,7 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | --- | --- |
 | `host_state` | Attribution updates were lost; reports process, user, DNS, and path-state occupancy |
 | `process_inventory` | Startup inventory failed or seeded no processes; reports duration and coverage |
-| `artifact_resolver` | Artifact queues or I/O threads saturated, jobs expired, PE metadata missed the admission budget, a deferred Sigma pass ran without `Hashes`/`Imphash` because its budget expired or its queue was full, exceeded size limits, changed identity or had none to validate, or failed file/consumer work; reports every artifact store in one snapshot |
+| `artifact_resolver` | A file could not be hashed, scanned, or read for PE metadata in time: a queue was full, a budget expired, the file was too large or changed, or reading failed. Also covers a [deferred pass](detection.md#deferred-pass) that ran without `Hashes` or `Imphash` |
 | `field_contract_violations` | A normalized event populated a field declared `Never`; detection filters the contradictory field until the decoder or contract is corrected |
 | `pipeline_telemetry` | Warns when a pipeline queue dropped events or `telemetry.enabled = false`. Fails when the alert writer dropped alerts |
 | `alert_webhooks` | An alert failed, was dropped, was too large, or was abandoned at shutdown for a [webhook](output.md#webhooks). The alert file still has it |

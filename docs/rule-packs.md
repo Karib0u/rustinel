@@ -39,7 +39,7 @@ If there is nothing newer, it does nothing.
 
 !!! warning "Updates replace `rules/current`"
     Local edits under `rules/current` are overwritten.
-    Keep custom rules in their own folder, see [Write and test rules](rule-development.md#keep-custom-rules-safe-from-pack-updates).
+    Keep custom rules in their own folder, see [Write rules](rule-development.md#keep-custom-rules-safe-from-pack-updates).
 
 ## Why a restart is needed
 
@@ -59,6 +59,6 @@ rules/
 
 ## Trust
 
-Packs come from the `Karib0u/rustinel-rules` GitHub releases over HTTPS, and the checksum must match the released catalog.
-The catalog itself is not signed.
-To use your own catalog, pass `--catalog-url`.
+Packs come from the `Karib0u/rustinel-rules` GitHub releases.
+The catalog must carry a valid Rustinel release signature, and each pack must match the checksum in it.
+`--catalog-url` selects another signed catalog, such as a specific release, see [Downloads](security.md#downloads).

@@ -94,8 +94,7 @@ Events 5156 (connection allowed), 5157 (connection blocked), and 5152 (packet dr
 1. The host audits them: enable *Filtering Platform Connection* and, for 5152, *Filtering Platform Packet Drop*.
 2. Rustinel reads them: set `security_filtering_platform_connections = true` under `[windows]`.
 
-They are off in Rustinel by default because Windows writes one record per connection.
-An idle Windows 11 lab VM wrote about 96 of them per minute, roughly 200 times the rate of its logon events.
+They are off in Rustinel by default because Windows writes one record per connection, far more often than it writes logon events.
 Size the Security log before enabling them, or older records will be overwritten before other rules see them.
 
 ## PowerShell module logging

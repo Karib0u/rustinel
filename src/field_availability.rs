@@ -22,46 +22,33 @@ const SINCE_1_4_0: Option<&str> = Some("1.4.0");
 const SINCE_1_4_1: Option<&str> = Some("1.4.1");
 const SINCE_1_6_0: Option<&str> = Some("1.6.0");
 const SINCE_1_7_0: Option<&str> = Some("1.7.0");
+/// Marks availability that has landed but is not in any release yet.
+///
+/// Declare new work as `Some(UNRELEASED)` rather than guessing the next
+/// version. Preparing a release replaces every use with the version being
+/// released, and CI refuses a release tag whose contract still contains it.
+pub const UNRELEASED: &str = "unreleased";
 /// Linux DNS response decoding (#439).
-///
-/// TODO(release): set to the release that ships it. `validate_since_versions`
-/// rejects a version newer than the crate, so this cannot name the next
-/// release before the version bump.
-const SINCE_DNS_RESPONSES: Option<&str> = Some("1.7.1");
+const SINCE_DNS_RESPONSES: Option<&str> = Some("1.8.0");
 /// Additional Windows Security audit event families (#479).
-///
-/// TODO(release): set to the release that ships it, as for
-/// [`SINCE_DNS_RESPONSES`].
-const SINCE_SECURITY_FAMILIES: Option<&str> = Some("1.7.1");
+const SINCE_SECURITY_FAMILIES: Option<&str> = Some("1.8.0");
 /// Windows `Hashes` and `Imphash` from artifact resolution (#319).
-///
-/// TODO(release): set to the release that ships it, as for
-/// [`SINCE_DNS_RESPONSES`].
-const SINCE_ARTIFACT_HASHES: Option<&str> = Some("1.7.1");
+const SINCE_ARTIFACT_HASHES: Option<&str> = Some("1.8.0");
 /// Linux container context (#148).
-///
-/// TODO(release): set to the release that ships it, as for
-/// [`SINCE_DNS_RESPONSES`].
-const SINCE_CONTAINER_CONTEXT: Option<&str> = Some("1.7.1");
+const SINCE_CONTAINER_CONTEXT: Option<&str> = Some("1.8.0");
 /// Identity-checked Linux process path enrichment (#231).
-///
-/// TODO(release): set to the release that ships it, as for
-/// [`SINCE_DNS_RESPONSES`].
-const SINCE_PROCESS_PATH_ENRICHMENT: Option<&str> = Some("1.7.1");
+const SINCE_PROCESS_PATH_ENRICHMENT: Option<&str> = Some("1.8.0");
 /// Windows process identity measured by classic-record correlation (#480).
-///
-/// TODO(release): set to the release that ships it, as for
-/// [`SINCE_DNS_RESPONSES`].
-const SINCE_PROCESS_USER: Option<&str> = Some("1.7.1");
+const SINCE_PROCESS_USER: Option<&str> = Some("1.8.0");
 /// Native Windows Event Log or ETW manifest channel (#543).
-const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.7.1");
+const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.8.0");
 /// Classic Windows PowerShell event 400 collection (#323).
 const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.8.0");
 /// Defender Operational event collection (#483).
 const SINCE_DEFENDER: Option<&str> = Some("1.8.0");
-/// WMI-Activity Operational events (#481). Set the shipped release at release time.
+/// WMI-Activity Operational events (#481).
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.8.0");
-/// Application channel collection (#316). Set the shipped release at release time.
+/// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.8.0");
 
 /// Whether a field can be present for one precise sensor event shape.
@@ -3081,22 +3068,32 @@ fn validate_since_versions() {
         .iter()
         .flat_map(|contract| contract.fields)
     {
-        let Some(since) = field.since else {
-            continue;
-        };
-        let version = Version::parse(since)
-            .unwrap_or_else(|error| panic!("{} has invalid since {since:?}: {error}", field.field));
-        assert!(
-            version.pre.is_empty(),
-            "{} since {since:?} is not a released version",
-            field.field
-        );
-        assert!(
-            version <= current,
-            "{} since {since:?} is newer than Rustinel {current}",
-            field.field
-        );
+        if let Some(error) = field
+            .since
+            .and_then(|since| since_version_error(since, &current))
+        {
+            panic!("{} {error}", field.field);
+        }
     }
+}
+
+/// Why `since` cannot be declared by a build of `current`, if it cannot.
+///
+/// A release candidate may already name the release it prepares, so the
+/// comparison ignores the prerelease part of `current`.
+fn since_version_error(since: &str, current: &Version) -> Option<String> {
+    if since == UNRELEASED {
+        return None;
+    }
+    let version = match Version::parse(since) {
+        Ok(version) => version,
+        Err(error) => return Some(format!("has invalid since {since:?}: {error}")),
+    };
+    if !version.pre.is_empty() {
+        return Some(format!("since {since:?} is not a released version"));
+    }
+    let release = Version::new(current.major, current.minor, current.patch);
+    (version > release).then(|| format!("since {since:?} is newer than Rustinel {release}"))
 }
 
 fn key_label(contract: &EventFieldContract) -> String {
@@ -3196,4 +3193,37 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 <!-- END GENERATED FIELD AVAILABILITY -->\n",
     );
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error(since: &str, current: &str) -> Option<String> {
+        since_version_error(since, &Version::parse(current).unwrap())
+    }
+
+    #[test]
+    fn since_accepts_released_versions_up_to_the_current_release() {
+        assert_eq!(error("1.7.0", "1.8.0"), None);
+        assert_eq!(error("1.8.0", "1.8.0"), None);
+    }
+
+    #[test]
+    fn since_accepts_the_release_a_candidate_prepares() {
+        assert_eq!(error("1.9.0", "1.9.0-rc.1"), None);
+        assert!(error("1.9.1", "1.9.0-rc.1").is_some());
+    }
+
+    #[test]
+    fn since_rejects_guesses_prereleases_and_garbage() {
+        assert!(error("1.9.0", "1.8.0").is_some());
+        assert!(error("1.9.0-rc.1", "1.9.0").is_some());
+        assert!(error("next", "1.8.0").is_some());
+    }
+
+    #[test]
+    fn since_accepts_the_unreleased_marker() {
+        assert_eq!(error(UNRELEASED, "1.8.0"), None);
+    }
 }

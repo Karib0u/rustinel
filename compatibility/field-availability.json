@@ -10,7 +10,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-Process/Analytic",
       "availability": "always"
     },
@@ -113,7 +113,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ParentUser",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "derived from the process cache when the stable parent identity is known"
     },
@@ -217,7 +217,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "User",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the classic process record is correlated; the measured SID is retained or resolves to an account name"
     },
@@ -256,7 +256,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Hashes",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "computed from the image file after admission when a loaded rule selects on it, and seen only by those rules"
     },
@@ -269,7 +269,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Imphash",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "computed from the image file's import table after admission when a loaded rule selects on it, and seen only by those rules"
     },
@@ -282,7 +282,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-Network/Analytic",
       "availability": "always"
     },
@@ -422,7 +422,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Network",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-Network/Analytic",
       "availability": "always"
     },
@@ -561,7 +561,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-File/Analytic",
       "availability": "always"
     },
@@ -668,7 +668,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-File/Analytic",
       "availability": "always"
     },
@@ -775,7 +775,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-File/Analytic",
       "availability": "always"
     },
@@ -882,7 +882,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-File/Analytic",
       "availability": "always"
     },
@@ -989,7 +989,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-File",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-File/Analytic",
       "availability": "always"
     },
@@ -1096,7 +1096,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-Registry/Analytic",
       "availability": "always"
     },
@@ -1191,7 +1191,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-Registry/Analytic",
       "availability": "always"
     },
@@ -1286,7 +1286,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Registry",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-Registry/Analytic",
       "availability": "always"
     },
@@ -1382,7 +1382,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-DNS-Client/Operational",
       "availability": "always"
     },
@@ -1473,7 +1473,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-DNS-Client/Operational",
       "availability": "always"
     },
@@ -1564,7 +1564,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-Kernel-Process/Analytic",
       "availability": "always"
     },
@@ -1720,7 +1720,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Hashes",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "computed from the loaded file after admission when a loaded rule selects on it, and seen only by those rules"
     },
@@ -1733,7 +1733,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Imphash",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "computed from the loaded file's import table after admission when a loaded rule selects on it, and seen only by those rules"
     },
@@ -1746,7 +1746,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-PowerShell/Operational",
       "availability": "always"
     },
@@ -1837,7 +1837,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-PowerShell/Operational",
       "availability": "always"
     },
@@ -2459,7 +2459,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-WMI-Activity/Trace",
       "availability": "always"
     },
@@ -2568,7 +2568,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-TaskScheduler",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Microsoft-Windows-TaskScheduler/Operational",
       "availability": "always"
     },
@@ -2659,7 +2659,7 @@
       "provider": "windows_event_log",
       "source": "Service Control Manager",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "System",
       "availability": "always"
     },
@@ -6435,7 +6435,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -6786,7 +6786,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -6981,7 +6981,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -7150,7 +7150,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -7280,7 +7280,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -7462,7 +7462,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -7644,7 +7644,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -7657,7 +7657,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "Provider_Name",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "always"
     },
     {
@@ -7669,7 +7669,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7682,7 +7682,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7695,7 +7695,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7708,7 +7708,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7721,7 +7721,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "ClientProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7734,7 +7734,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Eventlog",
       "field": "ClientProcessStartKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7747,7 +7747,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -7760,7 +7760,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7773,7 +7773,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7786,7 +7786,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7799,7 +7799,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7812,7 +7812,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7825,7 +7825,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7838,7 +7838,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7851,7 +7851,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Status",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7864,7 +7864,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FailureReason",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7877,7 +7877,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubStatus",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7890,7 +7890,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7903,7 +7903,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonProcessName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7916,7 +7916,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AuthenticationPackageName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7929,7 +7929,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "WorkstationName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7942,7 +7942,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TransmittedServices",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7955,7 +7955,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LmPackageName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7968,7 +7968,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "KeyLength",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7981,7 +7981,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -7994,7 +7994,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8007,7 +8007,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8020,7 +8020,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8033,7 +8033,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -8046,7 +8046,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8059,7 +8059,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8072,7 +8072,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8085,7 +8085,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8098,7 +8098,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonGuid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8111,7 +8111,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8124,7 +8124,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8137,7 +8137,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetLogonGuid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8150,7 +8150,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetServerName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8163,7 +8163,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetInfo",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8176,7 +8176,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8189,7 +8189,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8202,7 +8202,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8215,7 +8215,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8228,7 +8228,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -8241,7 +8241,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8254,7 +8254,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8267,7 +8267,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8280,7 +8280,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8293,7 +8293,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8306,7 +8306,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectValueName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8319,7 +8319,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HandleId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8332,7 +8332,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OperationType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8345,7 +8345,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldValueType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8358,7 +8358,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8371,7 +8371,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewValueType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8384,7 +8384,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8397,7 +8397,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8410,7 +8410,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8423,7 +8423,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -8436,7 +8436,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8449,7 +8449,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8462,7 +8462,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8475,7 +8475,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8488,7 +8488,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8501,7 +8501,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskContent",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8514,7 +8514,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessStartKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8527,7 +8527,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8540,7 +8540,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ParentProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8553,7 +8553,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RpcCallClientLocality",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8566,7 +8566,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FQDN",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8579,7 +8579,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -8592,7 +8592,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8605,7 +8605,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8618,7 +8618,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8631,7 +8631,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8644,7 +8644,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8657,7 +8657,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskContent",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8670,7 +8670,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessStartKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8683,7 +8683,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8696,7 +8696,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ParentProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8709,7 +8709,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RpcCallClientLocality",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8722,7 +8722,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FQDN",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8735,7 +8735,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -8748,7 +8748,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8761,7 +8761,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8774,7 +8774,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8787,7 +8787,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8800,7 +8800,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8813,7 +8813,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskContent",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8826,7 +8826,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessStartKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8839,7 +8839,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8852,7 +8852,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ParentProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8865,7 +8865,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RpcCallClientLocality",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8878,7 +8878,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FQDN",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8891,7 +8891,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -8904,7 +8904,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8917,7 +8917,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8930,7 +8930,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8943,7 +8943,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8956,7 +8956,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8969,7 +8969,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskContent",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8982,7 +8982,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessStartKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8995,7 +8995,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9008,7 +9008,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ParentProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9021,7 +9021,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RpcCallClientLocality",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9034,7 +9034,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FQDN",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9047,7 +9047,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -9060,7 +9060,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9073,7 +9073,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9086,7 +9086,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9099,7 +9099,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9112,7 +9112,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9125,7 +9125,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TaskContentNew",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9138,7 +9138,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessStartKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9151,7 +9151,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9164,7 +9164,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ParentProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9177,7 +9177,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RpcCallClientLocality",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9190,7 +9190,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FQDN",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9203,7 +9203,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -9216,7 +9216,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9229,7 +9229,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9242,7 +9242,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9255,7 +9255,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9268,7 +9268,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CategoryId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9281,7 +9281,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubcategoryId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9294,7 +9294,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubcategoryGuid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9307,7 +9307,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AuditPolicyChanges",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9320,7 +9320,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9333,7 +9333,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessStartKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9346,7 +9346,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -9359,7 +9359,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9372,7 +9372,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9385,7 +9385,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9398,7 +9398,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9411,7 +9411,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9424,7 +9424,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9437,7 +9437,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9450,7 +9450,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9463,7 +9463,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SamAccountName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9476,7 +9476,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DisplayName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9489,7 +9489,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserPrincipalName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9502,7 +9502,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomeDirectory",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9515,7 +9515,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomePath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9528,7 +9528,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ScriptPath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9541,7 +9541,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProfilePath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9554,7 +9554,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserWorkstations",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9567,7 +9567,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PasswordLastSet",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9580,7 +9580,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountExpires",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9593,7 +9593,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrimaryGroupId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9606,7 +9606,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AllowedToDelegateTo",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9619,7 +9619,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldUacValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9632,7 +9632,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewUacValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9645,7 +9645,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserAccountControl",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9658,7 +9658,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserParameters",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9671,7 +9671,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SidHistory",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9684,7 +9684,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonHours",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9697,7 +9697,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -9710,7 +9710,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9723,7 +9723,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9736,7 +9736,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9749,7 +9749,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9762,7 +9762,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9775,7 +9775,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9788,7 +9788,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9801,7 +9801,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -9814,7 +9814,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9827,7 +9827,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9840,7 +9840,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9853,7 +9853,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9866,7 +9866,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9879,7 +9879,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9892,7 +9892,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9905,7 +9905,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -9918,7 +9918,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9931,7 +9931,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9944,7 +9944,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9957,7 +9957,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9970,7 +9970,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9983,7 +9983,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -9996,7 +9996,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10009,7 +10009,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10022,7 +10022,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -10035,7 +10035,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10048,7 +10048,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10061,7 +10061,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10074,7 +10074,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10087,7 +10087,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MemberName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10100,7 +10100,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MemberSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10113,7 +10113,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10126,7 +10126,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10139,7 +10139,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10152,7 +10152,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10165,7 +10165,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MembershipExpirationTime",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10178,7 +10178,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -10191,7 +10191,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10204,7 +10204,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10217,7 +10217,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10230,7 +10230,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10243,7 +10243,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MemberName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10256,7 +10256,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MemberSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10269,7 +10269,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10282,7 +10282,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10295,7 +10295,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10308,7 +10308,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10321,7 +10321,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MembershipExpirationTime",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10334,7 +10334,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -10347,7 +10347,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10360,7 +10360,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10373,7 +10373,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10386,7 +10386,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10399,7 +10399,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10412,7 +10412,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10425,7 +10425,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10438,7 +10438,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10451,7 +10451,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SamAccountName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10464,7 +10464,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DisplayName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10477,7 +10477,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserPrincipalName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10490,7 +10490,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomeDirectory",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10503,7 +10503,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomePath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10516,7 +10516,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ScriptPath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10529,7 +10529,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProfilePath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10542,7 +10542,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserWorkstations",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10555,7 +10555,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PasswordLastSet",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10568,7 +10568,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountExpires",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10581,7 +10581,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrimaryGroupId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10594,7 +10594,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AllowedToDelegateTo",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10607,7 +10607,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldUacValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10620,7 +10620,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewUacValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10633,7 +10633,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserAccountControl",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10646,7 +10646,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserParameters",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10659,7 +10659,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SidHistory",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10672,7 +10672,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonHours",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10685,7 +10685,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -10698,7 +10698,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10711,7 +10711,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10724,7 +10724,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10737,7 +10737,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10750,7 +10750,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10763,7 +10763,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10776,7 +10776,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10789,7 +10789,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10802,7 +10802,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SamAccountName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10815,7 +10815,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DisplayName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10828,7 +10828,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserPrincipalName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10841,7 +10841,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomeDirectory",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10854,7 +10854,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomePath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10867,7 +10867,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ScriptPath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10880,7 +10880,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProfilePath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10893,7 +10893,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserWorkstations",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10906,7 +10906,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PasswordLastSet",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10919,7 +10919,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountExpires",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10932,7 +10932,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrimaryGroupId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10945,7 +10945,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AllowedToDelegateTo",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10958,7 +10958,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldUacValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10971,7 +10971,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewUacValue",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10984,7 +10984,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserAccountControl",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -10997,7 +10997,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserParameters",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11010,7 +11010,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SidHistory",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11023,7 +11023,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonHours",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11036,7 +11036,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DnsHostName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11049,7 +11049,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServicePrincipalNames",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11062,7 +11062,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11075,7 +11075,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11088,7 +11088,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11101,7 +11101,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11114,7 +11114,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11127,7 +11127,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11140,7 +11140,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11153,7 +11153,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11166,7 +11166,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11179,7 +11179,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11192,7 +11192,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11205,7 +11205,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11218,7 +11218,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11231,7 +11231,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11244,7 +11244,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MemberName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11257,7 +11257,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MemberSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11270,7 +11270,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11283,7 +11283,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11296,7 +11296,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11309,7 +11309,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11322,7 +11322,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "MembershipExpirationTime",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11335,7 +11335,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11348,7 +11348,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11361,7 +11361,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11374,7 +11374,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11387,7 +11387,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11400,7 +11400,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourceUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11413,7 +11413,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourceSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11426,7 +11426,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11439,7 +11439,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11452,7 +11452,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11465,7 +11465,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11478,7 +11478,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SidList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11491,7 +11491,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11504,7 +11504,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11517,7 +11517,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11530,7 +11530,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11543,7 +11543,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11556,7 +11556,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourceUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11569,7 +11569,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11582,7 +11582,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11595,7 +11595,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11608,7 +11608,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11621,7 +11621,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11634,7 +11634,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11647,7 +11647,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11660,7 +11660,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11673,7 +11673,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TicketOptions",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11686,7 +11686,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Status",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11699,7 +11699,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PreAuthType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11712,7 +11712,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11725,7 +11725,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11738,7 +11738,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CertIssuerName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11751,7 +11751,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CertSerialNumber",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11764,7 +11764,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CertThumbprint",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11777,7 +11777,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11790,7 +11790,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PackageName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11803,7 +11803,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11816,7 +11816,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Workstation",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11829,7 +11829,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Status",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11842,7 +11842,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11855,7 +11855,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11868,7 +11868,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11881,7 +11881,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11894,7 +11894,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11907,7 +11907,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldTargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11920,7 +11920,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewTargetUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11933,7 +11933,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11946,7 +11946,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11959,7 +11959,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11972,7 +11972,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -11985,7 +11985,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11998,7 +11998,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12011,7 +12011,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12024,7 +12024,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12037,7 +12037,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Workstation",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12050,7 +12050,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Status",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12063,7 +12063,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -12076,7 +12076,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12089,7 +12089,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12102,7 +12102,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12115,7 +12115,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12128,7 +12128,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectServer",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12141,7 +12141,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12154,7 +12154,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12167,7 +12167,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldSd",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12180,7 +12180,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewSd",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12193,7 +12193,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -12206,7 +12206,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12219,7 +12219,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Application",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12232,7 +12232,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Direction",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12245,7 +12245,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourceAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12258,7 +12258,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourcePort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12271,7 +12271,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DestAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12284,7 +12284,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DestPort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12297,7 +12297,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Protocol",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12310,7 +12310,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12323,7 +12323,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterOrigin",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12336,7 +12336,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterRTID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12349,7 +12349,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12362,7 +12362,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerRTID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12375,7 +12375,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SublayerInformation",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12388,7 +12388,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterAction",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12401,7 +12401,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -12414,7 +12414,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12427,7 +12427,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12440,7 +12440,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Application",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12453,7 +12453,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Direction",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12466,7 +12466,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourceAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12479,7 +12479,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourcePort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12492,7 +12492,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DestAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12505,7 +12505,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DestPort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12518,7 +12518,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Protocol",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12531,7 +12531,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "InterfaceIndex",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12544,7 +12544,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12557,7 +12557,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterOrigin",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12570,7 +12570,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterRTID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12583,7 +12583,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12596,7 +12596,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerRTID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12609,7 +12609,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SublayerInformation",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12622,7 +12622,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RemoteUserID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12635,7 +12635,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RemoteMachineID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12648,7 +12648,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OriginalProfile",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12661,7 +12661,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CurrentProfile",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12674,7 +12674,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IsLoopback",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12687,7 +12687,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HasRemoteDynamicKeywordAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12700,7 +12700,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterAction",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12713,7 +12713,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -12726,7 +12726,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12739,7 +12739,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12752,7 +12752,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Application",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12765,7 +12765,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Direction",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12778,7 +12778,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourceAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12791,7 +12791,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SourcePort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12804,7 +12804,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DestAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12817,7 +12817,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DestPort",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12830,7 +12830,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Protocol",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12843,7 +12843,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "InterfaceIndex",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12856,7 +12856,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12869,7 +12869,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterOrigin",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12882,7 +12882,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterRTID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12895,7 +12895,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12908,7 +12908,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerRTID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12921,7 +12921,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SublayerInformation",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12934,7 +12934,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RemoteUserID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12947,7 +12947,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RemoteMachineID",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12960,7 +12960,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OriginalProfile",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12973,7 +12973,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CurrentProfile",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12986,7 +12986,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IsLoopback",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12999,7 +12999,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HasRemoteDynamicKeywordAddress",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13012,7 +13012,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterAction",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13025,7 +13025,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -13038,7 +13038,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13051,7 +13051,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13064,7 +13064,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13077,7 +13077,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProviderKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13090,7 +13090,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProviderName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13103,7 +13103,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ChangeType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13116,7 +13116,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13129,7 +13129,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13142,7 +13142,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterType",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13155,7 +13155,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "FilterId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13168,7 +13168,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13181,7 +13181,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13194,7 +13194,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LayerId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13207,7 +13207,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Weight",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13220,7 +13220,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Conditions",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13233,7 +13233,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Action",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13246,7 +13246,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CalloutKey",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13259,7 +13259,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CalloutName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13272,7 +13272,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Channel",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "value": "Security",
       "availability": "always"
     },
@@ -13285,7 +13285,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13298,7 +13298,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13311,7 +13311,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13324,7 +13324,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13337,7 +13337,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DeviceId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13350,7 +13350,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DeviceDescription",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13363,7 +13363,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClassId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13376,7 +13376,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClassName",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13389,7 +13389,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "VendorIds",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13402,7 +13402,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CompatibleIds",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13415,7 +13415,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LocationInformation",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -15573,7 +15573,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "CurrentDirectory",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the live /proc entry and BTF process identity remain available during downstream enrichment"
     },
@@ -15599,7 +15599,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "CgroupPath",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the host mounts cgroup2 and the cgroup still exists when the event is enriched"
     },
@@ -15612,7 +15612,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ContainerId",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the cgroup path names a recognized container layout"
     },
@@ -15625,7 +15625,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "ContainerRuntime",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "ContainerId is present and its cgroup layout names the runtime"
     },
@@ -16268,7 +16268,7 @@
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
       "field": "QueryResults",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the event is a response carrying A, AAAA, or CNAME answers"
     },
@@ -16294,7 +16294,7 @@
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
       "field": "QueryStatus",
-      "since": "1.7.1",
+      "since": "1.8.0",
       "availability": "conditional",
       "reason": "the event is a response; the value is the DNS RCODE"
     },

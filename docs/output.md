@@ -72,22 +72,13 @@ A missing value stays absent; provenance never supplies a value or turns unknown
 | `truncated` | Incomplete because a capture limit cut the value |
 | `stale` | Retained evidence whose freshness is limited |
 
-A field can have multiple entries, such as a truncated image copied from the process cache.
-YARA and hash IOC alerts keep the entries for the image and PID of the process start that queued the scan.
-A dedup rollup keeps every entry seen on a suppressed repeat, for fields the rollup reports.
-Recordings retain these entries; Sigma matching does not expose them as fields or keywords.
-`ImageSource`, `ImageTruncated`, and `PathTruncated` remain available to Sigma with their existing values.
-A Linux short process name is carried as `process.name`, separately from `process.executable`, and does not fill a missing executable path.
+A field can have several entries, such as a truncated image copied from the process cache.
+Recordings keep these entries, but Sigma rules cannot match on them.
 
-### ECS version policy
+### ECS version
 
-Rustinel targets ECS 9.5.0.
-The target advances only after every ECS field Rustinel emits has been checked against that release's schema and release notes.
-A weekly CI check reports when the latest stable ECS release differs from the target.
-
+Rustinel targets ECS 9.5.0, and moves to a newer release only after checking every field it emits against it.
 `host.tags` is not emitted.
-ECS defines it as operator-configured host metadata, and Rustinel has no host metadata or tag configuration.
-Adding that product behavior is separate from tracking the schema version.
 
 ### Event families
 
