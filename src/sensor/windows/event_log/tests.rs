@@ -3,6 +3,125 @@ use crate::sensor::SensorPayload;
 use crate::telemetry::event_log::WINDOWS_EVENT_LOG;
 
 #[test]
+fn timestamps_reject_invalid_and_out_of_range_values() {
+    assert_eq!(parse_system_time("1970-01-01T00:00:00Z"), Some(UNIX_EPOCH));
+    assert_eq!(
+        parse_system_time("1970-01-01T00:00:01.1234567Z"),
+        UNIX_EPOCH.checked_add(Duration::new(1, 123_456_700))
+    );
+    for value in ["invalid", "1969-12-31T23:59:59Z", "+262000-01-01T00:00:00Z"] {
+        assert!(parse_system_time(value).is_none());
+    }
+    // Start with valid records so errors must come from timestamp conversion.
+    for (source, provider, event_id, data) in [
+        (
+            application::source(),
+            "Application Error",
+            1000,
+            "<Data>test.exe</Data>",
+        ),
+        (
+            service::source(),
+            "Service Control Manager",
+            7045,
+            "<Data Name='ServiceName'>test</Data><Data Name='ImagePath'>test.exe</Data>",
+        ),
+        (
+            powershell_classic::source(),
+            "PowerShell",
+            400,
+            "<Data>Available</Data><Data>None</Data><Data>HostApplication=test</Data>",
+        ),
+        (
+            security::source(false),
+            "Microsoft-Windows-Security-Auditing",
+            4624,
+            "<Data Name='TargetUserName'>test</Data>",
+        ),
+        (
+            defender::source(),
+            "Microsoft-Windows-Windows Defender",
+            5007,
+            "<Data Name='New Value'>test</Data>",
+        ),
+    ] {
+        let xml = format!(
+            "<Event><System><Provider Name='{provider}'/><EventID>{event_id}</EventID><Level>2</Level><Channel>{}</Channel><TimeCreated SystemTime='1970-01-01T00:00:00Z'/><EventRecordID>1</EventRecordID></System><EventData>{data}</EventData></Event>",
+            source.channel
+        );
+        assert!((source.decoder)(&xml).is_ok(), "{} fixture", source.channel);
+        for timestamp in ["invalid", "1969-12-31T23:59:59Z", "+262000-01-01T00:00:00Z"] {
+            let invalid = xml.replace("1970-01-01T00:00:00Z", timestamp);
+            let error = (source.decoder)(&invalid).unwrap_err();
+            assert!(
+                error.to_string().contains("timestamp"),
+                "{}: {error}",
+                source.channel
+            );
+        }
+    }
+}
+
+#[test]
+fn callback_panic_fails_source_and_ignores_later_deliveries() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let source = EventLogSource::new(
+        "test",
+        "callback-panic-test",
+        "*",
+        service::source().decoder,
+    );
+    let context = CallbackContext {
+        source,
+        tx,
+        state: Mutex::new(CallbackState {
+            bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
+            pending: None,
+            failure: None,
+            decode_warnings: LogRateLimiter::new(DECODE_WARNING_WINDOW),
+        }),
+    };
+    update(source.channel, |health| health.active = true);
+    guard_callback(&context, |_| panic!("injected conversion panic"));
+    assert!(context.state.is_poisoned());
+    assert_eq!(
+        context
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .failure
+            .as_deref(),
+        Some("Event Log callback panicked")
+    );
+    // A failed source must ignore this handle before attempting to render it.
+    unsafe {
+        assert_eq!(
+            subscription_callback(
+                EvtSubscribeActionDeliver,
+                (&context as *const CallbackContext).cast(),
+                EVT_HANDLE(0)
+            ),
+            0
+        );
+    }
+    assert!(rx.try_recv().is_err());
+    let health = WINDOWS_EVENT_LOG
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|health| health.channel == source.channel)
+        .unwrap()
+        .clone();
+    assert!(!health.active);
+    assert_eq!(health.subscription_errors, 1);
+    assert_eq!(health.decode_errors, 0);
+    assert_eq!(
+        health.last_error.as_deref(),
+        Some("Event Log callback panicked")
+    );
+}
+
+#[test]
 fn retention_only_counts_unavailable_records_after_checkpoint() {
     assert!(!retention_wrapped(100, 100));
     assert!(!retention_wrapped(100, 101));

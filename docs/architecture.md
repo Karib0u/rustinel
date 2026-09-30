@@ -127,3 +127,32 @@ The loader refuses an object whose event ABI does not match.
 `EsfSensor` subscribes to Endpoint Security exec, exit, and file events.
 `BpfSensor` opens one `/dev/bpf` device per active interface and attributes flows to processes through a periodically refreshed socket list.
 Endpoint Security is required; packet capture is best effort.
+
+## Callback panic audit
+
+The callback policy is in [Sensor callback failures](operations.md#sensor-callback-failures).
+The two application-owned `catch_unwind` guards serve unwinding development and test builds; release aborts bypass them.
+ETW uses ferrisetw's native guard, which calls `exit(1)` on an unwinding panic, for manifest, classic-process, and file-rundown callbacks.
+
+| Path reachable from callbacks | Disposition |
+| --- | --- |
+| ESF `Message::time()` | Replaced with `raw_time()` and checked timestamp conversion; negative seconds, invalid nanoseconds, or an unrepresentable time drop the event through `Option` |
+| ESF `Process::start_time()` binding arithmetic | Retained: the kernel supplies a nonnegative `timeval` with microseconds below one million, its duration arithmetic fits, and the binding checks `SystemTime` addition; event arguments and paths cannot change these fields |
+| ESF sequence, identity, and collector mutex `unwrap`/`expect` | Recover poisoned locks for derived state, including the telemetry snapshot reader, so a caught panic does not cause repeated poison panics; an absent collector snapshot is initialized |
+| ESF sequence counters | Saturating additions prevent counter overflow; `sequence_gap` subtracts only when the new sequence exceeds the previous one |
+| ESF identity map ranges and file normalization `expect` | Retained: ranges always use one PID with ordered generation bounds; the four closed `FileAction` variants map to the static normalization table and have unit coverage |
+| All five Event Log XML timestamp decoders | Share checked `SystemTime` addition; malformed, pre-epoch, or unrepresentable timestamps return decoder errors and take the recoverable `decode_errors` path |
+| Application XML `values[index]` | Removed: named fields read the current XML node directly; positional fields use `get` |
+| Event Log XML rendering and mutexes | Buffer sizes use `u32::div_ceil`; the UTF-16 slice ends at a position found within that buffer; decode/render errors are returned and locks recover poisoning; native context and handle validity belong to the subscription lifecycle |
+| Event Log health counter additions and telemetry indexes | Retained: overflow requires more than `u64::MAX` callback incidents, independently of record IDs or XML; the channel index is found or inserted under the same lock |
+| ETW routing `unreachable!` arms | Retained: categories come from the static provider table; process and PowerShell routes return early, file/registry have dedicated paths, and Event Log categories have no ETW providers |
+| ETW process-correlation indexing, deque `unwrap`, and count subtraction | Retained: indexes are checked against length or obtained by enumeration, front/remove operations occur under exclusive access, and each pending entry increments the count once before removal |
+| ETW process Windows metadata `expect` | Retained: the manifest decoder constructs `RawProcessPlatform::Windows`; native content cannot select another platform variant |
+| ETW timestamp arithmetic and time-difference `unwrap` | Retained: an `i64` FILETIME clamped at the Unix epoch fits Windows' `u64` FILETIME range; one of the two ordered time differences succeeds; extreme FILETIMEs have unit coverage |
+| ETW WBEM SID slices and registry value byte decoding | Retained: SID header, subauthority count, and total length are checked before slicing; registry values use checked byte slices and reject truncated data |
+| ETW path/correlation mutexes | Recover poisoned locks rather than panic; caches are bounded, and count/path-byte arithmetic uses stored entry sizes, not unchecked native lengths |
+| Shared file identity, path normalization, warning limiter, and queue telemetry | Retained: stat timestamp arithmetic widens `i64` to `i128`; NT path slicing follows a matching UTF-8 prefix; poisoned drive-map locks return missing mappings; warning counts saturate; queue category indexes come from an exhaustive static match |
+| Binding property parsing and FFI | The used ferrisetw integer/IP parsers check slice lengths, strings use complete UTF-16 chunks, and property extraction checks remaining payload bounds; its GUID parser's unchecked fixed slices are not called; Endpoint Security accessors rely on live kernel messages and version-gated fields |
+
+Allocation failure and invalid native pointers are outside decoder error recovery.
+Keep new event-derived lengths, timestamps, and enum values on checked error or `Option` paths rather than adding panic sites.

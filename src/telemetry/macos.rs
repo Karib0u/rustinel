@@ -44,7 +44,7 @@ pub(crate) static MACOS_COLLECTORS: LazyLock<Mutex<MacosCollectorSnapshot>> =
     LazyLock::new(|| Mutex::new(MacosCollectorSnapshot::default()));
 
 pub(super) fn snapshot() -> Option<MacosCollectorSnapshot> {
-    let counters = MACOS_COLLECTORS.lock().unwrap();
+    let counters = MACOS_COLLECTORS.lock().unwrap_or_else(|e| e.into_inner());
     (counters.esf.is_some() || counters.bpf.is_some()).then(|| counters.clone())
 }
 
@@ -66,13 +66,16 @@ impl EsfSequences {
         sequence: Option<u64>,
         global: Option<u64>,
     ) {
-        counters.received += 1;
-        counters.kernel_dropped += sequence_gap(&mut self.global, global);
+        counters.received = counters.received.saturating_add(1);
+        counters.kernel_dropped = counters
+            .kernel_dropped
+            .saturating_add(sequence_gap(&mut self.global, global));
         let previous = self.event_types.entry(event_type.clone()).or_default();
-        *counters
+        let dropped = counters
             .kernel_dropped_by_event_type
             .entry(event_type)
-            .or_default() += sequence_gap(previous, sequence);
+            .or_default();
+        *dropped = dropped.saturating_add(sequence_gap(previous, sequence));
     }
 }
 
@@ -130,6 +133,22 @@ impl BpfStatsTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sequence_gaps_saturate_instead_of_panicking_on_large_values() {
+        let mut tracker = EsfSequences::default();
+        let mut counters = EsfSnapshot {
+            received: u64::MAX,
+            kernel_dropped: u64::MAX - 1,
+            kernel_dropped_by_event_type: BTreeMap::from([("exec".into(), u64::MAX - 1)]),
+        };
+        tracker.observe(&mut counters, "exec".into(), Some(0), Some(0));
+        tracker.observe(&mut counters, "exec".into(), Some(u64::MAX), Some(u64::MAX));
+        tracker.observe(&mut counters, "exec".into(), Some(u64::MAX), Some(u64::MAX));
+        assert_eq!(counters.received, u64::MAX);
+        assert_eq!(counters.kernel_dropped, u64::MAX);
+        assert_eq!(counters.kernel_dropped_by_event_type["exec"], u64::MAX);
+    }
 
     #[test]
     fn sequence_gaps_are_separate_and_ignore_missing_or_old_values() {

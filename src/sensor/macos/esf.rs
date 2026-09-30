@@ -2,8 +2,8 @@
 //!
 //! [`EsfSensor`] implements [`Sensor`] for macOS using Apple's Endpoint
 //! Security framework via the `endpoint-sec` crate. On `start()` it spawns a
-//! dedicated thread that owns the ES client — the client must be created and
-//! released on the same thread — subscribes to process events, and translates
+//! dedicated thread that owns the ES client, the client must be created and
+//! released on the same thread, subscribes to process events, and translates
 //! each message into a [`SensorEvent`] for the shared pipeline.
 //!
 //! Endpoint Security delivers messages on its own dispatch queue, so the
@@ -120,8 +120,8 @@ impl Sensor for EsfSensor {
 
 /// Translate an `es_new_client` failure into an actionable message.
 ///
-/// These failures are almost always environmental — missing TCC approval, not
-/// root, or an unsigned binary — rather than bugs, so we point at the concrete
+/// These failures are almost always environmental, missing TCC approval, not
+/// root, or an unsigned binary, rather than bugs, so we point at the concrete
 /// step that unblocks each one instead of surfacing a bare result code.
 fn new_client_error_hint(err: &NewClientError) -> String {
     let remedy = match err {
@@ -152,7 +152,7 @@ fn new_client_error_hint(err: &NewClientError) -> String {
 /// for an interactive `sudo ./rustinel run` we open the right pane for them.
 /// Started with sudo the process is root, which has no GUI session, so we reopen
 /// in the invoking user's session via `launchctl asuser`. A LaunchDaemon has no
-/// controlling terminal and is skipped; any failure is ignored — this is a
+/// controlling terminal and is skipped; any failure is ignored, this is a
 /// convenience, not a step the pipeline depends on.
 fn try_open_full_disk_access_settings() {
     if !std::io::stderr().is_terminal() {
@@ -179,24 +179,28 @@ fn run_client(
     shutdown: Arc<AtomicBool>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
 ) {
+    // These derived caches remain valid after unwinding. Recover poisoned
+    // locks so a dropped event does not disable every later delivery.
     let identities = Mutex::new(ExecIdentities::default());
     let sequences = Mutex::new(crate::telemetry::macos::EsfSequences::default());
+    // Development and tests unwind: catch conversion panics before the native
+    // callback boundary and drop this event. Release uses panic = "abort", so
+    // the process terminates and the service manager must restart it.
     let handler =
         move |_client: &mut Client<'_>, msg: Message| match catch_unwind(AssertUnwindSafe(|| {
-            sequences.lock().unwrap().observe(
+            sequences.lock().unwrap_or_else(|e| e.into_inner()).observe(
                 crate::telemetry::macos::MACOS_COLLECTORS
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|e| e.into_inner())
                     .esf
-                    .as_mut()
-                    .unwrap(),
+                    .get_or_insert_with(Default::default),
                 format!("{:?}", msg.event_type()),
                 msg.seq_num(),
                 msg.global_seq_num(),
             );
             build_sensor_event(
                 &msg,
-                &mut identities.lock().expect("ESF identity mutex poisoned"),
+                &mut identities.lock().unwrap_or_else(|e| e.into_inner()),
             )
         })) {
             Ok(Some(event)) => try_send(&tx, event),
@@ -222,13 +226,13 @@ fn run_client(
 
     crate::telemetry::macos::MACOS_COLLECTORS
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .esf = Some(Default::default());
 
     if let Err(e) = client.subscribe(SUBSCRIPTIONS) {
         crate::telemetry::macos::MACOS_COLLECTORS
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .esf = None;
         let _ = ready_tx.send(Err(format!("es_subscribe failed: {e:?}")));
         return;
@@ -369,7 +373,7 @@ fn build_exec_event(
         .map(|cwd| osstr_to_string(cwd.path()))
         .filter(|value| !value.is_empty());
 
-    let event_time = msg.time();
+    let event_time = event_time(msg.raw_time())?;
     let start_time = target
         .start_time()
         .map(system_time_nanos)
@@ -491,7 +495,7 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
         token.pid() as u32,
         token.euid(),
         process.start_time().map(system_time_nanos),
-        msg.time(),
+        event_time(msg.raw_time())?,
         msg.global_seq_num(),
     ))
 }
@@ -610,7 +614,7 @@ fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent
         user,
         target,
         source: None,
-        event_time: msg.time(),
+        event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
     })
@@ -626,7 +630,7 @@ fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent
         user,
         target,
         source: None,
-        event_time: msg.time(),
+        event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
     })
@@ -643,7 +647,7 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent
         user,
         target,
         source: (!source.is_empty()).then_some(source),
-        event_time: msg.time(),
+        event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
     })
@@ -666,7 +670,7 @@ fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
         user,
         target,
         source: None,
-        event_time: msg.time(),
+        event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
     })
@@ -746,6 +750,16 @@ fn osstr_to_string(value: &OsStr) -> String {
     value.to_string_lossy().into_owned()
 }
 
+// Read the raw timestamp because Message::time uses unchecked SystemTime addition.
+fn event_time(time: endpoint_sec_sys::timespec) -> Option<SystemTime> {
+    let seconds = u64::try_from(time.tv_sec).ok()?;
+    let nanos = u32::try_from(time.tv_nsec).ok()?;
+    if nanos >= 1_000_000_000 {
+        return None;
+    }
+    SystemTime::UNIX_EPOCH.checked_add(Duration::new(seconds, nanos))
+}
+
 fn system_time_nanos(time: SystemTime) -> u64 {
     time.duration_since(SystemTime::UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
@@ -755,7 +769,7 @@ fn system_time_nanos(time: SystemTime) -> u64 {
 /// Queue a decoded event, accounting for a drop rather than blocking.
 ///
 /// The ESF message handler runs on the client's own queue and must return
-/// promptly, so overflow is shed and counted — see [`crate::telemetry`].
+/// promptly, so overflow is shed and counted, see [`crate::telemetry`].
 fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
     let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
@@ -765,10 +779,30 @@ mod tests {
     use super::*;
 
     /// The expected numbering for `action`, read from the shared table rather
-    /// than from a macOS-local constant — asserting against a sensor's own
+    /// than from a macOS-local constant, asserting against a sensor's own
     /// constant is what let the platforms drift apart in the first place.
     fn shared(action: SensorAction) -> SensorNormalization {
         SensorNormalization::for_file_action(action).expect("file action is in the shared table")
+    }
+
+    #[test]
+    fn event_timestamp_checks_components_and_extreme_values() {
+        let raw = |seconds, nanos| endpoint_sec_sys::timespec {
+            tv_sec: seconds,
+            tv_nsec: nanos,
+        };
+        assert_eq!(event_time(raw(0, 0)), Some(SystemTime::UNIX_EPOCH));
+        assert_eq!(
+            event_time(raw(i64::MAX, 0)),
+            SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(i64::MAX as u64))
+        );
+        assert_eq!(
+            event_time(raw(1, 999_999_999)),
+            SystemTime::UNIX_EPOCH.checked_add(Duration::new(1, 999_999_999))
+        );
+        for time in [raw(-1, 0), raw(0, -1), raw(0, 1_000_000_000)] {
+            assert!(event_time(time).is_none());
+        }
     }
 
     #[test]

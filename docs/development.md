@@ -35,6 +35,9 @@ Run the agent with the privileges it needs:
 On macOS, live Endpoint Security events also need a signed bundle, see [macOS](#macos).
 Building and testing do not.
 
+The release profile sets `panic = "abort"`; development builds and tests unwind, including `cargo test --release`.
+See [Sensor callback failures](operations.md#sensor-callback-failures) for the operator-visible behavior and [Callback panic audit](architecture.md#callback-panic-audit) for the code invariants.
+
 ## Linux eBPF object
 
 A Linux build embeds `ebpf/rustinel-ebpf.o` when it exists, and compiles it with nightly otherwise.

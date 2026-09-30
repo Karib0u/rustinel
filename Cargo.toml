@@ -17,6 +17,8 @@ resolver = "2"
 warnings = "deny"
 
 [profile.release]
+# Unexpected panics terminate the agent for service-manager recovery.
+# Callback guards still serve unwinding development and test builds.
 panic = "abort"
 
 [dependencies]
