@@ -150,7 +150,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "scanner.yara_memory_include_private",
         default_note: None,
-        description: "Scan private (anonymous) memory.",
+        description: "Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded.",
     },
     ConfigOption {
         key: "scanner.yara_memory_include_image",

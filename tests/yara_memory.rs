@@ -121,7 +121,10 @@ fn scan_bytes_wide_string_variant() {
 }
 
 #[test]
-#[ignore = "requires admin on Windows (ReadProcessMemory needs PROCESS_VM_READ)"]
+#[cfg_attr(
+    windows,
+    ignore = "requires admin on Windows (ReadProcessMemory needs PROCESS_VM_READ)"
+)]
 fn read_own_process_memory_returns_chunks() {
     let cfg = MemoryScanConfig {
         max_process_bytes: 16 * 1024 * 1024,
@@ -141,7 +144,10 @@ fn read_own_process_memory_returns_chunks() {
 }
 
 #[test]
-#[ignore = "requires admin on Windows (ReadProcessMemory needs PROCESS_VM_READ)"]
+#[cfg_attr(
+    windows,
+    ignore = "requires admin on Windows (ReadProcessMemory needs PROCESS_VM_READ)"
+)]
 fn memory_scan_finds_marker_in_own_process() {
     let marker: Vec<u8> = TEST_YARA_MARKER.as_bytes().to_vec();
     std::hint::black_box(&marker);
