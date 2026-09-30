@@ -77,6 +77,9 @@ pub struct YaraMatchDetails {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YaraRuleMatch {
     pub rule: String,
+    /// Scan-time severity; the alert carries the serialized severity.
+    #[serde(skip, default = "default_yara_severity")]
+    pub severity: super::AlertSeverity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_id: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -85,6 +88,10 @@ pub struct YaraRuleMatch {
     pub namespace: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub strings: Vec<YaraStringMatch>,
+}
+
+fn default_yara_severity() -> super::AlertSeverity {
+    super::AlertSeverity::High
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

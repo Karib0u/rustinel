@@ -80,6 +80,7 @@ fn yara_scan_source_is_stable_across_debug_modes_and_scan_paths() {
     let sink = AlertSink::new(writer);
     let rule_match = YaraRuleMatch {
         rule: "TestRule".to_string(),
+        severity: AlertSeverity::Low,
         metadata_id: Some("test-id".to_string()),
         tags: vec!["test".to_string()],
         namespace: Some("default".to_string()),
@@ -108,8 +109,7 @@ fn yara_scan_source_is_stable_across_debug_modes_and_scan_paths() {
         MatchDebugLevel::Full,
     ] {
         let file_alert = build_yara_alert(
-            &rule_match.rule,
-            rule_match.metadata_id.clone(),
+            &rule_match,
             "/usr/bin/test-target",
             TEST_PID,
             &Default::default(),
@@ -120,8 +120,7 @@ fn yara_scan_source_is_stable_across_debug_modes_and_scan_paths() {
         sink.write_yara_alert(&file_alert, YaraScanSource::File);
 
         let memory_alert = build_yara_memory_alert(
-            &rule_match.rule,
-            rule_match.metadata_id.clone(),
+            &rule_match,
             "/usr/bin/test-target",
             TEST_PID,
             &Default::default(),
@@ -150,6 +149,8 @@ fn yara_scan_source_is_stable_across_debug_modes_and_scan_paths() {
         };
         assert_ecs_field_eq(line, "edr.yara.scan_source", expected_source);
         assert_ecs_field_eq(line, "event.provider", "ebpf");
+        assert_ecs_field_eq(line, "event.severity", 25);
+        assert_ecs_field_eq(line, "rule.id", "yara::test-id");
         if index < 2 {
             assert!(
                 line.get("edr.match").is_none(),

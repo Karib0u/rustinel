@@ -14,8 +14,8 @@ use tracing::{debug, info, warn};
 use yara_x::{Compiler, Rules, Scanner as XScanner};
 
 use crate::models::{
-    CanonicalEvent, EventFields, MatchDebugLevel, ProcessCreationFields, Provenance, YaraRuleMatch,
-    YaraStringMatch,
+    AlertSeverity, CanonicalEvent, EventFields, MatchDebugLevel, ProcessCreationFields, Provenance,
+    YaraRuleMatch, YaraStringMatch,
 };
 use crate::sensor::{CanonicalEventHandler, SensorAction};
 use crate::utils::cache::trim_to_headroom;
@@ -533,16 +533,27 @@ fn collect_yara_matches(
         }
 
         let mut metadata_id = None;
+        let mut severity = None;
+        let mut level = None;
+        let mut score = None;
         for (identifier, value) in rule.metadata() {
-            if identifier == "id" {
-                if let yara_x::MetaValue::String(s) = value {
+            match (identifier, value) {
+                ("id", yara_x::MetaValue::String(s)) => {
                     metadata_id = Some(s.to_string());
                 }
+                ("severity", yara_x::MetaValue::String(s)) => severity = yara_severity(s),
+                ("level", yara_x::MetaValue::String(s)) => level = yara_severity(s),
+                ("score", yara_x::MetaValue::Integer(n)) => score = yara_score_severity(n),
+                ("score", yara_x::MetaValue::String(s)) => {
+                    score = s.trim().parse().ok().and_then(yara_score_severity);
+                }
+                _ => {}
             }
         }
 
         matches.push(YaraRuleMatch {
             rule: rule_name,
+            severity: severity.or(level).or(score).unwrap_or(AlertSeverity::High),
             metadata_id,
             tags,
             namespace,
@@ -551,6 +562,28 @@ fn collect_yara_matches(
     }
 
     matches
+}
+
+fn yara_severity(value: &str) -> Option<AlertSeverity> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "informational" | "info" => Some(AlertSeverity::Informational),
+        "low" => Some(AlertSeverity::Low),
+        "medium" => Some(AlertSeverity::Medium),
+        "high" => Some(AlertSeverity::High),
+        "critical" => Some(AlertSeverity::Critical),
+        _ => None,
+    }
+}
+
+fn yara_score_severity(score: i64) -> Option<AlertSeverity> {
+    match score {
+        0 => Some(AlertSeverity::Informational),
+        1..=39 => Some(AlertSeverity::Low),
+        40..=59 => Some(AlertSeverity::Medium),
+        60..=79 => Some(AlertSeverity::High),
+        80..=100 => Some(AlertSeverity::Critical),
+        _ => None,
+    }
 }
 
 /// Queues canonical process starts for YARA memory scanning.
@@ -855,6 +888,7 @@ mod tests {
         };
         let expected = vec![YaraRuleMatch {
             rule: "TestRule".to_string(),
+            severity: AlertSeverity::High,
             metadata_id: None,
             tags: Vec::new(),
             namespace: None,
@@ -940,6 +974,7 @@ mod tests {
             .scan_file_cached(path.to_str().unwrap(), MatchDebugLevel::Off, |_| {
                 Ok(vec![YaraRuleMatch {
                     rule: "Malicious".to_string(),
+                    severity: AlertSeverity::High,
                     metadata_id: None,
                     tags: Vec::new(),
                     namespace: None,

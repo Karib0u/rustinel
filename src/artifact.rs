@@ -1728,8 +1728,7 @@ impl ArtifactResolver {
                     rule_match,
                 );
                 let mut alert = crate::runtime::yara::build_yara_alert(
-                    &rule_match.rule,
-                    rule_match.metadata_id.clone(),
+                    rule_match,
                     &job.target.display_path,
                     job.target.pid,
                     &job.provenance,

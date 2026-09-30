@@ -100,10 +100,24 @@ The alert still shows the command line as it was run, and Sigma never sees the j
 | Engine | Alert severity |
 | --- | --- |
 | Sigma | The rule's `level`: `informational`, `low`, `medium`, `high`, or `critical`. A missing or invalid level becomes `low`, and `rustinel doctor` reports the invalid one under `sigma_rules_parse` |
-| YARA | Always `critical` |
+| YARA | First valid metadata value from `severity`, `level`, then `score`; defaults to `high` |
 | IOC | `ioc.default_severity` |
 
 Informational alerts are written but never trigger [active response](active-response.md).
+
+YARA `severity` and `level` accept `informational` (or `info`), `low`, `medium`, `high`, and `critical`, ignoring case and surrounding whitespace.
+Unknown values and unsupported types are skipped, so a valid lower-priority key can still apply.
+`score` accepts an integer or an integer string from 0 to 100:
+
+| YARA score | Alert severity |
+| --- | --- |
+| 0 | `informational` |
+| 1 to 39 | `low` |
+| 40 to 59 | `medium` |
+| 60 to 79 | `high` |
+| 80 to 100 | `critical` |
+
+Severity applies to file and process-memory scans, including when match debugging is off.
 
 ## Sigma metadata in alerts
 
