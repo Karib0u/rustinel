@@ -87,7 +87,7 @@ See [macOS permissions](macos-permissions.md#start-up-errors).
   Missing identities are counted under `artifact_resolver.identity_unavailable`.
 - The path is under a trusted prefix (`scanner.yara_allowlist_paths`).
 - The file is larger than `scanner.yara_max_file_mb`, or the scan hit `scanner.yara_scan_timeout_ms`.
-- The shared artifact queue was full: `rustinel doctor` reports `artifact_resolution` drops and an `artifact_resolver` queue-saturation outcome.
+- An artifact queue was full: `rustinel doctor` reports `artifact_resolution` or `artifact_written_files` drops and per-kind dropped jobs under `artifact_resolver`.
 
 For memory scans, check that the process did not exit before `yara_memory_delay_ms`.
 Scanning ordinary processes also requires `scanner.yara_memory_enabled`; Linux memfd executions are queued whenever YARA is enabled.
