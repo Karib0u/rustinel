@@ -5,6 +5,28 @@ use sha2::Sha256;
 
 use super::path::normalize_path_for_comparison;
 
+/// Linux executable names that must be resolved in the subject's process context.
+/// Use its executable link rather than its fd table: close-on-exec descriptors
+/// can already be gone when background scanning starts.
+pub(crate) fn linux_exec_uses_proc(image: &str) -> bool {
+    if is_memfd_image(image)
+        || image.starts_with("/proc/self/fd/")
+        || image.starts_with("/proc/thread-self/fd/")
+        || image.starts_with("/dev/fd/")
+        || matches!(image, "/proc/self/exe" | "/proc/thread-self/exe")
+    {
+        return true;
+    }
+    let Some((pid, rest)) = image.strip_prefix("/proc/").and_then(|p| p.split_once('/')) else {
+        return false;
+    };
+    pid.parse::<u32>().is_ok() && (rest.starts_with("fd/") || rest == "exe")
+}
+
+pub(crate) fn is_memfd_image(image: &str) -> bool {
+    image.starts_with("/memfd:") || image.starts_with("memfd:")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessIdentity {
     pub pid: u32,

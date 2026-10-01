@@ -75,6 +75,7 @@ async fn yara_memory_handler_queues_only_process_starts() {
     let (memory_tx, mut memory_rx) = mpsc::channel(8);
     let handler = YaraMemoryEventHandler {
         tx: memory_tx,
+        scan_all_processes: true,
         allowlist_paths: Vec::new(),
     };
 
@@ -136,6 +137,7 @@ async fn yara_memory_handler_respects_allowlisted_paths() {
     let (memory_tx, mut memory_rx) = mpsc::channel(8);
     let handler = YaraMemoryEventHandler {
         tx: memory_tx,
+        scan_all_processes: true,
         allowlist_paths: Vec::new(),
     };
     let host_state = TestNormalizer::new().host_state;
@@ -148,6 +150,7 @@ async fn yara_memory_handler_respects_allowlisted_paths() {
     let (allow_memory_tx, mut allow_memory_rx) = mpsc::channel(8);
     let allowlisted = YaraMemoryEventHandler {
         tx: allow_memory_tx,
+        scan_all_processes: true,
         allowlist_paths: normalize_allowlist_paths(&["/usr/bin".to_string()]),
     };
     allowlisted.handle_event(&start);
@@ -158,4 +161,42 @@ async fn yara_memory_handler_respects_allowlisted_paths() {
         .expect("network canonicalizes");
     allowlisted.handle_event(&network);
     assert!(allow_memory_rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn targeted_memory_scanning_selects_linux_memfd_execs_and_respects_allowlists() {
+    use rustinel::sensor::{CanonicalEventHandler, SensorPayload};
+    let (tx, mut rx) = mpsc::channel(4);
+    let mut handler = YaraMemoryEventHandler {
+        tx,
+        allowlist_paths: Vec::new(),
+        scan_all_processes: false,
+    };
+    let mut start = process_start_event(Platform::Linux);
+    let SensorPayload::Process(fields) = &mut start.payload else {
+        unreachable!()
+    };
+    fields.image = Some("/memfd:trusted/payload (deleted)".to_string());
+    let host_state = TestNormalizer::new().host_state;
+    let event = host_state.canonicalize(start).expect("start canonicalizes");
+    handler.handle_event(&event);
+    let job = rx.try_recv().expect("memfd exec queues a targeted scan");
+    assert!(job.memfd_backed);
+    assert_eq!(job.expected_identity.image, "/memfd:trusted/payload");
+
+    handler.allowlist_paths = normalize_allowlist_paths(&["/memfd:trusted".to_string()]);
+    handler.handle_event(&event);
+    assert!(rx.try_recv().is_err());
+    handler.allowlist_paths.clear();
+    let ordinary = host_state
+        .canonicalize(process_start_event(Platform::Linux))
+        .expect("ordinary start canonicalizes");
+    handler.handle_event(&ordinary);
+    assert!(rx.try_recv().is_err());
+    let mut other_platform = event.into_normalized();
+    other_platform.platform = Platform::MacOS;
+    handler.handle_event(&rustinel::models::CanonicalEvent::from_normalized(
+        other_platform,
+    ));
+    assert!(rx.try_recv().is_err());
 }

@@ -125,7 +125,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "scanner.yara_memory_enabled",
         default_note: None,
-        description: "Also scan the memory of new processes. Needs `yara_enabled`.",
+        description: "Scan the memory of all new processes. Needs `yara_enabled`. Linux memfd executions are memory scanned even when this is disabled.",
     },
     ConfigOption {
         key: "scanner.yara_memory_queue_capacity",
@@ -155,7 +155,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "scanner.yara_memory_include_image",
         default_note: None,
-        description: "Scan memory backed by executables and libraries.",
+        description: "Scan memory backed by executables and libraries. Linux memfd executions include memfd image mappings even when this is disabled.",
     },
     ConfigOption {
         key: "scanner.yara_memory_include_mapped",

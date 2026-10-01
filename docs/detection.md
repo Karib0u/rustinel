@@ -7,7 +7,7 @@ Rustinel runs three engines over the same events.
 | Sigma | Every event | Inline, except rules on `Hashes` or `Imphash`, see [Deferred pass](#deferred-pass) | The best match per event, or every match in `all` mode, plus correlations |
 | IOC (IP, domain, path) | Every event | Inline | One per matching indicator |
 | IOC (hash) | Executables of new processes, and qualifying written files | Background | One per matching hash |
-| YARA | Executables of new processes, qualifying written files, and optionally process memory | Background | One per matching rule |
+| YARA | Executables of new processes, qualifying written files, Linux memfd memory, and optionally other process memory | Background | One per matching rule |
 
 Background checks never delay Sigma.
 When one cannot run in time, it is skipped and counted under `artifact_resolver` in `rustinel doctor`.
@@ -61,8 +61,9 @@ YARA scans the executable of every new process and qualifying files written to d
 A written file is scanned 250 ms after the write when it is non-empty and has a supported executable, script, archive, or document extension or file signature.
 Results are cached per file, so unchanged content is scanned once, and a rule reload invalidates the cache.
 
-Memory scanning is off by default (`scanner.yara_memory_enabled`).
-When on, Rustinel waits `yara_memory_delay_ms` after a process starts, then scans its private memory.
+Scanning the memory of all new processes is off by default (`scanner.yara_memory_enabled`).
+Linux memfd executions always queue a memory scan when YARA is enabled, including their memfd image mappings.
+Rustinel waits `yara_memory_delay_ms` after a process starts before scanning memory.
 Every YARA alert carries `edr.yara.scan_source`: `file` or `process_memory`.
 
 ## IOC

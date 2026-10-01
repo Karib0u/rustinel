@@ -51,6 +51,7 @@ fn classify_region(path: Option<&str>) -> MemoryRegionKind {
     match path {
         None | Some("" | "[heap]" | "[stack]") => MemoryRegionKind::Private,
         Some(p) if p.starts_with('[') => MemoryRegionKind::Other,
+        Some(p) if crate::utils::process::is_memfd_image(p) => MemoryRegionKind::Image,
         Some(_) => MemoryRegionKind::Mapped,
     }
 }
@@ -189,6 +190,18 @@ mod tests {
         assert_eq!(
             entry.path.as_deref(),
             Some("/tmp/program with spaces (deleted)")
+        );
+    }
+
+    #[test]
+    fn memfd_mappings_are_images_without_including_ordinary_mapped_files() {
+        assert_eq!(
+            classify_region(Some("/memfd:payload (deleted)")),
+            MemoryRegionKind::Image
+        );
+        assert_eq!(
+            classify_region(Some("/tmp/payload")),
+            MemoryRegionKind::Mapped
         );
     }
 

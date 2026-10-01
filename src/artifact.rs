@@ -900,6 +900,8 @@ pub(crate) struct ArtifactTarget {
     display_path: String,
     pid: u32,
     pub expected: Option<ExpectedIdentity>,
+    /// Lifetime and executable measured before queueing a process-relative image.
+    process_identity: Option<crate::utils::ProcessIdentity>,
 }
 
 impl ArtifactTarget {
@@ -935,12 +937,42 @@ impl ArtifactTarget {
             _ => return None,
         };
         let display_path = display_path.filter(|path| !path.is_empty())?;
+        let pid = event.pid.unwrap_or(0);
+        let mut path = normalize_path(event.normalized().platform, &display_path);
+        #[allow(unused_mut)] // Linux captures the live executable identity below.
+        let mut expected = expected;
+        let mut process_identity = None;
+        if kind == ArtifactKind::ProcessImage
+            && event.normalized().platform == Platform::Linux
+            && crate::utils::process::linux_exec_uses_proc(&display_path)
+        {
+            if pid == 0 {
+                return None;
+            }
+            path = PathBuf::from(format!("/proc/{pid}/exe"));
+            let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
+                unreachable!();
+            };
+            process_identity = Some(scanner::capture_process_identity(
+                event,
+                fields,
+                pid,
+                &display_path,
+            ));
+            #[cfg(target_os = "linux")]
+            if expected.is_none() {
+                expected = std::fs::metadata(&path).ok().map(|metadata| {
+                    ExpectedIdentity::Exact(file_identity::from_metadata(&metadata))
+                });
+            }
+        }
         Some(Self {
             kind,
-            path: normalize_path(event.normalized().platform, &display_path),
+            path,
             display_path,
-            pid: event.pid.unwrap_or(0),
+            pid,
             expected,
+            process_identity,
         })
     }
 }
@@ -975,7 +1007,11 @@ impl ResolvePlan {
         event: &CanonicalEvent,
         target: &ArtifactTarget,
     ) -> Self {
-        let path = &target.path;
+        let path = target
+            .process_identity
+            .as_ref()
+            .map(|identity| Path::new(&identity.image))
+            .unwrap_or(&target.path);
         let scans_content = target.kind != ArtifactKind::LoadedImage;
         let pe_image = event.normalized().platform == Platform::Windows
             && matches!(
@@ -1397,6 +1433,22 @@ impl ArtifactResolver {
         )
     }
 
+    fn validate_process_target(&self, target: &ArtifactTarget) -> Result<(), ResolveError> {
+        if let Some(expected) = &target.process_identity {
+            if expected.start_time.is_none()
+                || target.expected.is_none()
+                || crate::utils::validate_process_identity(expected).is_err()
+            {
+                self.state
+                    .counters
+                    .identity_mismatch
+                    .fetch_add(1, Ordering::Relaxed);
+                return Err(ResolveError::Identity);
+            }
+        }
+        Ok(())
+    }
+
     fn resolve_until_with_opener<F>(
         &self,
         target: &ArtifactTarget,
@@ -1409,6 +1461,7 @@ impl ArtifactResolver {
     where
         F: FnOnce(&Path) -> io::Result<File>,
     {
+        self.validate_process_target(target)?;
         let mut file = open(&target.path).map_err(|error| {
             self.state
                 .counters
@@ -1434,6 +1487,8 @@ impl ArtifactResolver {
                 .fetch_add(1, Ordering::Relaxed);
             return Err(ResolveError::Identity);
         }
+
+        self.validate_process_target(target)?;
 
         let mut artifact = Artifact {
             identity: Some(identity.clone()),
@@ -3484,6 +3539,266 @@ level: high
             .expect_err("a replacement must not be scanned as the written file");
         assert!(matches!(error, ResolveError::Identity));
         assert_eq!(state.snapshot().identity_mismatch, 1);
+    }
+
+    #[test]
+    fn linux_process_relative_images_use_the_subject_executable_link() {
+        for image in [
+            "/proc/self/fd/3",
+            "/proc/thread-self/fd/3",
+            "/dev/fd/3",
+            "/proc/42/fd/3",
+            "/proc/self/exe",
+            "/memfd:payload (deleted)",
+            "memfd:payload",
+        ] {
+            let event = process_event(Path::new(image), Platform::Linux);
+            let target = ArtifactTarget::from_event(&event, None).unwrap();
+            assert_eq!(target.path, Path::new("/proc/42/exe"));
+            assert_eq!(target.display_path, image);
+            let mut missing_pid = event;
+            missing_pid.pid = None;
+            assert!(ArtifactTarget::from_event(&missing_pid, None).is_none());
+        }
+        for platform in [Platform::MacOS, Platform::Windows] {
+            let event = process_event(Path::new("/dev/fd/3"), platform);
+            let target = ArtifactTarget::from_event(&event, None).unwrap();
+            assert_eq!(target.path, Path::new("/dev/fd/3"));
+            assert!(target.process_identity.is_none());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    struct MemfdFixture {
+        child: std::process::Child,
+        bytes: Vec<u8>,
+        descriptor_path: String,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl MemfdFixture {
+        fn start() -> Self {
+            use std::io::Write;
+            use std::os::fd::{AsRawFd, FromRawFd};
+            let fd = unsafe { libc::memfd_create(c"payload".as_ptr(), libc::MFD_CLOEXEC) };
+            assert!(fd >= 0, "memfd_create: {}", io::Error::last_os_error());
+            let mut file = unsafe { File::from_raw_fd(fd) };
+            let mut bytes = std::fs::read("/bin/sleep").unwrap();
+            bytes.extend_from_slice(b"evil!!");
+            file.write_all(&bytes).unwrap();
+            let descriptor_path = format!("/proc/self/fd/{}", file.as_raw_fd());
+            let child = std::process::Command::new(&descriptor_path)
+                .arg("30")
+                .spawn()
+                .unwrap();
+            drop(file);
+            let fixture = Self {
+                child,
+                bytes,
+                descriptor_path,
+            };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if crate::utils::query_process_identity(fixture.child.id())
+                    .is_some_and(|identity| crate::utils::process::is_memfd_image(&identity.image))
+                {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "child did not exec the memfd");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            fixture
+        }
+
+        fn event(&self, image: &str) -> CanonicalEvent {
+            let mut event = process_event(Path::new(image), Platform::Linux).into_normalized();
+            let EventFields::ProcessCreation(fields) = &mut event.fields else {
+                unreachable!()
+            };
+            fields.process_id = Some(self.child.id().to_string());
+            CanonicalEvent::from_normalized(event)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for MemfdFixture {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn memfd_exec_scans_its_own_bytes_and_emits_yara_and_hash_alerts() {
+        let fixture = MemfdFixture::start();
+        let fd = fixture.descriptor_path.rsplit('/').next().unwrap();
+        assert!(
+            !Path::new(&format!("/proc/{}/fd/{fd}", fixture.child.id())).exists(),
+            "close-on-exec descriptor must be gone"
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let alerts_path = temp.path().join("alerts.ndjson");
+        let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());
+        runtime.alert_sink = Some(AlertSink::new(writer));
+        let expected_path = PathBuf::from(format!("/proc/{}/exe", fixture.child.id()));
+        let opens = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&opens);
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(move |path| {
+                assert_eq!(
+                    path, expected_path,
+                    "never open the agent's descriptor table"
+                );
+                counted.fetch_add(1, Ordering::Relaxed);
+                open_artifact(path)
+            }),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        for image in [
+            fixture.descriptor_path.as_str(),
+            "/dev/fd/3",
+            "/memfd:payload (deleted)",
+        ] {
+            harness.ingress.handle_event(&fixture.event(image));
+        }
+        let state = harness.finish();
+        drop(guard);
+        let alerts = read_alerts(&alerts_path);
+        assert_eq!(opens.load(Ordering::Relaxed), 3);
+        assert_eq!(state.snapshot().resolved, 3);
+        assert_eq!(state.snapshot().identity_mismatch, 0);
+        assert_eq!(
+            alerts
+                .iter()
+                .filter(|alert| alert["edr.rule.engine"] == "Yara")
+                .count(),
+            3
+        );
+        assert_eq!(
+            alerts
+                .iter()
+                .filter(|alert| alert["edr.rule.engine"] == "Ioc")
+                .count(),
+            3
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn memfd_memory_worker_scans_image_with_default_region_filters() {
+        let fixture = MemfdFixture::start();
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        std::fs::write(
+            temp.path().join("yara/marker.yar"),
+            r#"rule ElfImage { strings: $elf = { 7F 45 4C 46 } condition: $elf at 0 }"#,
+        )
+        .unwrap();
+        let detectors = runtime.detectors.unwrap();
+        detectors.swap_yara(Arc::new(Scanner::new(temp.path().join("yara")).unwrap()));
+        let alerts_path = temp.path().join("alerts.ndjson");
+        let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());
+        let (response, response_worker) = ResponseEngine::new(Arc::new(
+            arc_swap::ArcSwap::from_pointee(AppConfig::default().response),
+        ));
+        let (tx, rx) = mpsc::channel(1);
+        let handler = scanner::YaraMemoryEventHandler {
+            tx,
+            allowlist_paths: Vec::new(),
+            scan_all_processes: false,
+        };
+        let worker = crate::runtime::yara::spawn_yara_memory_worker(
+            detectors,
+            AlertSink::new(writer),
+            response,
+            crate::memory::MemoryScanConfig {
+                max_process_bytes: 64 * 1024 * 1024,
+                max_region_bytes: 8 * 1024 * 1024,
+                include_private: true,
+                include_image: false,
+                include_mapped: false,
+                delay_ms: 0,
+            },
+            MatchDebugLevel::Off,
+            rx,
+            Platform::Linux,
+            "yara-memory",
+        );
+        handler.handle_event(&fixture.event(&fixture.descriptor_path));
+        drop(handler);
+        worker.await.unwrap();
+        response_worker.await.unwrap();
+        drop(guard);
+        let alerts = read_alerts(&alerts_path);
+        assert!(
+            alerts.iter().any(|alert| alert["rule.name"] == "ElfImage"
+                && alert["edr.yara.scan_source"] == "process_memory"),
+            "memfd image must be scanned with mapped-file scanning disabled: {alerts:?}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn memfd_exec_rejects_changed_process_and_file_identities() {
+        let fixture = MemfdFixture::start();
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let event = fixture.event(&fixture.descriptor_path);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        let state = Arc::new(ResolverState::new());
+        let resolver =
+            ArtifactResolver::new(Arc::new(HostState::default()), runtime, Arc::clone(&state));
+        let mut recycled_event = event;
+        recycled_event.process_start_key = Some(crate::sensor::ProcessStartKey {
+            pid: fixture.child.id(),
+            start_time: u64::MAX,
+        });
+        let recycled = ArtifactTarget::from_event(&recycled_event, None).unwrap();
+        assert!(matches!(
+            resolver.resolve_with_opener(&recycled, &plan, |_| {
+                panic!("must reject a different lifetime before opening")
+            }),
+            Err(ResolveError::Identity)
+        ));
+        let wrong_file = tempfile::NamedTempFile::new().unwrap();
+        assert!(matches!(
+            resolver.resolve_with_opener(&target, &plan, |_| { File::open(wrong_file.path()) }),
+            Err(ResolveError::Identity)
+        ));
+        assert_eq!(state.snapshot().identity_mismatch, 2);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn memfd_exec_queues_memory_with_broad_scanning_disabled() {
+        let fixture = MemfdFixture::start();
+        let (tx, mut rx) = mpsc::channel(4);
+        let handler = scanner::YaraMemoryEventHandler {
+            tx,
+            allowlist_paths: Vec::new(),
+            scan_all_processes: false,
+        };
+        handler.handle_event(&fixture.event("/bin/sleep"));
+        assert!(rx.try_recv().is_err());
+        for image in [
+            fixture.descriptor_path.as_str(),
+            "/dev/fd/3",
+            "/memfd:payload (deleted)",
+        ] {
+            handler.handle_event(&fixture.event(image));
+            let job = rx
+                .try_recv()
+                .expect("fileless exec must queue a memory scan");
+            assert!(job.memfd_backed);
+            assert_eq!(job.expected_identity.pid, fixture.child.id());
+            assert_eq!(job.expected_identity.image, "/memfd:payload");
+            crate::utils::validate_process_identity(&job.expected_identity).unwrap();
+        }
     }
 
     #[test]

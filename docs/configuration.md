@@ -75,13 +75,13 @@ Sigma and YARA rules, YARA scan limits, and optional memory scanning.
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Path prefixes YARA never scans. Replaces `allowlist.paths` for YARA once set. |
 | `yara_scan_timeout_ms` | `10000` | Time limit for one file scan, or for all memory reads of one process. `0` disables it. |
 | `yara_max_file_mb` | `64` | Larger files are reported as oversized instead of scanned. `0` disables the limit. |
-| `yara_memory_enabled` | `false` | Also scan the memory of new processes. Needs `yara_enabled`. |
+| `yara_memory_enabled` | `false` | Scan the memory of all new processes. Needs `yara_enabled`. Linux memfd executions are memory scanned even when this is disabled. |
 | `yara_memory_queue_capacity` | `64` | Pending memory scans. New scans are dropped when it is full. |
 | `yara_memory_delay_ms` | `750` | Wait after process start before reading memory, so packed code can unpack. |
 | `yara_memory_max_process_mb` | `64` | Stop reading a process after this many MB. |
 | `yara_memory_max_region_mb` | `8` | Most memory read from one region at a time, in MB. |
 | `yara_memory_include_private` | `true` | Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded. |
-| `yara_memory_include_image` | `false` | Scan memory backed by executables and libraries. |
+| `yara_memory_include_image` | `false` | Scan memory backed by executables and libraries. Linux memfd executions include memfd image mappings even when this is disabled. |
 | `yara_memory_include_mapped` | `false` | Scan memory-mapped files. |
 
 ### `[allowlist]`
