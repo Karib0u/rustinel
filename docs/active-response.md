@@ -23,6 +23,21 @@ Rustinel never kills:
 macOS refuses to kill SIP-protected processes even as root.
 The failure is logged and the alert is still written.
 
+## Process identity safety
+
+Before termination, response checks the executable path and compares the start time and command-line hash when available in both the alert and the live process.
+If identity cannot be queried or does not match, response skips termination and logs the reason.
+When the alert has no start time or command-line hash, only the available identity fields can be checked.
+
+| Platform | Guarantee between validation and termination |
+| --- | --- |
+| Linux | Response opens a `pidfd`, reads identity from `/proc`, and confirms the pinned process is still live after the reads. It sends `SIGKILL` through that same `pidfd`, so PID reuse cannot redirect termination to a replacement. |
+| Windows | Response opens one handle with query and terminate rights, reads identity through it, and calls `TerminateProcess` on that same handle. PID reuse cannot redirect termination to a replacement. |
+| macOS | Response checks identity before sending `SIGKILL` by PID. A small window remains in which the process can exit and its PID can be reused before the signal is sent. |
+
+Linux response requires working `pidfd_open` and `pidfd_send_signal` system calls.
+If the kernel or security policy prevents their use, response logs the failure and does not fall back to killing by PID.
+
 ## 1. Turn on dry run
 
 ```toml

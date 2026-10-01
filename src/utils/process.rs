@@ -347,12 +347,6 @@ fn boot_time_ns_to_start_ticks_at_hz(start_time_ns: u64, hz: u64) -> Option<u64>
 
 #[cfg(windows)]
 pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
-    use windows::Win32::Foundation::{CloseHandle, FILETIME};
-    use windows::Win32::System::Threading::{
-        GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-        PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-
     if pid == 0 {
         return None;
     }
@@ -361,6 +355,22 @@ pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
     if handle.is_invalid() {
         return None;
     }
+
+    let identity = query_process_identity_from_handle(pid, handle);
+    let _ = unsafe { CloseHandle(handle) };
+    identity
+}
+
+/// Query identity using an already-open process handle without closing it.
+#[cfg(windows)]
+pub(crate) fn query_process_identity_from_handle(
+    pid: u32,
+    handle: HANDLE,
+) -> Option<ProcessIdentity> {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+    };
 
     let mut buffer = vec![0u16; 32_768];
     let mut len = buffer.len() as u32;
@@ -394,8 +404,6 @@ pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
     let command_line_hash = query_process_command_line_from_handle(handle)
         .as_deref()
         .map(hash_command_line);
-
-    let _ = unsafe { CloseHandle(handle) };
 
     Some(ProcessIdentity {
         pid,
