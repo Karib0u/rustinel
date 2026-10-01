@@ -413,6 +413,8 @@ pub enum ChannelId {
     SensorEvents,
     /// Canonical events queued for single-open artifact resolution.
     ArtifactResolution,
+    /// Written files queued separately from process and loaded images.
+    ArtifactWrittenFiles,
     /// Processes queued for YARA memory scanning.
     YaraMemoryScan,
     /// Alerts queued for active response.
@@ -423,9 +425,10 @@ pub enum ChannelId {
 
 impl ChannelId {
     /// Every channel, in the order snapshots report them.
-    pub const ALL: [ChannelId; 5] = [
+    pub const ALL: [ChannelId; 6] = [
         ChannelId::SensorEvents,
         ChannelId::ArtifactResolution,
+        ChannelId::ArtifactWrittenFiles,
         ChannelId::YaraMemoryScan,
         ChannelId::ActiveResponse,
         ChannelId::CaptureWriter,
@@ -436,6 +439,7 @@ impl ChannelId {
         match self {
             ChannelId::SensorEvents => "sensor_events",
             ChannelId::ArtifactResolution => "artifact_resolution",
+            ChannelId::ArtifactWrittenFiles => "artifact_written_files",
             ChannelId::YaraMemoryScan => "yara_memory_scan",
             ChannelId::ActiveResponse => "active_response",
             ChannelId::CaptureWriter => "capture_writer",
@@ -446,9 +450,10 @@ impl ChannelId {
         match self {
             ChannelId::SensorEvents => 0,
             ChannelId::ArtifactResolution => 1,
-            ChannelId::YaraMemoryScan => 2,
-            ChannelId::ActiveResponse => 3,
-            ChannelId::CaptureWriter => 4,
+            ChannelId::ArtifactWrittenFiles => 2,
+            ChannelId::YaraMemoryScan => 3,
+            ChannelId::ActiveResponse => 4,
+            ChannelId::CaptureWriter => 5,
         }
     }
 
@@ -462,9 +467,10 @@ impl ChannelId {
 ///
 /// A static array rather than a registry map: the set of channels is fixed at
 /// compile time, so lookups need no lock and no allocation on the send path.
-static CHANNELS: [ChannelCounters; 5] = [
+static CHANNELS: [ChannelCounters; 6] = [
     ChannelCounters::new(ChannelId::SensorEvents),
     ChannelCounters::new(ChannelId::ArtifactResolution),
+    ChannelCounters::new(ChannelId::ArtifactWrittenFiles),
     ChannelCounters::new(ChannelId::YaraMemoryScan),
     ChannelCounters::new(ChannelId::ActiveResponse),
     ChannelCounters::new(ChannelId::CaptureWriter),

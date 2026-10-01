@@ -47,7 +47,8 @@ Every field is described in [telemetry.json](telemetry.md).
 | Queue | Lost when full |
 | --- | --- |
 | `sensor_events` | Events never reach any rule. The widest gap |
-| `artifact_resolution` | Base events are routed, but PE metadata, file YARA, and hash IOC enrichment are unavailable |
+| `artifact_resolution` | Base events are routed, but process and loaded-image artifact enrichment is unavailable |
+| `artifact_written_files` | Base file events are routed, but written-file YARA and hash IOC enrichment are unavailable |
 | `yara_memory_scan` | Processes are not memory scanned |
 | `active_response` | Responses are not carried out |
 | `capture_writer` | Events are missing from a recording, which is then marked incomplete |

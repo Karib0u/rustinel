@@ -55,7 +55,7 @@ Each consumer keeps its results in its own store, keyed by file identity, under 
 
 | Field | Meaning |
 | --- | --- |
-| `queue_capacity`, `deadline_ms` | Fixed pending-work bound and maximum resolver time budget; a smaller configured YARA timeout can shorten a job |
+| `queue_capacity`, `deadline_ms` | Pending-work bound for each image and written-file queue and maximum resolver time budget; a smaller configured YARA timeout can shorten a job |
 | `admission_budget_ms` | Longest PE metadata may hold an event before it is admitted without it |
 | `admission_budget_exceeded` | Events admitted without PE metadata because resolution missed the budget |
 | `admission_backpressure` | Events that waited for room in the ordered admission queue; each wait is bounded by the budget |
@@ -67,8 +67,11 @@ Each consumer keeps its results in its own store, keyed by file identity, under 
 | `deferred_queue_saturated` | Events whose deferred-pass rules ran at admission, without the fields, because the deferred queue was full |
 | `queued`, `resolved` | Jobs admitted and completed |
 | `cache_hits`, `cache_misses` | Whole-job cache outcomes after the identity was measured |
-| `queue_saturated`, `worker_saturated`, `deadline_exceeded` | Enrichment shed because the resolver queue was full, an I/O thread could not be started, or no I/O slot freed before the job's deadline; the event is still admitted |
+| `queue_saturated`, `worker_saturated`, `deadline_exceeded` | Enrichment shed because a resolver queue or the written-file settle table was full, an I/O thread could not be started, or a job exceeded its deadline; the event is still admitted |
 | `open_failed`, `identity_mismatch`, `read_failed`, `consumer_failed`, `oversized` | Explicit unavailable outcomes by cause |
+| `process_image_dropped`, `loaded_image_dropped`, `written_file_dropped` | Jobs shed by kind because a queue or settle table was full, a queue closed, an I/O thread could not start, or a deadline expired; excludes file-access failures and coalesced writes |
+| `written_file_rejected` | File events rejected before queueing because the selector rejected them or the target path was missing or empty |
+| `written_file_coalesced` | Repeated writes replaced by the latest event for the same path and object during settling |
 | `identity_unavailable` | Selected written files skipped because the sensor supplied no event-time identity to validate the opened file against |
 | `pe_entries`, `hash_entries`, `imphash_entries`, `signature_entries`, `yara_entries` | Occupancy of every separate result store |
 | `yara_generation` | Active cache generation; only YARA entries invalidate on a successful YARA reload |

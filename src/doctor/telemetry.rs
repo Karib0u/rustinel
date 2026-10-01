@@ -175,12 +175,24 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         resolver.consumer_failed,
         resolver.oversized,
     );
-    vec![if failures == 0 {
+    let detail = format!(
+        "{detail}; dropped jobs: process images {}, loaded images {}, written files {}; written-file selection: {} rejected, {} coalesced",
+        resolver.process_image_dropped,
+        resolver.loaded_image_dropped,
+        resolver.written_file_dropped,
+        resolver.written_file_rejected,
+        resolver.written_file_coalesced,
+    );
+    let dropped = resolver
+        .process_image_dropped
+        .saturating_add(resolver.loaded_image_dropped)
+        .saturating_add(resolver.written_file_dropped);
+    vec![if failures == 0 && dropped == 0 {
         DiagnosticResult::pass("artifact_resolver", detail)
     } else {
         DiagnosticResult::warn(
             "artifact_resolver",
-            format!("{failures} artifact-resolution failure outcomes were recorded"),
+            format!("{} artifact-resolution failure outcomes were recorded", failures.max(dropped)),
             detail,
         )
         .with_fix(
@@ -938,6 +950,11 @@ mod tests {
             cache_hits: 5,
             cache_misses: 6,
             queue_saturated: 1,
+            process_image_dropped: 0,
+            loaded_image_dropped: 0,
+            written_file_dropped: 1,
+            written_file_rejected: 3,
+            written_file_coalesced: 8,
             worker_saturated: 0,
             deadline_exceeded: 0,
             admission_budget_exceeded: 2,
@@ -974,6 +991,8 @@ mod tests {
         let detail = results[0].detail.as_deref().expect("resolver detail");
         assert!(detail.contains("PE 4, hashes 5, imphashes 6, signatures 7, YARA 8"));
         assert!(detail.contains("1 queue saturated"));
+        assert!(detail.contains("dropped jobs: process images 0, loaded images 0, written files 1"));
+        assert!(detail.contains("written-file selection: 3 rejected, 8 coalesced"));
         assert!(detail.contains("0 identity, 4 identity unavailable"));
         assert!(detail.contains("2 past the 100 ms budget, 9 backpressured sends"));
         assert!(detail.contains(

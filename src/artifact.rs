@@ -15,7 +15,7 @@
 //! order, by the deferred detection stage when those fields are resolved or
 //! [`DEFERRED_DETECTION_BUDGET`] expires, whichever comes first.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -41,8 +41,8 @@ use crate::sensor::{CanonicalEventHandler, Platform, SensorAction, SensorEventRo
 use crate::state::HostState;
 use crate::utils::file_identity::{self, FileIdentity};
 
-/// The queue is deliberately smaller than sensor ingress: when artifact I/O is
-/// slow, the resolver sheds enrichment while the base event still gets routed.
+/// Each artifact queue is smaller than sensor ingress. Images and written
+/// files have separate queues and I/O slots so file churn cannot shed images.
 pub(crate) const ARTIFACT_QUEUE_CAPACITY: usize = 256;
 const ARTIFACT_STORE_CAPACITY: usize = 10_000;
 const ARTIFACT_DEADLINE: Duration = Duration::from_secs(10);
@@ -147,6 +147,19 @@ pub struct ArtifactResolverSnapshot {
     pub cache_hits: u64,
     pub cache_misses: u64,
     pub queue_saturated: u64,
+    /// Jobs shed by queue pressure, closure, worker failure, or expiry.
+    #[serde(default)]
+    pub process_image_dropped: u64,
+    #[serde(default)]
+    pub loaded_image_dropped: u64,
+    #[serde(default)]
+    pub written_file_dropped: u64,
+    /// File events rejected by the selector or without a usable target path.
+    #[serde(default)]
+    pub written_file_rejected: u64,
+    /// Repeated writes replaced by the latest event for the same path/object.
+    #[serde(default)]
+    pub written_file_coalesced: u64,
     pub worker_saturated: u64,
     pub deadline_exceeded: u64,
     /// Events admitted without PE metadata because it missed the budget.
@@ -203,6 +216,11 @@ struct ResolverCounters {
     cache_hits: AtomicU64,
     cache_misses: AtomicU64,
     queue_saturated: AtomicU64,
+    process_image_dropped: AtomicU64,
+    loaded_image_dropped: AtomicU64,
+    written_file_dropped: AtomicU64,
+    written_file_rejected: AtomicU64,
+    written_file_coalesced: AtomicU64,
     worker_saturated: AtomicU64,
     deadline_exceeded: AtomicU64,
     admission_budget_exceeded: AtomicU64,
@@ -226,6 +244,15 @@ struct ResolverState {
 }
 
 impl ResolverState {
+    fn record_drop(&self, kind: ArtifactKind) {
+        let counter = match kind {
+            ArtifactKind::ProcessImage => &self.counters.process_image_dropped,
+            ArtifactKind::LoadedImage => &self.counters.loaded_image_dropped,
+            ArtifactKind::WrittenFile => &self.counters.written_file_dropped,
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn new() -> Self {
         Self {
             counters: ResolverCounters::default(),
@@ -247,6 +274,11 @@ impl ResolverState {
             cache_hits: self.counters.cache_hits.load(Ordering::Relaxed),
             cache_misses: self.counters.cache_misses.load(Ordering::Relaxed),
             queue_saturated: self.counters.queue_saturated.load(Ordering::Relaxed),
+            process_image_dropped: self.counters.process_image_dropped.load(Ordering::Relaxed),
+            loaded_image_dropped: self.counters.loaded_image_dropped.load(Ordering::Relaxed),
+            written_file_dropped: self.counters.written_file_dropped.load(Ordering::Relaxed),
+            written_file_rejected: self.counters.written_file_rejected.load(Ordering::Relaxed),
+            written_file_coalesced: self.counters.written_file_coalesced.load(Ordering::Relaxed),
             worker_saturated: self.counters.worker_saturated.load(Ordering::Relaxed),
             deadline_exceeded: self.counters.deadline_exceeded.load(Ordering::Relaxed),
             admission_budget_exceeded: self
@@ -327,17 +359,24 @@ impl ArtifactResolverHandle {
 
 /// Chooses which canonical file events become written-file artifact targets.
 ///
-/// This is the whole of the written-file scan policy (#324): settle,
-/// extension, magic-byte, and size gates decide here. Identity validation,
-/// allowlists, scan limits, caching, and outcome counters come from the
-/// resolver for every selected target.
+/// The selector rejects events using only sensor-provided facts. Settling,
+/// extension, magic-byte, and size gates run on selected targets in the
+/// resolver, together with identity validation, allowlists, and caching.
 pub(crate) type WrittenFileSelector =
     Arc<dyn Fn(&CanonicalEvent, &FileEventFields) -> bool + Send + Sync>;
 
 /// Select complete canonical file paths for written-file content inspection.
 /// Content qualification happens on the resolver's identity-validated handle.
 pub(crate) fn written_file_scan_selector() -> WrittenFileSelector {
-    Arc::new(|_, fields| fields.path_truncated.is_none())
+    // An unknown extension can still qualify by magic. File events carry no
+    // content or size, so narrowing extensions here would lose those scans.
+    Arc::new(|_, fields| {
+        fields.path_truncated.is_none()
+            && fields
+                .target_filename
+                .as_ref()
+                .is_some_and(|path| !path.is_empty())
+    })
 }
 
 #[derive(Clone)]
@@ -395,12 +434,14 @@ pub(crate) fn spawn_artifact_resolver(
     let deferred = parts.deferred;
     let resolver = parts.resolver;
     let resolve_rx = parts.resolve_rx;
+    let written_rx = parts.written_rx;
     let worker = tokio::task::spawn_blocking(move || {
         run_resolver_stages(
             admission,
             deferred,
             resolver,
             resolve_rx,
+            written_rx,
             Arc::new(open_artifact),
         )
     });
@@ -418,9 +459,20 @@ fn run_resolver_stages(
     deferred: Option<DeferredDetection>,
     resolver: ArtifactResolver,
     mut resolve_rx: mpsc::Receiver<ArtifactJob>,
+    mut written_rx: mpsc::Receiver<ArtifactJob>,
     open: ArtifactOpener,
 ) {
     std::thread::scope(|scope| {
+        let written_resolver = resolver.clone();
+        let written_open = Arc::clone(&open);
+        let spawned = std::thread::Builder::new()
+            .name("artifact-written-files".to_string())
+            .spawn_scoped(scope, move || {
+                written_resolver.run_queue(&mut written_rx, written_open, true)
+            });
+        if let Err(error) = spawned {
+            debug!(target: "artifact", %error, "Could not start written-file resolver");
+        }
         let spawned = std::thread::Builder::new()
             .name("artifact-resolver".to_string())
             .spawn_scoped(scope, move || resolver.run(&mut resolve_rx, open));
@@ -450,6 +502,7 @@ struct ResolverParts {
     deferred: Option<DeferredDetection>,
     resolver: ArtifactResolver,
     resolve_rx: mpsc::Receiver<ArtifactJob>,
+    written_rx: mpsc::Receiver<ArtifactJob>,
 }
 
 impl ResolverParts {
@@ -461,6 +514,7 @@ impl ResolverParts {
         resolve_capacity: usize,
     ) -> Self {
         let (resolve_tx, resolve_rx) = mpsc::channel(resolve_capacity);
+        let (written_tx, written_rx) = mpsc::channel(resolve_capacity);
         let (admission_tx, admission_rx) = std::sync::mpsc::sync_channel(ADMISSION_QUEUE_CAPACITY);
         let pending = Arc::new(AtomicUsize::new(0));
         // Only a detecting runtime has rules to defer; capture evaluates none.
@@ -484,6 +538,7 @@ impl ResolverParts {
         Self {
             ingress: ArtifactEventHandler {
                 resolve_tx,
+                written_tx,
                 admission_tx,
                 deferred_tx,
                 pending: Arc::clone(&pending),
@@ -500,12 +555,14 @@ impl ResolverParts {
             deferred,
             resolver: ArtifactResolver::new(host_state, runtime, state),
             resolve_rx,
+            written_rx,
         }
     }
 }
 
 struct ArtifactEventHandler {
     resolve_tx: mpsc::Sender<ArtifactJob>,
+    written_tx: mpsc::Sender<ArtifactJob>,
     admission_tx: std::sync::mpsc::SyncSender<AdmissionEntry>,
     /// Present when a detecting runtime can defer rules to after resolution.
     deferred_tx: Option<std::sync::mpsc::SyncSender<DeferredEntry>>,
@@ -606,6 +663,18 @@ impl CanonicalEventHandler for ArtifactEventHandler {
     fn handle_event(&self, event: &CanonicalEvent) {
         let Some(target) = ArtifactTarget::from_event(event, self.runtime.written_files.as_ref())
         else {
+            if matches!(event.normalized().fields, EventFields::FileEvent(_))
+                && matches!(
+                    event.action,
+                    SensorAction::Create | SensorAction::Modify | SensorAction::Rename
+                )
+                && self.runtime.written_files.is_some()
+            {
+                self.state
+                    .counters
+                    .written_file_rejected
+                    .fetch_add(1, Ordering::Relaxed);
+            }
             self.admit(event, None, false);
             return;
         };
@@ -642,6 +711,7 @@ impl CanonicalEventHandler for ArtifactEventHandler {
         let deferred_needs = plan.deferred;
         let written_file = (target.kind == ArtifactKind::WrittenFile)
             .then(|| Box::new(event.normalized().clone()));
+        let kind = target.kind;
         let job = ArtifactJob {
             target,
             plan,
@@ -657,8 +727,16 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             written_file,
         };
         match crate::telemetry::try_send(
-            crate::telemetry::ChannelId::ArtifactResolution,
-            &self.resolve_tx,
+            if kind == ArtifactKind::WrittenFile {
+                crate::telemetry::ChannelId::ArtifactWrittenFiles
+            } else {
+                crate::telemetry::ChannelId::ArtifactResolution
+            },
+            if kind == ArtifactKind::WrittenFile {
+                &self.written_tx
+            } else {
+                &self.resolve_tx
+            },
             job,
         ) {
             Ok(()) => {
@@ -668,6 +746,7 @@ impl CanonicalEventHandler for ArtifactEventHandler {
                 self.admit(event, pe, deferred);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                self.state.record_drop(kind);
                 self.state
                     .counters
                     .queue_saturated
@@ -676,6 +755,7 @@ impl CanonicalEventHandler for ArtifactEventHandler {
                 self.admit(event, None, false);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                self.state.record_drop(kind);
                 debug!("Artifact resolver stopped; admitting base event");
                 self.admit(event, None, false);
             }
@@ -875,7 +955,7 @@ pub(crate) enum ArtifactKind {
 }
 
 /// What the opened file must still be for its bytes to belong to the event.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ExpectedIdentity {
     /// Object, size, and timestamps measured at exec. Any change rejects it.
     Exact(FileIdentity),
@@ -1168,6 +1248,50 @@ impl ArtifactJob {
     }
 }
 
+/// A bounded debounce table with one deadline entry per path and object.
+/// Replacing a write removes its old deadline, so repeated writes cannot
+/// grow the deadline queue beyond the table's capacity.
+#[derive(Default)]
+struct WrittenFileSettler {
+    by_target: HashMap<(PathBuf, Option<ExpectedIdentity>), (Instant, u64)>,
+    by_deadline: BTreeMap<(Instant, u64), ArtifactJob>,
+    sequence: u64,
+}
+
+impl WrittenFileSettler {
+    /// Returns whether an earlier write was coalesced, or the rejected job.
+    fn insert(&mut self, job: ArtifactJob) -> Result<bool, Box<ArtifactJob>> {
+        let key = (job.target.path.clone(), job.target.expected.clone());
+        let previous = self.by_target.get(&key).copied();
+        if previous.is_none() && self.by_target.len() >= ARTIFACT_QUEUE_CAPACITY {
+            return Err(Box::new(job));
+        }
+        if let Some(deadline) = previous {
+            self.by_deadline.remove(&deadline);
+        }
+        let ready_at = job.enqueued_at + WRITTEN_FILE_SETTLE_DELAY;
+        let deadline = (ready_at, self.sequence);
+        self.sequence = self.sequence.wrapping_add(1);
+        self.by_target.insert(key, deadline);
+        self.by_deadline.insert(deadline, job);
+        Ok(previous.is_some())
+    }
+
+    fn next_deadline(&self) -> Option<Instant> {
+        self.by_deadline.first_key_value().map(|(key, _)| key.0)
+    }
+
+    fn pop_ready(&mut self, now: Instant) -> Option<ArtifactJob> {
+        if self.next_deadline()? > now {
+            return None;
+        }
+        let (_, job) = self.by_deadline.pop_first()?;
+        self.by_target
+            .remove(&(job.target.path.clone(), job.target.expected.clone()));
+        Some(job)
+    }
+}
+
 #[derive(Clone)]
 struct ArtifactResolver {
     host_state: Arc<HostState>,
@@ -1192,7 +1316,18 @@ impl ArtifactResolver {
     /// threads. A thread blocked in the OS keeps its slot until the call
     /// returns; a job that cannot get a slot before its deadline is skipped.
     fn run(&self, rx: &mut mpsc::Receiver<ArtifactJob>, open: ArtifactOpener) {
-        info!(target: "artifact", "Artifact resolver worker started");
+        self.run_queue(rx, open, false);
+    }
+
+    fn run_queue(
+        &self,
+        rx: &mut mpsc::Receiver<ArtifactJob>,
+        open: ArtifactOpener,
+        written_files: bool,
+    ) {
+        info!(target: "artifact", written_files, "Artifact resolver worker started");
+        // Each queue owns its slots. A blocked written-file open or scan
+        // cannot delay images, even when every written-file slot is occupied.
         let active = Arc::new(AtomicUsize::new(0));
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let mut latest_deadline = Instant::now();
@@ -1200,14 +1335,11 @@ impl ArtifactResolver {
             .enable_time()
             .build()
             .expect("artifact resolver timer runtime");
-        let mut settling = Vec::<ArtifactJob>::new();
+        let mut settling = WrittenFileSettler::default();
         let mut channel_closed = false;
         loop {
             let now = Instant::now();
-            if let Some(index) = settling.iter().position(|job| {
-                now.saturating_duration_since(job.enqueued_at) >= WRITTEN_FILE_SETTLE_DELAY
-            }) {
-                let job = settling.swap_remove(index);
+            if let Some(job) = settling.pop_ready(now) {
                 self.dispatch_job(
                     job,
                     &open,
@@ -1218,65 +1350,48 @@ impl ArtifactResolver {
                 );
                 continue;
             }
-
+            let wait = settling
+                .next_deadline()
+                .map(|deadline| deadline.saturating_duration_since(now));
             if channel_closed {
-                if settling.is_empty() {
+                let Some(wait) = wait else {
                     break;
-                }
-                let wait = settling
-                    .iter()
-                    .map(|job| {
-                        job.enqueued_at
-                            .checked_add(WRITTEN_FILE_SETTLE_DELAY)
-                            .unwrap_or_else(Instant::now)
-                            .saturating_duration_since(now)
-                    })
-                    .min()
-                    .unwrap_or_default();
+                };
                 std::thread::sleep(wait);
                 continue;
             }
-
-            if settling.len() >= ARTIFACT_QUEUE_CAPACITY {
-                let wait = settling
-                    .iter()
-                    .map(|job| {
-                        job.enqueued_at
-                            .checked_add(WRITTEN_FILE_SETTLE_DELAY)
-                            .unwrap_or_else(Instant::now)
-                            .saturating_duration_since(now)
-                    })
-                    .min()
-                    .unwrap_or_default();
-                std::thread::sleep(wait);
-                continue;
-            }
-
-            let wait = settling.iter().map(|job| {
-                job.enqueued_at
-                    .checked_add(WRITTEN_FILE_SETTLE_DELAY)
-                    .unwrap_or_else(Instant::now)
-                    .saturating_duration_since(now)
-            });
-            let received = match wait.min() {
+            // Keep receiving at capacity: duplicate writes still refresh the
+            // debounce deadline, and new paths are shed and counted.
+            let received = match wait {
                 Some(wait) => timer
                     .block_on(async { tokio::time::timeout(wait, rx.recv()).await })
-                    .ok()
-                    .flatten(),
-                None => timer.block_on(rx.recv()),
+                    .ok(),
+                None => Some(timer.block_on(rx.recv())),
             };
-            let Some(job) = received else {
-                channel_closed = rx.is_closed();
-                continue;
+            let job = match received {
+                Some(Some(job)) => job,
+                Some(None) => {
+                    channel_closed = true;
+                    continue;
+                }
+                None => continue,
             };
-            if job.target.kind == ArtifactKind::WrittenFile {
-                if let Some(existing) = settling.iter_mut().find(|existing| {
-                    existing.target.path == job.target.path
-                        && existing.target.expected == job.target.expected
-                }) {
-                    *existing = job;
-                } else {
-                    settling.push(job);
+            if written_files {
+                match settling.insert(job) {
+                    Ok(true) => {
+                        self.state
+                            .counters
+                            .written_file_coalesced
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    Ok(false) => {}
+                    Err(job) => {
+                        self.state.record_drop(job.target.kind);
+                        self.state
+                            .counters
+                            .queue_saturated
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             } else {
                 self.dispatch_job(
@@ -1328,6 +1443,7 @@ impl ArtifactResolver {
             let _ = done_rx.recv_timeout(remaining);
         }
         if Instant::now() >= deadline_at {
+            self.state.record_drop(job.target.kind);
             self.state
                 .counters
                 .deadline_exceeded
@@ -1335,6 +1451,7 @@ impl ArtifactResolver {
             return;
         }
 
+        let kind = job.target.kind;
         let resolver = self.clone();
         let open = Arc::clone(open);
         let slot = Arc::clone(active);
@@ -1350,6 +1467,7 @@ impl ArtifactResolver {
         match spawned {
             Ok(_detached) => *latest_deadline = (*latest_deadline).max(deadline_at),
             Err(error) => {
+                self.state.record_drop(kind);
                 active.fetch_sub(1, Ordering::AcqRel);
                 self.state
                     .counters
@@ -1380,6 +1498,9 @@ impl ArtifactResolver {
                 self.state.counters.resolved.fetch_add(1, Ordering::Relaxed);
             }
             Err(error) => {
+                if matches!(error, ResolveError::Deadline(_)) {
+                    self.state.record_drop(target.kind);
+                }
                 if let Some(hashes) = &job.resolved_hashes {
                     self.apply_hash_iocs(&job, hashes);
                 }
@@ -2705,6 +2826,7 @@ mod tests {
                 deferred,
                 resolver,
                 resolve_rx,
+                written_rx,
             } = ResolverParts::new(
                 downstream,
                 Arc::new(HostState::default()),
@@ -2713,7 +2835,7 @@ mod tests {
                 resolve_capacity,
             );
             let stages = std::thread::spawn(move || {
-                run_resolver_stages(admission, deferred, resolver, resolve_rx, open)
+                run_resolver_stages(admission, deferred, resolver, resolve_rx, written_rx, open)
             });
             Self {
                 ingress,
@@ -3321,6 +3443,245 @@ level: high
 
     fn select_all() -> WrittenFileSelector {
         Arc::new(|_, _| true)
+    }
+
+    fn settling_job(path: &str, inode: u64, enqueued_at: Instant) -> ArtifactJob {
+        let runtime = ArtifactRuntime::capture(Platform::Windows);
+        let event = process_event(Path::new(path), Platform::Windows);
+        let mut target = ArtifactTarget::from_event(&event, None).unwrap();
+        target.kind = ArtifactKind::WrittenFile;
+        target.expected = Some(ExpectedIdentity::Object(FileObjectIdentity {
+            device: 1,
+            inode,
+        }));
+        ArtifactJob {
+            plan: ResolvePlan::snapshot(&runtime, &event, &target),
+            target,
+            enqueued_at,
+            pe_ready: None,
+            deferred_ready: None,
+            resolved_pe: None,
+            resolved_hashes: None,
+            process_start_key: None,
+            provenance: Default::default(),
+            platform: Platform::Windows,
+            provider: "test".into(),
+            written_file: None,
+        }
+    }
+
+    #[test]
+    fn settle_deadlines_refresh_without_stale_entries_and_keep_object_identity() {
+        let now = Instant::now();
+        let mut settling = WrittenFileSettler::default();
+        assert!(matches!(
+            settling.insert(settling_job("a", 1, now)),
+            Ok(false)
+        ));
+        assert!(matches!(
+            settling.insert(settling_job("b", 2, now)),
+            Ok(false)
+        ));
+        for offset in 1..1000 {
+            assert!(matches!(
+                settling.insert(settling_job("a", 1, now + Duration::from_micros(offset))),
+                Ok(true)
+            ));
+        }
+        assert_eq!(settling.by_target.len(), 2);
+        assert_eq!(settling.by_deadline.len(), 2);
+        // A replacement at the same path must not coalesce with the old object.
+        assert!(matches!(
+            settling.insert(settling_job("a", 3, now)),
+            Ok(false)
+        ));
+        assert!(settling.pop_ready(now).is_none());
+        let ready = now + WRITTEN_FILE_SETTLE_DELAY;
+        assert_eq!(
+            settling.pop_ready(ready).unwrap().target.path,
+            Path::new("b")
+        );
+        assert_eq!(
+            settling.pop_ready(ready).unwrap().target.expected,
+            Some(ExpectedIdentity::Object(FileObjectIdentity {
+                device: 1,
+                inode: 3
+            }))
+        );
+        assert!(settling.pop_ready(ready).is_none());
+        assert_eq!(
+            settling
+                .pop_ready(ready + Duration::from_millis(1))
+                .unwrap()
+                .target
+                .path,
+            Path::new("a")
+        );
+        assert!(settling.by_target.is_empty());
+        assert!(settling.by_deadline.is_empty());
+    }
+
+    #[test]
+    fn full_settle_table_still_coalesces_existing_paths() {
+        let now = Instant::now();
+        let mut settling = WrittenFileSettler::default();
+        for inode in 0..ARTIFACT_QUEUE_CAPACITY as u64 {
+            assert!(settling
+                .insert(settling_job(&format!("file-{inode}"), inode, now))
+                .is_ok());
+        }
+        assert!(settling.insert(settling_job("overflow", 999, now)).is_err());
+        assert!(matches!(
+            settling.insert(settling_job("file-0", 0, now + Duration::from_millis(1))),
+            Ok(true)
+        ));
+        assert_eq!(settling.by_target.len(), ARTIFACT_QUEUE_CAPACITY);
+        assert_eq!(settling.by_deadline.len(), ARTIFACT_QUEUE_CAPACITY);
+    }
+
+    #[test]
+    fn file_queue_saturation_does_not_displace_either_image_kind() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let image = temp.path().join("image.exe");
+        std::fs::write(&image, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.pe_metadata = true;
+        runtime.written_files = Some(written_file_scan_selector());
+        let seen = Seen::default();
+        let state = Arc::new(ResolverState::new());
+        let parts = ResolverParts::new(
+            router_with(seen.clone()),
+            Arc::new(HostState::default()),
+            runtime,
+            Arc::clone(&state),
+            2,
+        );
+        for _ in 0..1000 {
+            parts.ingress.handle_event(&file_event(
+                &image,
+                FILE_CREATE_OPCODE,
+                Some(FileObjectIdentity {
+                    device: 1,
+                    inode: 1,
+                }),
+            ));
+        }
+        parts
+            .ingress
+            .handle_event(&process_event(&image, Platform::Windows));
+        parts.ingress.handle_event(&image_event(&image));
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.written_file_dropped, 998);
+        assert_eq!(snapshot.process_image_dropped, 0);
+        assert_eq!(snapshot.loaded_image_dropped, 0);
+        assert_eq!(snapshot.queued, 4);
+        // The image queue has its own bound and reports drops by image kind.
+        parts
+            .ingress
+            .handle_event(&process_event(&image, Platform::Windows));
+        parts.ingress.handle_event(&image_event(&image));
+        assert_eq!(state.snapshot().process_image_dropped, 1);
+        assert_eq!(state.snapshot().loaded_image_dropped, 1);
+        assert_eq!(state.snapshot().queue_saturated, 1000);
+        drop(parts.ingress);
+        drop(parts.resolve_rx);
+        drop(parts.written_rx);
+        parts.admission.run();
+        assert_eq!(seen.ingest_seqs().len(), 1004);
+    }
+
+    #[test]
+    fn blocked_written_file_slots_do_not_delay_process_or_loaded_images() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let image = temp.path().join("image.exe");
+        std::fs::write(&image, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.pe_metadata = true;
+        runtime.written_files = Some(written_file_scan_selector());
+        let gate = Gate::new();
+        let (written_tx, written_rx) = std::sync::mpsc::channel();
+        let blocked = gate.opener(Some(written_tx));
+        let (image_tx, image_rx) = std::sync::mpsc::channel();
+        let image_path = image.clone();
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(move |path| {
+                if path == image_path {
+                    let file = open_artifact(path)?;
+                    image_tx.send(()).unwrap();
+                    Ok(file)
+                } else {
+                    blocked(path)
+                }
+            }),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        for inode in 0..ARTIFACT_IO_ISOLATION_LIMIT as u64 {
+            harness.ingress.handle_event(&file_event(
+                &temp.path().join(format!("written-{inode}.exe")),
+                FILE_CREATE_OPCODE,
+                Some(FileObjectIdentity { device: 1, inode }),
+            ));
+        }
+        for _ in 0..ARTIFACT_IO_ISOLATION_LIMIT {
+            written_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        // The written-file worker will wait for a slot with its queue full.
+        for inode in 0..10_000 {
+            harness.ingress.handle_event(&file_event(
+                &temp.path().join(format!("burst-{inode}.exe")),
+                FILE_CREATE_OPCODE,
+                Some(FileObjectIdentity { device: 1, inode }),
+            ));
+        }
+        harness
+            .ingress
+            .handle_event(&process_event(&image, Platform::Windows));
+        harness.ingress.handle_event(&image_event(&image));
+        let first = image_rx.recv_timeout(Duration::from_secs(2));
+        let second = image_rx.recv_timeout(Duration::from_secs(2));
+        gate.release();
+        let state = harness.finish();
+        assert!(
+            first.is_ok() && second.is_ok(),
+            "image resolution waited for written-file I/O"
+        );
+        assert!(state.snapshot().written_file_dropped > 0);
+        assert_eq!(state.snapshot().process_image_dropped, 0);
+        assert_eq!(state.snapshot().loaded_image_dropped, 0);
+        assert_eq!(state.snapshot().resolved, 2);
+    }
+
+    #[test]
+    fn unusable_written_paths_are_rejected_before_queueing_and_counted() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), b"evil!!");
+        runtime.written_files = Some(written_file_scan_selector());
+        let seen = Seen::default();
+        let harness = Harness::start(
+            router_with(seen.clone()),
+            runtime,
+            Arc::new(|_| panic!("rejected file was opened")),
+            1,
+        );
+        let mut truncated =
+            file_event(Path::new("/tmp/payload.exe"), FILE_CREATE_OPCODE, None).into_normalized();
+        if let EventFields::FileEvent(fields) = &mut truncated.fields {
+            fields.path_truncated = Some("target".into());
+        }
+        harness
+            .ingress
+            .handle_event(&CanonicalEvent::from_normalized(truncated));
+        harness
+            .ingress
+            .handle_event(&file_event(Path::new(""), FILE_CREATE_OPCODE, None));
+        let state = harness.finish();
+        assert_eq!(state.snapshot().written_file_rejected, 2);
+        assert_eq!(state.snapshot().queued, 0);
+        assert_eq!(seen.ingest_seqs().len(), 2);
     }
 
     #[test]
