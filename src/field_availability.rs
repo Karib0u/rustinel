@@ -43,13 +43,13 @@ const SINCE_PROCESS_USER: Option<&str> = Some("1.8.0");
 /// Native Windows Event Log or ETW manifest channel (#543).
 const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.8.0");
 /// Classic Windows PowerShell event 400 collection (#323).
-const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.8.0");
+const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.9.0");
 /// Defender Operational event collection (#483).
-const SINCE_DEFENDER: Option<&str> = Some("1.8.0");
+const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 /// WMI-Activity Operational events (#481).
-const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.8.0");
+const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 /// Application channel collection (#316).
-const SINCE_APPLICATION: Option<&str> = Some("1.8.0");
+const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
