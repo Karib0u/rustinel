@@ -150,7 +150,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "scanner.yara_memory_include_private",
         default_note: None,
-        description: "Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded.",
+        description: "Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded. On macOS, the dyld shared cache counts as library memory and is scanned under the image and mapped options instead.",
     },
     ConfigOption {
         key: "scanner.yara_memory_include_image",
