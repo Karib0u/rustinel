@@ -50,10 +50,14 @@ enum PlatformFileIdentity {}
 
 #[cfg(unix)]
 pub(crate) fn from_file(file: &File) -> Option<FileIdentity> {
+    Some(from_metadata(&file.metadata().ok()?))
+}
+
+#[cfg(unix)]
+pub(crate) fn from_metadata(metadata: &std::fs::Metadata) -> FileIdentity {
     use std::os::unix::fs::MetadataExt;
 
-    let metadata = file.metadata().ok()?;
-    Some(FileIdentity {
+    FileIdentity {
         platform: PlatformFileIdentity::Unix {
             device: metadata.dev(),
             inode: metadata.ino(),
@@ -61,7 +65,7 @@ pub(crate) fn from_file(file: &File) -> Option<FileIdentity> {
         size: metadata.len(),
         modified: timestamp(metadata.mtime(), metadata.mtime_nsec()),
         changed: timestamp(metadata.ctime(), metadata.ctime_nsec()),
-    })
+    }
 }
 
 #[cfg(target_os = "macos")]

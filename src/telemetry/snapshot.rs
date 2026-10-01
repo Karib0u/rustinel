@@ -51,9 +51,9 @@ pub struct ChannelSnapshot {
 }
 
 impl ChannelSnapshot {
-    /// Whether the channel was ever used. Unused channels are the norm —
-    /// YARA memory scanning is opt-in, capture only runs under `rustinel
-    /// capture` — so reporting suppresses them rather than printing zeros.
+    /// Whether the channel was ever used. Unused channels are common:
+    /// memory scanning can select only fileless execs, and capture only runs
+    /// under `rustinel capture`, so reporting suppresses idle channels.
     pub fn is_idle(&self) -> bool {
         self.accepted == 0 && self.dropped == 0 && self.dropped_channel_closed == 0
     }

@@ -46,6 +46,7 @@ fn a_saturated_scan_queue_counts_every_shed_event() {
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(YaraMemoryEventHandler {
         tx,
+        scan_all_processes: true,
         allowlist_paths: Vec::new(),
     }));
 
@@ -85,6 +86,7 @@ fn accepted_events_are_counted_after_the_queue_drains() {
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(YaraMemoryEventHandler {
         tx,
+        scan_all_processes: true,
         allowlist_paths: Vec::new(),
     }));
 

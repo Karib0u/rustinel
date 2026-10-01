@@ -298,6 +298,7 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
     let (queued_tx, mut queued_rx) = tokio::sync::mpsc::channel(1);
     let handler = YaraMemoryEventHandler {
         tx: queued_tx,
+        scan_all_processes: true,
         allowlist_paths: Vec::new(),
     };
     let canonical = common::TestNormalizer::new()

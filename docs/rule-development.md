@@ -5,7 +5,7 @@ Rustinel loads three kinds of rules from the folders set in `config.toml`:
 | Kind | Default folder in a release | Checked against |
 | --- | --- | --- |
 | Sigma | `rules/sigma` | Every event |
-| YARA | `rules/yara` | Executables when they start, and optionally their memory |
+| YARA | `rules/yara` | Executables when they start, Linux memfd memory, and optionally other process memory |
 | IOC | `rules/ioc/*.txt` | Hashes of started executables, IPs, domains, paths |
 
 After `rustinel setup`, the folders are under `rules/current` in the [managed rules folder](operations.md#managed-paths).

@@ -219,14 +219,15 @@ impl LivePipeline {
             reload_tx = Some(tx);
         }
 
-        let (yara_memory_tx, yara_memory_rx) =
-            if cfg.scanner.yara_enabled && cfg.scanner.yara_memory_enabled {
-                let capacity = cfg.scanner.yara_memory_queue_capacity.max(1);
-                let (tx, rx) = mpsc::channel::<YaraMemoryJob>(capacity);
-                (Some(tx), Some(rx))
-            } else {
-                (None, None)
-            };
+        let (yara_memory_tx, yara_memory_rx) = if cfg.scanner.yara_enabled
+            && (cfg.scanner.yara_memory_enabled || platform == Platform::Linux)
+        {
+            let capacity = cfg.scanner.yara_memory_queue_capacity.max(1);
+            let (tx, rx) = mpsc::channel::<YaraMemoryJob>(capacity);
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
 
         // Spawn the optional YARA memory scanning worker.
         let yara_memory_worker_handle = if let Some(mem_rx) = yara_memory_rx {
@@ -268,6 +269,7 @@ impl LivePipeline {
         let yara_memory_handler = yara_memory_tx.map(|tx| YaraMemoryEventHandler {
             tx,
             allowlist_paths: yara_allowlist_paths,
+            scan_all_processes: cfg.scanner.yara_memory_enabled,
         });
 
         let mut downstream = SensorEventRouter::new();
@@ -394,12 +396,12 @@ mod tests {
 
     #[tokio::test]
     async fn optional_workers_follow_configuration_and_release_response_senders() {
-        for enabled in [false, true] {
+        for (enabled, memory_enabled) in [(false, false), (true, false), (true, true)] {
             let temp = tempfile::tempdir().unwrap();
             let mut cfg = AppConfig::default();
             cfg.scanner.sigma_enabled = false;
             cfg.scanner.yara_enabled = enabled;
-            cfg.scanner.yara_memory_enabled = enabled;
+            cfg.scanner.yara_memory_enabled = memory_enabled;
             cfg.scanner.yara_rules_path = temp.path().to_path_buf();
             cfg.ioc.enabled = enabled;
             cfg.ioc.hashes_path = temp.path().join("hashes.txt");

@@ -17,7 +17,7 @@ use crate::models::{
     AlertSeverity, CanonicalEvent, EventFields, MatchDebugLevel, ProcessCreationFields, Provenance,
     YaraRuleMatch, YaraStringMatch,
 };
-use crate::sensor::{CanonicalEventHandler, SensorAction};
+use crate::sensor::{CanonicalEventHandler, Platform, SensorAction};
 use crate::utils::cache::trim_to_headroom;
 use crate::utils::file_identity::{self, FileIdentity};
 use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
@@ -211,6 +211,8 @@ pub struct YaraMemoryJob {
     pub provenance: Provenance,
     /// Monotonic enqueue time so queue waiting counts toward the scan delay.
     pub enqueued_at: Instant,
+    /// Include memfd image mappings for a Linux fileless executable.
+    pub memfd_backed: bool,
 }
 
 /// Keep only the limitations on the fields a scan alert reports, so a queued
@@ -596,6 +598,8 @@ fn yara_score_severity(score: i64) -> Option<AlertSeverity> {
 pub struct YaraMemoryEventHandler {
     pub tx: Sender<YaraMemoryJob>,
     pub allowlist_paths: Vec<String>,
+    /// Scan ordinary process starts as well as Linux fileless executions.
+    pub scan_all_processes: bool,
 }
 
 impl CanonicalEventHandler for YaraMemoryEventHandler {
@@ -612,8 +616,22 @@ impl CanonicalEventHandler for YaraMemoryEventHandler {
         if is_path_allowlisted(path, &self.allowlist_paths) {
             return;
         }
+        if !self.scan_all_processes
+            && !(event.normalized().platform == Platform::Linux
+                && crate::utils::process::linux_exec_uses_proc(path))
+        {
+            return;
+        }
         let pid = event.pid.unwrap_or(0);
         let expected_identity = capture_process_identity(event, fields, pid, path);
+        let memfd_backed = event.normalized().platform == Platform::Linux
+            && (crate::utils::process::is_memfd_image(path)
+                || crate::utils::process::is_memfd_image(&expected_identity.image));
+        if (!self.scan_all_processes && !memfd_backed)
+            || is_path_allowlisted(&expected_identity.image, &self.allowlist_paths)
+        {
+            return;
+        }
         match crate::telemetry::try_send(
             crate::telemetry::ChannelId::YaraMemoryScan,
             &self.tx,
@@ -621,6 +639,7 @@ impl CanonicalEventHandler for YaraMemoryEventHandler {
                 expected_identity,
                 provenance: scan_subject_provenance(event.provenance()),
                 enqueued_at: Instant::now(),
+                memfd_backed,
             },
         ) {
             Ok(()) => tracing::trace!(
@@ -640,7 +659,7 @@ impl CanonicalEventHandler for YaraMemoryEventHandler {
     }
 }
 
-fn capture_process_identity(
+pub(crate) fn capture_process_identity(
     event: &CanonicalEvent,
     fields: &ProcessCreationFields,
     pid: u32,
@@ -655,7 +674,6 @@ fn capture_process_identity(
         .linux_identity
         .kernel_start_boottime
         .and_then(crate::utils::process::linux_boot_time_ns_to_start_ticks)
-        .or_else(|| queried.as_ref().and_then(|identity| identity.start_time))
         .or_else(|| {
             event
                 .process_start_key
@@ -663,7 +681,8 @@ fn capture_process_identity(
                 .and_then(|key| {
                     crate::utils::process::linux_boot_time_ns_to_start_ticks(key.start_time)
                 })
-        });
+        })
+        .or_else(|| queried.as_ref().and_then(|identity| identity.start_time));
     #[cfg(not(target_os = "linux"))]
     let start_time = event
         .process_start_key
@@ -683,7 +702,24 @@ fn capture_process_identity(
 
     ProcessIdentity {
         pid,
-        image: image.to_string(),
+        image: if event.normalized().platform == Platform::Linux
+            && crate::utils::process::linux_exec_uses_proc(image)
+            && !crate::utils::process::is_memfd_image(image)
+        {
+            queried
+                .as_ref()
+                .map(|identity| identity.image.clone())
+                .unwrap_or_default()
+        } else if event.normalized().platform == Platform::Linux
+            && crate::utils::process::is_memfd_image(image)
+        {
+            image
+                .strip_suffix(" (deleted)")
+                .unwrap_or(image)
+                .to_string()
+        } else {
+            image.to_string()
+        },
         start_time,
         command_line_hash,
     }
@@ -1053,6 +1089,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let handler = YaraMemoryEventHandler {
             tx,
+            scan_all_processes: true,
             allowlist_paths: Vec::new(),
         };
         let mut normalized = crate::models::NormalizedEvent {

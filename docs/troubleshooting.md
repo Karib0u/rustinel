@@ -89,7 +89,9 @@ See [macOS permissions](macos-permissions.md#start-up-errors).
 - The file is larger than `scanner.yara_max_file_mb`, or the scan hit `scanner.yara_scan_timeout_ms`.
 - The shared artifact queue was full: `rustinel doctor` reports `artifact_resolution` drops and an `artifact_resolver` queue-saturation outcome.
 
-For memory scans, also check that `scanner.yara_memory_enabled` is `true` and that the process did not exit before `yara_memory_delay_ms`.
+For memory scans, check that the process did not exit before `yara_memory_delay_ms`.
+Scanning ordinary processes also requires `scanner.yara_memory_enabled`; Linux memfd executions are queued whenever YARA is enabled.
+Descriptor-path and memfd executables are read through the executing process's `/proc/<pid>/exe` link, with process lifetime and file identity validation.
 Reading another process's memory can be refused: protected processes on Windows, missing `CAP_SYS_PTRACE` or a strict `ptrace_scope` on Linux, and most processes on macOS.
 Refusals are logged at `trace` level.
 

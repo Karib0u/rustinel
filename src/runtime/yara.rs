@@ -361,6 +361,11 @@ pub fn spawn_yara_memory_worker(
                 continue;
             }
 
+            let mut process_cfg = cfg.clone();
+            if job.memfd_backed {
+                // The private-memory default does not include memfd images.
+                process_cfg.include_image = true;
+            }
             let scanner = detectors.yara();
             let scan_result = scan_memory_regions(
                 scanner.limits().timeout,
@@ -368,7 +373,7 @@ pub fn spawn_yara_memory_worker(
                 |deadline, visitor| {
                     memory::visit_process_memory_chunks(
                         job.expected_identity.pid,
-                        &cfg,
+                        &process_cfg,
                         deadline,
                         visitor,
                     )
