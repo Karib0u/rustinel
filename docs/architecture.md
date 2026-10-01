@@ -42,7 +42,10 @@ ebpf/src/            Linux eBPF programs and the event ABI
 1. A platform sensor emits a `RawEvent` into the bounded `sensor_events` channel.
    Process records retain native numeric identities and source-specific facts; the other categories are migrated independently.
 2. `HostState` performs host-dependent enrichment after that channel and creates a provenance-carrying `CanonicalEvent`.
-3. Artifact-bearing events are queued for the bounded `artifact_resolution` resolver: process starts, image loads, and any file events a written-file selector chooses.
+3. Process starts and image loads use the bounded `artifact_resolution` queue.
+   Selected file events use a separate `artifact_written_files` queue, so written files cannot displace image jobs.
+   Each queue holds up to 256 jobs.
+   Written files settle for 250 ms in a bounded map keyed by path and event-time identity, with a deadline-ordered queue and repeated writes coalesced.
    It opens the file once, validates it against the identity captured at event time, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.
    A written file without an event-time identity is skipped and counted, never scanned by path alone.
 4. Admission routes every event to the downstream `SensorEventRouter` exactly once and in `ingest_seq` order, for Sigma/IOC detection or capture.
@@ -68,7 +71,8 @@ When that queue is full, the event keeps every rule at admission, evaluated with
 Admission and deferred passes share one correlation state; each pass keeps its own best match.
 A recording holds the event as admitted, so replay evaluates deferred-pass rules once without the fields, and its header reports how many rules that affects.
 If the artifact queue is full, a job exceeds its deadline, or PE metadata misses the budget, the event is admitted without that enrichment and the outcome is counted.
-Opens and reads run on at most four I/O threads; a thread blocked in the OS keeps its slot until the call returns, and non-regular Unix files are opened nonblocking and rejected.
+Each artifact queue has at most four I/O threads, so blocked written-file I/O cannot occupy image slots.
+A thread blocked in the OS keeps its slot until the call returns, and non-regular Unix files are opened nonblocking and rejected.
 Blocking an ETW callback or an eBPF ring reader would lose events in the kernel instead.
 
 `runtime/pipeline.rs` builds this pipeline for all three platforms.
