@@ -1915,7 +1915,7 @@
       "provider": "windows_event_log",
       "source": "PowerShell",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Windows PowerShell",
       "availability": "always"
     },
@@ -1928,7 +1928,7 @@
       "provider": "windows_event_log",
       "source": "PowerShell",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -1940,7 +1940,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-WMI-Activity/Operational",
       "availability": "always"
     },
@@ -1953,7 +1953,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProviderName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider start record names its provider"
     },
@@ -1966,7 +1966,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "alias of the reported provider name"
     },
@@ -1979,7 +1979,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProviderPath",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider start record names its module"
     },
@@ -1992,7 +1992,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "HostProcess",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider start record names its host"
     },
@@ -2005,7 +2005,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProcessId",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider start record carries a process ID"
     },
@@ -2018,7 +2018,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ResultCode",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider start record carries a result code"
     },
@@ -2031,7 +2031,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "alias of the provider start result code"
     },
@@ -2044,7 +2044,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-WMI-Activity/Operational",
       "availability": "always"
     },
@@ -2057,7 +2057,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Operation",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the failed operation is reported"
     },
@@ -2070,7 +2070,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the client user is reported"
     },
@@ -2083,7 +2083,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProcessId",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the client process is reported"
     },
@@ -2096,7 +2096,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "DestinationHostname",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the client machine is reported"
     },
@@ -2109,7 +2109,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Component",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the failing component is reported"
     },
@@ -2122,7 +2122,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ResultCode",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the failed operation has a result code"
     },
@@ -2135,7 +2135,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "PossibleCause",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider reports a possible cause"
     },
@@ -2148,7 +2148,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-WMI-Activity/Operational",
       "availability": "always"
     },
@@ -2161,7 +2161,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "EventNamespace",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscription namespace is reported"
     },
@@ -2174,7 +2174,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Query",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscription query is reported"
     },
@@ -2187,7 +2187,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscriber user is reported"
     },
@@ -2200,7 +2200,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProcessId",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscriber process is reported"
     },
@@ -2213,7 +2213,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProviderName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "event 5859 names its provider"
     },
@@ -2226,7 +2226,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "DestinationHostname",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "event 5860 names its machine"
     },
@@ -2239,7 +2239,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "PossibleCause",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider reports a possible cause"
     },
@@ -2252,7 +2252,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-WMI-Activity/Operational",
       "availability": "always"
     },
@@ -2265,7 +2265,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "EventNamespace",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscription namespace is reported"
     },
@@ -2278,7 +2278,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Query",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscription query is reported"
     },
@@ -2291,7 +2291,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscriber user is reported"
     },
@@ -2304,7 +2304,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProcessId",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the subscriber process is reported"
     },
@@ -2317,7 +2317,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ProviderName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "event 5859 names its provider"
     },
@@ -2330,7 +2330,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "DestinationHostname",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "event 5860 names its machine"
     },
@@ -2343,7 +2343,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "PossibleCause",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider reports a possible cause"
     },
@@ -2356,7 +2356,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-WMI-Activity/Operational",
       "availability": "always"
     },
@@ -2369,7 +2369,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "EventNamespace",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the binding namespace is reported"
     },
@@ -2382,7 +2382,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "FilterName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event filter name is reported"
     },
@@ -2395,7 +2395,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ConsumerClass",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the consumer identity is reported"
     },
@@ -2408,7 +2408,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ConsumerName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the consumer identity is reported"
     },
@@ -2421,7 +2421,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "ConsumerText",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the provider includes the consumer definition"
     },
@@ -2434,7 +2434,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "Destination",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the consumer definition carries the command or script"
     },
@@ -2447,7 +2447,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-WMI-Activity",
       "field": "PossibleCause",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the binding details are reported"
     },
@@ -2798,7 +2798,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -2811,7 +2811,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -2823,7 +2823,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -2836,7 +2836,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -2849,7 +2849,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -2862,7 +2862,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -2874,7 +2874,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -2887,7 +2887,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -2900,7 +2900,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -2913,7 +2913,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -2925,7 +2925,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -2938,7 +2938,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -2951,7 +2951,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -2964,7 +2964,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -2976,7 +2976,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -2989,7 +2989,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3002,7 +3002,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Old Value",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3015,7 +3015,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "New Value",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3028,7 +3028,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "OldValue",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3041,7 +3041,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "NewValue",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3054,7 +3054,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -3067,7 +3067,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -3079,7 +3079,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3092,7 +3092,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3105,7 +3105,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Changed Type",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3118,7 +3118,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Value",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3131,7 +3131,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -3144,7 +3144,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -3156,7 +3156,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3169,7 +3169,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3182,7 +3182,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3195,7 +3195,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Source Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3208,7 +3208,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Source",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3221,7 +3221,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Process Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3234,7 +3234,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Domain",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3247,7 +3247,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3260,7 +3260,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "SID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3273,7 +3273,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3286,7 +3286,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3299,7 +3299,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3312,7 +3312,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3325,7 +3325,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FWLink",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3338,7 +3338,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Path Found",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3351,7 +3351,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Origin Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3364,7 +3364,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Origin",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3377,7 +3377,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution Status Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3390,7 +3390,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3403,7 +3403,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Type Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3416,7 +3416,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Type",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3429,7 +3429,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3442,7 +3442,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3455,7 +3455,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3468,7 +3468,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Engine Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3481,7 +3481,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ProcessName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3494,7 +3494,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ThreatName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3507,7 +3507,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -3520,7 +3520,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -3532,7 +3532,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3545,7 +3545,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3558,7 +3558,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3571,7 +3571,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Source Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3584,7 +3584,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Source",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3597,7 +3597,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Process Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3610,7 +3610,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Domain",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3623,7 +3623,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3636,7 +3636,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "SID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3649,7 +3649,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3662,7 +3662,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3675,7 +3675,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3688,7 +3688,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3701,7 +3701,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FWLink",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3714,7 +3714,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Path Found",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3727,7 +3727,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Origin Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3740,7 +3740,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Origin",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3753,7 +3753,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution Status Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3766,7 +3766,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3779,7 +3779,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Type Index",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3792,7 +3792,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Type",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3805,7 +3805,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3818,7 +3818,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3831,7 +3831,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3844,7 +3844,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Engine Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3857,7 +3857,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Process ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3870,7 +3870,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3883,7 +3883,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FidelityValue",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3896,7 +3896,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FidelityLabel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3909,7 +3909,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Image File Hash",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3922,7 +3922,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "TargetFileName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3935,7 +3935,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "TargetFileHash",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3948,7 +3948,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ProcessName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3961,7 +3961,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ThreatName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -3974,7 +3974,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -3987,7 +3987,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -3999,7 +3999,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4012,7 +4012,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4025,7 +4025,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4038,7 +4038,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Time",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4051,7 +4051,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4064,7 +4064,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4077,7 +4077,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4090,7 +4090,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4103,7 +4103,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4116,7 +4116,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4129,7 +4129,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FWLink",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4142,7 +4142,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Status Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4155,7 +4155,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Status Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4168,7 +4168,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "State",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4181,7 +4181,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Source ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4194,7 +4194,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Source Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4207,7 +4207,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Process Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4220,7 +4220,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4233,7 +4233,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Path",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4246,7 +4246,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Origin ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4259,7 +4259,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Origin Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4272,7 +4272,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4285,7 +4285,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4298,7 +4298,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Type ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4311,7 +4311,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Type Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4324,7 +4324,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Pre Execution Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4337,7 +4337,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Action ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4350,7 +4350,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Action Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4363,7 +4363,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4376,7 +4376,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4389,7 +4389,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Post Clean Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4402,7 +4402,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Additional Actions ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4415,7 +4415,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Additional Actions String",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4428,7 +4428,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Remediation User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4441,7 +4441,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4454,7 +4454,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Engine Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4467,7 +4467,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ProcessName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4480,7 +4480,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "SourceName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4493,7 +4493,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ThreatName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4506,7 +4506,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -4519,7 +4519,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -4531,7 +4531,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4544,7 +4544,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4557,7 +4557,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4570,7 +4570,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Time",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4583,7 +4583,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4596,7 +4596,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4609,7 +4609,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4622,7 +4622,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4635,7 +4635,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4648,7 +4648,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4661,7 +4661,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FWLink",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4674,7 +4674,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Status Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4687,7 +4687,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Status Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4700,7 +4700,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "State",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4713,7 +4713,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Source ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4726,7 +4726,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Source Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4739,7 +4739,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Process Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4752,7 +4752,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4765,7 +4765,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Path",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4778,7 +4778,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Origin ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4791,7 +4791,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Origin Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4804,7 +4804,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4817,7 +4817,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4830,7 +4830,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Type ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4843,7 +4843,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Type Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4856,7 +4856,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Pre Execution Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4869,7 +4869,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Action ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4882,7 +4882,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Action Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4895,7 +4895,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4908,7 +4908,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4921,7 +4921,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Post Clean Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4934,7 +4934,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Additional Actions ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4947,7 +4947,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Additional Actions String",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4960,7 +4960,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Remediation User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4973,7 +4973,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4986,7 +4986,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Engine Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -4999,7 +4999,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ProcessName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5012,7 +5012,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "SourceName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5025,7 +5025,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ThreatName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5038,7 +5038,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -5051,7 +5051,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -5063,7 +5063,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5076,7 +5076,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5089,7 +5089,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5102,7 +5102,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Time",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5115,7 +5115,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5128,7 +5128,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5141,7 +5141,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5154,7 +5154,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5167,7 +5167,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5180,7 +5180,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5193,7 +5193,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FWLink",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5206,7 +5206,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Status Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5219,7 +5219,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Status Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5232,7 +5232,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "State",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5245,7 +5245,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Source ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5258,7 +5258,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Source Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5271,7 +5271,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Process Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5284,7 +5284,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5297,7 +5297,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Path",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5310,7 +5310,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Origin ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5323,7 +5323,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Origin Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5336,7 +5336,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5349,7 +5349,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Execution Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5362,7 +5362,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Type ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5375,7 +5375,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Type Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5388,7 +5388,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Pre Execution Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5401,7 +5401,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Action ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5414,7 +5414,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Action Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5427,7 +5427,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5440,7 +5440,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5453,7 +5453,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Post Clean Status",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5466,7 +5466,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Additional Actions ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5479,7 +5479,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Additional Actions String",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5492,7 +5492,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Remediation User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5505,7 +5505,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5518,7 +5518,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Engine Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5531,7 +5531,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ProcessName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5544,7 +5544,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "SourceName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5557,7 +5557,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ThreatName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5570,7 +5570,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -5583,7 +5583,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -5595,7 +5595,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5608,7 +5608,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5621,7 +5621,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Domain",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5634,7 +5634,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5647,7 +5647,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "SID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5660,7 +5660,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5673,7 +5673,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Threat ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5686,7 +5686,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5699,7 +5699,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5712,7 +5712,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "FWLink",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5725,7 +5725,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Path",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5738,7 +5738,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Severity Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5751,7 +5751,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Category Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5764,7 +5764,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5777,7 +5777,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Engine Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5790,7 +5790,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ThreatName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5803,7 +5803,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -5816,7 +5816,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -5828,7 +5828,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5841,7 +5841,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5854,7 +5854,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Timestamp",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5867,7 +5867,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Domain",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5880,7 +5880,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5893,7 +5893,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "SID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5906,7 +5906,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -5919,7 +5919,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -5931,7 +5931,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5944,7 +5944,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5957,7 +5957,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5970,7 +5970,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Detection Time",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5983,7 +5983,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "User",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5996,7 +5996,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Path",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6009,7 +6009,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Process Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6022,7 +6022,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Security intelligence Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6035,7 +6035,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Engine Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6048,7 +6048,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "RuleType",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6061,7 +6061,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Target Commandline",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6074,7 +6074,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Parent Commandline",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6087,7 +6087,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Involved File",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6100,7 +6100,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Inhertiance Flags",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6113,7 +6113,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ProcessName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6126,7 +6126,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -6139,7 +6139,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -6151,7 +6151,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6164,7 +6164,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6177,7 +6177,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Feature Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6190,7 +6190,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Reason",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6203,7 +6203,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6216,7 +6216,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6229,7 +6229,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Feature ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6242,7 +6242,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Feature_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6255,7 +6255,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -6268,7 +6268,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -6280,7 +6280,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6293,7 +6293,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6306,7 +6306,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Feature Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6319,7 +6319,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Reason",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6332,7 +6332,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Feature ID",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6345,7 +6345,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Feature_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6358,7 +6358,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Microsoft-Windows-Windows Defender/Operational",
       "availability": "always"
     },
@@ -6371,7 +6371,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -6383,7 +6383,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6396,7 +6396,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Product Version",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6409,7 +6409,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Code",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6422,7 +6422,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Error Description",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -13428,7 +13428,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13441,7 +13441,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13453,7 +13453,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13465,7 +13465,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13478,7 +13478,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "AppName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "Application Error event 1000 supplies the first positional value"
     },
@@ -13491,7 +13491,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "AppVersion",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "Application Error event 1000 supplies the second positional value"
     },
@@ -13504,7 +13504,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "ModuleName",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "Application Error event 1000 supplies the fourth positional value"
     },
@@ -13517,7 +13517,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "ExceptionCode",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "Application Error event 1000 supplies the seventh positional value"
     },
@@ -13530,7 +13530,7 @@
       "provider": "windows_event_log",
       "source": "Application Error",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13543,7 +13543,7 @@
       "provider": "windows_event_log",
       "source": "Windows Error Reporting",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13556,7 +13556,7 @@
       "provider": "windows_event_log",
       "source": "Windows Error Reporting",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13568,7 +13568,7 @@
       "provider": "windows_event_log",
       "source": "Windows Error Reporting",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13580,7 +13580,7 @@
       "provider": "windows_event_log",
       "source": "Windows Error Reporting",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13593,7 +13593,7 @@
       "provider": "windows_event_log",
       "source": "Windows Error Reporting",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13606,7 +13606,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Audit-CVE",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13619,7 +13619,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Audit-CVE",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13631,7 +13631,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Audit-CVE",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13643,7 +13643,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Audit-CVE",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13656,7 +13656,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Audit-CVE",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13669,7 +13669,7 @@
       "provider": "windows_event_log",
       "source": "Audit-CVE",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13682,7 +13682,7 @@
       "provider": "windows_event_log",
       "source": "Audit-CVE",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13694,7 +13694,7 @@
       "provider": "windows_event_log",
       "source": "Audit-CVE",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13706,7 +13706,7 @@
       "provider": "windows_event_log",
       "source": "Audit-CVE",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13719,7 +13719,7 @@
       "provider": "windows_event_log",
       "source": "Audit-CVE",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13732,7 +13732,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13745,7 +13745,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13757,7 +13757,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13769,7 +13769,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13782,7 +13782,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13795,7 +13795,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13808,7 +13808,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13820,7 +13820,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13832,7 +13832,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13845,7 +13845,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13858,7 +13858,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13871,7 +13871,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13883,7 +13883,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13895,7 +13895,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13908,7 +13908,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13921,7 +13921,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13934,7 +13934,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13946,7 +13946,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -13958,7 +13958,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -13971,7 +13971,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -13984,7 +13984,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -13997,7 +13997,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14009,7 +14009,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14021,7 +14021,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14034,7 +14034,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-SoftwareRestrictionPolicies",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14047,7 +14047,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14060,7 +14060,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14072,7 +14072,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14084,7 +14084,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14097,7 +14097,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14110,7 +14110,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14123,7 +14123,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14135,7 +14135,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14147,7 +14147,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14160,7 +14160,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14173,7 +14173,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14186,7 +14186,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14198,7 +14198,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14210,7 +14210,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14223,7 +14223,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14236,7 +14236,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14249,7 +14249,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14261,7 +14261,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14273,7 +14273,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14286,7 +14286,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14299,7 +14299,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14312,7 +14312,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14324,7 +14324,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14336,7 +14336,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14349,7 +14349,7 @@
       "provider": "windows_event_log",
       "source": "MsiInstaller",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14362,7 +14362,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14375,7 +14375,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14387,7 +14387,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14399,7 +14399,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14412,7 +14412,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14425,7 +14425,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14438,7 +14438,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14450,7 +14450,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14462,7 +14462,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14475,7 +14475,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14488,7 +14488,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14501,7 +14501,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14513,7 +14513,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14525,7 +14525,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14538,7 +14538,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14551,7 +14551,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14564,7 +14564,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14576,7 +14576,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14588,7 +14588,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14601,7 +14601,7 @@
       "provider": "windows_event_log",
       "source": "ESENT",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14614,7 +14614,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14627,7 +14627,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14639,7 +14639,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14651,7 +14651,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14664,7 +14664,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14677,7 +14677,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14690,7 +14690,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14702,7 +14702,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14714,7 +14714,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14727,7 +14727,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14740,7 +14740,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14753,7 +14753,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14765,7 +14765,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14777,7 +14777,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14790,7 +14790,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14803,7 +14803,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14816,7 +14816,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14828,7 +14828,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14840,7 +14840,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14853,7 +14853,7 @@
       "provider": "windows_event_log",
       "source": "MSSQL*",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14866,7 +14866,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Backup",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14879,7 +14879,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Backup",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14891,7 +14891,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Backup",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14903,7 +14903,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Backup",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14916,7 +14916,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Backup",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14929,7 +14929,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -14942,7 +14942,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14954,7 +14954,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -14966,7 +14966,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -14979,7 +14979,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -14992,7 +14992,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -15005,7 +15005,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15017,7 +15017,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15029,7 +15029,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -15042,7 +15042,7 @@
       "provider": "windows_event_log",
       "source": "ScreenConnect",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -15055,7 +15055,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-User Profiles Service",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -15068,7 +15068,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-User Profiles Service",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15080,7 +15080,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-User Profiles Service",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15092,7 +15092,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-User Profiles Service",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -15105,7 +15105,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-User Profiles Service",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -15118,7 +15118,7 @@
       "provider": "windows_event_log",
       "source": "Windows Server Update Services",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -15131,7 +15131,7 @@
       "provider": "windows_event_log",
       "source": "Windows Server Update Services",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15143,7 +15143,7 @@
       "provider": "windows_event_log",
       "source": "Windows Server Update Services",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15155,7 +15155,7 @@
       "provider": "windows_event_log",
       "source": "Windows Server Update Services",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -15168,7 +15168,7 @@
       "provider": "windows_event_log",
       "source": "Windows Server Update Services",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -15181,7 +15181,7 @@
       "provider": "windows_event_log",
       "source": "MSMQ",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -15194,7 +15194,7 @@
       "provider": "windows_event_log",
       "source": "MSMQ",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15206,7 +15206,7 @@
       "provider": "windows_event_log",
       "source": "MSMQ",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15218,7 +15218,7 @@
       "provider": "windows_event_log",
       "source": "MSMQ",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -15231,7 +15231,7 @@
       "provider": "windows_event_log",
       "source": "MSMQ",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
@@ -15244,7 +15244,7 @@
       "provider": "windows_event_log",
       "source": "MSExchange Control Panel",
       "field": "Channel",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "value": "Application",
       "availability": "always"
     },
@@ -15257,7 +15257,7 @@
       "provider": "windows_event_log",
       "source": "MSExchange Control Panel",
       "field": "Provider_Name",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15269,7 +15269,7 @@
       "provider": "windows_event_log",
       "source": "MSExchange Control Panel",
       "field": "Level",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "always"
     },
     {
@@ -15281,7 +15281,7 @@
       "provider": "windows_event_log",
       "source": "MSExchange Control Panel",
       "field": "Data",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "conditional",
       "reason": "the event has non-empty EventData values"
     },
@@ -15294,7 +15294,7 @@
       "provider": "windows_event_log",
       "source": "MSExchange Control Panel",
       "field": "Message",
-      "since": "1.8.0",
+      "since": "1.9.0",
       "availability": "never",
       "reason": "formatted, localized messages are not rendered by the XML subscription"
     },
