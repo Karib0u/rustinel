@@ -3,13 +3,15 @@
 //! Non-blocking alert intake with a background worker that can terminate
 //! processes on alerts that meet the configured severity threshold.
 
+mod process;
+
 use crate::config::ResponseConfig;
 use crate::models::{Alert, AlertSeverity, DetectionEngine, EventFields};
 use crate::utils::{
-    hash_command_line, normalize_path_for_comparison, validate_process_identity, LogRateLimiter,
-    ProcessIdentity,
+    hash_command_line, normalize_path_for_comparison, LogRateLimiter, ProcessIdentity,
 };
 use arc_swap::ArcSwap;
+use process::ProcessTarget;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
@@ -268,6 +270,26 @@ fn handle_task(
     allowlist_images: &[String],
     allowlist_paths: &[String],
 ) {
+    handle_task_with_hook(
+        task,
+        prevention_enabled,
+        self_pid,
+        allowlist_images,
+        allowlist_paths,
+        |_, _| {},
+    );
+}
+
+// The hook lets tests redirect bare PID lookups after validation while keeping
+// the native process reference unchanged. Production uses a no-op hook.
+fn handle_task_with_hook(
+    task: ResponseTask,
+    prevention_enabled: bool,
+    self_pid: u32,
+    allowlist_images: &[String],
+    allowlist_paths: &[String],
+    after_validation: impl FnOnce(&mut u32, &mut ProcessTarget),
+) {
     match decide_response(
         task.pid,
         task.image.as_deref(),
@@ -334,7 +356,7 @@ fn handle_task(
                 "Active response would terminate process"
             );
         }
-        ResponseDecision::Terminate { pid, image } => {
+        ResponseDecision::Terminate { mut pid, image } => {
             let expected_identity = task.identity.unwrap_or_else(|| ProcessIdentity {
                 pid,
                 image: image.clone(),
@@ -342,33 +364,36 @@ fn handle_task(
                 command_line_hash: None,
             });
 
-            match validate_process_identity(&expected_identity) {
-                Ok(current_identity) => match terminate_process(pid) {
-                    Ok(()) => {
-                        info!(
-                            target: TARGET_RESPONSE,
-                            pid,
-                            image = %image,
-                            current_image = %current_identity.image,
-                            rule = %task.rule_name,
-                            engine = ?task.engine,
-                            severity = ?task.severity,
-                            "Active response terminated process"
-                        );
+            match ProcessTarget::open(&expected_identity) {
+                Ok(mut target) => {
+                    after_validation(&mut pid, &mut target);
+                    match target.terminate() {
+                        Ok(()) => {
+                            info!(
+                                target: TARGET_RESPONSE,
+                                pid,
+                                image = %image,
+                                current_image = %target.identity.image,
+                                rule = %task.rule_name,
+                                engine = ?task.engine,
+                                severity = ?task.severity,
+                                "Active response terminated process"
+                            );
+                        }
+                        Err(err) => {
+                            error!(
+                                target: TARGET_RESPONSE,
+                                pid,
+                                image = %image,
+                                rule = %task.rule_name,
+                                engine = ?task.engine,
+                                severity = ?task.severity,
+                                error = %err,
+                                "Active response failed to terminate process"
+                            );
+                        }
                     }
-                    Err(err) => {
-                        error!(
-                            target: TARGET_RESPONSE,
-                            pid,
-                            image = %image,
-                            rule = %task.rule_name,
-                            engine = ?task.engine,
-                            severity = ?task.severity,
-                            error = %err,
-                            "Active response failed to terminate process"
-                        );
-                    }
-                },
+                }
                 Err(err) => {
                     let skipped_identity_mismatch_count =
                         IDENTITY_MISMATCH_SKIPS.fetch_add(1, Ordering::Relaxed) + 1;
@@ -595,41 +620,6 @@ fn is_allowlisted(image: &str, allowlist_images: &[String], allowlist_paths: &[S
     false
 }
 
-#[cfg(windows)]
-fn terminate_process(pid: u32) -> Result<(), String> {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
-
-    let handle = unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) }
-        .map_err(|err| format!("OpenProcess failed: {}", err))?;
-
-    let result = unsafe { TerminateProcess(handle, 1) };
-    unsafe {
-        let _ = CloseHandle(handle);
-    }
-
-    match result {
-        Ok(()) => Ok(()),
-        Err(err) => Err(format!("TerminateProcess failed: {}", err)),
-    }
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn terminate_process(pid: u32) -> Result<(), String> {
-    let ret = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
-    if ret == 0 {
-        Ok(())
-    } else {
-        let err = std::io::Error::last_os_error();
-        Err(format!("kill({}, SIGKILL) failed: {}", pid, err))
-    }
-}
-
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn terminate_process(_pid: u32) -> Result<(), String> {
-    Err("Active response termination is not supported on this platform".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,11 +628,206 @@ mod tests {
         ProcessCreationFields,
     };
     use crate::sensor::Platform;
+    #[cfg(any(windows, target_os = "linux"))]
+    use crate::utils::validate_process_identity;
     use std::{
         io::{self, Write},
         sync::{Arc, Mutex},
     };
     use tracing_subscriber::fmt::MakeWriter;
+
+    // Spawn this test in a separate copy of the test executable. It needs no
+    // example build, shell, privileges, or platform-specific external program.
+    #[test]
+    fn response_child_fixture() {
+        let Some(ready) = std::env::var_os("RUSTINEL_RESPONSE_TEST_READY") else {
+            return;
+        };
+        std::fs::write(ready, b"ready").expect("write child readiness marker");
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    struct ResponseChild {
+        child: std::process::Child,
+        _ready_dir: tempfile::TempDir,
+    }
+
+    impl ResponseChild {
+        fn spawn() -> Self {
+            let ready_dir = tempfile::tempdir().expect("child readiness directory");
+            let ready = ready_dir.path().join("ready");
+            let child =
+                std::process::Command::new(std::env::current_exe().expect("test executable"))
+                    .args(["--exact", "response::tests::response_child_fixture"])
+                    .env("RUSTINEL_RESPONSE_TEST_READY", &ready)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .expect("spawn response child");
+            let mut child = Self {
+                child,
+                _ready_dir: ready_dir,
+            };
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while !ready.exists() {
+                assert!(
+                    child.child.try_wait().expect("child status").is_none(),
+                    "child exited before ready"
+                );
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "child readiness timed out"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            child
+        }
+
+        fn task(&self) -> ResponseTask {
+            let identity =
+                crate::utils::query_process_identity(self.child.id()).expect("child identity");
+            ResponseTask {
+                severity: AlertSeverity::Critical,
+                rule_name: "Response child test".to_string(),
+                engine: DetectionEngine::Sigma,
+                pid: Some(identity.pid),
+                image: Some(identity.image.clone()),
+                identity: Some(identity),
+            }
+        }
+
+        fn assert_running(&mut self) {
+            assert!(
+                self.child.try_wait().expect("child status").is_none(),
+                "response killed a child that should survive"
+            );
+        }
+
+        fn wait_for_exit(&mut self) {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while self.child.try_wait().expect("child status").is_none() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "response did not terminate child"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+
+    impl Drop for ResponseChild {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[test]
+    fn response_terminates_validated_child() {
+        let mut child = ResponseChild::spawn();
+        handle_task(child.task(), true, std::process::id(), &[], &[]);
+        child.wait_for_exit();
+    }
+
+    #[test]
+    fn response_dry_run_preserves_child() {
+        let mut child = ResponseChild::spawn();
+        let mut validated = false;
+        handle_task_with_hook(child.task(), false, std::process::id(), &[], &[], |_, _| {
+            validated = true
+        });
+        assert!(!validated, "dry run must not open a termination target");
+        child.assert_running();
+    }
+
+    #[test]
+    fn response_rejects_mismatched_child_identity() {
+        let mut child = ResponseChild::spawn();
+        for mismatch in 0..3 {
+            let mut task = child.task();
+            let identity = task.identity.as_mut().expect("expected identity");
+            match mismatch {
+                0 => identity.image = "/different/executable".to_string(),
+                1 => identity.start_time = Some(identity.start_time.expect("child start time") + 1),
+                // macOS cannot query a command-line hash.
+                _ if cfg!(target_os = "macos") => continue,
+                _ => identity.command_line_hash = Some("different hash".to_string()),
+            }
+            let mut validated = false;
+            handle_task_with_hook(task, true, std::process::id(), &[], &[], |_, _| {
+                validated = true
+            });
+            assert!(!validated, "mismatched identity must skip termination");
+            child.assert_running();
+        }
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn response_target_swap_after_validation_preserves_replacement() {
+        let mut original = ResponseChild::spawn();
+        let mut replacement = None;
+        handle_task_with_hook(
+            original.task(),
+            true,
+            std::process::id(),
+            &[],
+            &[],
+            |pid, target| {
+                original
+                    .child
+                    .kill()
+                    .expect("end original process after validation");
+                original.child.wait().expect("reap original process");
+                let child = ResponseChild::spawn();
+                // Deterministically simulate PID lookup resolving to a replacement.
+                // Kernel PID reuse cannot be forced portably in unprivileged CI.
+                // Termination must use the retained handle even if the stored PID
+                // and all identity metadata are redirected to the replacement.
+                *pid = child.child.id();
+                target.identity = child.task().identity.expect("replacement identity");
+                replacement = Some(child);
+            },
+        );
+        let mut replacement = replacement.expect("swap hook ran after validation");
+        std::thread::sleep(Duration::from_millis(100));
+        replacement.assert_running();
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn response_termination_uses_retained_handle_despite_pid_change() {
+        let mut original = ResponseChild::spawn();
+        let mut replacement = ResponseChild::spawn();
+        let mut validated = false;
+        handle_task_with_hook(
+            original.task(),
+            true,
+            std::process::id(),
+            &[],
+            &[],
+            |pid, target| {
+                validated = true;
+                *pid = replacement.child.id();
+                target.identity = replacement.task().identity.expect("replacement identity");
+            },
+        );
+        assert!(validated, "original identity was validated");
+        original.wait_for_exit();
+        replacement.assert_running();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn response_pidfd_liveness_rejects_exited_process() {
+        let mut child = ResponseChild::spawn();
+        let target = ProcessTarget::open(&child.task().identity.expect("child identity"))
+            .expect("open live child pidfd");
+        child.child.kill().expect("end child");
+        child.child.wait().expect("reap child");
+        assert!(target.ensure_live().is_err());
+        assert!(target.terminate().is_err());
+    }
 
     #[test]
     fn yara_response_intake_respects_severity_and_preserves_it_in_tasks() {
