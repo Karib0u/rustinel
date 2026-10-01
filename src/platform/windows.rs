@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
+use windows_service::service::ServiceAccess;
 
 use crate::cli::ServiceAction;
 use crate::sensor::ProcessStartKey;
@@ -16,6 +17,10 @@ pub const SERVICE_NAME: &str = WINDOWS_SERVICE_NAME;
 
 const SERVICE_STOP_TIMEOUT: Duration = Duration::from_secs(30);
 const SERVICE_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(100);
+// Windows requires START access when configuring SC_ACTION_RESTART recovery.
+const SERVICE_INSTALL_ACCESS: ServiceAccess = ServiceAccess::QUERY_CONFIG
+    .union(ServiceAccess::CHANGE_CONFIG)
+    .union(ServiceAccess::START);
 
 pub fn handle_service_command(action: ServiceAction) -> anyhow::Result<()> {
     let backend = WindowsServiceBackend::new();
@@ -97,7 +102,6 @@ impl ServiceBackend for WindowsServiceBackend {
     }
 
     fn install(&self) -> anyhow::Result<()> {
-        use windows_service::service::ServiceAccess;
         use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
         self.paths.validate_install_inputs()?;
@@ -107,7 +111,7 @@ impl ServiceBackend for WindowsServiceBackend {
             ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
         )?;
         let service_info = self.service_info();
-        let access = ServiceAccess::QUERY_CONFIG | ServiceAccess::CHANGE_CONFIG;
+        let access = SERVICE_INSTALL_ACCESS;
 
         match manager.open_service(SERVICE_NAME, access) {
             Ok(service) => {
@@ -239,6 +243,67 @@ fn windows_status(state: windows_service::service::ServiceState) -> ServiceStatu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires Administrator privileges and creates a temporary SCM service"]
+    fn configures_recovery_on_created_and_existing_services() {
+        use windows_service::service::{
+            Service, ServiceActionType, ServiceFailureResetPeriod, ServiceStartType,
+        };
+        use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+
+        struct TemporaryService(Service);
+        impl Drop for TemporaryService {
+            fn drop(&mut self) {
+                let _ = self.0.delete();
+            }
+        }
+
+        fn check_recovery(service: &Service) {
+            let recovery = service.get_failure_actions().expect("query recovery");
+            assert_eq!(
+                recovery.reset_period,
+                ServiceFailureResetPeriod::After(Duration::from_secs(86_400))
+            );
+            let actions = recovery.actions.expect("restart actions");
+            assert_eq!(actions.len(), 3);
+            for action in actions {
+                assert_eq!(action.action_type, ServiceActionType::Restart);
+                assert_eq!(action.delay, Duration::from_secs(5));
+            }
+            assert!(service
+                .get_failure_actions_on_non_crash_failures()
+                .expect("query non-crash recovery flag"));
+        }
+
+        let manager = ServiceManager::local_computer(
+            None::<&str>,
+            ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
+        )
+        .expect("connect to SCM as Administrator");
+        let mut info = WindowsServiceBackend::new().service_info();
+        info.name = OsString::from(format!("RustinelRecoveryTest-{}", std::process::id()));
+        info.display_name = info.name.clone();
+        info.start_type = ServiceStartType::OnDemand;
+        info.executable_path = std::env::current_exe().expect("test executable");
+        info.launch_arguments.clear();
+        let service = TemporaryService(
+            manager
+                .create_service(&info, SERVICE_INSTALL_ACCESS | ServiceAccess::DELETE)
+                .expect("create temporary service"),
+        );
+        WindowsServiceBackend::configure_recovery(&service.0).expect("configure created service");
+        check_recovery(&service.0);
+
+        let existing = manager
+            .open_service(&info.name, SERVICE_INSTALL_ACCESS)
+            .expect("open existing service");
+        existing
+            .set_failure_actions_on_non_crash_failures(false)
+            .expect("clear non-crash recovery flag");
+        WindowsServiceBackend::configure_recovery(&existing).expect("configure existing service");
+        check_recovery(&existing);
+    }
 
     #[test]
     fn waits_until_service_reaches_expected_state() {

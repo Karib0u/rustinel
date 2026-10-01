@@ -78,6 +78,9 @@ The service definitions are:
 - **macOS:** `/Library/LaunchDaemons/com.rustinel.agent.plist`.
 - **Windows:** the `Rustinel` service in the Service Control Manager.
 
+Windows recovery restarts the service after five seconds on crashes and non-crash error stops, with three restart actions and a failure-count reset period of 24 hours.
+Run `rustinel service install` to apply these settings to an existing service, then inspect them with `sc.exe qfailure Rustinel` and `sc.exe qfailureflag Rustinel`.
+
 ## Sensor callback failures
 
 Release builds terminate the whole agent if a sensor callback panics.
