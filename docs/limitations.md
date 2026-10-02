@@ -94,6 +94,15 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Cutting removes the end, which is what `|endswith` and extension indicators match, see [Fields](sigma.md#fields).
 - **`Image` is the path given to `execve()`**, so it can be relative.
   A process that rewrites its own arguments reports the originals.
+- **Process artifact scans need a readable process context.**
+  YARA file and hash IOC scans can miss a container process that exits before resolution or whose `/proc` entries cannot be read.
+  Artifact resolver failures are counted in [doctor](doctor.md).
+- **Scripts need a file snapshot.**
+  Without a sensor-provided file identity, the artifact worker measures script identity when it resolves the path.
+  A script changed before this snapshot can be scanned as its later version.
+  A removed file or a change after the snapshot can prevent scanning.
+- **Relative scripts use the process's live working directory.**
+  A changed directory can prevent scanning the original script.
 - **File events whose path cannot be rebuilt are dropped** and counted as `unresolved_file_events`.
 - **Silent: stale directory descriptors.**
   A file path relative to a directory descriptor opened before Rustinel started, duplicated, inherited, or opened without `O_DIRECTORY` is resolved through `/proc` a moment later.

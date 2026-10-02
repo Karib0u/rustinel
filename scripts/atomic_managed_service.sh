@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "--version" ]]; then
+  exec "$GITHUB_WORKSPACE/target/release/rustinel" --version
+fi
+
 # The atomic harness starts this wrapper in its prepared engine directory.
 # Install its configuration and run the engine through the generated unit.
 cleanup() {

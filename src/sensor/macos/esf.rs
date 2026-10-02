@@ -1040,7 +1040,7 @@ mod tests {
         let canonical = Arc::new(crate::state::HostState::default())
             .canonicalize(event.clone())
             .unwrap();
-        let target = crate::artifact::ArtifactTarget::from_event(&canonical, None)
+        let target = crate::artifact::ArtifactTarget::select_event(&canonical, None)
             .expect("process start is an artifact target");
         assert_eq!(
             target.expected,
