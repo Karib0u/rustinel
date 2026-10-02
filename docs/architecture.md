@@ -44,8 +44,10 @@ ebpf/src/            Linux eBPF programs and the event ABI
 2. `HostState` performs host-dependent enrichment after that channel and creates a provenance-carrying `CanonicalEvent`.
 3. Process starts and image loads use the bounded `artifact_resolution` queue.
    Selected file events use a separate `artifact_written_files` queue, so written files cannot displace image jobs.
-   Each queue holds up to 256 jobs.
-   Written files settle for 250 ms in a bounded map keyed by path and object identity, with a deadline-ordered queue and repeated writes coalesced.
+   The image queue holds up to 256 jobs, and the written-file queue holds up to 8,192 jobs.
+   Written files settle for 250 ms in a map of up to 8,192 targets keyed by path and object identity, with a deadline-ordered queue and repeated writes coalesced.
+   At table capacity, new targets check up to 64 pending paths for disappearance, rotating through deadline order and wrapping at the end.
+   Vanished targets are removed from both indexes and the arrival-identity cache, and counted as open failures; lookup errors leave the job pending.
    Linux (eBPF) and macOS (Endpoint Security) measure that identity in the kernel at event time.
    Kernel-File ETW carries no file ID, so on Windows the written-file worker reads the volume file ID from the path when it receives the job, before the settle delay.
    It opens the file once, validates it against that identity, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.

@@ -39,6 +39,11 @@ Fields each platform never fills are listed in [Field availability](field-availa
 - **Events are dropped under bursts.**
   Queues shed events instead of blocking the sensor.
   Drops are counted, see [Telemetry loss](telemetry-loss.md), but there is no sampling or prioritization.
+- **Written-file scans can be shed under pressure.**
+  Written files use an 8,192-job queue and a separate table of up to 8,192 path and object targets settling for 250 ms.
+  At table capacity, each new target checks up to 64 pending paths and frees slots for files that have vanished, continuing from the previous check on the next arrival.
+  If the queue is full or that check frees no slot, the new file is not scanned by YARA or hash IOCs and is counted under `artifact_resolver.written_file_dropped`.
+  Base file telemetry and Sigma evaluation still run; `rustinel doctor` reports shed scans as a detection gap.
 
 ## Windows
 

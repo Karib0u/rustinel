@@ -60,6 +60,7 @@ Rules that select on either field run in a separate pass, once per event, as soo
 YARA scans the executable of every new process and qualifying files written to disk, skipping [trusted paths](configuration.md#default-trusted-paths).
 A written file uses a separate queue and I/O capacity from process images.
 Repeated writes to the same path and object coalesce during a 250 ms settle delay.
+Burst capacity and scan shedding are described in [Written-file limits](limitations.md#pipeline).
 A written file is scanned after that delay when it is non-empty and has a supported executable, script, archive, or document extension or file signature.
 Results are cached per file, so unchanged content is scanned once, and a rule reload invalidates the cache.
 

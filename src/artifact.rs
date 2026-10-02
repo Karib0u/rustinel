@@ -41,9 +41,12 @@ use crate::sensor::{CanonicalEventHandler, Platform, SensorAction, SensorEventRo
 use crate::state::HostState;
 use crate::utils::file_identity::{self, FileIdentity};
 
-/// Each artifact queue is smaller than sensor ingress. Images and written
-/// files have separate queues and I/O slots so file churn cannot shed images.
+/// Images and written files have separate queues and I/O slots so file churn
+/// cannot shed images. Written files need room for a burst's settle window.
 pub(crate) const ARTIFACT_QUEUE_CAPACITY: usize = 256;
+const WRITTEN_FILE_QUEUE_CAPACITY: usize = 8192;
+/// Bound filesystem lookups per new target under settle-table pressure.
+const WRITTEN_FILE_RECLAIM_BATCH: usize = 64;
 const ARTIFACT_STORE_CAPACITY: usize = 10_000;
 const ARTIFACT_DEADLINE: Duration = Duration::from_secs(10);
 const ARTIFACT_MAX_READ_BYTES: u64 = 256 * 1024 * 1024;
@@ -140,6 +143,9 @@ pub(crate) enum ArtifactSignature {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactResolverSnapshot {
     pub queue_capacity: usize,
+    /// Written-file channel and settle-table capacity; zero in older snapshots.
+    #[serde(default)]
+    pub written_file_queue_capacity: usize,
     pub deadline_ms: u64,
     pub admission_budget_ms: u64,
     pub queued: u64,
@@ -268,6 +274,7 @@ impl ResolverState {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         ArtifactResolverSnapshot {
             queue_capacity: ARTIFACT_QUEUE_CAPACITY,
+            written_file_queue_capacity: WRITTEN_FILE_QUEUE_CAPACITY,
             deadline_ms: ARTIFACT_DEADLINE.as_millis() as u64,
             admission_budget_ms: ADMISSION_BUDGET.as_millis() as u64,
             queued: self.counters.queued.load(Ordering::Relaxed),
@@ -442,6 +449,7 @@ pub(crate) fn spawn_artifact_resolver(
         runtime,
         Arc::clone(&state),
         ARTIFACT_QUEUE_CAPACITY,
+        WRITTEN_FILE_QUEUE_CAPACITY,
     );
     let mut upstream = SensorEventRouter::new();
     upstream.register_handler(Box::new(parts.ingress));
@@ -527,9 +535,10 @@ impl ResolverParts {
         runtime: ArtifactRuntime,
         state: Arc<ResolverState>,
         resolve_capacity: usize,
+        written_capacity: usize,
     ) -> Self {
         let (resolve_tx, resolve_rx) = mpsc::channel(resolve_capacity);
-        let (written_tx, written_rx) = mpsc::channel(resolve_capacity);
+        let (written_tx, written_rx) = mpsc::channel(written_capacity);
         let (admission_tx, admission_rx) = std::sync::mpsc::sync_channel(ADMISSION_QUEUE_CAPACITY);
         let pending = Arc::new(AtomicUsize::new(0));
         // Only a detecting runtime has rules to defer; capture evaluates none.
@@ -1533,14 +1542,58 @@ struct WrittenFileSettler {
     /// to it need no further open. See [`measures_identity_on_arrival`].
     measured: HashMap<PathBuf, FileObjectIdentity>,
     sequence: u64,
+    /// Resume pressure checks after the last inspected deadline, wrapping at
+    /// the end so live early arrivals cannot hide vanished later entries.
+    reclaim_cursor: Option<(Instant, u64)>,
 }
 
 impl WrittenFileSettler {
+    fn is_full_for(&self, target: &ArtifactTarget) -> bool {
+        self.by_target.len() >= WRITTEN_FILE_QUEUE_CAPACITY
+            && !self
+                .by_target
+                .contains_key(&(target.path.clone(), target.expected.clone()))
+    }
+
+    /// Reclaim only paths known to be absent. Access errors keep the job for
+    /// its normal identity-validated resolution. Checks read no file content.
+    fn reclaim_missing(&mut self, mut exists: impl FnMut(&Path) -> io::Result<bool>) -> usize {
+        use std::ops::Bound::{Excluded, Unbounded};
+
+        let checks = WRITTEN_FILE_RECLAIM_BATCH.min(self.by_deadline.len());
+        let entries: Vec<_> = match self.reclaim_cursor {
+            Some(cursor) => self
+                .by_deadline
+                .range((Excluded(cursor), Unbounded))
+                .chain(self.by_deadline.range(..=cursor))
+                .take(checks)
+                .map(|(deadline, job)| (*deadline, matches!(exists(&job.target.path), Ok(false))))
+                .collect(),
+            None => self
+                .by_deadline
+                .iter()
+                .take(checks)
+                .map(|(deadline, job)| (*deadline, matches!(exists(&job.target.path), Ok(false))))
+                .collect(),
+        };
+        if let Some((deadline, _)) = entries.last() {
+            self.reclaim_cursor = Some(*deadline);
+        }
+        let mut reclaimed = 0;
+        for (deadline, missing) in entries {
+            if missing {
+                self.remove(deadline);
+                reclaimed += 1;
+            }
+        }
+        reclaimed
+    }
+
     /// Returns whether an earlier write was coalesced, or the rejected job.
     fn insert(&mut self, job: ArtifactJob) -> Result<bool, Box<ArtifactJob>> {
         let key = (job.target.path.clone(), job.target.expected.clone());
         let previous = self.by_target.get(&key).copied();
-        if previous.is_none() && self.by_target.len() >= ARTIFACT_QUEUE_CAPACITY {
+        if previous.is_none() && self.by_target.len() >= WRITTEN_FILE_QUEUE_CAPACITY {
             return Err(Box::new(job));
         }
         if let Some(deadline) = previous {
@@ -1572,7 +1625,12 @@ impl WrittenFileSettler {
         if self.next_deadline()? > now {
             return None;
         }
-        let (_, job) = self.by_deadline.pop_first()?;
+        let deadline = *self.by_deadline.first_key_value()?.0;
+        self.remove(deadline)
+    }
+
+    fn remove(&mut self, deadline: (Instant, u64)) -> Option<ArtifactJob> {
+        let job = self.by_deadline.remove(&deadline)?;
         self.by_target
             .remove(&(job.target.path.clone(), job.target.expected.clone()));
         if let Some(ExpectedIdentity::Object(object)) = &job.target.expected {
@@ -1657,7 +1715,7 @@ impl ArtifactResolver {
                 continue;
             }
             // Keep receiving at capacity: duplicate writes still refresh the
-            // debounce deadline, and new paths are shed and counted.
+            // debounce deadline, and vanished targets can free their slots.
             let received = match wait {
                 Some(wait) => timer
                     .block_on(async { tokio::time::timeout(wait, rx.recv()).await })
@@ -1676,6 +1734,15 @@ impl ArtifactResolver {
                 let Some(job) = self.measure_arrival_identity(job, &settling) else {
                     continue;
                 };
+                if settling.is_full_for(&job.target) {
+                    let missing = settling.reclaim_missing(Path::try_exists);
+                    // These files would fail to open after settling anyway.
+                    // Count them as absent, not as scans shed under pressure.
+                    self.state
+                        .counters
+                        .open_failed
+                        .fetch_add(missing as u64, Ordering::Relaxed);
+                }
                 match settling.insert(job) {
                     Ok(true) => {
                         self.state
@@ -3326,6 +3393,7 @@ mod tests {
                     runtime,
                     Arc::new(ResolverState::new()),
                     resolve_capacity,
+                    WRITTEN_FILE_QUEUE_CAPACITY,
                 ),
                 open,
             )
@@ -3904,6 +3972,7 @@ level: high
             ArtifactRuntime::capture(Platform::Windows),
             Arc::new(ResolverState::new()),
             ARTIFACT_QUEUE_CAPACITY,
+            WRITTEN_FILE_QUEUE_CAPACITY,
         );
         let admitted = std::thread::spawn(move || admission.run());
 
@@ -4058,7 +4127,7 @@ level: high
     fn full_settle_table_still_coalesces_existing_paths() {
         let now = Instant::now();
         let mut settling = WrittenFileSettler::default();
-        for inode in 0..ARTIFACT_QUEUE_CAPACITY as u64 {
+        for inode in 0..WRITTEN_FILE_QUEUE_CAPACITY as u64 {
             assert!(settling
                 .insert(settling_job(&format!("file-{inode}"), inode, now))
                 .is_ok());
@@ -4068,8 +4137,206 @@ level: high
             settling.insert(settling_job("file-0", 0, now + Duration::from_millis(1))),
             Ok(true)
         ));
-        assert_eq!(settling.by_target.len(), ARTIFACT_QUEUE_CAPACITY);
-        assert_eq!(settling.by_deadline.len(), ARTIFACT_QUEUE_CAPACITY);
+        assert_eq!(settling.by_target.len(), WRITTEN_FILE_QUEUE_CAPACITY);
+        assert_eq!(settling.by_deadline.len(), WRITTEN_FILE_QUEUE_CAPACITY);
+    }
+
+    #[test]
+    fn pressure_reclaims_renamed_and_deleted_paths_without_displacing_survivors() {
+        let temp = tempfile::tempdir().unwrap();
+        let deleted = temp.path().join("deleted.py");
+        let renamed = temp.path().join("renamed.py");
+        let survivor = temp.path().join("survivor.py");
+        for path in [&deleted, &renamed, &survivor] {
+            std::fs::write(path, b"content").unwrap();
+        }
+        let now = Instant::now();
+        let mut settling = WrittenFileSettler::default();
+        for (inode, path) in [&deleted, &renamed].into_iter().enumerate() {
+            let mut job = settling_job(path.to_str().unwrap(), inode as u64, now);
+            job.target.measured_on_arrival = true;
+            assert!(settling.insert(job).is_ok());
+        }
+        for inode in 2..WRITTEN_FILE_QUEUE_CAPACITY as u64 {
+            assert!(settling
+                .insert(settling_job(survivor.to_str().unwrap(), inode, now))
+                .is_ok());
+        }
+        std::fs::remove_file(&deleted).unwrap();
+        std::fs::rename(&renamed, temp.path().join("moved.py")).unwrap();
+        let payload = settling_job("payload.py", 99, now);
+        assert!(settling.is_full_for(&payload.target));
+
+        assert_eq!(settling.reclaim_missing(Path::try_exists), 2);
+        assert_eq!(settling.measured_object(&deleted), None);
+        assert_eq!(settling.measured_object(&renamed), None);
+        assert!(!settling.is_full_for(&payload.target));
+        assert!(settling.insert(payload).is_ok());
+        assert_eq!(settling.by_target.len(), WRITTEN_FILE_QUEUE_CAPACITY - 1);
+        assert_eq!(settling.by_deadline.len(), settling.by_target.len());
+        let ready = now + WRITTEN_FILE_SETTLE_DELAY;
+        let mut resolved = 0;
+        while let Some(job) = settling.pop_ready(ready) {
+            assert!(job.target.path == survivor || job.target.path == Path::new("payload.py"));
+            resolved += 1;
+        }
+        assert_eq!(resolved, WRITTEN_FILE_QUEUE_CAPACITY - 1);
+        assert!(settling.by_target.is_empty());
+        assert!(settling.measured.is_empty());
+    }
+
+    #[test]
+    fn pressure_checks_are_bounded_and_rotate_past_survivors_and_access_errors() {
+        let now = Instant::now();
+        let mut settling = WrittenFileSettler::default();
+        for inode in 0..WRITTEN_FILE_QUEUE_CAPACITY as u64 {
+            assert!(settling
+                .insert(settling_job(&format!("file-{inode}"), inode, now))
+                .is_ok());
+        }
+        let missing = PathBuf::from(format!("file-{}", WRITTEN_FILE_QUEUE_CAPACITY - 1));
+        let rounds = WRITTEN_FILE_QUEUE_CAPACITY / WRITTEN_FILE_RECLAIM_BATCH;
+        for round in 0..rounds {
+            let mut checks = 0;
+            let reclaimed = settling.reclaim_missing(|path| {
+                checks += 1;
+                if path == Path::new("file-0") {
+                    Err(io::Error::from(io::ErrorKind::PermissionDenied))
+                } else {
+                    Ok(path != missing)
+                }
+            });
+            assert_eq!(checks, WRITTEN_FILE_RECLAIM_BATCH);
+            assert_eq!(reclaimed, usize::from(round == rounds - 1));
+        }
+        assert_eq!(settling.by_target.len(), WRITTEN_FILE_QUEUE_CAPACITY - 1);
+        assert_eq!(settling.by_deadline.len(), settling.by_target.len());
+        // The next batch wraps back to the oldest entry rather than repeatedly
+        // inspecting the end of the table. A newly vanished survivor is found.
+        assert_eq!(
+            settling.reclaim_missing(|path| Ok(path != Path::new("file-0"))),
+            1
+        );
+        assert!(settling.insert(settling_job("payload.py", 99, now)).is_ok());
+        assert_eq!(settling.by_target.len(), WRITTEN_FILE_QUEUE_CAPACITY - 1);
+    }
+
+    #[test]
+    fn written_file_capacity_is_separate_and_old_snapshots_remain_readable() {
+        let state = ResolverState::new();
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.queue_capacity, ARTIFACT_QUEUE_CAPACITY);
+        assert_eq!(
+            snapshot.written_file_queue_capacity,
+            WRITTEN_FILE_QUEUE_CAPACITY
+        );
+        let mut json = serde_json::to_value(snapshot).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .remove("written_file_queue_capacity");
+        let older: ArtifactResolverSnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(older.written_file_queue_capacity, 0);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn persistent_scripts_after_a_churn_burst_receive_yara_and_hash_ioc_alerts() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let alerts_path = temp.path().join("alerts.ndjson");
+        let (writer, guard) = tracing_appender::non_blocking(File::create(&alerts_path).unwrap());
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.written_files = Some(written_file_scan_selector());
+        runtime.alert_sink = Some(AlertSink::new(writer));
+        let seen = Seen::default();
+        let state = Arc::new(ResolverState::new());
+        let mut parts = ResolverParts::new(
+            router_with(seen.clone()),
+            Arc::new(HostState::default()),
+            runtime,
+            Arc::clone(&state),
+            ARTIFACT_QUEUE_CAPACITY,
+            WRITTEN_FILE_QUEUE_CAPACITY,
+        );
+        let identity = |path: &Path| {
+            file_identity::from_file(&File::open(path).unwrap())
+                .unwrap()
+                .object()
+        };
+        // Buffer the entire burst before running the worker. This makes the
+        // regression independent of filesystem speed and thread scheduling.
+        for index in 0..2000 {
+            let original = temp.path().join(format!("churn-{index}.py"));
+            let renamed = temp.path().join(format!("renamed-{index}.py"));
+            std::fs::write(&original, b"throwaway").unwrap();
+            let object = Some(identity(&original));
+            parts
+                .ingress
+                .handle_event(&file_event(&original, FILE_CREATE_OPCODE, object));
+            std::fs::rename(&original, &renamed).unwrap();
+            parts
+                .ingress
+                .handle_event(&file_event(&renamed, 71, object));
+            std::fs::remove_file(&renamed).unwrap();
+            parts
+                .ingress
+                .handle_event(&file_event(&renamed, FILE_DELETE_OPCODE, object));
+        }
+        for index in 0..500 {
+            let path = temp.path().join(format!("payload-{index}.py"));
+            std::fs::write(&path, bytes).unwrap();
+            parts.ingress.handle_event(&file_event(
+                &path,
+                FILE_CREATE_OPCODE,
+                Some(identity(&path)),
+            ));
+        }
+        assert_eq!(
+            seen.ingest_seqs().len(),
+            6500,
+            "base events still reach detection"
+        );
+        // Treat these buffered events as one arrival burst. Constructing the
+        // fixture must not consume scan deadlines on slower filesystems.
+        let mut jobs = Vec::new();
+        while let Ok(job) = parts.written_rx.try_recv() {
+            jobs.push(job);
+        }
+        let arrived_at = Instant::now();
+        for mut job in jobs {
+            job.enqueued_at = arrived_at;
+            assert!(parts.ingress.written_tx.try_send(job).is_ok());
+        }
+        drop(parts.ingress);
+        run_resolver_stages(
+            parts.admission,
+            parts.deferred,
+            parts.resolver,
+            parts.resolve_rx,
+            parts.written_rx,
+            Arc::new(open_artifact),
+        );
+        drop(guard);
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.queued, 4500);
+        assert_eq!(snapshot.resolved, 500);
+        assert_eq!(snapshot.open_failed, 4000);
+        assert_eq!(snapshot.written_file_dropped, 0);
+        assert_eq!(snapshot.queue_saturated, 0);
+        let mut engines_by_path: HashMap<String, Vec<String>> = HashMap::new();
+        for line in std::fs::read_to_string(&alerts_path).unwrap().lines() {
+            let alert: serde_json::Value = serde_json::from_str(line).unwrap();
+            engines_by_path
+                .entry(alert["file.path"].as_str().unwrap().to_string())
+                .or_default()
+                .push(alert["edr.rule.engine"].as_str().unwrap().to_string());
+        }
+        assert_eq!(engines_by_path.len(), 500);
+        for engines in engines_by_path.values_mut() {
+            engines.sort();
+            assert_eq!(engines, &["Ioc", "Yara"]);
+        }
     }
 
     #[test]
@@ -4088,6 +4355,7 @@ level: high
             Arc::new(HostState::default()),
             runtime,
             Arc::clone(&state),
+            2,
             2,
         );
         for _ in 0..1000 {
@@ -4162,8 +4430,19 @@ level: high
         for _ in 0..ARTIFACT_IO_ISOLATION_LIMIT {
             written_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         }
+        // Let a fifth job settle while all four slots are blocked. The worker
+        // then waits for a slot instead of reclaiming vanished burst paths.
+        harness.ingress.handle_event(&file_event(
+            &temp.path().join("waiting.exe"),
+            FILE_CREATE_OPCODE,
+            Some(FileObjectIdentity {
+                device: 1,
+                inode: 99,
+            }),
+        ));
+        std::thread::sleep(WRITTEN_FILE_SETTLE_DELAY);
         // The written-file worker will wait for a slot with its queue full.
-        for inode in 0..10_000 {
+        for inode in 0..WRITTEN_FILE_QUEUE_CAPACITY as u64 + 1000 {
             harness.ingress.handle_event(&file_event(
                 &temp.path().join(format!("burst-{inode}.exe")),
                 FILE_CREATE_OPCODE,
@@ -4685,6 +4964,7 @@ level: high
             ArtifactRuntime::capture(Platform::Linux),
             Arc::new(ResolverState::new()),
             ARTIFACT_QUEUE_CAPACITY,
+            WRITTEN_FILE_QUEUE_CAPACITY,
         );
         parts.resolver.process_path_opener = Arc::new(|_| panic!("no consumer needs this path"));
         parts.ingress.handle_event(&event);
@@ -4721,6 +5001,7 @@ level: high
             runtime,
             Arc::new(ResolverState::new()),
             ARTIFACT_QUEUE_CAPACITY,
+            WRITTEN_FILE_QUEUE_CAPACITY,
         );
         let gate = Gate::new();
         let (entered_tx, entered_rx) = std::sync::mpsc::channel();

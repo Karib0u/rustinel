@@ -41,6 +41,7 @@ tests/**/*
 !tests/**/*.rs
 !tests/native_capture_contract.py
 !tests/ebpf_load_smoke.py
+!tests/ebpf_process_cache_soak.py
 # The golden replay fixture is checked in on purpose: the recording, its
 # manifest, the rules it must fire, and the script that produced it are the
 # regression, not build output. See docs/development.md (Replay fixture).
