@@ -33,7 +33,7 @@ use endpoint_sec_sys::{es_event_type_t, NewClientError};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
 
-use crate::models::FileEventFields;
+use crate::models::{FileEventFields, FileObjectIdentity};
 use crate::sensor::{
     Platform, ProcessStartKey, RawMacOsExec, RawMacOsProcess, RawProcessEvent, RawProcessPlatform,
     RawUserId, Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
@@ -582,6 +582,8 @@ struct RawFile {
     event_time: SystemTime,
     source_seq: Option<u64>,
     process_start_key: Option<ProcessStartKey>,
+    /// The object ESF measured for the file whose content this event names.
+    identity: Option<FileObjectIdentity>,
 }
 
 /// Acting process context shared by all file events: pid, executable, and the
@@ -605,7 +607,7 @@ fn actor(msg: &Message) -> (u32, Option<String>, String, Option<ProcessStartKey>
 }
 
 fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent> {
-    let target = create_destination_path(create.destination()?)?;
+    let (target, identity) = create_destination(create.destination()?)?;
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Create,
@@ -617,6 +619,7 @@ fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent
         event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
+        identity,
     })
 }
 
@@ -633,12 +636,16 @@ fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent
         event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
+        identity: None,
     })
 }
 
 fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent> {
     let target = rename_destination_path(rename.destination()?)?;
     let source = osstr_to_string(rename.source().path());
+    // A rename moves the source object, so its identity is the one that now
+    // sits at the destination path.
+    let identity = crate::utils::file_identity::object_from_stat(rename.source().stat());
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Rename,
@@ -650,6 +657,7 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent
         event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
+        identity,
     })
 }
 
@@ -662,6 +670,7 @@ fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
         return None;
     }
     let target = osstr_to_string(close.target().path());
+    let identity = crate::utils::file_identity::object_from_stat(close.target().stat());
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Modify,
@@ -673,21 +682,28 @@ fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
         event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
+        identity,
     })
 }
 
-/// Resolve the absolute path of a create destination.
-fn create_destination_path(dest: EventCreateDestinationFile) -> Option<String> {
-    let path = match dest {
-        EventCreateDestinationFile::ExistingFile { file, .. } => osstr_to_string(file.path()),
+/// Resolve the absolute path of a create destination, and the created
+/// object's identity when ESF reports it as an existing file.
+fn create_destination(
+    dest: EventCreateDestinationFile,
+) -> Option<(String, Option<FileObjectIdentity>)> {
+    let (path, identity) = match dest {
+        EventCreateDestinationFile::ExistingFile { file, .. } => (
+            osstr_to_string(file.path()),
+            crate::utils::file_identity::object_from_stat(file.stat()),
+        ),
         EventCreateDestinationFile::NewPath {
             directory,
             filename,
             ..
-        } => join_path(directory.path(), filename),
+        } => (join_path(directory.path(), filename), None),
         _ => return None,
     };
-    (!path.is_empty()).then_some(path)
+    (!path.is_empty()).then_some((path, identity))
 }
 
 /// Resolve the absolute path of a rename destination.
@@ -734,7 +750,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
             creation_utc_time: None,
             previous_creation_utc_time: None,
             user: Some(raw.user),
-            file_identity: None,
+            file_identity: raw.identity,
             path_truncated: None,
         }),
     })
@@ -1077,6 +1093,7 @@ mod tests {
                 pid: 55,
                 start_time: 123_456,
             }),
+            identity: None,
         }
     }
 
@@ -1143,6 +1160,23 @@ mod tests {
         // writes into `file_create` instead of `file_change` (issue #239).
         assert_eq!(event.normalization, shared(SensorAction::Modify));
         assert_eq!(event.normalization.event_id, 65);
+    }
+
+    #[test]
+    fn file_event_carries_the_esf_measured_identity() {
+        // Written-file YARA refuses a target without this identity, so a
+        // file event that drops it silently disables content inspection.
+        let identity = FileObjectIdentity {
+            device: 16_777_231,
+            inode: 4_242,
+        };
+        let mut raw = raw_file(FileAction::Modify, "/tmp/payload.py", None);
+        raw.identity = Some(identity);
+        let event = file_event(raw).expect("modify event should build");
+        match event.payload {
+            SensorPayload::File(fields) => assert_eq!(fields.file_identity, Some(identity)),
+            other => panic!("unexpected payload: {other:?}"),
+        }
     }
 
     #[test]

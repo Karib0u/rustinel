@@ -72,7 +72,7 @@ Each consumer keeps its results in its own store, keyed by file identity, under 
 | `process_image_dropped`, `loaded_image_dropped`, `written_file_dropped` | Jobs shed by kind because a queue or settle table was full, a queue closed, an I/O thread could not start, or a deadline expired; excludes file-access failures and coalesced writes |
 | `written_file_rejected` | File events rejected before queueing because the selector rejected them or the target path was missing or empty |
 | `written_file_coalesced` | Repeated writes replaced by the latest event for the same path and object during settling |
-| `identity_unavailable` | Selected written files skipped because the sensor supplied no event-time identity to validate the opened file against |
+| `identity_unavailable` | Selected written files skipped because no object identity was available to validate the opened file against: the sensor measured none, or a Windows file is not on a local volume |
 | `pe_entries`, `hash_entries`, `imphash_entries`, `signature_entries`, `yara_entries` | Occupancy of every separate result store |
 | `yara_generation` | Active cache generation; only YARA entries invalidate on a successful YARA reload |
 | `evicted` | File identities removed from all stores by the shared eviction policy |

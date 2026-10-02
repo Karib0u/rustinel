@@ -45,9 +45,11 @@ ebpf/src/            Linux eBPF programs and the event ABI
 3. Process starts and image loads use the bounded `artifact_resolution` queue.
    Selected file events use a separate `artifact_written_files` queue, so written files cannot displace image jobs.
    Each queue holds up to 256 jobs.
-   Written files settle for 250 ms in a bounded map keyed by path and event-time identity, with a deadline-ordered queue and repeated writes coalesced.
-   It opens the file once, validates it against the identity captured at event time, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.
-   A written file without an event-time identity is skipped and counted, never scanned by path alone.
+   Written files settle for 250 ms in a bounded map keyed by path and object identity, with a deadline-ordered queue and repeated writes coalesced.
+   Linux (eBPF) and macOS (Endpoint Security) measure that identity in the kernel at event time.
+   Kernel-File ETW carries no file ID, so on Windows the written-file worker reads the volume file ID from the path when it receives the job, before the settle delay.
+   It opens the file once, validates it against that identity, reads it once, and fans those bytes out to PE metadata, IOC hashing, and YARA.
+   A written file without an identity is skipped and counted, never scanned by path alone.
 4. Admission routes every event to the downstream `SensorEventRouter` exactly once and in `ingest_seq` order, for Sigma/IOC detection or capture.
    Sigma logsource routes select a compiled field view over the canonical event.
    View tables map external rule names to Rustinel semantic accessors, so adding a vocabulary does not change platform sensors.

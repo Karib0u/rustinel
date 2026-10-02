@@ -12,7 +12,9 @@ Fields each platform never fills are listed in [Field availability](field-availa
   No anti-tamper, pre-execution blocking, or quarantine, and response happens after the fact.
   See [Security model](security.md#scope).
 - **Written-file scanning depends on sensor identity.**
-  A file event without event-time object identity is skipped and counted rather than opened by path alone.
+  A file event without object identity is skipped and counted rather than opened by path alone.
+  Windows reads the identity from the path milliseconds after the event, so a file replaced within that gap is not detected as a replacement, and files on network volumes are not scanned.
+  Windows cache flushes by the System process do not queue a second scan, so content written only through a memory-mapped view after the settle delay is not rescanned.
   Unsupported extensions without a recognized file signature are not scanned.
   Memory scanning is optional and needs privileges.
 - **Memory-only and living-off-the-land activity** leaves little telemetry.

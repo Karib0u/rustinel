@@ -168,8 +168,9 @@ pub struct ArtifactResolverSnapshot {
     pub admission_backpressure: u64,
     pub open_failed: u64,
     pub identity_mismatch: u64,
-    /// Selected written files skipped because the sensor supplied no
-    /// event-time identity to validate the opened file against.
+    /// Selected written files skipped because no object identity was
+    /// available to validate the opened file against: the sensor measured
+    /// none, or, on Windows, the file is not on a local volume.
     #[serde(default)]
     pub identity_unavailable: u64,
     pub read_failed: u64,
@@ -370,13 +371,27 @@ pub(crate) type WrittenFileSelector =
 pub(crate) fn written_file_scan_selector() -> WrittenFileSelector {
     // An unknown extension can still qualify by magic. File events carry no
     // content or size, so narrowing extensions here would lose those scans.
-    Arc::new(|_, fields| {
+    Arc::new(|event, fields| {
         fields.path_truncated.is_none()
             && fields
                 .target_filename
                 .as_ref()
                 .is_some_and(|path| !path.is_empty())
+            && !is_windows_cache_flush(event)
     })
+}
+
+/// The Windows System process (PID 4) writing to an existing file: the cache
+/// manager's lazy writer or the mapped page writer flushing pages that a
+/// process wrote earlier, typically a few hundred milliseconds later. That
+/// process's own write already queued the scan, so rescanning would repeat
+/// the alert and credit `System` with it. Content written only through a
+/// mapped view is still read through the cache on the creating event.
+fn is_windows_cache_flush(event: &CanonicalEvent) -> bool {
+    const WINDOWS_SYSTEM_PID: u32 = 4;
+    event.normalized().platform == Platform::Windows
+        && event.action == SensorAction::Modify
+        && event.pid == Some(WINDOWS_SYSTEM_PID)
 }
 
 #[derive(Clone)]
@@ -683,7 +698,10 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             self.admit(event, None, false);
             return;
         }
-        if target.kind == ArtifactKind::WrittenFile && target.expected.is_none() {
+        if target.kind == ArtifactKind::WrittenFile
+            && target.expected.is_none()
+            && !measures_identity_on_arrival(event.normalized().platform)
+        {
             // Without an event-time identity the resolver could scan whatever
             // replaced the file and report it as the file this event wrote.
             self.state
@@ -973,6 +991,85 @@ impl ExpectedIdentity {
     }
 }
 
+/// Whether written files from `platform` are bound to their object when the
+/// written-file worker receives them rather than by the sensor.
+///
+/// Kernel-File ETW names a file by kernel pointers (`FileObject`, `FileKey`)
+/// that user mode cannot compare with an opened handle, and no event carries
+/// the volume file ID. The worker reads that ID from the path milliseconds
+/// after the event and well before [`WRITTEN_FILE_SETTLE_DELAY`], so a file
+/// replaced during the settle delay is still rejected. Only a replacement
+/// inside that first gap goes unnoticed, which the kernel-measured identity
+/// on Linux and macOS also closes.
+fn measures_identity_on_arrival(platform: Platform) -> bool {
+    cfg!(windows) && platform == Platform::Windows
+}
+
+#[cfg_attr(not(windows), allow(dead_code))] // Only Windows measures on arrival.
+enum ArrivalIdentity {
+    Measured(FileObjectIdentity),
+    /// Not a local volume, or not a platform that measures on arrival.
+    Unsupported,
+    OpenFailed,
+}
+
+#[cfg(windows)]
+fn arrival_identity(path: &Path) -> ArrivalIdentity {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    if !on_local_volume(path) {
+        return ArrivalIdentity::Unsupported;
+    }
+    // Attribute-only access reads no content, so it breaks no oplock and
+    // triggers no on-access content scan, and sharing everything leaves the
+    // writer free to keep writing, rename, or delete.
+    let opened = OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .open(path);
+    match opened.ok().as_ref().and_then(file_identity::from_file) {
+        Some(identity) => ArrivalIdentity::Measured(identity.object()),
+        None => ArrivalIdentity::OpenFailed,
+    }
+}
+
+/// A drive-letter path on a fixed, removable, or RAM disk. Network opens can
+/// block for seconds, which would stall every pending written file behind
+/// them on the worker.
+#[cfg(windows)]
+fn on_local_volume(path: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDriveTypeW;
+
+    const DRIVE_REMOVABLE: u32 = 2;
+    const DRIVE_FIXED: u32 = 3;
+    const DRIVE_RAMDISK: u32 = 6;
+
+    let Some(std::path::Component::Prefix(prefix)) = path.components().next() else {
+        return false;
+    };
+    let (std::path::Prefix::Disk(letter) | std::path::Prefix::VerbatimDisk(letter)) = prefix.kind()
+    else {
+        return false;
+    };
+    let root: Vec<u16> = std::ffi::OsStr::new(&format!("{}:\\", letter as char))
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: `root` is a NUL-terminated wide string that outlives the call.
+    let kind = unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) };
+    matches!(kind, DRIVE_REMOVABLE | DRIVE_FIXED | DRIVE_RAMDISK)
+}
+
+#[cfg(not(windows))]
+fn arrival_identity(_path: &Path) -> ArrivalIdentity {
+    ArrivalIdentity::Unsupported
+}
+
 #[derive(Clone)]
 pub(crate) struct ArtifactTarget {
     pub kind: ArtifactKind,
@@ -982,6 +1079,11 @@ pub(crate) struct ArtifactTarget {
     pub expected: Option<ExpectedIdentity>,
     /// Lifetime and executable measured before queueing a process-relative image.
     process_identity: Option<crate::utils::ProcessIdentity>,
+    /// A written file changed in place. Unlike a create or rename, this cannot
+    /// have put a different object at the path.
+    content_write: bool,
+    /// `expected` was read from the path by the written-file worker.
+    measured_on_arrival: bool,
 }
 
 impl ArtifactTarget {
@@ -1053,6 +1155,9 @@ impl ArtifactTarget {
             pid,
             expected,
             process_identity,
+            content_write: kind == ArtifactKind::WrittenFile
+                && event.action == SensorAction::Modify,
+            measured_on_arrival: false,
         })
     }
 }
@@ -1255,6 +1360,9 @@ impl ArtifactJob {
 struct WrittenFileSettler {
     by_target: HashMap<(PathBuf, Option<ExpectedIdentity>), (Instant, u64)>,
     by_deadline: BTreeMap<(Instant, u64), ArtifactJob>,
+    /// The latest object measured on arrival for each pending path, so writes
+    /// to it need no further open. See [`measures_identity_on_arrival`].
+    measured: HashMap<PathBuf, FileObjectIdentity>,
     sequence: u64,
 }
 
@@ -1273,8 +1381,18 @@ impl WrittenFileSettler {
         let deadline = (ready_at, self.sequence);
         self.sequence = self.sequence.wrapping_add(1);
         self.by_target.insert(key, deadline);
+        if job.target.measured_on_arrival {
+            if let Some(ExpectedIdentity::Object(object)) = job.target.expected {
+                self.measured.insert(job.target.path.clone(), object);
+            }
+        }
         self.by_deadline.insert(deadline, job);
         Ok(previous.is_some())
+    }
+
+    /// The object a pending job for `path` was bound to on arrival.
+    fn measured_object(&self, path: &Path) -> Option<FileObjectIdentity> {
+        self.measured.get(path).copied()
     }
 
     fn next_deadline(&self) -> Option<Instant> {
@@ -1288,6 +1406,11 @@ impl WrittenFileSettler {
         let (_, job) = self.by_deadline.pop_first()?;
         self.by_target
             .remove(&(job.target.path.clone(), job.target.expected.clone()));
+        if let Some(ExpectedIdentity::Object(object)) = &job.target.expected {
+            if self.measured.get(&job.target.path) == Some(object) {
+                self.measured.remove(&job.target.path);
+            }
+        }
         Some(job)
     }
 }
@@ -1377,6 +1500,9 @@ impl ArtifactResolver {
                 None => continue,
             };
             if written_files {
+                let Some(job) = self.measure_arrival_identity(job, &settling) else {
+                    continue;
+                };
                 match settling.insert(job) {
                     Ok(true) => {
                         self.state
@@ -1414,6 +1540,54 @@ impl ArtifactResolver {
             let _ = done_rx.recv_timeout(remaining);
         }
         info!(target: "artifact", "Artifact resolver worker stopped");
+    }
+
+    /// Bind a written-file job whose sensor reports no object identity to the
+    /// object at its path now, before the settle delay. See
+    /// [`measures_identity_on_arrival`]. Returns `None` for a job that cannot
+    /// be bound, which is counted and skipped.
+    fn measure_arrival_identity(
+        &self,
+        mut job: ArtifactJob,
+        settling: &WrittenFileSettler,
+    ) -> Option<ArtifactJob> {
+        if job.target.expected.is_some() {
+            return Some(job);
+        }
+        // Only a create or rename can put another object at the path, so a
+        // write to a pending path keeps its object. This spares one open per
+        // write, which a large file makes in the thousands.
+        let measured = if job.target.content_write {
+            settling.measured_object(&job.target.path)
+        } else {
+            None
+        };
+        let measured = match measured {
+            Some(object) => ArrivalIdentity::Measured(object),
+            None => arrival_identity(&job.target.path),
+        };
+        match measured {
+            ArrivalIdentity::Measured(object) => {
+                job.target.expected = Some(ExpectedIdentity::Object(object));
+                job.target.measured_on_arrival = true;
+                Some(job)
+            }
+            ArrivalIdentity::Unsupported => {
+                self.state
+                    .counters
+                    .identity_unavailable
+                    .fetch_add(1, Ordering::Relaxed);
+                None
+            }
+            ArrivalIdentity::OpenFailed => {
+                // Usually a temporary file already removed by its writer.
+                self.state
+                    .counters
+                    .open_failed
+                    .fetch_add(1, Ordering::Relaxed);
+                None
+            }
+        }
     }
 
     fn dispatch_job(
@@ -3471,6 +3645,32 @@ level: high
     }
 
     #[test]
+    fn arrival_measured_object_lives_as_long_as_its_pending_job() {
+        let now = Instant::now();
+        let mut settling = WrittenFileSettler::default();
+        let measured = |inode| {
+            let mut job = settling_job("a", inode, now);
+            job.target.measured_on_arrival = true;
+            job
+        };
+        let mut sensor_measured = settling_job("b", 9, now);
+        sensor_measured.target.measured_on_arrival = false;
+        assert!(settling.insert(sensor_measured).is_ok());
+        assert_eq!(settling.measured_object(Path::new("b")), None);
+
+        assert!(settling.insert(measured(1)).is_ok());
+        assert_eq!(settling.measured_object(Path::new("a")).unwrap().inode, 1);
+        // A replacement measured later is what the next write reuses.
+        assert!(settling.insert(measured(2)).is_ok());
+        assert_eq!(settling.measured_object(Path::new("a")).unwrap().inode, 2);
+
+        let ready = now + WRITTEN_FILE_SETTLE_DELAY;
+        while settling.pop_ready(ready).is_some() {}
+        assert_eq!(settling.measured_object(Path::new("a")), None);
+        assert!(settling.measured.is_empty());
+    }
+
+    #[test]
     fn settle_deadlines_refresh_without_stale_entries_and_keep_object_identity() {
         let now = Instant::now();
         let mut settling = WrittenFileSettler::default();
@@ -3706,6 +3906,31 @@ level: high
     }
 
     #[test]
+    fn written_file_selector_skips_windows_cache_flushes() {
+        let selector = written_file_scan_selector();
+        let select = |platform: Platform, action: SensorAction, pid: u32| {
+            let mut normalized =
+                file_event(Path::new(r"C:\drop\payload.py"), FILE_CREATE_OPCODE, None)
+                    .into_normalized();
+            normalized.platform = platform;
+            let mut event = CanonicalEvent::from_normalized(normalized);
+            event.action = action;
+            event.pid = Some(pid);
+            let EventFields::FileEvent(fields) = &event.normalized().fields else {
+                unreachable!();
+            };
+            selector(&event, fields)
+        };
+        assert!(!select(Platform::Windows, SensorAction::Modify, 4));
+        assert!(
+            select(Platform::Windows, SensorAction::Create, 4),
+            "a System create is new content"
+        );
+        assert!(select(Platform::Windows, SensorAction::Modify, 3368));
+        assert!(select(Platform::Linux, SensorAction::Modify, 4));
+    }
+
+    #[test]
     fn written_file_gate_accepts_extension_or_magic_but_not_partial_content() {
         let temp = tempfile::tempdir().unwrap();
 
@@ -3787,6 +4012,115 @@ level: high
         let snapshot = state.snapshot();
         assert_eq!(snapshot.identity_unavailable, 1);
         assert_eq!(snapshot.queued, 0);
+    }
+
+    #[cfg(windows)]
+    fn windows_written_file_event(path: &Path) -> CanonicalEvent {
+        let mut normalized = file_event(path, FILE_CREATE_OPCODE, None).into_normalized();
+        normalized.platform = Platform::Windows;
+        normalized.provider = "etw".into();
+        CanonicalEvent::from_normalized(normalized)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_written_file_is_bound_on_arrival_and_scanned() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("dropped.py");
+        std::fs::write(&path, bytes).unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.written_files = Some(select_all());
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness
+            .ingress
+            .handle_event(&windows_written_file_event(&path));
+        let state = harness.finish();
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.identity_unavailable, 0);
+        assert_eq!(snapshot.identity_mismatch, 0);
+        assert_eq!(snapshot.queued, 1);
+        assert_eq!(snapshot.resolved, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_written_file_gone_before_arrival_is_an_open_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("already-removed.py");
+        let mut runtime = runtime_with_consumers(temp.path(), b"evil!!");
+        runtime.written_files = Some(select_all());
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+
+        harness
+            .ingress
+            .handle_event(&windows_written_file_event(&path));
+        let state = harness.finish();
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.open_failed, 1);
+        assert_eq!(snapshot.identity_unavailable, 0);
+        assert_eq!(snapshot.resolved, 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_replacement_after_arrival_is_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let path = temp.path().join("dropped.exe");
+        std::fs::write(&path, bytes).unwrap();
+        let ArrivalIdentity::Measured(object) = arrival_identity(&path) else {
+            panic!("a file on the local temp volume must be measurable");
+        };
+        assert!(
+            on_local_volume(Path::new(r"\\?\C:\Windows")),
+            "the verbatim drive form is local"
+        );
+        assert!(!on_local_volume(Path::new(r"\\server\share\x.exe")));
+        let mut runtime = runtime_with_consumers(temp.path(), bytes);
+        runtime.written_files = Some(select_all());
+        let event = windows_written_file_event(&path);
+        let mut target =
+            ArtifactTarget::from_event(&event, runtime.written_files.as_ref()).unwrap();
+        target.expected = Some(ExpectedIdentity::Object(object));
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        let state = Arc::new(ResolverState::new());
+        let worker = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::clone(&state),
+        );
+        assert_eq!(
+            worker
+                .resolve_with_opener(&target, &plan, open_artifact)
+                .unwrap()
+                .yara
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let replacement = temp.path().join("replacement.bin");
+        std::fs::write(&replacement, bytes).unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        let error = worker
+            .resolve_with_opener(&target, &plan, open_artifact)
+            .expect_err("a replacement must not be scanned as the written file");
+        assert!(matches!(error, ResolveError::Identity));
+        assert_eq!(state.snapshot().identity_mismatch, 1);
     }
 
     #[cfg(unix)]

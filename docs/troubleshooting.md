@@ -83,8 +83,9 @@ See [macOS permissions](macos-permissions.md#start-up-errors).
 
 - Process executables are scanned when they start.
   Written files must be non-empty and have a supported executable, script, archive, or document extension or file signature.
-- Written-file scans require event-time file identity from the sensor.
-  Missing identities are counted under `artifact_resolver.identity_unavailable`.
+- Written-file scans require file identity: measured by the sensor on Linux and macOS, read on arrival on Windows.
+  Missing identities, including Windows files on network volumes, are counted under `artifact_resolver.identity_unavailable`.
+  A file removed before it could be identified is counted under `artifact_resolver.open_failed`.
 - The path is under a trusted prefix (`scanner.yara_allowlist_paths`).
 - The file is larger than `scanner.yara_max_file_mb`, or the scan hit `scanner.yara_scan_timeout_ms`.
 - An artifact queue was full: `rustinel doctor` reports `artifact_resolution` or `artifact_written_files` drops and per-kind dropped jobs under `artifact_resolver`.

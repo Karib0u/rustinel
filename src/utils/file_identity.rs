@@ -17,16 +17,30 @@ pub(crate) struct FileIdentity {
 }
 
 impl FileIdentity {
-    #[cfg(unix)]
-    pub(crate) fn matches_object(&self, expected: &crate::models::FileObjectIdentity) -> bool {
-        matches!(
-            self.platform,
-            PlatformFileIdentity::Unix { device, inode }
-                if device == expected.device && inode == expected.inode
-        )
+    /// The filesystem object alone, without size or timestamps.
+    #[cfg(any(unix, windows))]
+    pub(crate) fn object(&self) -> crate::models::FileObjectIdentity {
+        match self.platform {
+            #[cfg(unix)]
+            PlatformFileIdentity::Unix { device, inode } => {
+                crate::models::FileObjectIdentity { device, inode }
+            }
+            #[cfg(windows)]
+            PlatformFileIdentity::Windows { volume, file_id } => {
+                crate::models::FileObjectIdentity {
+                    device: u64::from(volume),
+                    inode: file_id,
+                }
+            }
+        }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(any(unix, windows))]
+    pub(crate) fn matches_object(&self, expected: &crate::models::FileObjectIdentity) -> bool {
+        self.object() == *expected
+    }
+
+    #[cfg(not(any(unix, windows)))]
     pub(crate) fn matches_object(&self, _expected: &crate::models::FileObjectIdentity) -> bool {
         false
     }
@@ -79,6 +93,13 @@ pub(crate) fn from_stat(stat: &libc::stat) -> FileIdentity {
         modified: timestamp(stat.st_mtime, stat.st_mtime_nsec),
         changed: timestamp(stat.st_ctime, stat.st_ctime_nsec),
     }
+}
+
+/// The object an Endpoint Security event names, from the `stat` ESF captured
+/// with the event.
+#[cfg(target_os = "macos")]
+pub(crate) fn object_from_stat(stat: &libc::stat) -> Option<crate::models::FileObjectIdentity> {
+    (stat.st_ino != 0).then(|| from_stat(stat).object())
 }
 
 /// Convert the kernel's compact `dev_t` plus inode into the same object
@@ -190,6 +211,12 @@ mod tests {
         );
         let stat = unsafe { stat.assume_init() };
         assert_eq!(Some(from_stat(&stat)), from_file(file.as_file()));
+        assert!(from_file(file.as_file())
+            .unwrap()
+            .matches_object(&object_from_stat(&stat).unwrap()));
+        let mut unnamed = stat;
+        unnamed.st_ino = 0;
+        assert_eq!(object_from_stat(&unnamed), None);
     }
 
     #[test]
