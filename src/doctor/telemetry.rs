@@ -187,12 +187,24 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         .process_image_dropped
         .saturating_add(resolver.loaded_image_dropped)
         .saturating_add(resolver.written_file_dropped);
+    let message = format!(
+        "{} artifact-resolution failure outcomes were recorded",
+        failures.max(dropped)
+    );
+    let message = if resolver.written_file_dropped > 0 {
+        format!(
+            "{message}; {} written-file jobs dropped, leaving a YARA and hash IOC detection gap",
+            resolver.written_file_dropped
+        )
+    } else {
+        message
+    };
     vec![if failures == 0 && dropped == 0 {
         DiagnosticResult::pass("artifact_resolver", detail)
     } else {
         DiagnosticResult::warn(
             "artifact_resolver",
-            format!("{} artifact-resolution failure outcomes were recorded", failures.max(dropped)),
+            message,
             detail,
         )
         .with_fix(
@@ -943,6 +955,7 @@ mod tests {
         let mut snap = snapshot(Vec::new());
         snap.artifact_resolver = Some(crate::artifact::ArtifactResolverSnapshot {
             queue_capacity: 256,
+            written_file_queue_capacity: 8192,
             deadline_ms: 10_000,
             admission_budget_ms: 100,
             queued: 12,
@@ -988,6 +1001,10 @@ mod tests {
         assert!(results[0]
             .message
             .contains("10 artifact-resolution failure"));
+        assert!(results[0].message.contains("1 written-file jobs dropped"));
+        assert!(results[0]
+            .message
+            .contains("YARA and hash IOC detection gap"));
         let detail = results[0].detail.as_deref().expect("resolver detail");
         assert!(detail.contains("PE 4, hashes 5, imphashes 6, signatures 7, YARA 8"));
         assert!(detail.contains("1 queue saturated"));
@@ -998,6 +1015,29 @@ mod tests {
         assert!(detail.contains(
             "deferred pass: 20 queued, 17 with artifact fields, 3 without (1 past the 2000 ms budget), 2 queue saturated"
         ));
+    }
+
+    #[test]
+    fn written_file_drops_are_a_detection_gap_even_without_other_failures() {
+        let mut snap = snapshot(Vec::new());
+        snap.artifact_resolver = Some(crate::artifact::ArtifactResolverSnapshot {
+            written_file_dropped: 7,
+            ..Default::default()
+        });
+        let results = artifact_resolver_results(&snap);
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0].message.contains("7 written-file jobs dropped"));
+        assert!(results[0]
+            .message
+            .contains("YARA and hash IOC detection gap"));
+
+        snap.artifact_resolver
+            .as_mut()
+            .unwrap()
+            .written_file_dropped = 0;
+        let results = artifact_resolver_results(&snap);
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+        assert!(!results[0].message.contains("detection gap"));
     }
 
     fn channel(name: &str, accepted: u64, dropped: u64) -> ChannelSnapshot {
