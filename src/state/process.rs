@@ -42,16 +42,15 @@ pub struct ProcessMetadata {
 }
 
 /// Thread-safe cache for process metadata
-/// Uses a compound process identity to handle PID reuse and repeated exec.
+/// Keeps one live identity per PID, retaining previous identities briefly for
+/// delayed events after PID reuse or repeated exec.
 /// Uses RwLock to allow many concurrent readers (network events) and few writers (process start/stop)
 pub struct ProcessCache {
-    /// Primary storage: (PID, CreationTime) -> Metadata
-    cache: RwLock<HashMap<(u32, u64), ProcessMetadata>>,
-    /// Compound keys ordered by creation time for efficient oldest-first eviction
-    eviction_order: RwLock<BTreeSet<(u64, u32)>>,
+    /// Live metadata and its indexes share a lock to keep lifecycle updates atomic.
+    cache: RwLock<LiveProcesses>,
     max_entries: usize,
-    /// Recently-dead processes retained briefly to avoid parent/child race conditions
-    graveyard: RwLock<HashMap<(u32, u64), GraveyardEntry>>,
+    /// Retired identities retained briefly to avoid parent/child race conditions
+    graveyard: RwLock<ProcessGraveyard>,
     last_graveyard_cleanup: AtomicU64,
 }
 
@@ -64,15 +63,15 @@ impl ProcessCache {
     /// Create an empty ProcessCache capped at `max_entries` processes
     pub fn with_max_entries(max_entries: usize) -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
-            eviction_order: RwLock::new(BTreeSet::new()),
+            cache: RwLock::new(LiveProcesses::default()),
             max_entries,
-            graveyard: RwLock::new(HashMap::new()),
+            graveyard: RwLock::new(ProcessGraveyard::default()),
             last_graveyard_cleanup: AtomicU64::new(0),
         }
     }
 
     /// Add or update a process in the cache with compound key
+    /// A different identity for the same PID retires the previous live metadata.
     ///
     /// # Arguments
     /// * `pid` - Process ID
@@ -149,11 +148,17 @@ impl ProcessCache {
         integrity_level: Option<String>,
         provenance: crate::models::Provenance,
     ) {
+        let now = now_secs();
         {
             let mut cache = self.cache.write().unwrap();
-            let mut eviction_order = self.eviction_order.write().unwrap();
+            let previous = cache
+                .by_pid
+                .get(&pid)
+                .copied()
+                .filter(|previous| *previous != creation_time)
+                .and_then(|previous| cache.remove(pid, previous));
 
-            cache.insert(
+            cache.entries.insert(
                 (pid, creation_time),
                 ProcessMetadata {
                     provenance,
@@ -173,22 +178,26 @@ impl ProcessCache {
                     integrity_level,
                 },
             );
-            eviction_order.insert((creation_time, pid));
+            cache.by_pid.insert(pid, creation_time);
+            cache.eviction_order.insert((creation_time, pid));
 
-            while cache.len() > self.max_entries {
-                let Some((oldest_creation_time, oldest_pid)) = eviction_order.pop_first() else {
+            while cache.entries.len() > self.max_entries {
+                let Some((oldest_creation_time, oldest_pid)) = cache.eviction_order.pop_first()
+                else {
                     break;
                 };
 
-                cache.remove(&(oldest_pid, oldest_creation_time));
+                cache.remove(oldest_pid, oldest_creation_time);
+            }
+
+            let mut graveyard = self.graveyard.write().unwrap();
+            graveyard.remove(pid, creation_time);
+            if let Some(previous) = previous {
+                graveyard.insert(pid, previous, now, self.max_entries);
             }
         }
 
-        if let Ok(mut graveyard) = self.graveyard.write() {
-            graveyard.remove(&(pid, creation_time));
-        }
-
-        self.cleanup_graveyard_if_needed(now_secs());
+        self.cleanup_graveyard_if_needed(now);
     }
 
     /// Register a forked process under its own stable identity while carrying
@@ -236,51 +245,31 @@ impl ProcessCache {
     /// Remove a process from the cache (called on process exit)
     /// Moves the exact process identity into the short-lived graveyard.
     pub fn remove(&self, pid: u32, creation_time: u64) {
-        let removed_meta = {
+        let now = now_secs();
+        {
             let mut cache = self.cache.write().unwrap();
-            let mut eviction_order = self.eviction_order.write().unwrap();
-
-            let meta = cache.remove(&(pid, creation_time));
-            eviction_order.remove(&(creation_time, pid));
-            meta
-        };
-
-        if let Some(meta) = removed_meta {
-            let now = now_secs();
-            if let Ok(mut graveyard) = self.graveyard.write() {
-                if graveyard.len() >= self.max_entries {
-                    if let Some(key) = graveyard
-                        .iter()
-                        .min_by_key(|(_, entry)| entry.death_time)
-                        .map(|(key, _)| *key)
-                    {
-                        graveyard.remove(&key);
-                    }
-                }
-                graveyard.insert(
-                    (pid, creation_time),
-                    GraveyardEntry {
-                        metadata: meta,
-                        death_time: now,
-                    },
-                );
+            if let Some(meta) = cache.remove(pid, creation_time) {
+                self.graveyard
+                    .write()
+                    .unwrap()
+                    .insert(pid, meta, now, self.max_entries);
             }
-            self.cleanup_graveyard_if_needed(now);
         }
+        self.cleanup_graveyard_if_needed(now);
     }
 
     /// Get full metadata for a given compound key (PID, CreationTime)
     /// This is the precise lookup method that avoids PID reuse issues
     pub fn get_metadata_by_key(&self, pid: u32, creation_time: u64) -> Option<ProcessMetadata> {
         let cache = self.cache.read().unwrap();
-        if let Some(meta) = cache.get(&(pid, creation_time)) {
+        if let Some(meta) = cache.entries.get(&(pid, creation_time)) {
             return Some(meta.clone());
         }
 
         let now = now_secs();
         self.cleanup_graveyard_if_needed(now);
         let graveyard = self.graveyard.read().unwrap();
-        let entry = graveyard.get(&(pid, creation_time))?;
+        let entry = graveyard.entries.get(&(pid, creation_time))?;
         if now.saturating_sub(entry.death_time) > GRAVEYARD_TTL_SECS {
             return None;
         }
@@ -299,6 +288,7 @@ impl ProcessCache {
             .cache
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entries
             .get_mut(&(pid, creation_time))
         {
             apply_pe_metadata(process, metadata);
@@ -308,6 +298,7 @@ impl ProcessCache {
             .graveyard
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entries
             .get_mut(&(pid, creation_time))
         {
             apply_pe_metadata(&mut process.metadata, metadata);
@@ -317,12 +308,12 @@ impl ProcessCache {
     /// Get the current count of cached processes
     pub fn count(&self) -> usize {
         let cache = self.cache.read().unwrap();
-        cache.len()
+        cache.entries.len()
     }
 
     pub fn retired_count(&self) -> usize {
         self.cleanup_graveyard_if_needed(now_secs());
-        self.graveyard.read().unwrap().len()
+        self.graveyard.read().unwrap().entries.len()
     }
 
     fn cleanup_graveyard_if_needed(&self, now: u64) {
@@ -339,7 +330,70 @@ impl ProcessCache {
         }
 
         if let Ok(mut graveyard) = self.graveyard.write() {
-            graveyard.retain(|_, entry| now.saturating_sub(entry.death_time) <= GRAVEYARD_TTL_SECS);
+            graveyard.cleanup(now);
+        }
+    }
+}
+
+#[derive(Default)]
+struct LiveProcesses {
+    entries: HashMap<(u32, u64), ProcessMetadata>,
+    by_pid: HashMap<u32, u64>,
+    eviction_order: BTreeSet<(u64, u32)>,
+}
+
+impl LiveProcesses {
+    fn remove(&mut self, pid: u32, creation_time: u64) -> Option<ProcessMetadata> {
+        self.eviction_order.remove(&(creation_time, pid));
+        if self.by_pid.get(&pid) == Some(&creation_time) {
+            self.by_pid.remove(&pid);
+        }
+        self.entries.remove(&(pid, creation_time))
+    }
+}
+
+#[derive(Default)]
+struct ProcessGraveyard {
+    entries: HashMap<(u32, u64), GraveyardEntry>,
+    /// The full key breaks ties when a burst retires many identities in one second.
+    death_order: BTreeSet<(u64, u32, u64)>,
+}
+
+impl ProcessGraveyard {
+    fn remove(&mut self, pid: u32, creation_time: u64) {
+        if let Some(entry) = self.entries.remove(&(pid, creation_time)) {
+            self.death_order
+                .remove(&(entry.death_time, pid, creation_time));
+        }
+    }
+
+    fn insert(&mut self, pid: u32, metadata: ProcessMetadata, death_time: u64, max_entries: usize) {
+        let creation_time = metadata.creation_time;
+        self.remove(pid, creation_time);
+        self.entries.insert(
+            (pid, creation_time),
+            GraveyardEntry {
+                metadata,
+                death_time,
+            },
+        );
+        self.death_order.insert((death_time, pid, creation_time));
+
+        while self.entries.len() > max_entries {
+            let Some((_, oldest_pid, oldest_creation_time)) = self.death_order.pop_first() else {
+                break;
+            };
+            self.entries.remove(&(oldest_pid, oldest_creation_time));
+        }
+    }
+
+    fn cleanup(&mut self, now: u64) {
+        while let Some(&(death_time, pid, creation_time)) = self.death_order.first() {
+            if now.saturating_sub(death_time) <= GRAVEYARD_TTL_SECS {
+                break;
+            }
+            self.death_order.pop_first();
+            self.entries.remove(&(pid, creation_time));
         }
     }
 }
@@ -406,14 +460,45 @@ mod tests {
     }
 
     #[test]
-    fn eviction_keeps_newest_identity_for_reused_pid() {
+    fn new_identity_retires_previous_pid_metadata() {
         let cache = ProcessCache::with_max_entries(1);
 
         add_process(&cache, 10, 100);
         add_process(&cache, 10, 200);
 
-        assert!(cache.get_metadata_by_key(10, 100).is_none());
+        assert_eq!(cache.count(), 1);
+        assert_eq!(cache.retired_count(), 1);
+        assert!(cache.get_metadata_by_key(10, 100).is_some());
         assert!(cache.get_metadata_by_key(10, 200).is_some());
+    }
+
+    #[test]
+    fn updating_the_same_identity_does_not_retire_it() {
+        let cache = ProcessCache::new();
+        add_process(&cache, 10, 100);
+        add_process(&cache, 10, 100);
+
+        assert_eq!(cache.count(), 1);
+        assert_eq!(cache.retired_count(), 0);
+        cache.remove(10, 100);
+        add_process(&cache, 10, 100);
+        assert_eq!(cache.count(), 1);
+        assert_eq!(cache.retired_count(), 0);
+        assert!(cache.graveyard.read().unwrap().death_order.is_empty());
+    }
+
+    #[test]
+    fn delayed_exit_does_not_remove_the_current_identity() {
+        let cache = ProcessCache::new();
+        add_process(&cache, 10, 100);
+        add_process(&cache, 10, 200);
+        cache.remove(10, 100);
+
+        assert_eq!(cache.count(), 1);
+        assert!(cache.get_metadata_by_key(10, 200).is_some());
+        cache.remove(10, 200);
+        assert_eq!(cache.count(), 0);
+        assert_eq!(cache.retired_count(), 2);
     }
 
     #[test]
@@ -424,6 +509,11 @@ mod tests {
 
         assert_eq!(cache.count(), 0);
         assert!(cache.get_metadata_by_key(10, 100).is_none());
+        cache.remove(10, 100);
+        assert_eq!(cache.retired_count(), 0);
+        let cache = cache.cache.read().unwrap();
+        assert!(cache.by_pid.is_empty());
+        assert!(cache.eviction_order.is_empty());
     }
 
     #[test]
@@ -433,9 +523,65 @@ mod tests {
             add_process(&cache, pid, u64::from(pid));
             cache.remove(pid, u64::from(pid));
             assert!(cache.retired_count() <= 2);
+            let graveyard = cache.graveyard.read().unwrap();
+            assert_eq!(graveyard.death_order.len(), graveyard.entries.len());
         }
         assert_eq!(cache.count(), 0);
         assert!(cache.get_metadata_by_key(19, 19).is_some());
+        let cache = cache.cache.read().unwrap();
+        assert!(cache.by_pid.is_empty());
+        assert!(cache.eviction_order.is_empty());
+    }
+
+    #[test]
+    fn graveyard_evicts_by_death_time_and_cleans_up_at_the_ttl_boundary() {
+        let cache = ProcessCache::new();
+        add_process(&cache, 10, 100);
+        let metadata = cache.get_metadata_by_key(10, 100).unwrap();
+        let mut graveyard = ProcessGraveyard::default();
+
+        // Death order differs from PID order and insertion order.
+        graveyard.insert(30, metadata.clone(), 10, 2);
+        graveyard.insert(10, metadata.clone(), 20, 2);
+        graveyard.insert(20, metadata, 15, 2);
+        assert!(!graveyard.entries.contains_key(&(30, 100)));
+        assert_eq!(graveyard.death_order.len(), 2);
+
+        graveyard.cleanup(15 + GRAVEYARD_TTL_SECS);
+        assert_eq!(graveyard.entries.len(), 2);
+        graveyard.cleanup(16 + GRAVEYARD_TTL_SECS);
+        assert!(!graveyard.entries.contains_key(&(20, 100)));
+        assert!(graveyard.entries.contains_key(&(10, 100)));
+        assert_eq!(graveyard.death_order.len(), 1);
+        graveyard.cleanup(21 + GRAVEYARD_TTL_SECS);
+        assert!(graveyard.entries.is_empty());
+        assert!(graveyard.death_order.is_empty());
+    }
+
+    #[test]
+    fn graveyard_replacement_and_equal_death_times_keep_the_index_bounded() {
+        let cache = ProcessCache::new();
+        add_process(&cache, 10, 100);
+        let metadata = cache.get_metadata_by_key(10, 100).unwrap();
+        let mut graveyard = ProcessGraveyard::default();
+
+        graveyard.insert(10, metadata.clone(), 10, 2);
+        graveyard.insert(10, metadata.clone(), 20, 2);
+        assert_eq!(graveyard.entries.len(), 1);
+        assert_eq!(graveyard.death_order.len(), 1);
+        assert!(!graveyard.death_order.contains(&(10, 10, 100)));
+
+        for pid in 11..30 {
+            graveyard.insert(pid, metadata.clone(), 20, 2);
+            assert_eq!(graveyard.entries.len(), 2);
+            assert_eq!(graveyard.death_order.len(), 2);
+        }
+        graveyard.remove(29, 100);
+        assert_eq!(graveyard.entries.len(), 1);
+        assert_eq!(graveyard.death_order.len(), 1);
+        graveyard.insert(30, metadata, 20, 0);
+        assert!(graveyard.entries.is_empty());
+        assert!(graveyard.death_order.is_empty());
     }
 
     #[test]

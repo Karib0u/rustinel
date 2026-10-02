@@ -99,6 +99,26 @@ agent through sudo while keeping workloads under the normal user. For
 non-interactive lab runs, set `SUDO_ASKPASS` to an askpass helper. Never commit
 askpass helpers or passwords.
 
+## Linux process-cache soak
+
+On an isolated Linux host with a built eBPF object embedded in the agent:
+
+```bash
+sudo python3 tests/ebpf_process_cache_soak.py \
+  --binary target/debug/rustinel \
+  --rules-dir rules/sigma \
+  --artifacts-dir target/process-cache-soak
+```
+
+The soak runs three bursts of 20,000 `/bin/true` launches with Sigma enabled,
+waiting 75 seconds after each burst for retired process metadata to expire.
+It checks live cache counts against startup, retired cache cleanup, process
+sensor drops, and RSS growth after the first warmup burst. Each run writes
+`samples.json` with RSS, host state, and telemetry counters. YARA and IOC are
+disabled to isolate process-state retention. Use `--rounds`, `--launches`,
+`--max-live-growth`, `--max-retired-background`, and `--max-rss-growth-mib` to
+adjust the workload and allowance for background activity or allocator retention.
+
 ## Drop signals in logs
 
 ```text

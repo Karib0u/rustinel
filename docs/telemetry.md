@@ -36,7 +36,7 @@ The snapshot reads each index separately while events continue to arrive.
 | Field | Meaning |
 | --- | --- |
 | `limits` | Entry ceilings: configured `processes`, 4,096 `users`, 10,000 `dns`, and 8,192 `paths` per index |
-| `processes`, `retired_processes` | Live metadata and recently exited processes; each has the configured process ceiling |
+| `processes`, `retired_processes` | One live identity per PID and recently retired identities (exit, exec, or PID reuse); each has the configured process ceiling. Retired metadata remains available for delayed events for 60 seconds |
 | `process_identities` | Windows process lifetimes used for timestamp-based attribution; has the process ceiling |
 | `users`, `dns` | Cached account resolutions and IP-to-hostname mappings |
 | `paths` | Retained directory paths on Linux, or combined file and registry paths on Windows, including startup and recently closed entries |
