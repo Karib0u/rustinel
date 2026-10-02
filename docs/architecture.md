@@ -57,7 +57,11 @@ ebpf/src/            Linux eBPF programs and the event ABI
    YARA file and IOC hash alerts come from the same resolver result after admission.
    Sigma rules on `Hashes` or `Imphash` are left out of admission for events the resolver will hash; a deferred detection stage evaluates them once, in arrival order, when the resolver publishes those fields or a 2 second budget expires.
    YARA memory scanning remains a separate worker by design: it reads a live process keyed by process identity, after a delay, under one budget shared across regions.
-   Linux descriptor-path and memfd executables resolve through `/proc/<pid>/exe`, with a file identity captured before queueing and process lifetime checks around the open.
+   Linux binaries, including descriptor-path, memfd, and deleted executables, resolve through `/proc/<pid>/exe`, with a file identity captured before queueing and process lifetime checks around the open.
+   Scripts resolve through `/proc/<pid>/root` for absolute paths or `/proc/<pid>/cwd` for relative paths, so scanning reads the script rather than its interpreter.
+   These paths use `openat2` with `RESOLVE_IN_ROOT` to keep absolute symlinks inside the process root.
+   Ordinary process images keep their original path for allowlisting and alerts.
+   If the process is unavailable, a pathname fallback requires a sensor-confirmed match with the agent's mount namespace.
    Memfd executions queue memory scans even when scanning every process is disabled.
 5. Hits go to `AlertSink` (ECS NDJSON) and, when enabled, `ResponseEngine`.
 

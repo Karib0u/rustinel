@@ -1148,7 +1148,8 @@ impl ArtifactTarget {
                 });
             }
         }
-        Some(Self {
+        #[allow(unused_mut)] // Linux also resolves ordinary process-relative images.
+        let mut target = Self {
             kind,
             path,
             display_path,
@@ -1158,7 +1159,97 @@ impl ArtifactTarget {
             content_write: kind == ArtifactKind::WrittenFile
                 && event.action == SensorAction::Modify,
             measured_on_arrival: false,
-        })
+        };
+        #[cfg(target_os = "linux")]
+        if kind == ArtifactKind::ProcessImage
+            && event.normalized().platform == Platform::Linux
+            && !crate::utils::process::linux_exec_uses_proc(&target.display_path)
+        {
+            let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
+                unreachable!();
+            };
+            target.resolve_linux_process_path(event, fields);
+        }
+        Some(target)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn resolve_linux_process_path(
+        &mut self,
+        event: &CanonicalEvent,
+        fields: &crate::models::ProcessCreationFields,
+    ) {
+        use std::os::unix::fs::MetadataExt;
+
+        let proc = PathBuf::from(format!("/proc/{}", self.pid));
+        let image = Path::new(&self.display_path);
+        let contextual = if image.is_absolute() {
+            proc.join("root").join(image.strip_prefix("/").unwrap())
+        } else {
+            proc.join("cwd").join(image)
+        };
+        let Some(current) = crate::utils::query_process_identity(self.pid) else {
+            // Only a sensor-confirmed host namespace permits a pathname fallback.
+            // An exited container may have used the same path for different bytes.
+            let host_namespace = std::fs::metadata("/proc/self/ns/mnt")
+                .ok()
+                .map(|metadata| metadata.ino());
+            let event_namespace = fields
+                .linux_identity
+                .mount_namespace
+                .as_deref()
+                .and_then(|value| value.parse::<u64>().ok());
+            if event_namespace.is_some() && event_namespace == host_namespace {
+                if self.expected.is_none() {
+                    self.expected = std::fs::metadata(&self.path).ok().map(|metadata| {
+                        ExpectedIdentity::Exact(file_identity::from_metadata(&metadata))
+                    });
+                }
+                return;
+            }
+            self.path = contextual;
+            self.process_identity = Some(scanner::capture_process_identity(
+                event,
+                fields,
+                self.pid,
+                &self.display_path,
+            ));
+            return;
+        };
+
+        let exe = proc.join("exe");
+        let contextual_identity = open_linux_process_path(&contextual, libc::O_PATH)
+            .and_then(|file| file.metadata())
+            .ok()
+            .map(|metadata| file_identity::from_metadata(&metadata));
+        let executable_identity = std::fs::metadata(&exe)
+            .ok()
+            .map(|metadata| file_identity::from_metadata(&metadata));
+        let same_path = if image.is_absolute() {
+            image == Path::new(&current.image)
+        } else {
+            std::fs::read_link(proc.join("cwd"))
+                .is_ok_and(|cwd| cwd.join(image) == Path::new(&current.image))
+        };
+        // Scripts name a different object from their interpreter. Keep their
+        // own bytes, but prefer exe for binaries, including unlinked binaries.
+        let is_executable = same_path
+            || (contextual_identity.is_some() && contextual_identity == executable_identity);
+        self.path = if is_executable { exe } else { contextual };
+        if self.expected.is_none() {
+            self.expected = if is_executable {
+                executable_identity
+            } else {
+                contextual_identity
+            }
+            .map(ExpectedIdentity::Exact);
+        }
+        let mut identity =
+            scanner::capture_process_identity(event, fields, self.pid, &current.image);
+        // The kernel's script argv and the interpreter's live argv can differ.
+        // Lifetime, executable, and the artifact's file identity guard this read.
+        identity.command_line_hash = None;
+        self.process_identity = Some(identity);
     }
 }
 
@@ -1192,11 +1283,17 @@ impl ResolvePlan {
         event: &CanonicalEvent,
         target: &ArtifactTarget,
     ) -> Self {
-        let path = target
-            .process_identity
-            .as_ref()
-            .map(|identity| Path::new(&identity.image))
-            .unwrap_or(&target.path);
+        let path = if target.process_identity.is_some()
+            && !crate::utils::process::linux_exec_uses_proc(&target.display_path)
+        {
+            Path::new(&target.display_path)
+        } else {
+            target
+                .process_identity
+                .as_ref()
+                .map(|identity| Path::new(&identity.image))
+                .unwrap_or(&target.path)
+        };
         let scans_content = target.kind != ArtifactKind::LoadedImage;
         let pe_image = event.normalized().platform == Platform::Windows
             && matches!(
@@ -2235,6 +2332,13 @@ fn open_artifact(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC);
     }
+    #[cfg(target_os = "linux")]
+    let file = if is_linux_process_path(path) {
+        open_linux_process_path(path, libc::O_RDONLY | libc::O_NONBLOCK)?
+    } else {
+        options.open(path)?
+    };
+    #[cfg(not(target_os = "linux"))]
     let file = options.open(path)?;
     if !file.metadata()?.file_type().is_file() {
         return Err(io::Error::new(
@@ -2243,6 +2347,71 @@ fn open_artifact(path: &Path) -> io::Result<File> {
         ));
     }
     Ok(file)
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_process_path(path: &Path) -> bool {
+    let Some(path) = path.strip_prefix("/proc").ok() else {
+        return false;
+    };
+    let mut parts = path.iter();
+    parts
+        .next()
+        .and_then(|pid| pid.to_str()?.parse::<u32>().ok())
+        .is_some()
+        && parts
+            .next()
+            .is_some_and(|part| part == "root" || part == "cwd")
+}
+
+/// Anchor absolute symlinks and `..` in the process root, including paths
+/// relative to its cwd. A plain open of `/proc/pid/root/...` escapes to the
+/// observer's root when it encounters an absolute symlink.
+#[cfg(target_os = "linux")]
+fn open_linux_process_path(path: &Path, flags: i32) -> io::Result<File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut parts = path.strip_prefix("/proc").unwrap().components();
+    let proc = Path::new("/proc").join(parts.next().unwrap());
+    let context = parts.next().unwrap();
+    let root = proc.join("root");
+    let relative = if context.as_os_str() == "cwd" {
+        let cwd = std::fs::read_link(proc.join("cwd"))?;
+        let root_path = std::fs::read_link(&root)?;
+        cwd.strip_prefix(root_path)
+            .map_err(|_| io::Error::other("process cwd is outside its root"))?
+            .join(parts.as_path())
+    } else {
+        parts.as_path().to_path_buf()
+    };
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
+        .open(root)?;
+    let name = CString::new(relative.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in process artifact path"))?;
+    // Linux open_how: flags, mode, resolve. RESOLVE_IN_ROOT makes symlinks
+    // and parent traversal follow the process filesystem rather than ours.
+    let how = [(flags | libc::O_CLOEXEC) as u64, 0_u64, 0x10_u64];
+    // SAFETY: the directory and NUL-terminated path outlive the syscall;
+    // `how` has the three-u64 layout required by the Linux UAPI.
+    let fd = unsafe {
+        libc::syscall(
+            libc::SYS_openat2,
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            how.as_ptr(),
+            std::mem::size_of_val(&how),
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a successful openat2 returns an owned descriptor.
+    Ok(unsafe { File::from_raw_fd(fd as i32) })
 }
 
 fn apply_pe_metadata(event: &mut CanonicalEvent, metadata: &PeMetadata) {
@@ -2624,6 +2793,18 @@ mod tests {
     };
 
     fn process_event(path: &Path, platform: Platform) -> CanonicalEvent {
+        #[allow(unused_mut)]
+        let mut linux_identity = Box::<LinuxProcessIdentity>::default();
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::MetadataExt;
+            linux_identity.mount_namespace = Some(
+                std::fs::metadata("/proc/self/ns/mnt")
+                    .unwrap()
+                    .ino()
+                    .to_string(),
+            );
+        }
         CanonicalEvent::from_normalized(NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".into(),
             source_seq: None,
@@ -2639,7 +2820,7 @@ mod tests {
                 imphash: None,
                 container: Default::default(),
                 exec: Default::default(),
-                linux_identity: Box::<LinuxProcessIdentity>::default(),
+                linux_identity,
                 image: Some(path.to_string_lossy().into_owned()),
                 image_source: None,
                 image_truncated: None,
@@ -4264,6 +4445,248 @@ level: high
     }
 
     #[cfg(target_os = "linux")]
+    fn live_process_event(pid: u32, image: &Path) -> CanonicalEvent {
+        let mut event = process_event(image, Platform::Linux).into_normalized();
+        let EventFields::ProcessCreation(fields) = &mut event.fields else {
+            unreachable!()
+        };
+        fields.process_id = Some(pid.to_string());
+        CanonicalEvent::from_normalized(event)
+    }
+
+    #[cfg(target_os = "linux")]
+    struct FileProcessFixture {
+        child: std::process::Child,
+        root: tempfile::TempDir,
+        bytes: Vec<u8>,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl FileProcessFixture {
+        fn start(script: bool) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            use std::process::{Command, Stdio};
+
+            let root = tempfile::tempdir().unwrap();
+            let image = root.path().join("sleep");
+            let mut bytes = if script {
+                b"#!/bin/sh\n# evil!!\nread ignored\n".to_vec()
+            } else {
+                std::fs::read("/bin/sh").unwrap()
+            };
+            if !script {
+                bytes.extend_from_slice(b"evil!!");
+            }
+            std::fs::write(&image, &bytes).unwrap();
+            std::fs::set_permissions(&image, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let child = Command::new("./sleep")
+                .args(["-c", "read ignored"])
+                .current_dir(root.path())
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let fixture = Self { child, root, bytes };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let ready = crate::utils::query_process_identity(fixture.child.id()).is_some_and(
+                    |identity| {
+                        if script {
+                            identity.image.ends_with("/dash") || identity.image.ends_with("/sh")
+                        } else {
+                            Path::new(&identity.image) == image
+                        }
+                    },
+                );
+                if ready {
+                    return fixture;
+                }
+                assert!(Instant::now() < deadline, "child did not exec the fixture");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for FileProcessFixture {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_binary_artifacts_use_exe_for_absolute_relative_symlink_and_deleted_paths() {
+        use sha2::Digest;
+        use std::os::unix::fs::symlink;
+
+        let fixture = FileProcessFixture::start(false);
+        let image = fixture.root.path().join("sleep");
+        let link = fixture.root.path().join("linked");
+        symlink(&image, &link).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let state = Arc::new(ResolverState::new());
+        let resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::clone(&state),
+        );
+        for path in [image.as_path(), Path::new("./sleep"), link.as_path()] {
+            let event = live_process_event(fixture.child.id(), path);
+            let target = ArtifactTarget::from_event(&event, None).unwrap();
+            assert_eq!(
+                target.path,
+                PathBuf::from(format!("/proc/{}/exe", fixture.child.id()))
+            );
+            assert_eq!(target.display_path, path.to_string_lossy());
+            let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+            let artifact = resolver
+                .resolve_with_opener(&target, &plan, open_artifact)
+                .unwrap();
+            assert_eq!(artifact.yara.unwrap().len(), 1);
+            assert_eq!(
+                artifact.hashes.unwrap().sha256.as_deref(),
+                Some(hex::encode(sha2::Sha256::digest(&fixture.bytes)).as_str())
+            );
+        }
+        // Snapshot after unlinking, so exe is the only remaining path to the bytes.
+        std::fs::remove_file(&image).unwrap();
+        let event = live_process_event(fixture.child.id(), &image);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        assert!(resolver
+            .resolve_with_opener(&target, &plan, open_artifact)
+            .is_ok());
+        assert_eq!(state.snapshot().identity_mismatch, 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_scripts_scan_script_bytes_and_allowlist_the_original_path() {
+        use sha2::Digest;
+        let fixture = FileProcessFixture::start(true);
+        let image = fixture.root.path().join("sleep");
+        let temp = tempfile::tempdir().unwrap();
+        let mut runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        runtime.yara_allowlist_paths = vec!["/bin/".into(), "/usr/bin/".into()];
+        let state = Arc::new(ResolverState::new());
+        let resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::clone(&state),
+        );
+        for path in [image.as_path(), Path::new("./sleep")] {
+            let event = live_process_event(fixture.child.id(), path);
+            let target = ArtifactTarget::from_event(&event, None).unwrap();
+            assert!(target
+                .path
+                .to_string_lossy()
+                .contains(if path.is_absolute() {
+                    "/root/"
+                } else {
+                    "/cwd/"
+                }));
+            let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+            assert!(
+                plan.needs.yara,
+                "allowlisting the interpreter must not allowlist the script"
+            );
+            let artifact = resolver
+                .resolve_with_opener(&target, &plan, open_artifact)
+                .unwrap();
+            assert_eq!(artifact.yara.unwrap().len(), 1);
+            assert_eq!(
+                artifact.hashes.unwrap().sha256.as_deref(),
+                Some(hex::encode(sha2::Sha256::digest(&fixture.bytes)).as_str())
+            );
+        }
+        runtime
+            .yara_allowlist_paths
+            .push(image.to_string_lossy().into_owned());
+        let event = live_process_event(fixture.child.id(), &image);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        assert!(!ResolvePlan::snapshot(&runtime, &event, &target).needs.yara);
+        std::fs::write(&image, b"changed script").unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        assert!(matches!(
+            resolver.resolve_with_opener(&target, &plan, open_artifact),
+            Err(ResolveError::Identity)
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_process_artifacts_reject_changed_lifetimes_before_opening() {
+        let mut fixture = FileProcessFixture::start(false);
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let event = live_process_event(fixture.child.id(), &fixture.root.path().join("sleep"));
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        let resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime,
+            Arc::new(ResolverState::new()),
+        );
+        let mut stale = target.clone();
+        stale.process_identity.as_mut().unwrap().start_time = Some(u64::MAX);
+        assert!(matches!(
+            resolver.resolve_with_opener(&stale, &plan, |_| panic!(
+                "must reject stale lifetime before open"
+            )),
+            Err(ResolveError::Identity)
+        ));
+        fixture.child.kill().unwrap();
+        fixture.child.wait().unwrap();
+        assert!(matches!(
+            resolver.resolve_with_opener(&target, &plan, |_| panic!(
+                "must reject exited process before open"
+            )),
+            Err(ResolveError::Identity)
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_exited_processes_only_fall_back_in_the_confirmed_host_namespace() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("same-name-on-host");
+        let bytes = b"evil!!";
+        std::fs::write(&path, bytes).unwrap();
+        let runtime = runtime_with_consumers(temp.path(), bytes);
+        let resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::new(ResolverState::new()),
+        );
+        for namespace in [None, Some("0".to_string())] {
+            let mut event = process_event(&path, Platform::Linux).into_normalized();
+            let EventFields::ProcessCreation(fields) = &mut event.fields else {
+                unreachable!()
+            };
+            fields.process_id = Some(u32::MAX.to_string());
+            fields.linux_identity.mount_namespace = namespace;
+            let event = CanonicalEvent::from_normalized(event);
+            let target = ArtifactTarget::from_event(&event, None).unwrap();
+            let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+            assert!(matches!(
+                resolver.resolve_with_opener(&target, &plan, |_| panic!(
+                    "must not open a same-named host file"
+                )),
+                Err(ResolveError::Identity)
+            ));
+        }
+        let event = live_process_event(u32::MAX, &path);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        assert_eq!(target.path, path);
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        assert!(resolver
+            .resolve_with_opener(&target, &plan, open_artifact)
+            .is_ok());
+    }
+
+    #[cfg(target_os = "linux")]
     struct MemfdFixture {
         child: std::process::Child,
         bytes: Vec<u8>,
@@ -4278,12 +4701,13 @@ level: high
             let fd = unsafe { libc::memfd_create(c"payload".as_ptr(), libc::MFD_CLOEXEC) };
             assert!(fd >= 0, "memfd_create: {}", io::Error::last_os_error());
             let mut file = unsafe { File::from_raw_fd(fd) };
-            let mut bytes = std::fs::read("/bin/sleep").unwrap();
+            let mut bytes = std::fs::read("/bin/sh").unwrap();
             bytes.extend_from_slice(b"evil!!");
             file.write_all(&bytes).unwrap();
             let descriptor_path = format!("/proc/self/fd/{}", file.as_raw_fd());
             let child = std::process::Command::new(&descriptor_path)
-                .arg("30")
+                .args(["-c", "read ignored"])
+                .stdin(std::process::Stdio::piped())
                 .spawn()
                 .unwrap();
             drop(file);
@@ -4329,8 +4753,9 @@ level: high
         let fixture = MemfdFixture::start();
         let fd = fixture.descriptor_path.rsplit('/').next().unwrap();
         assert!(
-            !Path::new(&format!("/proc/{}/fd/{fd}", fixture.child.id())).exists(),
-            "close-on-exec descriptor must be gone"
+            !std::fs::read_link(format!("/proc/{}/fd/{fd}", fixture.child.id()))
+                .is_ok_and(|path| crate::utils::process::is_memfd_image(&path.to_string_lossy())),
+            "close-on-exec descriptor must not reference the memfd"
         );
         let temp = tempfile::tempdir().unwrap();
         let mut runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
