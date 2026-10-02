@@ -676,7 +676,8 @@ impl ArtifactEventHandler {
 
 impl CanonicalEventHandler for ArtifactEventHandler {
     fn handle_event(&self, event: &CanonicalEvent) {
-        let Some(target) = ArtifactTarget::from_event(event, self.runtime.written_files.as_ref())
+        let Some(mut target) =
+            ArtifactTarget::select_event(event, self.runtime.written_files.as_ref())
         else {
             if matches!(event.normalized().fields, EventFields::FileEvent(_))
                 && matches!(
@@ -693,10 +694,21 @@ impl CanonicalEventHandler for ArtifactEventHandler {
             self.admit(event, None, false);
             return;
         };
-        let plan = ResolvePlan::snapshot(&self.runtime, event, &target);
+        let mut plan = ResolvePlan::snapshot(&self.runtime, event, &target);
         if plan.needs.is_empty() {
             self.admit(event, None, false);
             return;
+        }
+        // Selection and the initial consumer check do no process/filesystem I/O.
+        // Only eligible images need an arrival-time snapshot of local proc entries.
+        target.capture_process_context(event);
+        if crate::utils::process::linux_exec_uses_proc(&target.display_path) {
+            // Descriptor images use the measured executable for allowlisting.
+            plan = ResolvePlan::snapshot(&self.runtime, event, &target);
+            if plan.needs.is_empty() {
+                self.admit(event, None, false);
+                return;
+            }
         }
         if target.kind == ArtifactKind::WrittenFile
             && target.expected.is_none()
@@ -1079,6 +1091,8 @@ pub(crate) struct ArtifactTarget {
     pub expected: Option<ExpectedIdentity>,
     /// Lifetime and executable measured before queueing a process-relative image.
     process_identity: Option<crate::utils::ProcessIdentity>,
+    #[cfg(target_os = "linux")]
+    linux_process_path: Option<LinuxProcessPath>,
     /// A written file changed in place. Unlike a create or rename, this cannot
     /// have put a different object at the path.
     content_write: bool,
@@ -1086,8 +1100,18 @@ pub(crate) struct ArtifactTarget {
     measured_on_arrival: bool,
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct LinuxProcessPath {
+    contextual: PathBuf,
+    executable_identity: Option<FileIdentity>,
+    /// Never an agent-relative path, and only present for a confirmed host namespace.
+    host_fallback: Option<PathBuf>,
+}
+
 impl ArtifactTarget {
-    pub(crate) fn from_event(
+    /// Select an artifact without querying the subject or traversing its filesystem.
+    pub(crate) fn select_event(
         event: &CanonicalEvent,
         written_files: Option<&WrittenFileSelector>,
     ) -> Option<Self> {
@@ -1121,9 +1145,6 @@ impl ArtifactTarget {
         let display_path = display_path.filter(|path| !path.is_empty())?;
         let pid = event.pid.unwrap_or(0);
         let mut path = normalize_path(event.normalized().platform, &display_path);
-        #[allow(unused_mut)] // Linux captures the live executable identity below.
-        let mut expected = expected;
-        let mut process_identity = None;
         if kind == ArtifactKind::ProcessImage
             && event.normalized().platform == Platform::Linux
             && crate::utils::process::linux_exec_uses_proc(&display_path)
@@ -1132,49 +1153,51 @@ impl ArtifactTarget {
                 return None;
             }
             path = PathBuf::from(format!("/proc/{pid}/exe"));
-            let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
-                unreachable!();
-            };
-            process_identity = Some(scanner::capture_process_identity(
-                event,
-                fields,
-                pid,
-                &display_path,
-            ));
-            #[cfg(target_os = "linux")]
-            if expected.is_none() {
-                expected = std::fs::metadata(&path).ok().map(|metadata| {
-                    ExpectedIdentity::Exact(file_identity::from_metadata(&metadata))
-                });
-            }
         }
-        #[allow(unused_mut)] // Linux also resolves ordinary process-relative images.
-        let mut target = Self {
+        Some(Self {
             kind,
             path,
             display_path,
             pid,
             expected,
-            process_identity,
+            process_identity: None,
+            #[cfg(target_os = "linux")]
+            linux_process_path: None,
             content_write: kind == ArtifactKind::WrittenFile
                 && event.action == SensorAction::Modify,
             measured_on_arrival: false,
-        };
-        #[cfg(target_os = "linux")]
-        if kind == ArtifactKind::ProcessImage
-            && event.normalized().platform == Platform::Linux
-            && !crate::utils::process::linux_exec_uses_proc(&target.display_path)
+        })
+    }
+
+    fn capture_process_context(&mut self, event: &CanonicalEvent) {
+        if self.kind != ArtifactKind::ProcessImage || event.normalized().platform != Platform::Linux
         {
-            let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
-                unreachable!();
-            };
-            target.resolve_linux_process_path(event, fields);
+            return;
         }
-        Some(target)
+        let EventFields::ProcessCreation(fields) = &event.normalized().fields else {
+            unreachable!();
+        };
+        if crate::utils::process::linux_exec_uses_proc(&self.display_path) {
+            self.process_identity = Some(scanner::capture_process_identity(
+                event,
+                fields,
+                self.pid,
+                &self.display_path,
+            ));
+            #[cfg(target_os = "linux")]
+            if self.expected.is_none() {
+                self.expected = std::fs::metadata(&self.path).ok().map(|metadata| {
+                    ExpectedIdentity::Exact(file_identity::from_metadata(&metadata))
+                });
+            }
+        } else {
+            #[cfg(target_os = "linux")]
+            self.capture_linux_process_path(event, fields);
+        }
     }
 
     #[cfg(target_os = "linux")]
-    fn resolve_linux_process_path(
+    fn capture_linux_process_path(
         &mut self,
         event: &CanonicalEvent,
         fields: &crate::models::ProcessCreationFields,
@@ -1188,23 +1211,32 @@ impl ArtifactTarget {
         } else {
             proc.join("cwd").join(image)
         };
-        let Some(current) = crate::utils::query_process_identity(self.pid) else {
-            // Only a sensor-confirmed host namespace permits a pathname fallback.
-            // An exited container may have used the same path for different bytes.
-            let host_namespace = std::fs::metadata("/proc/self/ns/mnt")
-                .ok()
-                .map(|metadata| metadata.ino());
-            let event_namespace = fields
-                .linux_identity
-                .mount_namespace
-                .as_deref()
-                .and_then(|value| value.parse::<u64>().ok());
-            if event_namespace.is_some() && event_namespace == host_namespace {
-                if self.expected.is_none() {
-                    self.expected = std::fs::metadata(&self.path).ok().map(|metadata| {
-                        ExpectedIdentity::Exact(file_identity::from_metadata(&metadata))
-                    });
+        let host_namespace = std::fs::metadata("/proc/self/ns/mnt")
+            .ok()
+            .map(|metadata| metadata.ino());
+        let event_namespace = fields
+            .linux_identity
+            .mount_namespace
+            .as_deref()
+            .and_then(|value| value.parse::<u64>().ok());
+        let in_host_namespace = event_namespace.is_some() && event_namespace == host_namespace;
+        let cwd = (!image.is_absolute())
+            .then(|| std::fs::read_link(proc.join("cwd")).ok())
+            .flatten();
+        let host_fallback = in_host_namespace
+            .then(|| {
+                if image.is_absolute() {
+                    Some(image.to_path_buf())
+                } else {
+                    cwd.as_ref().map(|cwd| cwd.join(image))
                 }
+            })
+            .flatten();
+        let Some(current) = crate::utils::query_process_identity(self.pid) else {
+            // An exited container may have used the same path for different bytes.
+            // Missing relative cwd is never replaced with the agent's working directory.
+            if let Some(path) = host_fallback {
+                self.path = path;
                 return;
             }
             self.path = contextual;
@@ -1218,38 +1250,70 @@ impl ArtifactTarget {
         };
 
         let exe = proc.join("exe");
-        let contextual_identity = open_linux_process_path(&contextual, libc::O_PATH)
-            .and_then(|file| file.metadata())
-            .ok()
-            .map(|metadata| file_identity::from_metadata(&metadata));
+        // These proc reads do not traverse the subject's executable pathname.
+        // Script/symlink path traversal is deferred to an isolated I/O slot.
         let executable_identity = std::fs::metadata(&exe)
             .ok()
             .map(|metadata| file_identity::from_metadata(&metadata));
         let same_path = if image.is_absolute() {
             image == Path::new(&current.image)
         } else {
-            std::fs::read_link(proc.join("cwd"))
-                .is_ok_and(|cwd| cwd.join(image) == Path::new(&current.image))
+            cwd.as_ref()
+                .is_some_and(|cwd| cwd.join(image) == Path::new(&current.image))
         };
-        // Scripts name a different object from their interpreter. Keep their
-        // own bytes, but prefer exe for binaries, including unlinked binaries.
-        let is_executable = same_path
-            || (contextual_identity.is_some() && contextual_identity == executable_identity);
-        self.path = if is_executable { exe } else { contextual };
-        if self.expected.is_none() {
-            self.expected = if is_executable {
-                executable_identity
-            } else {
-                contextual_identity
-            }
-            .map(ExpectedIdentity::Exact);
+        let same_object = self.expected.as_ref().is_some_and(|expected| {
+            executable_identity
+                .as_ref()
+                .is_some_and(|identity| expected.matches(identity))
+        });
+        let is_executable = same_path || same_object;
+        self.path = if is_executable {
+            exe
+        } else {
+            contextual.clone()
+        };
+        if is_executable && self.expected.is_none() {
+            self.expected = executable_identity.clone().map(ExpectedIdentity::Exact);
         }
         let mut identity =
             scanner::capture_process_identity(event, fields, self.pid, &current.image);
         // The kernel's script argv and the interpreter's live argv can differ.
         // Lifetime, executable, and the artifact's file identity guard this read.
         identity.command_line_hash = None;
+        // A fallback must have been bound to the event's lifetime while it was
+        // observable, not to a reused PID that disappears before the worker runs.
+        let host_fallback = host_fallback.filter(|_| identity.matches(&current).is_ok());
+        self.linux_process_path = Some(LinuxProcessPath {
+            contextual,
+            executable_identity,
+            host_fallback,
+        });
         self.process_identity = Some(identity);
+    }
+
+    /// Called only in an isolated I/O worker, after validating the captured lifetime.
+    #[cfg(target_os = "linux")]
+    fn resolve_linux_process_path(&mut self, open: &ArtifactOpener) {
+        let Some(context) = &self.linux_process_path else {
+            return;
+        };
+        if self.path != context.contextual || self.expected.is_some() {
+            return;
+        }
+        let contextual_identity = open(&self.path)
+            .and_then(|file| file.metadata())
+            .ok()
+            .map(|metadata| file_identity::from_metadata(&metadata));
+        // A symlink to the executable is a binary, not a script. Scripts keep
+        // their own bytes rather than scanning the interpreter's exe link.
+        let is_executable =
+            contextual_identity.is_some() && contextual_identity == context.executable_identity;
+        if is_executable {
+            self.path = PathBuf::from(format!("/proc/{}/exe", self.pid));
+        }
+        if self.expected.is_none() {
+            self.expected = contextual_identity.map(ExpectedIdentity::Exact);
+        }
     }
 }
 
@@ -1294,6 +1358,12 @@ impl ResolvePlan {
                 .map(|identity| Path::new(&identity.image))
                 .unwrap_or(&target.path)
         };
+        // Before capture a descriptor pathname tells us nothing about the
+        // executable's allowlist status. Check consumers now, allowlists after capture.
+        let unresolved_proc_image = target.kind == ArtifactKind::ProcessImage
+            && event.normalized().platform == Platform::Linux
+            && crate::utils::process::linux_exec_uses_proc(&target.display_path)
+            && target.process_identity.is_none();
         let scans_content = target.kind != ArtifactKind::LoadedImage;
         let pe_image = event.normalized().platform == Platform::Windows
             && matches!(
@@ -1334,7 +1404,8 @@ impl ResolvePlan {
             if let Some(detectors) = &runtime.detectors {
                 let current_ioc = detectors.ioc().clone();
                 if current_ioc.wants_hashing()
-                    && !current_ioc.is_hash_allowlisted(&path.to_string_lossy())
+                    && (unresolved_proc_image
+                        || !current_ioc.is_hash_allowlisted(&path.to_string_lossy()))
                 {
                     let ioc_hashes = current_ioc.hash_requirements();
                     needs.hashes = HashRequirements {
@@ -1352,10 +1423,11 @@ impl ResolvePlan {
 
                 let (generation, current_yara) = detectors.yara_with_generation();
                 if current_yara.compiled_files() > 0
-                    && !scanner::is_path_allowlisted(
-                        &path.to_string_lossy(),
-                        &runtime.yara_allowlist_paths,
-                    )
+                    && (unresolved_proc_image
+                        || !scanner::is_path_allowlisted(
+                            &path.to_string_lossy(),
+                            &runtime.yara_allowlist_paths,
+                        ))
                 {
                     needs.yara = true;
                     yara_max_bytes = nonzero_limit(current_yara.limits().max_file_bytes);
@@ -1517,6 +1589,8 @@ struct ArtifactResolver {
     host_state: Arc<HostState>,
     runtime: ArtifactRuntime,
     state: Arc<ResolverState>,
+    #[cfg(target_os = "linux")]
+    process_path_opener: ArtifactOpener,
 }
 
 impl ArtifactResolver {
@@ -1529,6 +1603,8 @@ impl ArtifactResolver {
             host_state,
             runtime,
             state,
+            #[cfg(target_os = "linux")]
+            process_path_opener: Arc::new(|path| open_linux_process_path(path, libc::O_PATH)),
         }
     }
 
@@ -1825,18 +1901,69 @@ impl ArtifactResolver {
         )
     }
 
-    fn validate_process_target(&self, target: &ArtifactTarget) -> Result<(), ResolveError> {
-        if let Some(expected) = &target.process_identity {
-            if expected.start_time.is_none()
-                || target.expected.is_none()
-                || crate::utils::validate_process_identity(expected).is_err()
-            {
-                self.state
-                    .counters
-                    .identity_mismatch
-                    .fetch_add(1, Ordering::Relaxed);
-                return Err(ResolveError::Identity);
+    fn identity_error(&self) -> ResolveError {
+        self.state
+            .counters
+            .identity_mismatch
+            .fetch_add(1, Ordering::Relaxed);
+        ResolveError::Identity
+    }
+
+    /// False means an unavailable process with an identity-checked host fallback.
+    /// A queried but mismatched lifetime never qualifies for that fallback.
+    fn validate_process_target(&self, target: &ArtifactTarget) -> Result<bool, ResolveError> {
+        let Some(expected) = &target.process_identity else {
+            return Ok(true);
+        };
+        if expected.start_time.is_none() {
+            return Err(self.identity_error());
+        }
+        if let Some(current) = crate::utils::query_process_identity(expected.pid) {
+            expected
+                .matches(&current)
+                .map_err(|_| self.identity_error())?;
+            return Ok(true);
+        }
+        #[cfg(target_os = "linux")]
+        if matches!(target.expected, Some(ExpectedIdentity::Exact(_)))
+            && target
+                .linux_process_path
+                .as_ref()
+                .is_some_and(|context| context.host_fallback.is_some())
+        {
+            return Ok(false);
+        }
+        Err(self.identity_error())
+    }
+
+    fn prepare_process_target(&self, target: &mut ArtifactTarget) -> Result<(), ResolveError> {
+        let live = self.validate_process_target(target)?;
+        #[cfg(target_os = "linux")]
+        {
+            let needs_path_resolution = live
+                && target.expected.is_none()
+                && target
+                    .linux_process_path
+                    .as_ref()
+                    .is_some_and(|context| target.path == context.contextual);
+            let live = if needs_path_resolution {
+                target.resolve_linux_process_path(&self.process_path_opener);
+                // It may have exited during the potentially blocking traversal.
+                self.validate_process_target(target)?
+            } else {
+                live
+            };
+            if !live {
+                let context = target.linux_process_path.as_ref().unwrap();
+                target.path = context.host_fallback.clone().unwrap();
+                // The exact captured file identity now guards the host open.
+                target.process_identity = None;
             }
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = live;
+        if target.process_identity.is_some() && target.expected.is_none() {
+            return Err(self.identity_error());
         }
         Ok(())
     }
@@ -1853,7 +1980,13 @@ impl ArtifactResolver {
     where
         F: FnOnce(&Path) -> io::Result<File>,
     {
-        self.validate_process_target(target)?;
+        let mut prepared = target.clone();
+        self.prepare_process_target(&mut prepared)?;
+        let target = &prepared;
+        if Instant::now() >= deadline_at {
+            self.record_deadline(deadline_recorded);
+            return Err(ResolveError::Deadline(plan.deadline));
+        }
         let mut file = open(&target.path).map_err(|error| {
             self.state
                 .counters
@@ -2792,6 +2925,18 @@ mod tests {
         ImageLoadFields, LinuxProcessIdentity, NormalizedEvent, ProcessCreationFields,
     };
 
+    impl ArtifactTarget {
+        /// Test convenience for the two admission stages: selection, then capture.
+        fn from_event(
+            event: &CanonicalEvent,
+            written_files: Option<&WrittenFileSelector>,
+        ) -> Option<Self> {
+            let mut target = Self::select_event(event, written_files)?;
+            target.capture_process_context(event);
+            Some(target)
+        }
+    }
+
     fn process_event(path: &Path, platform: Platform) -> CanonicalEvent {
         #[allow(unused_mut)]
         let mut linux_identity = Box::<LinuxProcessIdentity>::default();
@@ -3174,7 +3319,20 @@ mod tests {
             open: ArtifactOpener,
             resolve_capacity: usize,
         ) -> Self {
-            let state = Arc::new(ResolverState::new());
+            Self::from_parts(
+                ResolverParts::new(
+                    downstream,
+                    Arc::new(HostState::default()),
+                    runtime,
+                    Arc::new(ResolverState::new()),
+                    resolve_capacity,
+                ),
+                open,
+            )
+        }
+
+        fn from_parts(parts: ResolverParts, open: ArtifactOpener) -> Self {
+            let state = Arc::clone(&parts.ingress.state);
             let ResolverParts {
                 ingress,
                 admission,
@@ -3182,13 +3340,7 @@ mod tests {
                 resolver,
                 resolve_rx,
                 written_rx,
-            } = ResolverParts::new(
-                downstream,
-                Arc::new(HostState::default()),
-                runtime,
-                Arc::clone(&state),
-                resolve_capacity,
-            );
+            } = parts;
             let stages = std::thread::spawn(move || {
                 run_resolver_stages(admission, deferred, resolver, resolve_rx, written_rx, open)
             });
@@ -4516,6 +4668,297 @@ level: high
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn linux_empty_consumer_plan_skips_process_and_filesystem_capture() {
+        let fixture = FileProcessFixture::start(false);
+        let image = fixture.root.path().join("sleep");
+        let event = live_process_event(fixture.child.id(), &image);
+        let target = ArtifactTarget::select_event(&event, None).unwrap();
+        assert_eq!(target.path, image);
+        assert!(target.process_identity.is_none());
+        assert!(target.expected.is_none());
+        assert!(target.linux_process_path.is_none());
+
+        let seen = Seen::default();
+        let mut parts = ResolverParts::new(
+            router_with(seen.clone()),
+            Arc::new(HostState::default()),
+            ArtifactRuntime::capture(Platform::Linux),
+            Arc::new(ResolverState::new()),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        parts.resolver.process_path_opener = Arc::new(|_| panic!("no consumer needs this path"));
+        parts.ingress.handle_event(&event);
+        assert_eq!(seen.ingest_seqs(), vec![1]);
+        assert!(parts.resolve_rx.try_recv().is_err());
+        assert_eq!(parts.ingress.state.snapshot().queued, 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn blocked_linux_context_resolution_is_isolated_and_does_not_hold_admission() {
+        let fixture = FileProcessFixture::start(true);
+        let image = fixture.root.path().join("sleep");
+        let event = live_process_event(fixture.child.id(), &image);
+        let captured = ArtifactTarget::from_event(&event, None).unwrap();
+        assert!(
+            captured.expected.is_none(),
+            "script path must not be traversed at admission"
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        runtime.detectors.as_ref().unwrap().swap_yara(Arc::new(
+            Scanner::new(temp.path().join("yara")).unwrap().with_limits(
+                crate::scanner::ScanLimits {
+                    timeout: Duration::from_millis(40),
+                    max_file_bytes: 1024,
+                },
+            ),
+        ));
+        let seen = Seen::default();
+        let mut parts = ResolverParts::new(
+            router_with(seen.clone()),
+            Arc::new(HostState::default()),
+            runtime,
+            Arc::new(ResolverState::new()),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        let gate = Gate::new();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let blocked = gate.opener(Some(entered_tx));
+        parts.resolver.process_path_opener = Arc::new(move |path| {
+            assert_eq!(std::thread::current().name(), Some("artifact-io"));
+            blocked(path)
+        });
+        let reads = Arc::new(AtomicUsize::new(0));
+        let read_count = Arc::clone(&reads);
+        let harness = Harness::from_parts(
+            parts,
+            Arc::new(move |path| {
+                read_count.fetch_add(1, Ordering::Relaxed);
+                open_artifact(path)
+            }),
+        );
+        harness.ingress.handle_event(&event);
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        harness.ingress.handle_event(&windows_file_event(2));
+        assert_eq!(seen.ingest_seqs(), vec![1, 2]);
+        // An OS call keeps its slot but cannot hold admission or shutdown forever.
+        let state = harness.finish();
+        gate.release();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while state.snapshot().deadline_exceeded == 0 {
+            assert!(
+                Instant::now() < deadline,
+                "late contextual I/O was not expired"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(reads.load(Ordering::Relaxed), 0);
+        assert_eq!(state.snapshot().resolved, 0);
+        assert_eq!(state.snapshot().identity_mismatch, 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_queued_host_binaries_keep_absolute_and_relative_coverage_after_exit() {
+        use sha2::Digest;
+
+        let mut fixture = FileProcessFixture::start(false);
+        let image = fixture.root.path().join("sleep");
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::new(ResolverState::new()),
+        );
+        let jobs: Vec<_> = [image.as_path(), Path::new("./sleep")]
+            .into_iter()
+            .map(|path| {
+                let event = live_process_event(fixture.child.id(), path);
+                let target = ArtifactTarget::from_event(&event, None).unwrap();
+                assert!(target.expected.is_some());
+                let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+                (target, plan)
+            })
+            .collect();
+        fixture.child.kill().unwrap();
+        fixture.child.wait().unwrap();
+        for (target, plan) in jobs {
+            let artifact = resolver
+                .resolve_with_opener(&target, &plan, |path| {
+                    assert_eq!(path, image);
+                    assert!(path.is_absolute(), "never use the agent's cwd for fallback");
+                    open_artifact(path)
+                })
+                .unwrap();
+            assert_eq!(artifact.yara.unwrap().len(), 1);
+            assert_eq!(
+                artifact.hashes.unwrap().sha256.as_deref(),
+                Some(hex::encode(sha2::Sha256::digest(&fixture.bytes)).as_str())
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_queued_scripts_with_sensor_identity_can_use_the_host_fallback() {
+        let mut fixture = FileProcessFixture::start(true);
+        let image = fixture.root.path().join("sleep");
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let mut normalized = live_process_event(fixture.child.id(), &image).into_normalized();
+        let EventFields::ProcessCreation(fields) = &mut normalized.fields else {
+            unreachable!()
+        };
+        fields.exec = Some(Box::new(crate::models::ExecMetadata {
+            file_identity: file_identity::from_path(&image),
+            ..Default::default()
+        }));
+        let event = CanonicalEvent::from_normalized(normalized);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        fixture.child.kill().unwrap();
+        fixture.child.wait().unwrap();
+        let mut resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime,
+            Arc::new(ResolverState::new()),
+        );
+        resolver.process_path_opener =
+            Arc::new(|_| panic!("sensor already supplied script identity"));
+        let artifact = resolver
+            .resolve_with_opener(&target, &plan, open_artifact)
+            .unwrap();
+        assert_eq!(artifact.yara.unwrap().len(), 1);
+        assert!(artifact.hashes.unwrap().sha256.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_descriptor_preflight_defers_allowlisting_until_executable_capture() {
+        let fixture = MemfdFixture::start();
+        let temp = tempfile::tempdir().unwrap();
+        let mut runtime = ArtifactRuntime::capture(Platform::Linux);
+        let consumers = runtime_with_consumers(temp.path(), &fixture.bytes);
+        runtime.detectors = Some(DetectorStore::new(
+            Arc::new(Engine::new_for_platform(Platform::Linux)),
+            consumers
+                .detectors
+                .as_ref()
+                .unwrap()
+                .yara_with_generation()
+                .1,
+            Arc::new(crate::ioc::IocEngine::disabled()),
+        ));
+        runtime.yara_allowlist_paths = vec!["/proc/".into()];
+        let event = fixture.event(&fixture.descriptor_path);
+        let selected = ArtifactTarget::select_event(&event, None).unwrap();
+        assert!(
+            ResolvePlan::snapshot(&runtime, &event, &selected)
+                .needs
+                .yara
+        );
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime.clone(),
+            Arc::new(open_artifact),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        harness.ingress.handle_event(&event);
+        assert_eq!(harness.finish().snapshot().resolved, 1);
+
+        runtime.yara_allowlist_paths = vec!["/memfd:".into()];
+        assert!(
+            ResolvePlan::snapshot(&runtime, &event, &selected)
+                .needs
+                .yara
+        );
+        let harness = Harness::start(
+            Arc::new(SensorEventRouter::new()),
+            runtime,
+            Arc::new(|_| panic!("measured executable is allowlisted")),
+            ARTIFACT_QUEUE_CAPACITY,
+        );
+        harness.ingress.handle_event(&event);
+        assert_eq!(harness.finish().snapshot().queued, 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_queued_host_fallback_rejects_a_replaced_file() {
+        let mut fixture = FileProcessFixture::start(false);
+        let image = fixture.root.path().join("sleep");
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let event = live_process_event(fixture.child.id(), &image);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let plan = ResolvePlan::snapshot(&runtime, &event, &target);
+        fixture.child.kill().unwrap();
+        fixture.child.wait().unwrap();
+        let replacement = fixture.root.path().join("replacement");
+        std::fs::write(&replacement, &fixture.bytes).unwrap();
+        std::fs::rename(replacement, &image).unwrap();
+        let resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime,
+            Arc::new(ResolverState::new()),
+        );
+        assert!(matches!(
+            resolver.resolve_with_opener(&target, &plan, open_artifact),
+            Err(ResolveError::Identity)
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_queued_fallback_requires_confirmed_namespace_and_captured_lifetime() {
+        let mut fixture = FileProcessFixture::start(false);
+        let image = fixture.root.path().join("sleep");
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime_with_consumers(temp.path(), &fixture.bytes);
+        let resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            runtime.clone(),
+            Arc::new(ResolverState::new()),
+        );
+        let mut events = Vec::new();
+        for namespace in [None, Some("0".into())] {
+            let mut event = live_process_event(fixture.child.id(), &image).into_normalized();
+            let EventFields::ProcessCreation(fields) = &mut event.fields else {
+                unreachable!()
+            };
+            fields.linux_identity.mount_namespace = namespace;
+            events.push(CanonicalEvent::from_normalized(event));
+        }
+        let mut stale = live_process_event(fixture.child.id(), &image);
+        stale.process_start_key = Some(crate::sensor::ProcessStartKey {
+            pid: fixture.child.id(),
+            start_time: u64::MAX,
+        });
+        events.push(stale);
+        let jobs: Vec<_> = events
+            .iter()
+            .map(|event| {
+                let target = ArtifactTarget::from_event(event, None).unwrap();
+                let plan = ResolvePlan::snapshot(&runtime, event, &target);
+                (target, plan)
+            })
+            .collect();
+        fixture.child.kill().unwrap();
+        fixture.child.wait().unwrap();
+        for (target, plan) in jobs {
+            assert!(matches!(
+                resolver.resolve_with_opener(&target, &plan, |_| {
+                    panic!("must not open an unrelated host file or a reused PID's image")
+                }),
+                Err(ResolveError::Identity)
+            ));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn linux_binary_artifacts_use_exe_for_absolute_relative_symlink_and_deleted_paths() {
         use sha2::Digest;
         use std::os::unix::fs::symlink;
@@ -4534,7 +4977,9 @@ level: high
         );
         for path in [image.as_path(), Path::new("./sleep"), link.as_path()] {
             let event = live_process_event(fixture.child.id(), path);
-            let target = ArtifactTarget::from_event(&event, None).unwrap();
+            let mut target = ArtifactTarget::from_event(&event, None).unwrap();
+            // Symlink identity is resolved in the I/O worker, never at admission.
+            resolver.prepare_process_target(&mut target).unwrap();
             assert_eq!(
                 target.path,
                 PathBuf::from(format!("/proc/{}/exe", fixture.child.id()))
@@ -4605,8 +5050,11 @@ level: high
             .yara_allowlist_paths
             .push(image.to_string_lossy().into_owned());
         let event = live_process_event(fixture.child.id(), &image);
-        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let mut target = ArtifactTarget::from_event(&event, None).unwrap();
         assert!(!ResolvePlan::snapshot(&runtime, &event, &target).needs.yara);
+        // Without sensor-provided identity a script is bound in the worker.
+        // Changing it after that snapshot must still be rejected at the open.
+        resolver.prepare_process_target(&mut target).unwrap();
         std::fs::write(&image, b"changed script").unwrap();
         let plan = ResolvePlan::snapshot(&runtime, &event, &target);
         assert!(matches!(
@@ -4637,11 +5085,17 @@ level: high
             )),
             Err(ResolveError::Identity)
         ));
+        let mut unconfirmed_namespace = target.clone();
+        unconfirmed_namespace
+            .linux_process_path
+            .as_mut()
+            .unwrap()
+            .host_fallback = None;
         fixture.child.kill().unwrap();
         fixture.child.wait().unwrap();
         assert!(matches!(
-            resolver.resolve_with_opener(&target, &plan, |_| panic!(
-                "must reject exited process before open"
+            resolver.resolve_with_opener(&unconfirmed_namespace, &plan, |_| panic!(
+                "must reject exited process without a safe fallback before open"
             )),
             Err(ResolveError::Identity)
         ));
