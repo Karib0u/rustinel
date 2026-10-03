@@ -1,8 +1,24 @@
 # Manage rule packs
 
-[rustinel-rules](https://github.com/Karib0u/rustinel-rules) publishes versioned Sigma, YARA, and IOC packs for each platform.
+[rustinel-rules](https://github.com/Karib0u/rustinel-rules) publishes versioned Sigma and YARA detection packs for each platform.
+The pack format also supports IOC sets; current packs contain no IOC indicators.
 `rustinel setup` installs the Essential pack.
 Use `rustinel rules` to change or update it.
+
+## Choose a level
+
+| Level | Use | Platforms |
+| --- | --- | --- |
+| Essential | High-confidence detections with low expected noise. Start here. | Windows, Linux, macOS |
+| Advanced | Broader coverage with more environment-dependent false positives. | Windows, Linux, macOS |
+| Hunting | Noisier leads for analysts. | Windows |
+
+Packs are cumulative: Advanced includes Essential, and Hunting includes Advanced.
+Load one pack per endpoint. macOS packs are experimental.
+
+Content releases are independent of engine releases.
+Each pack declares its minimum engine version, and Rustinel checks compatibility before installation.
+Use the released catalog for current requirements and the [pack manifests](https://github.com/Karib0u/rustinel-rules/tree/main/packs) for source membership.
 
 ## List packs
 
@@ -57,8 +73,43 @@ rules/
 └── state.json    active pack ID and version
 ```
 
+## Manual installation
+
+Download a pack ZIP, `index.json`, and `index.json.minisig` from the same [rules release](https://github.com/Karib0u/rustinel-rules/releases/latest).
+Verify the catalog as described below, check the ZIP against its `sha256` entry, then unzip it.
+Use the paths in that pack's `engine` block in `index.json`:
+
+```toml
+[scanner]
+sigma_rules_path = "linux-essential/sigma"
+yara_rules_path = "linux-essential/yara"
+
+[ioc]
+hashes_path = "linux-essential/ioc/hashes.txt"
+ips_path = "linux-essential/ioc/ips.txt"
+domains_path = "linux-essential/ioc/domains.txt"
+paths_regex_path = "linux-essential/ioc/paths_regex.txt"
+```
+
+Use absolute paths when running as a service, and restart after replacing a pack.
+For scanner options, memory scanning, and allowlists, see [Configuration](configuration.md).
+
 ## Trust
 
 Packs come from the `Karib0u/rustinel-rules` GitHub releases.
 The catalog must carry a valid Rustinel release signature, and each pack must match the checksum in it.
 `--catalog-url` selects another signed catalog, such as a specific release, see [Downloads](security.md#downloads).
+
+Rules releases include a detached Minisign signature for `index.json`.
+For manual verification, obtain the [public key](https://github.com/Karib0u/rustinel-rules/blob/main/release-minisign.pub) from a trusted checkout and run:
+
+```bash
+minisign -Vm index.json -p release-minisign.pub
+```
+
+Verify the catalog before trusting its pack checksums.
+
+## Contribute detection content
+
+See the [rules contribution guide](https://github.com/Karib0u/rustinel-rules/blob/main/CONTRIBUTING.md) for metadata, pack membership, validation, and release preparation.
+See [Write rules](rule-development.md) for engine behavior and [Test rules with replay](replay.md) for local testing.
