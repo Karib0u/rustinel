@@ -1,5 +1,6 @@
 [advisories]
 ignore = [
+    { id = "RUSTSEC-2026-0327", reason = "This advisory requires Wasmtime component-model async callbacks. yara-x 1.21 uses core WebAssembly modules with Wasmtime default features disabled; component-model and component-model-async are absent from the dependency feature tree on all targets. Disabling component-model-async is the upstream workaround. No patched 45.x release is available. See https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-32h6-97mm-8q3c." },
     { id = "RUSTSEC-2026-0316", reason = "This advisory affects wasmtime::component::Val record lifting. yara-x 1.21 uses core WebAssembly modules with Wasmtime default features disabled; component-model is absent from the dependency tree. No patched 45.x release is available. See https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-jqpg-j7w6-42pr." },
     { id = "RUSTSEC-2023-0071", reason = "rsa is pulled transitively by yara-x. No fixed rsa release is available, and rustinel does not use yara-x for attacker observable private key RSA operations." },
     { id = "RUSTSEC-2025-0141", reason = "bincode is pulled transitively by yara-x. This is tracked as an upstream maintenance advisory until yara-x removes or replaces it." },
