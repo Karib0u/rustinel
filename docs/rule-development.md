@@ -61,7 +61,9 @@ One indicator per line.
 ^/tmp/evil(/.*)?$;Staging path
 ```
 
-Hashes can be MD5, SHA1, or SHA256.
+Hashes can be MD5, SHA1, or SHA256 and match the image of a process that starts.
+Dropping an EICAR file does not test this path because it never becomes a process image.
+IPs accept individual addresses or CIDR ranges; domains accept exact names or a leading `.` or `*.` for subdomains.
 Path patterns are case-insensitive regular expressions.
 
 ## Check that rules load
@@ -81,6 +83,15 @@ A reload that fails keeps the previous rules active and logs the error.
 
 `rustinel rules update` replaces everything under `rules/current`.
 Keep your own rules in a separate folder under version control, and either copy them in after an update or point `scanner.sigma_rules_path` at your folder.
+
+## Contribute to the official packs
+
+Keep reusable detections in [rustinel-rules](https://github.com/Karib0u/rustinel-rules), with stable IDs, ATT&CK mappings, and reproducible behavior.
+The [contribution guide](https://github.com/Karib0u/rustinel-rules/blob/main/CONTRIBUTING.md) covers Sigma and YARA metadata, typed IOC sets, pack inheritance, and validation.
+Its pinned field contract checks compatibility with the certified engine.
+
+Rules that require unavailable telemetry stay in the repository's preview collection until they can fire.
+Atomic tests exercise real telemetry and verify matching alerts; see the [atomic test guide](https://github.com/Karib0u/rustinel-rules/blob/main/tests/atomic/README.md).
 
 ## Next steps
 
