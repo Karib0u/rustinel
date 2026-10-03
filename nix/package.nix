@@ -49,10 +49,10 @@
 }:
 
 let
-  version = "1.8.0";
+  version = "1.9.0";
   hashes = {
-    x86_64-linux = "sha256-kWQEqZnBGT4HTAIzHhFWIQGC+5AYkHqUzMFJ3epYrTY=";
-    aarch64-linux = "sha256-QDxi0FJ61y0HVDfvb3pYcDr9wK8oAmH7AvT3eOzM+GU=";
+    x86_64-linux = "sha256-3Zgrp3tTAyXc3tyiZ4gQ7frmhx2DF68fFHmf0U0eCa4=";
+    aarch64-linux = "sha256-qka7d8jh3HiNMHFCy1vfYG8Zag3ZuRbEsVj3IZ/u2RI=";
   };
   archMap = {
     x86_64-linux = "x86_64-unknown-linux-musl";
