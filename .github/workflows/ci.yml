@@ -16,7 +16,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Update this commit deliberately when the rules repository's atomic suite changes.
+  # Keep this exact commit in sync with release.yml; CI checks both pins.
   RUSTINEL_RULES_REF: fca3fbf0ef1f1430f12f4f91bacb2205a0c0224f
 
 permissions:
@@ -41,6 +41,23 @@ jobs:
           rustflags: ""
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Check atomic rules pins agree
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          pins = []
+          for workflow in ("ci.yml", "release.yml"):
+              path = Path(".github/workflows") / workflow
+              matches = re.findall(r"^  RUSTINEL_RULES_REF: ([0-9a-f]{40})$", path.read_text(), re.MULTILINE)
+              if len(matches) != 1:
+                  raise SystemExit(f"{path}: expected exactly one full commit SHA for RUSTINEL_RULES_REF")
+              pins.append(matches[0])
+          if pins[0] != pins[1]:
+              raise SystemExit(f"Atomic rules pins differ: ci.yml={pins[0]}, release.yml={pins[1]}. Update both together.")
+          print(f"CI and release atomics use the same rules commit: {pins[0]}")
+          PY
 
   release-field-contract:
     name: Release Field Contract
