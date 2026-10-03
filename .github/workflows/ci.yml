@@ -16,8 +16,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Keep this exact commit in sync with release.yml; CI checks both pins.
-  RUSTINEL_RULES_REF: fca3fbf0ef1f1430f12f4f91bacb2205a0c0224f
 
 permissions:
   contents: read
@@ -41,23 +39,6 @@ jobs:
           rustflags: ""
       - name: Check formatting
         run: cargo fmt --all -- --check
-      - name: Check atomic rules pins agree
-        run: |
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-
-          pins = []
-          for workflow in ("ci.yml", "release.yml"):
-              path = Path(".github/workflows") / workflow
-              matches = re.findall(r"^  RUSTINEL_RULES_REF: ([0-9a-f]{40})$", path.read_text(), re.MULTILINE)
-              if len(matches) != 1:
-                  raise SystemExit(f"{path}: expected exactly one full commit SHA for RUSTINEL_RULES_REF")
-              pins.append(matches[0])
-          if pins[0] != pins[1]:
-              raise SystemExit(f"Atomic rules pins differ: ci.yml={pins[0]}, release.yml={pins[1]}. Update both together.")
-          print(f"CI and release atomics use the same rules commit: {pins[0]}")
-          PY
 
   release-field-contract:
     name: Release Field Contract
@@ -347,11 +328,22 @@ jobs:
         run: python tests\native_capture_contract.py --binary "$env:GITHUB_WORKSPACE\target\release\rustinel.exe"
         shell: pwsh
 
+      - name: Read shared atomic rules pin
+        id: rules-pin
+        shell: bash
+        run: |
+          ref="$(cat .github/atomic-rules-ref)"
+          if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected a full commit SHA in .github/atomic-rules-ref" >&2
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       - name: Check out pinned rules
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Karib0u/rustinel-rules
-          ref: ${{ env.RUSTINEL_RULES_REF }}
+          ref: ${{ steps.rules-pin.outputs.ref }}
           path: rustinel-rules
           persist-credentials: false
 
@@ -501,11 +493,22 @@ jobs:
           rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/rustinel.provisionprofile"
           security delete-keychain "$RUNNER_TEMP/rustinel-signing.keychain-db" 2>/dev/null || true
 
+      - name: Read shared atomic rules pin
+        id: rules-pin
+        shell: bash
+        run: |
+          ref="$(cat .github/atomic-rules-ref)"
+          if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected a full commit SHA in .github/atomic-rules-ref" >&2
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       - name: Check out pinned rules
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: Karib0u/rustinel-rules
-          ref: ${{ env.RUSTINEL_RULES_REF }}
+          ref: ${{ steps.rules-pin.outputs.ref }}
           path: rustinel-rules
           persist-credentials: false
 
