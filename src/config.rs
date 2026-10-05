@@ -19,6 +19,8 @@ use crate::models::MatchDebugLevel;
 use crate::scanner::{self, ScanLimits};
 
 pub mod reference;
+pub mod security;
+pub use security::SecurityConfig;
 pub mod webhook;
 
 pub use webhook::WebhookConfig;
@@ -313,6 +315,8 @@ fn default_allowlist_excluded_paths() -> Vec<String> {
 /// Main application configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
+    #[serde(default)]
+    pub security: SecurityConfig,
     pub scanner: ScannerConfig,
     pub logging: LogConfig,
     pub alerts: AlertConfig,
@@ -526,10 +530,7 @@ impl AppConfig {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
-        if let Some(path) = selected_config.as_deref() {
-            crate::utils::trust::verify_input(path)
-                .map_err(|err| config::ConfigError::Message(format!("{err:#}")))?;
-        }
+        let (file_source, security) = security::load_config(selected_config.as_deref())?;
 
         let builder = config::Config::builder()
             // --- Defaults ---
@@ -609,10 +610,7 @@ impl AppConfig {
             .set_default("windows.etw_process_flush_interval_ms", 5i64)?
             .set_default("windows.security_filtering_platform_connections", false)?;
 
-        let builder = match selected_config {
-            Some(path) => builder.add_source(config::File::from(path).required(true)),
-            None => builder,
-        };
+        let builder = builder.add_source(file_source);
         let environment_source = config::Environment::with_prefix("EDR")
             .separator("__")
             .source(environment.clone());
@@ -623,6 +621,14 @@ impl AppConfig {
 
         reject_unknown_keys(&s)?;
         let mut cfg: Self = s.try_deserialize().map_err(redact_config_error)?;
+        if cfg.security.integration_group != security.integration_group
+            || cfg.security.integration_rules_directory != security.integration_rules_directory
+        {
+            return Err(config::ConfigError::Message(
+                "security integration settings must come from the config file, not environment overrides".into(),
+            ));
+        }
+        cfg.security = security;
         if let Some(config_dir) = config_dir {
             cfg.resolve_relative_paths(&config_dir, environment.as_ref());
         }
@@ -992,6 +998,7 @@ fn resolve_path_list_from_config(
 impl Default for AppConfig {
     fn default() -> Self {
         let mut cfg = Self {
+            security: SecurityConfig::default(),
             scanner: ScannerConfig {
                 sigma_enabled: true,
                 sigma_rules_path: PathBuf::from("rules/current/sigma"),

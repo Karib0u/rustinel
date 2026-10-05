@@ -248,7 +248,9 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Vec<Diagn
         cfg.alerts.match_debug,
     );
 
-    if let Err(err) = engine.load_rules(&cfg.scanner.sigma_rules_path) {
+    if let Err(err) =
+        engine.load_rules_with_trust(&cfg.scanner.sigma_rules_path, cfg.security.rules())
+    {
         return vec![DiagnosticResult::fail(
             "sigma_rules_parse",
             "Sigma rule loading failed",
@@ -359,7 +361,10 @@ pub(crate) fn inert_rules_diagnostic(stats: &EngineStats) -> DiagnosticResult {
 }
 
 fn validate_yara_rules(cfg: &AppConfig) -> DiagnosticResult {
-    match crate::scanner::Scanner::new(&cfg.scanner.yara_rules_path) {
+    match crate::scanner::Scanner::new_with_trust(
+        &cfg.scanner.yara_rules_path,
+        cfg.security.rules(),
+    ) {
         Ok(scanner) if scanner.failed_files() > 0 => DiagnosticResult::fail(
             "yara_rules_parse",
             format!("{} YARA files failed to compile", scanner.failed_files()),
@@ -392,7 +397,7 @@ fn validate_yara_rules(cfg: &AppConfig) -> DiagnosticResult {
 }
 
 fn validate_ioc_files(cfg: &AppConfig) -> Vec<DiagnosticResult> {
-    if let Err(err) = crate::ioc::IocEngine::try_load(&cfg.ioc) {
+    if let Err(err) = crate::ioc::IocEngine::try_load_with_trust(&cfg.ioc, cfg.security.rules()) {
         return vec![DiagnosticResult::fail(
             "ioc_inputs_trust",
             "IOC indicators would be refused",

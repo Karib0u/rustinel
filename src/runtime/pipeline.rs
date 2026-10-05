@@ -61,7 +61,9 @@ impl LivePipeline {
 
         if cfg.scanner.sigma_enabled {
             info!(rules_path = ?cfg.scanner.sigma_rules_path, "Loading Sigma rules");
-            if let Err(e) = sigma_engine.load_rules(&cfg.scanner.sigma_rules_path) {
+            if let Err(e) = sigma_engine
+                .load_rules_with_trust(&cfg.scanner.sigma_rules_path, cfg.security.rules())
+            {
                 warn!(
                     target: TARGET_CONSOLE,
                     error = format!("{e:#}"),
@@ -109,8 +111,11 @@ impl LivePipeline {
 
         // YARA scanner
         let yara_scanner = if cfg.scanner.yara_enabled {
-            match scanner::Scanner::new(&cfg.scanner.yara_rules_path)
-                .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
+            match scanner::Scanner::new_with_trust(
+                &cfg.scanner.yara_rules_path,
+                cfg.security.rules(),
+            )
+            .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
             {
                 Ok(s) => {
                     if s.compiled_files() == 0 {
@@ -149,14 +154,16 @@ impl LivePipeline {
             scanner::normalize_allowlist_paths(&cfg.scanner.yara_allowlist_paths);
 
         // IOC engine
-        let ioc_engine = Arc::new(IocEngine::try_load(&cfg.ioc).unwrap_or_else(|e| {
-            warn!(
-                target: TARGET_CONSOLE,
-                error = format!("{e:#}"),
-                "Failed to load IOC indicators; IOC detection disabled"
-            );
-            IocEngine::disabled()
-        }));
+        let ioc_engine = Arc::new(
+            IocEngine::try_load_with_trust(&cfg.ioc, cfg.security.rules()).unwrap_or_else(|e| {
+                warn!(
+                    target: TARGET_CONSOLE,
+                    error = format!("{e:#}"),
+                    "Failed to load IOC indicators; IOC detection disabled"
+                );
+                IocEngine::disabled()
+            }),
+        );
         if ioc_engine.is_enabled() {
             let stats = ioc_engine.stats();
             if stats.total() == 0 {
@@ -200,6 +207,7 @@ impl LivePipeline {
                 cfg.ioc.clone(),
                 cfg.reload.clone(),
                 cfg.alerts.match_debug,
+                cfg.security.rules().cloned(),
                 resolved_config_path.clone(),
                 response_config.clone(),
                 Some(reload::ReloadAlertContext {

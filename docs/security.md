@@ -52,7 +52,8 @@ To verify a rules catalog, download `index.json` and `index.json.minisig` from t
 ## Input trust
 
 Rustinel runs privileged and acts on what it loads: a Sigma filter suppresses alerts, and the config file drives active response.
-At startup and on every reload, it refuses the config file, the Sigma and YARA rule folders, and the IOC files when another account can change them.
+At startup and on every reload, it refuses the config file, the Sigma and YARA rule folders, and the IOC files when an untrusted account can change them.
+The default policy below can be extended for an explicitly configured [integration](#integration-access).
 
 - No account other than the owner, root, SYSTEM, or Administrators may be able to write any file or folder in the input.
 - On Linux and macOS this means no group or other write bit, unless the group is root's own or the owner's private group with no other members.
@@ -69,11 +70,84 @@ To fix a refused input, remove write access for other accounts, for example `chm
 
 ## Files Rustinel writes
 
-On Linux and macOS, the log, alert, and recording folders are readable by their owner only (`0700`), and their files `0600`.
-Log shippers must run as that owner, usually root.
+On Linux and macOS, new log, alert, and recording folders default to owner-only access (`0700`), and their files to `0600`.
+Existing output directory permissions are preserved.
+A non-root log shipper can use the explicit integration access described below.
 
 Recordings contain command lines, paths, network destinations, and user names.
 Handle them like the host's logs.
 
 Webhook header values, `secret`, and URL paths are treated as credentials and never logged.
 Keep the config file readable only by the agent.
+
+## Integration access
+
+Linux and macOS integrations can opt into a dedicated Unix group without changing the service definition.
+The Rustinel service continues to run as root; the integration agent stays unprivileged.
+Add the following to the existing configuration, using a group that already exists:
+
+```toml
+[security]
+integration_group = "radegast"
+```
+
+The config must be a root-owned regular file, assigned to this group, with no access for others and no hard links or symlinks.
+Its parent directories must remain root-controlled and not writable by the integration group.
+The group setting must match the file's existing filesystem group; Rustinel does not change the config's ownership or grant config write access itself.
+This makes the administrator's filesystem permissions the authority for delegation, even though the option is in the writable file.
+The option cannot be enabled or changed through an environment override.
+
+For the managed Linux layout, an administrator can prepare access with:
+
+```sh
+chown root:radegast /etc/rustinel /etc/rustinel/config.toml
+chmod 0750 /etc/rustinel
+chmod 0660 /etc/rustinel/config.toml
+install -d -o root -g radegast -m 2750 /var/log/rustinel
+```
+
+The integration account must belong to this group.
+Use the corresponding configured paths on macOS or for custom layouts.
+Prepare both logging and alerts directories if they differ.
+Log directories must already exist, be root-owned with this group, and allow group read/traverse but no group write or other access (`0750` or `2750`).
+Current and newly rotated operational and alert logs receive `0640` and the selected group.
+Historical files are not recursively changed; an administrator can grant read access to those separately if needed.
+Recordings and telemetry snapshots retain their existing private permissions.
+
+The integration can edit the config in place, but cannot rename or replace it through the protected parent directory.
+Config write access delegates control over the entire configuration, including detection, response, output destinations, and credentials.
+Use a dedicated group containing only trusted integration accounts.
+Log access is read-only: shipping and encrypting logs does not require permission to modify or delete the originals.
+
+### Optional rules updates
+
+Config access alone does not permit group-writable detection inputs.
+To also delegate rule updates, explicitly name one absolute directory:
+
+```toml
+[security]
+integration_group = "radegast"
+integration_rules_directory = "/var/lib/rustinel/rules"
+```
+
+That directory must be root-owned, assigned to the integration group, have the setgid bit, and have no access for others.
+Its parents must remain root-controlled.
+For an existing managed Linux rule tree, an administrator can prepare it with:
+
+```sh
+chown root:radegast /var/lib/rustinel/rules
+chgrp -R radegast /var/lib/rustinel/rules
+chmod -R g+rwX,o-rwx /var/lib/rustinel/rules
+find /var/lib/rustinel/rules -type d -exec chmod g+s {} +
+```
+
+The group can then create, edit, rename, and delete rule files and subdirectories within this tree.
+Sigma, YARA, and IOC inputs inside it accept files created by the integration account, including on reload.
+Files must belong to the selected group, or remain root-owned without group/other write access.
+Symlinks, hard-linked files, special files, and world-writable entries are refused.
+Inputs outside this directory retain the normal trust policy.
+Delegating rules updates allows the integration to change or suppress detections; only enable it for a trusted rule manager.
+
+Restart Rustinel after changing either security option; hot reload updates active-response settings and rule contents, not the running process's integration policy.
+Normal `rustinel setup` preserves a valid existing config and its permissions.
+`rustinel setup --force` replaces the config with private defaults, so reapply integration settings and permissions afterward.

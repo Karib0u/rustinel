@@ -793,3 +793,45 @@ fn configuration_type_and_enum_errors_never_carry_input_values() {
         }
     }
 }
+
+#[test]
+fn integration_settings_cannot_be_enabled_through_environment() {
+    let mut environment = config::Map::new();
+    environment.insert("EDR__SECURITY__INTEGRATION_GROUP".into(), "root".into());
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing.toml");
+    let err = AppConfig::from_options_with_environment(
+        ConfigLoadOptions {
+            explicit_config: None,
+            env_config: None,
+            managed_config: missing.clone(),
+            exe_config: None,
+            cwd_config: missing,
+        },
+        Some(environment),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("not environment overrides"));
+}
+
+#[test]
+fn integration_rules_access_requires_a_group() {
+    let temp = tempfile::tempdir().unwrap();
+    let err = load_config_file(
+        &temp,
+        "[security]\nintegration_rules_directory = '/var/lib/rustinel/rules'\n",
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("requires integration_group"));
+}
+
+#[cfg(unix)]
+#[test]
+fn integration_config_cannot_be_owned_by_the_wrapper() {
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let err = load_config_file(&temp, "[security]\nintegration_group = 'root'\n").unwrap_err();
+    assert!(err.to_string().contains("root-owned regular file"));
+}

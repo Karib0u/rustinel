@@ -32,6 +32,145 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::InstallLayout;
 
+/// A single administrator-designated tree where an integration may update rules.
+#[derive(Clone, Debug)]
+pub struct RuleTrust {
+    root: PathBuf,
+    gid: u32,
+}
+
+impl RuleTrust {
+    pub(crate) fn new(root: &Path, gid: u32) -> Result<Self> {
+        anyhow::ensure!(
+            root.is_absolute(),
+            "integration rules directory must be absolute"
+        );
+        anyhow::ensure!(
+            !root
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir)),
+            "integration rules directory must not contain parent traversal"
+        );
+        let trust = Self {
+            root: root.to_path_buf(),
+            gid,
+        };
+        trust.verify_root()?;
+        Ok(trust)
+    }
+
+    #[cfg(unix)]
+    fn verify_root(&self) -> Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::symlink_metadata(&self.root)?;
+        anyhow::ensure!(
+            metadata.is_dir() && metadata.uid() == 0 && metadata.gid() == self.gid
+                && metadata.mode() & 0o007 == 0 && metadata.mode() & 0o2000 != 0,
+            "integration rules directory must be root-owned, setgid, assigned to the integration group, and inaccessible to others"
+        );
+        verify_root_controlled_parents(&self.root)
+    }
+
+    #[cfg(not(unix))]
+    fn verify_root(&self) -> Result<()> {
+        let _ = (&self.root, self.gid);
+        bail!("integration rules access is supported only on Unix")
+    }
+}
+
+/// Configuration, rule-tree anchors and shared log directories must not be
+/// replaceable by the integration account. Root-owned sticky ancestors are safe.
+#[cfg(unix)]
+pub(crate) fn verify_root_controlled_parents(path: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let absolute = std::path::absolute(path)?;
+    for parent in absolute.ancestors().skip(1) {
+        let metadata = fs::metadata(parent)?;
+        let entry = fs::symlink_metadata(parent)?;
+        anyhow::ensure!(
+            metadata.is_dir()
+                && metadata.uid() == 0
+                && entry.uid() == 0
+                && (metadata.mode() & 0o022 == 0 || metadata.mode() & 0o1000 != 0),
+            "{} must be a root-controlled parent directory",
+            parent.display()
+        );
+    }
+    // Check the resolved ancestry too, so a root-owned link cannot hide a
+    // directory owned by the integration account.
+    let canonical = fs::canonicalize(path)?;
+    if canonical != absolute {
+        for parent in canonical.ancestors().skip(1) {
+            let metadata = fs::metadata(parent)?;
+            anyhow::ensure!(
+                metadata.uid() == 0
+                    && (metadata.mode() & 0o022 == 0 || metadata.mode() & 0o1000 != 0),
+                "{} must be a root-controlled parent directory",
+                parent.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Rule loaders alone may use the explicitly delegated tree. Other inputs keep
+/// the normal trust policy, including inputs outside that tree.
+pub fn verify_rule_input(path: &Path, trust: Option<&RuleTrust>) -> Result<()> {
+    let Some(trust) = trust else {
+        return verify_input(path);
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let absolute = std::path::absolute(path)?;
+        let Ok(relative) = absolute.strip_prefix(&trust.root) else {
+            return verify_input(path);
+        };
+        trust.verify_root()?;
+        let mut current = trust.root.clone();
+        for component in relative.components() {
+            anyhow::ensure!(
+                matches!(component, std::path::Component::Normal(_)),
+                "invalid integration rule path"
+            );
+            current.push(component);
+            match fs::symlink_metadata(&current) {
+                Ok(metadata) => verify_shared_entry(&current, &metadata, trust.gid)?,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(err) => return Err(err.into()),
+            }
+        }
+        fn verify_shared_entry(path: &Path, metadata: &fs::Metadata, gid: u32) -> Result<()> {
+            anyhow::ensure!(
+                (metadata.is_dir() || metadata.is_file())
+                    && (metadata.gid() == gid
+                        || (metadata.uid() == 0 && metadata.mode() & 0o022 == 0))
+                    && metadata.mode() & 0o002 == 0
+                    && (!metadata.is_file() || metadata.nlink() == 1),
+                "{} is not a regular integration rule input with the expected group",
+                path.display()
+            );
+            Ok(())
+        }
+        fn walk(path: &Path, gid: u32) -> Result<()> {
+            let metadata = fs::symlink_metadata(path)?;
+            verify_shared_entry(path, &metadata, gid)?;
+            if metadata.is_dir() {
+                for entry in fs::read_dir(path)? {
+                    walk(&entry?.path(), gid)?;
+                }
+            }
+            Ok(())
+        }
+        walk(&absolute, trust.gid)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = trust;
+        bail!("integration rules access is supported only on Unix")
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Policy {
     Managed,
