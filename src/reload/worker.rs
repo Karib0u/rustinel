@@ -47,6 +47,7 @@ pub fn spawn_reload_worker(
     ioc_cfg: IocConfig,
     reload_cfg: ReloadConfig,
     match_debug: MatchDebugLevel,
+    rule_trust: Option<crate::utils::trust::RuleTrust>,
     config_path: Option<PathBuf>,
     response_config: Arc<ArcSwap<crate::config::ResponseConfig>>,
     alert_context: Option<ReloadAlertContext>,
@@ -113,7 +114,10 @@ pub fn spawn_reload_worker(
                         let mut engine = Engine::new_with_match_debug(match_debug)
                             .with_sigma_match_mode(scanner_cfg.sigma_match_mode);
 
-                        match engine.load_rules(&scanner_cfg.sigma_rules_path) {
+                        match engine.load_rules_with_trust(
+                            &scanner_cfg.sigma_rules_path,
+                            rule_trust.as_ref(),
+                        ) {
                             Ok(()) => {
                                 let stats = engine.stats();
                                 if stats.rule_files_found > 0
@@ -175,8 +179,11 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        match scanner::Scanner::new(&scanner_cfg.yara_rules_path)
-                            .map(|compiled| compiled.with_limits(scanner_cfg.yara_scan_limits()))
+                        match scanner::Scanner::new_with_trust(
+                            &scanner_cfg.yara_rules_path,
+                            rule_trust.as_ref(),
+                        )
+                        .map(|compiled| compiled.with_limits(scanner_cfg.yara_scan_limits()))
                         {
                             Ok(compiled) => {
                                 let compiled_files = compiled.compiled_files();
@@ -222,18 +229,19 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        let ioc = match IocEngine::try_load(&ioc_cfg) {
-                            Ok(ioc) => ioc,
-                            Err(err) => {
-                                warn!(
-                                    target: "reload",
-                                    component = "ioc",
-                                    error = format!("{err:#}"),
-                                    "IOC reload failed; keeping previous indicators"
-                                );
-                                continue;
-                            }
-                        };
+                        let ioc =
+                            match IocEngine::try_load_with_trust(&ioc_cfg, rule_trust.as_ref()) {
+                                Ok(ioc) => ioc,
+                                Err(err) => {
+                                    warn!(
+                                        target: "reload",
+                                        component = "ioc",
+                                        error = format!("{err:#}"),
+                                        "IOC reload failed; keeping previous indicators"
+                                    );
+                                    continue;
+                                }
+                            };
                         let stats = ioc.stats();
                         let total = stats.total();
                         if total == 0 {

@@ -19,14 +19,20 @@ struct RestrictedFileAppender {
     directory: PathBuf,
     filename_prefix: String,
     date: chrono::NaiveDate,
+    group: Option<u32>,
 }
 
 impl Write for RestrictedFileAppender {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let current_date = chrono::Utc::now().date_naive();
         if current_date != self.date {
-            ensure_output_directory(&self.directory)?;
-            self.inner = open_log_file(&self.directory, &self.filename_prefix, current_date)?;
+            prepare_log_directory(&self.directory, self.group)?;
+            self.inner = open_log_file(
+                &self.directory,
+                &self.filename_prefix,
+                current_date,
+                self.group,
+            )?;
             self.date = current_date;
         }
         self.inner.write(buf)
@@ -124,8 +130,12 @@ pub fn init_logging(
     tracing_appender::non_blocking::WorkerGuard,
     AlertSink,
 )> {
-    let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename)?;
+    let (app_writer, app_guard) = build_daily_writer(
+        "operational",
+        &cfg.logging.directory,
+        &cfg.logging.filename,
+        cfg.security.log_group(),
+    )?;
     let base_filter = build_log_filter(&cfg.logging);
     let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
@@ -136,8 +146,12 @@ pub fn init_logging(
         .with_target(true)
         .with_filter(base_filter.clone());
 
-    let (alert_writer, alert_guard) =
-        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename)?;
+    let (alert_writer, alert_guard) = build_daily_writer(
+        "alerts",
+        &cfg.alerts.directory,
+        &cfg.alerts.filename,
+        cfg.security.log_group(),
+    )?;
     let alert_sink = AlertSink::new(alert_writer);
 
     let ansi_supported = std::env::var("WT_SESSION").is_ok();
@@ -169,8 +183,12 @@ pub fn init_logging(
     tracing_appender::non_blocking::WorkerGuard,
     AlertSink,
 )> {
-    let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename)?;
+    let (app_writer, app_guard) = build_daily_writer(
+        "operational",
+        &cfg.logging.directory,
+        &cfg.logging.filename,
+        cfg.security.log_group(),
+    )?;
     let base_filter = build_log_filter(&cfg.logging);
     let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
@@ -181,8 +199,12 @@ pub fn init_logging(
         .with_target(true)
         .with_filter(base_filter.clone());
 
-    let (alert_writer, alert_guard) =
-        build_daily_writer("alerts", &cfg.alerts.directory, &cfg.alerts.filename)?;
+    let (alert_writer, alert_guard) = build_daily_writer(
+        "alerts",
+        &cfg.alerts.directory,
+        &cfg.alerts.filename,
+        cfg.security.log_group(),
+    )?;
 
     if cfg.logging.console_output {
         let console_layer = fmt::layer()
@@ -209,8 +231,12 @@ pub fn init_logging(
 pub fn init_operational_logging(
     cfg: &config::AppConfig,
 ) -> anyhow::Result<tracing_appender::non_blocking::WorkerGuard> {
-    let (app_writer, app_guard) =
-        build_daily_writer("operational", &cfg.logging.directory, &cfg.logging.filename)?;
+    let (app_writer, app_guard) = build_daily_writer(
+        "operational",
+        &cfg.logging.directory,
+        &cfg.logging.filename,
+        cfg.security.log_group(),
+    )?;
     let base_filter = build_log_filter(&cfg.logging);
     let console_filter = build_console_log_filter(&cfg.logging, &base_filter);
 
@@ -277,6 +303,7 @@ fn build_daily_writer(
     label: &str,
     directory: &Path,
     filename: &str,
+    group: Option<u32>,
 ) -> anyhow::Result<(
     tracing_appender::non_blocking::NonBlocking,
     tracing_appender::non_blocking::WorkerGuard,
@@ -284,7 +311,7 @@ fn build_daily_writer(
     if Path::new(filename).file_name() != Some(std::ffi::OsStr::new(filename)) {
         bail!("invalid {} log filename {:?}", label, filename);
     }
-    ensure_output_directory(directory).with_context(|| {
+    prepare_log_directory(directory, group).with_context(|| {
         format!(
             "failed to prepare {} log directory {}",
             label,
@@ -293,7 +320,7 @@ fn build_daily_writer(
     })?;
     let date = chrono::Utc::now().date_naive();
     let appender = RestrictedFileAppender {
-        inner: open_log_file(directory, filename, date).with_context(|| {
+        inner: open_log_file(directory, filename, date, group).with_context(|| {
             format!(
                 "failed to open {} log file in {}",
                 label,
@@ -303,12 +330,79 @@ fn build_daily_writer(
         directory: directory.to_path_buf(),
         filename_prefix: filename.to_owned(),
         date,
+        group,
     };
     Ok(tracing_appender::non_blocking(appender))
 }
 
-fn open_log_file(directory: &Path, filename: &str, date: chrono::NaiveDate) -> io::Result<File> {
-    open_output_file(&directory.join(format!("{filename}.{date}")), true)
+fn prepare_log_directory(directory: &Path, group: Option<u32>) -> io::Result<()> {
+    if let Some(gid) = group {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = std::fs::symlink_metadata(directory)?;
+            // Setgid gives new files the group without CAP_CHOWN, which the
+            // managed systemd unit does not grant.
+            if !metadata.is_dir()
+                || metadata.uid() != 0
+                || metadata.gid() != gid
+                || metadata.mode() & 0o2000 == 0
+                || metadata.mode() & 0o027 != 0
+                || metadata.mode() & 0o050 != 0o050
+            {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+                    "integration log directory must be root-owned with the integration group and mode 2750"));
+            }
+            crate::utils::trust::verify_root_controlled_parents(directory, gid)
+                .map_err(|err| io::Error::new(io::ErrorKind::PermissionDenied, err.to_string()))?;
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = gid;
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "integration log access requires Unix",
+            ));
+        }
+    }
+    ensure_output_directory(directory)
+}
+
+fn open_log_file(
+    directory: &Path,
+    filename: &str,
+    date: chrono::NaiveDate,
+    group: Option<u32>,
+) -> io::Result<File> {
+    let file = open_output_file(&directory.join(format!("{filename}.{date}")), true)?;
+    if let Some(gid) = group {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            let metadata = file.metadata()?;
+            if metadata.nlink() != 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "integration logs must not have hard links",
+                ));
+            }
+            if metadata.gid() != gid && unsafe { libc::fchown(file.as_raw_fd(), !0, gid) } != 0 {
+                let err = io::Error::last_os_error();
+                return Err(io::Error::new(
+                    err.kind(),
+                    format!(
+                        "cannot assign the integration group to {filename}.{date} ({err}); \
+                         chgrp the existing log files to the integration group"
+                    ),
+                ));
+            }
+            file.set_permissions(std::fs::Permissions::from_mode(0o640))?;
+        }
+        #[cfg(not(unix))]
+        let _ = gid;
+    }
+    Ok(file)
 }
 
 #[cfg(all(test, unix))]
@@ -319,12 +413,104 @@ mod permission_tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    #[ignore = "requires root; exercised by Unix CI"]
+    fn integration_group_logs_stay_read_only_across_rotation() {
+        use crate::config::security::test_support::Fixture;
+        use std::os::unix::fs::MetadataExt;
+        let fixture = Fixture::new();
+        let directory = fixture.root.path().join("logs");
+        fs::create_dir(&directory).unwrap();
+        fixture.permissions(&directory, 0o2750);
+        super::prepare_log_directory(&directory, Some(fixture.gid)).unwrap();
+        let today = chrono::Utc::now().date_naive();
+        let yesterday = today.pred_opt().unwrap();
+        let mut appender = RestrictedFileAppender {
+            inner: open_log_file(&directory, "alerts.json", yesterday, Some(fixture.gid)).unwrap(),
+            directory: directory.clone(),
+            filename_prefix: "alerts.json".into(),
+            date: yesterday,
+            group: Some(fixture.gid),
+        };
+        appender.write_all(b"alert\n").unwrap();
+        for date in [yesterday, today] {
+            let path = directory.join(format!("alerts.json.{date}"));
+            let metadata = fs::metadata(&path).unwrap();
+            assert_eq!(metadata.mode() & 0o777, 0o640);
+            assert_eq!(metadata.gid(), fixture.gid);
+            assert_eq!(metadata.uid(), 0);
+            assert!(fixture
+                .wrapper("cat \"$LOG_FILE\"")
+                .env("LOG_FILE", &path)
+                .output()
+                .unwrap()
+                .status
+                .success());
+            assert!(!fixture
+                .wrapper("printf tamper >> \"$LOG_FILE\"")
+                .env("LOG_FILE", &path)
+                .output()
+                .unwrap()
+                .status
+                .success());
+            assert!(!fixture
+                .wrapper("rm \"$LOG_FILE\"")
+                .env("LOG_FILE", &path)
+                .output()
+                .unwrap()
+                .status
+                .success());
+            drop(open_log_file(&directory, "alerts.json", date, Some(fixture.gid)).unwrap());
+            assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o640);
+        }
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o2770)).unwrap();
+        assert!(super::prepare_log_directory(&directory, Some(fixture.gid)).is_err());
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
+        assert!(
+            super::prepare_log_directory(&directory, Some(fixture.gid)).is_err(),
+            "without setgid, new files need CAP_CHOWN to get the group"
+        );
+        fixture.permissions(&directory, 0o2750);
+
+        // Ubuntu's /var/log is root:syslog 0775: group write for another
+        // group is fine, group write for the integration group is not.
+        let parent = fixture.root.path();
+        std::os::unix::fs::chown(parent, Some(0), Some(0)).unwrap();
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o775)).unwrap();
+        super::prepare_log_directory(&directory, Some(fixture.gid)).unwrap();
+        fixture.permissions(parent, 0o775);
+        assert!(super::prepare_log_directory(&directory, Some(fixture.gid)).is_err());
+        fixture.permissions(parent, 0o750);
+
+        // A file left by an earlier release keeps root's group until reopened.
+        let legacy = directory.join(format!("legacy.json.{today}"));
+        fs::write(&legacy, b"old\n").unwrap();
+        std::os::unix::fs::chown(&legacy, Some(0), Some(0)).unwrap();
+        fs::set_permissions(&legacy, fs::Permissions::from_mode(0o600)).unwrap();
+        drop(open_log_file(&directory, "legacy.json", today, Some(fixture.gid)).unwrap());
+        let metadata = fs::metadata(&legacy).unwrap();
+        assert_eq!(
+            (metadata.gid(), metadata.mode() & 0o777),
+            (fixture.gid, 0o640)
+        );
+
+        drop(open_log_file(&directory, "private.json", today, None).unwrap());
+        assert_eq!(
+            fs::metadata(directory.join(format!("private.json.{today}")))
+                .unwrap()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
     fn existing_directory_keeps_its_permissions() {
         let temp = tempfile::tempdir().unwrap();
         let directory = temp.path().join("logs");
         fs::create_dir(&directory).unwrap();
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o1777)).unwrap();
-        let (_writer, guard) = build_daily_writer("alerts", &directory, "alerts.json").unwrap();
+        let (_writer, guard) =
+            build_daily_writer("alerts", &directory, "alerts.json", None).unwrap();
         drop(guard);
 
         assert_eq!(
@@ -341,7 +527,7 @@ mod permission_tests {
         let date = chrono::Utc::now().date_naive();
         std::os::unix::fs::symlink(&target, temp.path().join(format!("alerts.json.{date}")))
             .unwrap();
-        assert!(build_daily_writer("alerts", temp.path(), "alerts.json").is_err());
+        assert!(build_daily_writer("alerts", temp.path(), "alerts.json", None).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"safe");
     }
 
@@ -355,10 +541,11 @@ mod permission_tests {
         std::os::unix::fs::symlink(&target, temp.path().join(format!("alerts.json.{today}")))
             .unwrap();
         let mut appender = RestrictedFileAppender {
-            inner: open_log_file(temp.path(), "alerts.json", yesterday).unwrap(),
+            inner: open_log_file(temp.path(), "alerts.json", yesterday, None).unwrap(),
             directory: temp.path().to_path_buf(),
             filename_prefix: "alerts.json".to_owned(),
             date: yesterday,
+            group: None,
         };
         assert!(appender.write_all(b"alert").is_err());
         assert_eq!(fs::read(&target).unwrap(), b"safe");

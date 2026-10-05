@@ -238,13 +238,20 @@ pub struct Scanner {
 impl Scanner {
     /// Compile all .yar files in a directory
     pub fn new<P: AsRef<Path>>(rules_dir: P) -> Result<Self> {
+        Self::new_with_trust(rules_dir, None)
+    }
+
+    pub fn new_with_trust<P: AsRef<Path>>(
+        rules_dir: P,
+        trust: Option<&crate::utils::trust::RuleTrust>,
+    ) -> Result<Self> {
         let rules_dir = rules_dir.as_ref();
         let mut compiler = Compiler::new();
         let mut files_found = 0;
         let mut files_compiled = 0;
         let mut files_failed = 0;
 
-        crate::utils::trust::verify_input(rules_dir)?;
+        crate::utils::trust::verify_rule_input(rules_dir, trust)?;
         info!("Loading YARA rules from: {:?} (recursive)", rules_dir);
 
         if rules_dir.exists() && rules_dir.is_dir() {

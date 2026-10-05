@@ -101,6 +101,13 @@ impl IocEngine {
     /// Like [`Self::load`], but refuses the whole indicator set when any
     /// configured file can be changed by an untrusted account.
     pub fn try_load(cfg: &IocConfig) -> anyhow::Result<Self> {
+        Self::try_load_with_trust(cfg, None)
+    }
+
+    pub fn try_load_with_trust(
+        cfg: &IocConfig,
+        trust: Option<&crate::utils::trust::RuleTrust>,
+    ) -> anyhow::Result<Self> {
         if cfg.enabled {
             for path in [
                 &cfg.hashes_path,
@@ -108,7 +115,7 @@ impl IocEngine {
                 &cfg.domains_path,
                 &cfg.paths_regex_path,
             ] {
-                crate::utils::trust::verify_input(path)?;
+                crate::utils::trust::verify_rule_input(path, trust)?;
             }
         }
         Ok(Self::load(cfg))

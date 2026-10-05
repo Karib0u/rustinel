@@ -133,6 +133,14 @@ impl DocumentSources {
 
 impl Engine {
     pub fn load_rules<P: AsRef<Path>>(&mut self, rules_dir: P) -> Result<()> {
+        self.load_rules_with_trust(rules_dir, None)
+    }
+
+    pub fn load_rules_with_trust<P: AsRef<Path>>(
+        &mut self,
+        rules_dir: P,
+        trust: Option<&crate::utils::trust::RuleTrust>,
+    ) -> Result<()> {
         let rules_dir = rules_dir.as_ref();
 
         if !rules_dir.exists() {
@@ -140,7 +148,7 @@ impl Engine {
             return Ok(());
         }
 
-        crate::utils::trust::verify_input(rules_dir)?;
+        crate::utils::trust::verify_rule_input(rules_dir, trust)?;
         info!("Loading Sigma rules from: {:?} (recursive)", rules_dir);
 
         self.load_rules_recursive(rules_dir)?;

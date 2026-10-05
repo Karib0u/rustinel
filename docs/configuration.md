@@ -61,6 +61,15 @@ Priority, highest first: CLI flags, `EDR__` variables, the config file, defaults
 <!-- BEGIN GENERATED CONFIG REFERENCE -->
 This section is generated from `src/config/reference.rs`. Edit that file and run `cargo run --bin generate-docs`.
 
+### `[security]`
+
+Optional Unix group access for an integration agent.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `integration_group` | `unset` | Unix group allowed to edit the root-owned config and read logs. Must match the config file's group; file-only, restart required. See [integration access](security.md#integration-access). |
+| `integration_rules_directory` | `unset` | Optional absolute root-owned directory in which the integration group may manage rules and IOC files. Requires integration_group; file-only, restart required. |
+
 ### `[scanner]`
 
 Sigma and YARA rules, YARA scan limits, and optional memory scanning.

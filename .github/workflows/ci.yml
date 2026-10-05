@@ -259,6 +259,12 @@ jobs:
           name: rustinel-ebpf-object
           path: ebpf/
       - run: cargo test --locked --verbose
+      - name: Test integration group permissions as root
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_binary="$(cargo test --locked --lib --no-run --message-format=json | jq -r 'select(.reason == "compiler-artifact" and .target.kind == ["lib"] and .executable != null) | .executable')"
+          sudo "$test_binary" integration_group_ --ignored --test-threads=1
 
   test-windows:
     name: Tests (Windows)
@@ -287,6 +293,12 @@ jobs:
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked --verbose
+      - name: Test integration group permissions as root
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_binary="$(cargo test --locked --lib --no-run --message-format=json | jq -r 'select(.reason == "compiler-artifact" and .target.kind == ["lib"] and .executable != null) | .executable')"
+          sudo "$test_binary" integration_group_ --ignored --test-threads=1
 
   atomic:
     name: Atomic (${{ matrix.platform }})

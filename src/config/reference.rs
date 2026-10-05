@@ -31,6 +31,10 @@ const INHERITS: Option<&str> = Some("inherits `allowlist.paths`");
 
 pub const CONFIG_SECTIONS: &[ConfigSection] = &[
     ConfigSection {
+        name: "security",
+        summary: "Optional Unix group access for an integration agent.",
+    },
+    ConfigSection {
         name: "scanner",
         summary: "Sigma and YARA rules, YARA scan limits, and optional memory scanning.",
     },
@@ -81,6 +85,16 @@ pub const CONFIG_SECTIONS: &[ConfigSection] = &[
 ];
 
 pub const CONFIG_OPTIONS: &[ConfigOption] = &[
+    ConfigOption {
+        key: "security.integration_group",
+        default_note: None,
+        description: "Unix group allowed to edit the root-owned config and read logs. Must match the config file's group; file-only, restart required. See [integration access](security.md#integration-access).",
+    },
+    ConfigOption {
+        key: "security.integration_rules_directory",
+        default_note: None,
+        description: "Optional absolute root-owned directory in which the integration group may manage rules and IOC files. Requires integration_group; file-only, restart required.",
+    },
     // scanner
     ConfigOption {
         key: "scanner.sigma_enabled",
