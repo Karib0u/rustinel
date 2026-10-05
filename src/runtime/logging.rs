@@ -341,16 +341,19 @@ fn prepare_log_directory(directory: &Path, group: Option<u32>) -> io::Result<()>
         {
             use std::os::unix::fs::MetadataExt;
             let metadata = std::fs::symlink_metadata(directory)?;
+            // Setgid gives new files the group without CAP_CHOWN, which the
+            // managed systemd unit does not grant.
             if !metadata.is_dir()
                 || metadata.uid() != 0
                 || metadata.gid() != gid
+                || metadata.mode() & 0o2000 == 0
                 || metadata.mode() & 0o027 != 0
                 || metadata.mode() & 0o050 != 0o050
             {
                 return Err(io::Error::new(io::ErrorKind::PermissionDenied,
-                    "integration log directory must be root-owned with the integration group and mode 0750 or 2750"));
+                    "integration log directory must be root-owned with the integration group and mode 2750"));
             }
-            crate::utils::trust::verify_root_controlled_parents(directory)
+            crate::utils::trust::verify_root_controlled_parents(directory, gid)
                 .map_err(|err| io::Error::new(io::ErrorKind::PermissionDenied, err.to_string()))?;
         }
         #[cfg(not(unix))]
@@ -377,14 +380,22 @@ fn open_log_file(
         {
             use std::os::fd::AsRawFd;
             use std::os::unix::fs::{MetadataExt, PermissionsExt};
-            if file.metadata()?.nlink() != 1 {
+            let metadata = file.metadata()?;
+            if metadata.nlink() != 1 {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
                     "integration logs must not have hard links",
                 ));
             }
-            if unsafe { libc::fchown(file.as_raw_fd(), !0, gid) } != 0 {
-                return Err(io::Error::last_os_error());
+            if metadata.gid() != gid && unsafe { libc::fchown(file.as_raw_fd(), !0, gid) } != 0 {
+                let err = io::Error::last_os_error();
+                return Err(io::Error::new(
+                    err.kind(),
+                    format!(
+                        "cannot assign the integration group to {filename}.{date} ({err}); \
+                         chgrp the existing log files to the integration group"
+                    ),
+                ));
             }
             file.set_permissions(std::fs::Permissions::from_mode(0o640))?;
         }
@@ -453,7 +464,35 @@ mod permission_tests {
         }
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o2770)).unwrap();
         assert!(super::prepare_log_directory(&directory, Some(fixture.gid)).is_err());
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o750)).unwrap();
+        assert!(
+            super::prepare_log_directory(&directory, Some(fixture.gid)).is_err(),
+            "without setgid, new files need CAP_CHOWN to get the group"
+        );
         fixture.permissions(&directory, 0o2750);
+
+        // Ubuntu's /var/log is root:syslog 0775: group write for another
+        // group is fine, group write for the integration group is not.
+        let parent = fixture.root.path();
+        std::os::unix::fs::chown(parent, Some(0), Some(0)).unwrap();
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o775)).unwrap();
+        super::prepare_log_directory(&directory, Some(fixture.gid)).unwrap();
+        fixture.permissions(parent, 0o775);
+        assert!(super::prepare_log_directory(&directory, Some(fixture.gid)).is_err());
+        fixture.permissions(parent, 0o750);
+
+        // A file left by an earlier release keeps root's group until reopened.
+        let legacy = directory.join(format!("legacy.json.{today}"));
+        fs::write(&legacy, b"old\n").unwrap();
+        std::os::unix::fs::chown(&legacy, Some(0), Some(0)).unwrap();
+        fs::set_permissions(&legacy, fs::Permissions::from_mode(0o600)).unwrap();
+        drop(open_log_file(&directory, "legacy.json", today, Some(fixture.gid)).unwrap());
+        let metadata = fs::metadata(&legacy).unwrap();
+        assert_eq!(
+            (metadata.gid(), metadata.mode() & 0o777),
+            (fixture.gid, 0o640)
+        );
+
         drop(open_log_file(&directory, "private.json", today, None).unwrap());
         assert_eq!(
             fs::metadata(directory.join(format!("private.json.{today}")))

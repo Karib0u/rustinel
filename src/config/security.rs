@@ -90,7 +90,7 @@ fn verify_integration_config(path: &Path) -> anyhow::Result<u32> {
             && metadata.mode() & 0o007 == 0,
         "integration config must be a root-owned regular file, without links or access for others"
     );
-    crate::utils::trust::verify_root_controlled_parents(path)?;
+    crate::utils::trust::verify_root_controlled_parents(path, metadata.gid())?;
     Ok(metadata.gid())
 }
 

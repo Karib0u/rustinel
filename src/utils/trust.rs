@@ -68,7 +68,7 @@ impl RuleTrust {
                 && metadata.mode() & 0o007 == 0 && metadata.mode() & 0o2000 != 0,
             "integration rules directory must be root-owned, setgid, assigned to the integration group, and inaccessible to others"
         );
-        verify_root_controlled_parents(&self.root)
+        verify_root_controlled_parents(&self.root, self.gid)
     }
 
     #[cfg(not(unix))]
@@ -79,19 +79,24 @@ impl RuleTrust {
 }
 
 /// Configuration, rule-tree anchors and shared log directories must not be
-/// replaceable by the integration account. Root-owned sticky ancestors are safe.
+/// replaceable by the integration account. Root-owned sticky ancestors are safe,
+/// and so is group write for another group, such as Ubuntu's `root:syslog`
+/// `/var/log`.
 #[cfg(unix)]
-pub(crate) fn verify_root_controlled_parents(path: &Path) -> Result<()> {
+pub(crate) fn verify_root_controlled_parents(path: &Path, gid: u32) -> Result<()> {
     use std::os::unix::fs::MetadataExt;
+    let controlled = |metadata: &fs::Metadata| {
+        let mode = metadata.mode();
+        metadata.uid() == 0
+            && (mode & 0o1000 != 0
+                || (mode & 0o002 == 0 && (mode & 0o020 == 0 || metadata.gid() != gid)))
+    };
     let absolute = std::path::absolute(path)?;
     for parent in absolute.ancestors().skip(1) {
         let metadata = fs::metadata(parent)?;
         let entry = fs::symlink_metadata(parent)?;
         anyhow::ensure!(
-            metadata.is_dir()
-                && metadata.uid() == 0
-                && entry.uid() == 0
-                && (metadata.mode() & 0o022 == 0 || metadata.mode() & 0o1000 != 0),
+            metadata.is_dir() && entry.uid() == 0 && controlled(&metadata),
             "{} must be a root-controlled parent directory",
             parent.display()
         );
@@ -101,10 +106,8 @@ pub(crate) fn verify_root_controlled_parents(path: &Path) -> Result<()> {
     let canonical = fs::canonicalize(path)?;
     if canonical != absolute {
         for parent in canonical.ancestors().skip(1) {
-            let metadata = fs::metadata(parent)?;
             anyhow::ensure!(
-                metadata.uid() == 0
-                    && (metadata.mode() & 0o022 == 0 || metadata.mode() & 0o1000 != 0),
+                controlled(&fs::metadata(parent)?),
                 "{} must be a root-controlled parent directory",
                 parent.display()
             );

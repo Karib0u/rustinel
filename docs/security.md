@@ -88,11 +88,11 @@ Add the following to the existing configuration, using a group that already exis
 
 ```toml
 [security]
-integration_group = "radegast"
+integration_group = "rustinel-integration"
 ```
 
 The config must be a root-owned regular file, assigned to this group, with no access for others and no hard links or symlinks.
-Its parent directories must remain root-controlled and not writable by the integration group.
+Its parent directories must remain root-owned and not writable by the integration group or by others, unless sticky.
 The group setting must match the file's existing filesystem group; Rustinel does not change the config's ownership or grant config write access itself.
 This makes the administrator's filesystem permissions the authority for delegation, even though the option is in the writable file.
 The option cannot be enabled or changed through an environment override.
@@ -100,24 +100,28 @@ The option cannot be enabled or changed through an environment override.
 For the managed Linux layout, an administrator can prepare access with:
 
 ```sh
-chown root:radegast /etc/rustinel /etc/rustinel/config.toml
+chown root:rustinel-integration /etc/rustinel /etc/rustinel/config.toml
 chmod 0750 /etc/rustinel
 chmod 0660 /etc/rustinel/config.toml
-install -d -o root -g radegast -m 2750 /var/log/rustinel
+install -d -o root -g rustinel-integration -m 2750 /var/log/rustinel
+chgrp rustinel-integration /var/log/rustinel/*
 ```
 
 The integration account must belong to this group.
 Use the corresponding configured paths on macOS or for custom layouts.
 Prepare both logging and alerts directories if they differ.
-Log directories must already exist, be root-owned with this group, and allow group read/traverse but no group write or other access (`0750` or `2750`).
+Log directories must already exist, be root-owned with this group, have the setgid bit, and allow group read and traverse but no group write or other access (`2750`).
+The setgid bit gives new files the group: the managed systemd service has no `CAP_CHOWN` and cannot assign it.
+For the same reason, change the group of existing log files once, as above, or Rustinel refuses to reopen them.
 Current and newly rotated operational and alert logs receive `0640` and the selected group.
-Historical files are not recursively changed; an administrator can grant read access to those separately if needed.
+Older files are not changed; grant read access to those separately if needed.
 Recordings and telemetry snapshots retain their existing private permissions.
 
 The integration can edit the config in place, but cannot rename or replace it through the protected parent directory.
 Config write access delegates control over the entire configuration, including detection, response, output destinations, and credentials.
+Treat it as root-equivalent: the group can point inputs at files only root can read and see their contents in log diagnostics, and can make active response act on any process.
 Use a dedicated group containing only trusted integration accounts.
-Log access is read-only: shipping and encrypting logs does not require permission to modify or delete the originals.
+Log access is read-only: forwarding logs does not require permission to modify or delete the originals.
 
 ### Optional rules updates
 
@@ -126,7 +130,7 @@ To also delegate rule updates, explicitly name one absolute directory:
 
 ```toml
 [security]
-integration_group = "radegast"
+integration_group = "rustinel-integration"
 integration_rules_directory = "/var/lib/rustinel/rules"
 ```
 
@@ -135,8 +139,8 @@ Its parents must remain root-controlled.
 For an existing managed Linux rule tree, an administrator can prepare it with:
 
 ```sh
-chown root:radegast /var/lib/rustinel/rules
-chgrp -R radegast /var/lib/rustinel/rules
+chown root:rustinel-integration /var/lib/rustinel/rules
+chgrp -R rustinel-integration /var/lib/rustinel/rules
 chmod -R g+rwX,o-rwx /var/lib/rustinel/rules
 find /var/lib/rustinel/rules -type d -exec chmod g+s {} +
 ```

@@ -15,7 +15,7 @@ then keeps the engine alive until stdin receives a newline. RSS is read with
 loading, including allocator-retained pages, not peak RSS or live heap size.
 
 The synthetic feed contains 2,121,596 distinct wildcard domains and four
-repeated comments, totaling 65,769,476 bytes. It is not the Radegast corpus
+repeated comments, totaling 65,769,476 bytes. It is not the reporter's corpus
 from the issue. Generate it outside the measurement process:
 
 ```python
