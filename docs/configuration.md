@@ -63,12 +63,12 @@ This section is generated from `src/config/reference.rs`. Edit that file and run
 
 ### `[security]`
 
-Optional Unix group access for an integration agent.
+Optional access for an unprivileged integration agent.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `integration_group` | `unset` | Unix group allowed to edit the root-owned config and read logs. Must match the config file's group; file-only, restart required. See [integration access](security.md#integration-access). |
-| `integration_rules_directory` | `unset` | Optional absolute root-owned directory in which the integration group may manage rules and IOC files. Requires integration_group; file-only, restart required. |
+| `integration_group` | `unset` | Group or account allowed to edit the config and read logs. On Unix it must match the config file's group; on Windows it must be the only non-administrator granted write. File-only, restart required. See [integration access](security.md#integration-access). |
+| `integration_rules_directory` | `unset` | Optional absolute administrator-owned directory in which the integration may manage rules and IOC files. Requires integration_group; file-only, restart required. |
 
 ### `[scanner]`
 

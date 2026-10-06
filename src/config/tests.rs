@@ -835,3 +835,55 @@ fn integration_config_cannot_be_owned_by_the_wrapper() {
     let err = load_config_file(&temp, "[security]\nintegration_group = 'root'\n").unwrap_err();
     assert!(err.to_string().contains("root-owned regular file"));
 }
+
+#[cfg(windows)]
+fn icacls(path: &std::path::Path, args: &[&str]) -> bool {
+    std::process::Command::new("icacls")
+        .arg(path)
+        .args(args)
+        .status()
+        .expect("run icacls")
+        .success()
+}
+
+/// Service SIDs resolve for installed services, and EventLog and Schedule
+/// exist on every Windows install. The `NT SERVICE` domain is not localized.
+#[cfg(windows)]
+#[test]
+fn integration_group_delegates_windows_config_write_to_one_principal() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("config.toml");
+    let body = "[security]\nintegration_group = 'NT SERVICE\\EventLog'\n";
+    std::fs::write(&path, body).unwrap();
+    assert!(icacls(&path, &["/grant", "NT SERVICE\\EventLog:(R,W)"]));
+
+    let cfg = load_config_file(&temp, body).expect("delegated config loads");
+    assert!(cfg.security.principal.is_some());
+    assert!(cfg.security.log_group().is_none());
+    assert!(
+        load_config_file(&temp, "").is_err(),
+        "the grant needs the opt-in"
+    );
+    let err = load_config_file(
+        &temp,
+        "[security]\nintegration_group = 'NT SERVICE\\Schedule'\n",
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("grants write access"), "{err}");
+
+    // Shared accounts are refused; their names are localized, so resolve them.
+    let users = crate::utils::lookup_account_sid("S-1-5-32-545").unwrap();
+    let err = load_config_file(
+        &temp,
+        &format!("[security]\nintegration_group = '{users}'\n"),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("dedicated"), "{err}");
+
+    std::fs::write(&path, body).unwrap();
+    assert!(icacls(&path, &["/grant", "*S-1-5-32-545:(W)"]));
+    assert!(
+        load_config_file(&temp, body).is_err(),
+        "another writer is refused"
+    );
+}
