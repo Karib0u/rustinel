@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use config::ConfigError;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::trust::RuleTrust;
+use crate::utils::trust::{Principal, RuleTrust};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -13,14 +13,22 @@ pub struct SecurityConfig {
     pub integration_group: Option<String>,
     pub integration_rules_directory: Option<PathBuf>,
     #[serde(skip)]
-    pub(crate) integration_gid: Option<u32>,
+    pub(crate) principal: Option<Principal>,
     #[serde(skip)]
     pub(crate) rule_trust: Option<RuleTrust>,
 }
 
 impl SecurityConfig {
+    /// Windows log files inherit their folder's permissions, so only Unix
+    /// needs the group applied to each file.
+    #[cfg(unix)]
     pub(crate) fn log_group(&self) -> Option<u32> {
-        self.integration_gid
+        self.principal
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn log_group(&self) -> Option<u32> {
+        None
     }
 
     pub(crate) fn rules(&self) -> Option<&RuleTrust> {
@@ -39,8 +47,8 @@ pub(super) fn load_config(
         return Ok((config::Config::default(), SecurityConfig::default()));
     };
     let ordinary_trust = crate::utils::trust::verify_input(path);
-    // Before parsing an otherwise refused file, require a root-controlled file
-    // and parents. Only its group-write bit can be delegated by its contents.
+    // Before parsing an otherwise refused file, require an administrator-owned
+    // file and parents. Only write access can be delegated by its contents.
     if let Err(ref ordinary_error) = ordinary_trust {
         verify_integration_config(path).map_err(|err| {
             error(format!(
@@ -58,16 +66,11 @@ pub(super) fn load_config(
         Err(err) => return Err(super::redact_config_error(err)),
     };
     if let Some(name) = &security.integration_group {
-        let gid = verify_integration_config(path).map_err(error)?;
-        if resolve_group(name).map_err(error)? != gid {
-            return Err(error(
-                "security.integration_group must match the config file's filesystem group",
-            ));
-        }
-        security.integration_gid = Some(gid);
+        let principal = integration_principal(path, name).map_err(error)?;
         if let Some(directory) = &security.integration_rules_directory {
-            security.rule_trust = Some(RuleTrust::new(directory, gid).map_err(error)?);
+            security.rule_trust = Some(RuleTrust::new(directory, &principal).map_err(error)?);
         }
+        security.principal = Some(principal);
     } else {
         if security.integration_rules_directory.is_some() {
             return Err(error(
@@ -94,9 +97,37 @@ fn verify_integration_config(path: &Path) -> anyhow::Result<u32> {
     Ok(metadata.gid())
 }
 
-#[cfg(not(unix))]
-fn verify_integration_config(_path: &Path) -> anyhow::Result<u32> {
-    anyhow::bail!("security.integration_group is supported only on Unix")
+/// The config's group is the anchor: the integration cannot change it.
+#[cfg(unix)]
+fn integration_principal(path: &Path, name: &str) -> anyhow::Result<Principal> {
+    let gid = verify_integration_config(path)?;
+    anyhow::ensure!(
+        resolve_group(name)? == gid,
+        "security.integration_group must match the config file's filesystem group"
+    );
+    Ok(gid)
+}
+
+#[cfg(windows)]
+fn verify_integration_config(path: &Path) -> anyhow::Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    let metadata = std::fs::symlink_metadata(path)?;
+    anyhow::ensure!(
+        metadata.is_file() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0,
+        "integration config must be a regular file, not a link"
+    );
+    crate::utils::trust::verify_controlled_parents(path)
+}
+
+/// The config's DACL is the anchor: naming another account leaves the
+/// integration's own write grant untrusted, so the file is refused.
+#[cfg(windows)]
+fn integration_principal(path: &Path, name: &str) -> anyhow::Result<Principal> {
+    verify_integration_config(path)?;
+    let sid = crate::utils::trust::resolve_principal(name)?;
+    crate::utils::trust::verify_integration_entry(path, &sid, false)?;
+    Ok(sid)
 }
 
 #[cfg(unix)]
@@ -123,11 +154,6 @@ fn resolve_group(name: &str) -> anyhow::Result<u32> {
         "integration group does not exist or could not be resolved"
     );
     Ok(group.gr_gid)
-}
-
-#[cfg(not(unix))]
-fn resolve_group(_name: &str) -> anyhow::Result<u32> {
-    anyhow::bail!("security.integration_group is supported only on Unix")
 }
 
 #[cfg(all(test, unix))]

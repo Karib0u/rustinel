@@ -32,15 +32,21 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::InstallLayout;
 
+/// The account an integration runs as: a Unix group ID, or a Windows SID.
+#[cfg(unix)]
+pub(crate) type Principal = u32;
+#[cfg(windows)]
+pub(crate) type Principal = imp::Sid;
+
 /// A single administrator-designated tree where an integration may update rules.
 #[derive(Clone, Debug)]
 pub struct RuleTrust {
     root: PathBuf,
-    gid: u32,
+    principal: Principal,
 }
 
 impl RuleTrust {
-    pub(crate) fn new(root: &Path, gid: u32) -> Result<Self> {
+    pub(crate) fn new(root: &Path, principal: &Principal) -> Result<Self> {
         anyhow::ensure!(
             root.is_absolute(),
             "integration rules directory must be absolute"
@@ -53,7 +59,7 @@ impl RuleTrust {
         );
         let trust = Self {
             root: root.to_path_buf(),
-            gid,
+            principal: principal.to_owned(),
         };
         trust.verify_root()?;
         Ok(trust)
@@ -64,19 +70,26 @@ impl RuleTrust {
         use std::os::unix::fs::MetadataExt;
         let metadata = fs::symlink_metadata(&self.root)?;
         anyhow::ensure!(
-            metadata.is_dir() && metadata.uid() == 0 && metadata.gid() == self.gid
+            metadata.is_dir() && metadata.uid() == 0 && metadata.gid() == self.principal
                 && metadata.mode() & 0o007 == 0 && metadata.mode() & 0o2000 != 0,
             "integration rules directory must be root-owned, setgid, assigned to the integration group, and inaccessible to others"
         );
-        verify_root_controlled_parents(&self.root, self.gid)
+        verify_root_controlled_parents(&self.root, self.principal)
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     fn verify_root(&self) -> Result<()> {
-        let _ = (&self.root, self.gid);
-        bail!("integration rules access is supported only on Unix")
+        anyhow::ensure!(
+            fs::symlink_metadata(&self.root)?.is_dir(),
+            "integration rules directory must be a directory"
+        );
+        imp::verify_integration_entry(&self.root, &self.principal, false)?;
+        imp::verify_controlled_parents(&self.root)
     }
 }
+
+#[cfg(windows)]
+pub(crate) use imp::{resolve_principal, verify_controlled_parents, verify_integration_entry};
 
 /// Configuration, rule-tree anchors and shared log directories must not be
 /// replaceable by the integration account. Root-owned sticky ancestors are safe,
@@ -122,56 +135,59 @@ pub fn verify_rule_input(path: &Path, trust: Option<&RuleTrust>) -> Result<()> {
     let Some(trust) = trust else {
         return verify_input(path);
     };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let absolute = std::path::absolute(path)?;
-        let Ok(relative) = absolute.strip_prefix(&trust.root) else {
-            return verify_input(path);
-        };
-        trust.verify_root()?;
-        let mut current = trust.root.clone();
-        for component in relative.components() {
-            anyhow::ensure!(
-                matches!(component, std::path::Component::Normal(_)),
-                "invalid integration rule path"
-            );
-            current.push(component);
-            match fs::symlink_metadata(&current) {
-                Ok(metadata) => verify_shared_entry(&current, &metadata, trust.gid)?,
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-                Err(err) => return Err(err.into()),
+    let absolute = std::path::absolute(path)?;
+    let Ok(relative) = absolute.strip_prefix(&trust.root) else {
+        return verify_input(path);
+    };
+    trust.verify_root()?;
+    let mut current = trust.root.clone();
+    for component in relative.components() {
+        anyhow::ensure!(
+            matches!(component, std::path::Component::Normal(_)),
+            "invalid integration rule path"
+        );
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => verify_shared_entry(&current, &metadata, &trust.principal)?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err.into()),
+        }
+    }
+    fn walk(path: &Path, principal: &Principal) -> Result<()> {
+        let metadata = fs::symlink_metadata(path)?;
+        verify_shared_entry(path, &metadata, principal)?;
+        if metadata.is_dir() {
+            for entry in fs::read_dir(path)? {
+                walk(&entry?.path(), principal)?;
             }
         }
-        fn verify_shared_entry(path: &Path, metadata: &fs::Metadata, gid: u32) -> Result<()> {
-            anyhow::ensure!(
-                (metadata.is_dir() || metadata.is_file())
-                    && (metadata.gid() == gid
-                        || (metadata.uid() == 0 && metadata.mode() & 0o022 == 0))
-                    && metadata.mode() & 0o002 == 0
-                    && (!metadata.is_file() || metadata.nlink() == 1),
-                "{} is not a regular integration rule input with the expected group",
-                path.display()
-            );
-            Ok(())
-        }
-        fn walk(path: &Path, gid: u32) -> Result<()> {
-            let metadata = fs::symlink_metadata(path)?;
-            verify_shared_entry(path, &metadata, gid)?;
-            if metadata.is_dir() {
-                for entry in fs::read_dir(path)? {
-                    walk(&entry?.path(), gid)?;
-                }
-            }
-            Ok(())
-        }
-        walk(&absolute, trust.gid)
+        Ok(())
     }
-    #[cfg(not(unix))]
-    {
-        let _ = trust;
-        bail!("integration rules access is supported only on Unix")
-    }
+    walk(&absolute, &trust.principal)
+}
+
+#[cfg(unix)]
+fn verify_shared_entry(path: &Path, metadata: &fs::Metadata, gid: &u32) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    anyhow::ensure!(
+        (metadata.is_dir() || metadata.is_file())
+            && (metadata.gid() == *gid || (metadata.uid() == 0 && metadata.mode() & 0o022 == 0))
+            && metadata.mode() & 0o002 == 0
+            && (!metadata.is_file() || metadata.nlink() == 1),
+        "{} is not a regular integration rule input with the expected group",
+        path.display()
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+fn verify_shared_entry(path: &Path, metadata: &fs::Metadata, sid: &imp::Sid) -> Result<()> {
+    anyhow::ensure!(
+        !imp::is_link(metadata) && (metadata.is_dir() || metadata.is_file()),
+        "{} is not a regular integration rule input",
+        path.display()
+    );
+    imp::verify_integration_entry(path, sid, true)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -386,13 +402,13 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    use std::fs::Metadata;
+    use std::fs::{self, Metadata};
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::MetadataExt;
     use std::path::Path;
     use std::sync::OnceLock;
 
-    use anyhow::{bail, Result};
+    use anyhow::{bail, Context, Result};
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
     use windows::Win32::Security::Authorization::{
@@ -400,10 +416,13 @@ mod imp {
     };
     use windows::Win32::Security::{
         AclSizeInformation, EqualSid, GetAce, GetAclInformation, GetTokenInformation,
-        IsWellKnownSid, TokenUser, WinBuiltinAdministratorsSid, WinCreatorOwnerRightsSid,
-        WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION,
-        DACL_SECURITY_INFORMATION, INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION,
-        PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER,
+        IsWellKnownSid, LookupAccountNameW, TokenUser, WinAnonymousSid, WinAuthenticatedUserSid,
+        WinBuiltinAdministratorsSid, WinBuiltinGuestsSid, WinBuiltinUsersSid,
+        WinCreatorOwnerRightsSid, WinInteractiveSid, WinLocalServiceSid, WinLocalSid,
+        WinLocalSystemSid, WinNetworkServiceSid, WinNetworkSid, WinServiceSid, WinWorldSid,
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION,
+        INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SID_NAME_USE,
+        TOKEN_QUERY, TOKEN_USER,
     };
     use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -425,94 +444,275 @@ mod imp {
         Ok(())
     }
 
-    pub(super) fn verify_entry(path: &Path, _metadata: &Metadata, policy: Policy) -> Result<()> {
-        let name: Vec<u16> = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let mut owner = PSID::default();
-        let mut dacl: *mut ACL = std::ptr::null_mut();
-        let mut descriptor = PSECURITY_DESCRIPTOR::default();
-        let status = unsafe {
-            GetNamedSecurityInfoW(
-                PCWSTR(name.as_ptr()),
-                SE_FILE_OBJECT,
-                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-                Some(&mut owner),
-                None,
-                Some(&mut dacl),
-                None,
-                &mut descriptor,
-            )
-        };
-        if status.0 != 0 {
-            bail!(
-                "read security of {}: {}",
-                path.display(),
-                std::io::Error::from_raw_os_error(status.0 as i32)
-            );
+    /// A SID buffer, as resolved from an account name.
+    #[derive(Clone, Debug)]
+    pub(crate) struct Sid(Vec<u8>);
+
+    impl Sid {
+        fn as_psid(&self) -> PSID {
+            PSID(self.0.as_ptr().cast_mut().cast())
         }
-        let result = unsafe { verify_security(path, owner, dacl, policy) };
-        unsafe {
-            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
-        }
-        result
     }
 
-    /// # Safety
-    /// `owner` and `dacl` must point into a live security descriptor.
-    unsafe fn verify_security(
-        path: &Path,
+    /// Owner and DACL of a file or folder, freed on drop.
+    struct Security {
         owner: PSID,
         dacl: *mut ACL,
-        policy: Policy,
-    ) -> Result<()> {
-        let owner_is_admin = is_admin_or_self(owner);
-        if policy == Policy::Managed && !owner_is_admin {
+        descriptor: PSECURITY_DESCRIPTOR,
+    }
+
+    impl Drop for Security {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = LocalFree(Some(HLOCAL(self.descriptor.0)));
+            }
+        }
+    }
+
+    impl Security {
+        fn read(path: &Path) -> Result<Self> {
+            let name: Vec<u16> = path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let mut security = Self {
+                owner: PSID::default(),
+                dacl: std::ptr::null_mut(),
+                descriptor: PSECURITY_DESCRIPTOR::default(),
+            };
+            let status = unsafe {
+                GetNamedSecurityInfoW(
+                    PCWSTR(name.as_ptr()),
+                    SE_FILE_OBJECT,
+                    OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                    Some(&mut security.owner),
+                    None,
+                    Some(&mut security.dacl),
+                    None,
+                    &mut security.descriptor,
+                )
+            };
+            if status.0 != 0 {
+                bail!(
+                    "read security of {}: {}",
+                    path.display(),
+                    std::io::Error::from_raw_os_error(status.0 as i32)
+                );
+            }
+            if security.dacl.is_null() {
+                bail!(
+                    "{} has no DACL, so every account can write it",
+                    path.display()
+                );
+            }
+            Ok(security)
+        }
+
+        /// The SID and access mask of each allow entry that applies to this
+        /// object. The SIDs point into the descriptor.
+        fn allowed(&self) -> Result<Vec<(PSID, u32)>> {
+            let mut info = ACL_SIZE_INFORMATION::default();
+            let mut entries = Vec::new();
+            unsafe {
+                GetAclInformation(
+                    self.dacl,
+                    (&mut info as *mut ACL_SIZE_INFORMATION).cast(),
+                    std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
+                    AclSizeInformation,
+                )?;
+                for index in 0..info.AceCount {
+                    let mut ace = std::ptr::null_mut();
+                    GetAce(self.dacl, index, &mut ace)?;
+                    let header = &*(ace as *const ACE_HEADER);
+                    if header.AceType != ACCESS_ALLOWED_ACE_TYPE
+                        || u32::from(header.AceFlags) & INHERIT_ONLY_ACE.0 != 0
+                    {
+                        continue;
+                    }
+                    let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
+                    let sid = PSID((&allowed.SidStart as *const u32).cast_mut().cast());
+                    entries.push((sid, allowed.Mask));
+                }
+            }
+            Ok(entries)
+        }
+    }
+
+    pub(super) fn verify_entry(path: &Path, _metadata: &Metadata, policy: Policy) -> Result<()> {
+        let security = Security::read(path)?;
+        let owner = security.owner;
+        if policy == Policy::Managed && !is_system_account(owner) {
             bail!(
                 "{} is owned by {}; managed inputs must be owned by SYSTEM or Administrators",
                 path.display(),
                 sid_label(owner)
             );
         }
-        if dacl.is_null() {
-            bail!(
-                "{} has no DACL, so every account can write it",
-                path.display()
-            );
-        }
-
-        let mut info = ACL_SIZE_INFORMATION::default();
-        GetAclInformation(
-            dacl,
-            (&mut info as *mut ACL_SIZE_INFORMATION).cast(),
-            std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
-            AclSizeInformation,
-        )?;
-        for index in 0..info.AceCount {
-            let mut ace = std::ptr::null_mut();
-            GetAce(dacl, index, &mut ace)?;
-            let header = &*(ace as *const ACE_HEADER);
-            if header.AceType != ACCESS_ALLOWED_ACE_TYPE
-                || u32::from(header.AceFlags) & INHERIT_ONLY_ACE.0 != 0
-            {
+        for (sid, mask) in security.allowed()? {
+            if mask & WRITE_MASK == 0 {
                 continue;
             }
-            let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
-            if allowed.Mask & WRITE_MASK == 0 {
-                continue;
-            }
-            let sid = PSID((&allowed.SidStart as *const u32).cast_mut().cast());
             // The owner already controls the entry, and OWNER RIGHTS means the
-            // owner. A managed owner was checked above.
-            let trusted = is_admin_or_self(sid)
-                || IsWellKnownSid(sid, WinCreatorOwnerRightsSid).as_bool()
-                || EqualSid(sid, owner).is_ok();
+            // owner. A managed owner was checked above. Folders created under
+            // Program Files inherit full control for TrustedInstaller.
+            let trusted = is_system_account(sid)
+                || unsafe {
+                    IsWellKnownSid(sid, WinCreatorOwnerRightsSid).as_bool()
+                        || EqualSid(sid, owner).is_ok()
+                };
             if !trusted {
                 bail!(
                     "{} grants write access to {}; remove it so only SYSTEM, Administrators, and the owner can write",
                     path.display(),
+                    sid_label(sid)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    const TRUSTED_INSTALLER: &str =
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+
+    // FILE_DELETE_CHILD, WRITE_DAC, WRITE_OWNER, GENERIC_ALL: any of them on a
+    // folder lets the holder replace what it contains.
+    const REPLACE_MASK: u32 = 0x40 | 0x4_0000 | 0x8_0000 | 0x1000_0000;
+
+    /// SYSTEM, Administrators, TrustedInstaller, or the agent's own account.
+    fn is_system_account(sid: PSID) -> bool {
+        let admin = unsafe { is_admin_or_self(sid) };
+        admin || sid_string(sid).as_deref() == Some(TRUSTED_INSTALLER)
+    }
+
+    /// Resolve the configured integration account or group to a SID, refusing
+    /// accounts that many principals share.
+    pub(crate) fn resolve_principal(name: &str) -> Result<Sid> {
+        anyhow::ensure!(!name.is_empty(), "integration group must not be empty");
+        let wide: Vec<u16> = std::ffi::OsStr::new(name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let (mut sid_len, mut domain_len) = (0u32, 0u32);
+        let mut kind = SID_NAME_USE(0);
+        unsafe {
+            let _ = LookupAccountNameW(
+                PCWSTR::null(),
+                PCWSTR(wide.as_ptr()),
+                None,
+                &mut sid_len,
+                None,
+                &mut domain_len,
+                &mut kind,
+            );
+        }
+        anyhow::ensure!(
+            sid_len > 0,
+            "integration group {name:?} does not exist or could not be resolved"
+        );
+        let mut sid = Sid(vec![0u8; sid_len as usize]);
+        let mut domain = vec![0u16; domain_len as usize];
+        unsafe {
+            LookupAccountNameW(
+                PCWSTR::null(),
+                PCWSTR(wide.as_ptr()),
+                Some(PSID(sid.0.as_mut_ptr().cast())),
+                &mut sid_len,
+                Some(PWSTR(domain.as_mut_ptr())),
+                &mut domain_len,
+                &mut kind,
+            )
+        }
+        .with_context(|| format!("resolve integration group {name:?}"))?;
+        let psid = sid.as_psid();
+        let shared = [
+            WinWorldSid,
+            WinAuthenticatedUserSid,
+            WinBuiltinUsersSid,
+            WinBuiltinGuestsSid,
+            WinInteractiveSid,
+            WinAnonymousSid,
+            WinLocalSid,
+            WinNetworkSid,
+            WinServiceSid,
+            WinLocalServiceSid,
+            WinNetworkServiceSid,
+        ];
+        let shared = shared
+            .into_iter()
+            .any(|kind| unsafe { IsWellKnownSid(psid, kind) }.as_bool());
+        anyhow::ensure!(
+            !shared && !is_system_account(psid),
+            "integration group must be a dedicated account or group, not {}",
+            sid_label(psid)
+        );
+        Ok(sid)
+    }
+
+    /// A file or folder the integration may write: owned by a system account
+    /// (or, inside a delegated rules tree, by the integration), and writable
+    /// only by system accounts, its owner, and the integration.
+    pub(crate) fn verify_integration_entry(
+        path: &Path,
+        principal: &Sid,
+        integration_owner: bool,
+    ) -> Result<()> {
+        let security = Security::read(path)?;
+        let owner = security.owner;
+        let principal = principal.as_psid();
+        let owner_is_integration = unsafe { EqualSid(owner, principal) }.is_ok();
+        anyhow::ensure!(
+            is_system_account(owner) || (integration_owner && owner_is_integration),
+            "{} is owned by {}; it must be owned by SYSTEM, Administrators, or TrustedInstaller",
+            path.display(),
+            sid_label(owner)
+        );
+        for (sid, mask) in security.allowed()? {
+            if mask & WRITE_MASK == 0 {
+                continue;
+            }
+            let trusted = is_system_account(sid)
+                || unsafe {
+                    IsWellKnownSid(sid, WinCreatorOwnerRightsSid).as_bool()
+                        || EqualSid(sid, owner).is_ok()
+                        || EqualSid(sid, principal).is_ok()
+                };
+            anyhow::ensure!(
+                trusted,
+                "{} grants write access to {}; only SYSTEM, Administrators, and the integration group may write",
+                path.display(),
+                sid_label(sid)
+            );
+        }
+        Ok(())
+    }
+
+    /// Folders above an integration input must be real folders owned by a
+    /// system account, and must not let anyone else replace their contents.
+    pub(crate) fn verify_controlled_parents(path: &Path) -> Result<()> {
+        let absolute = std::path::absolute(path)?;
+        for parent in absolute.ancestors().skip(1) {
+            let metadata = fs::symlink_metadata(parent)
+                .with_context(|| format!("inspect {}", parent.display()))?;
+            anyhow::ensure!(
+                metadata.is_dir() && !is_link(&metadata),
+                "{} must be a folder, not a link",
+                parent.display()
+            );
+            let security = Security::read(parent)?;
+            anyhow::ensure!(
+                is_system_account(security.owner),
+                "{} is owned by {}; parent folders must be owned by SYSTEM, Administrators, or TrustedInstaller",
+                parent.display(),
+                sid_label(security.owner)
+            );
+            for (sid, mask) in security.allowed()? {
+                anyhow::ensure!(
+                    mask & REPLACE_MASK == 0
+                        || is_system_account(sid)
+                        || unsafe { IsWellKnownSid(sid, WinCreatorOwnerRightsSid) }.as_bool(),
+                    "{} grants {} full control or delete-child access; parent folders must not let other accounts replace their contents",
+                    parent.display(),
                     sid_label(sid)
                 );
             }
@@ -527,15 +727,20 @@ mod imp {
                 .is_some_and(|user| EqualSid(sid, PSID(user.as_ptr().cast_mut().cast())).is_ok())
     }
 
-    fn sid_label(sid: PSID) -> String {
+    fn sid_string(sid: PSID) -> Option<String> {
         let mut text = PWSTR::null();
-        if unsafe { ConvertSidToStringSidW(sid, &mut text) }.is_err() {
-            return "an unknown SID".to_string();
-        }
-        let string = unsafe { text.to_string() }.unwrap_or_default();
+        unsafe { ConvertSidToStringSidW(sid, &mut text) }.ok()?;
+        let string = unsafe { text.to_string() }.ok();
         unsafe {
             let _ = LocalFree(Some(HLOCAL(text.0.cast())));
         }
+        string
+    }
+
+    fn sid_label(sid: PSID) -> String {
+        let Some(string) = sid_string(sid) else {
+            return "an unknown SID".to_string();
+        };
         match crate::utils::lookup_account_sid(&string) {
             Ok(name) => format!("{name} ({string})"),
             Err(_) => string,
@@ -731,6 +936,57 @@ mod tests {
             format!("{err:#}").contains("grants write access"),
             "{err:#}"
         );
+    }
+
+    #[test]
+    fn trusts_trusted_installer_like_administrators() {
+        // Every folder created under Program Files inherits this grant.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let status = Command::new("icacls")
+            .arg(dir.path())
+            .args([
+                "/grant",
+                "*S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464:(OI)(CI)F",
+            ])
+            .status()
+            .expect("run icacls");
+        assert!(status.success(), "grant TrustedInstaller");
+        verify_input(dir.path()).expect("TrustedInstaller is a system account");
+    }
+
+    #[test]
+    fn integration_rules_tree_accepts_the_integration_principal_only() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let rules = dir.path().join("rules");
+        fs::create_dir(&rules).expect("mkdir");
+        let icacls = |path: &Path, args: &[&str]| {
+            Command::new("icacls")
+                .arg(path)
+                .args(args)
+                .status()
+                .expect("run icacls")
+                .success()
+        };
+        assert!(icacls(
+            &rules,
+            &["/grant", "NT SERVICE\\EventLog:(OI)(CI)M"]
+        ));
+        let file = rules.join("rule.yml");
+        fs::write(&file, "title: x\n").expect("write");
+        let sid = resolve_principal("NT SERVICE\\EventLog").expect("service SID");
+        let trust = RuleTrust::new(&rules, &sid).expect("delegated root");
+
+        assert!(verify_input(&rules).is_err(), "default policy refuses it");
+        verify_rule_input(&rules, Some(&trust)).expect("delegated tree loads");
+        // Files the integration creates are owned by it. Taking ownership for
+        // another account needs an elevated shell.
+        if icacls(&file, &["/setowner", "NT SERVICE\\EventLog"]) {
+            verify_rule_input(&rules, Some(&trust)).expect("integration-owned file loads");
+        }
+        let other = resolve_principal("NT SERVICE\\Schedule").expect("service SID");
+        assert!(RuleTrust::new(&rules, &other).is_err());
+        assert!(icacls(&file, &["/grant", "*S-1-5-32-545:(W)"]));
+        assert!(verify_rule_input(&rules, Some(&trust)).is_err());
     }
 
     #[test]

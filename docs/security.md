@@ -82,20 +82,29 @@ Keep the config file readable only by the agent.
 
 ## Integration access
 
-Linux and macOS integrations can opt into a dedicated Unix group without changing the service definition.
-The Rustinel service continues to run as root; the integration agent stays unprivileged.
-Add the following to the existing configuration, using a group that already exists:
+An integration agent can update the config and read logs without running as root, SYSTEM, or Administrator, and without changing the service definition.
+The Rustinel service keeps its privileges; the integration stays unprivileged.
+Add the following to the existing configuration, naming a group or account that already exists:
 
 ```toml
 [security]
 integration_group = "rustinel-integration"
 ```
 
+The administrator's filesystem permissions remain the authority for delegation, even though the option is in the writable file.
+Rustinel never grants access itself, and the option cannot be enabled or changed through an environment override.
+
+The integration can edit the config in place, but cannot rename or replace it through the protected parent folder.
+Config write access delegates control over the entire configuration, including detection, response, output destinations, and credentials.
+Treat it as root-equivalent: the integration can point inputs at files only Rustinel can read and see their contents in log diagnostics, and can make active response act on any process.
+Use a dedicated group or account containing only trusted integration accounts.
+Log access is read-only: forwarding logs does not require permission to modify or delete the originals.
+
+### Linux and macOS
+
 The config must be a root-owned regular file, assigned to this group, with no access for others and no hard links or symlinks.
 Its parent directories must remain root-owned and not writable by the integration group or by others, unless sticky.
-The group setting must match the file's existing filesystem group; Rustinel does not change the config's ownership or grant config write access itself.
-This makes the administrator's filesystem permissions the authority for delegation, even though the option is in the writable file.
-The option cannot be enabled or changed through an environment override.
+The group setting must match the file's existing filesystem group, so naming another group refuses the config.
 
 For the managed Linux layout, an administrator can prepare access with:
 
@@ -117,15 +126,35 @@ Current and newly rotated operational and alert logs receive `0640` and the sele
 Older files are not changed; grant read access to those separately if needed.
 Recordings and telemetry snapshots retain their existing private permissions.
 
-The integration can edit the config in place, but cannot rename or replace it through the protected parent directory.
-Config write access delegates control over the entire configuration, including detection, response, output destinations, and credentials.
-Treat it as root-equivalent: the group can point inputs at files only root can read and see their contents in log diagnostics, and can make active response act on any process.
-Use a dedicated group containing only trusted integration accounts.
-Log access is read-only: forwarding logs does not require permission to modify or delete the originals.
+### Windows
+
+On Windows, `integration_group` names the account the integration runs as, usually its service SID, or a dedicated local or domain group.
+Use a literal TOML string so the backslash is kept:
+
+```toml
+[security]
+integration_group = 'NT SERVICE\ExampleAgent'
+```
+
+The config must be a regular file owned by SYSTEM, Administrators, or TrustedInstaller.
+Only those accounts, the file's owner, and the named principal may have write access to it.
+Naming another principal leaves the existing grant untrusted, so the config is refused.
+Each parent folder must be owned by one of those accounts, must not be a link, and must not give any other account full control, delete-child, or permission-change rights.
+Shared principals are refused: Everyone, Users, Guests, Authenticated Users, Interactive, Network, Local, Anonymous, `NT AUTHORITY\SERVICE`, and the Local Service and Network Service accounts.
+
+An administrator can grant config write and log read access with:
+
+```powershell
+icacls "C:\Program Files\Example\config.toml" /grant "NT SERVICE\ExampleAgent:(R,W)"
+icacls "C:\Program Files\Example\logs" /grant "NT SERVICE\ExampleAgent:(OI)(CI)RX"
+```
+
+Rustinel does not change permissions on log files it creates, so new and rotated logs inherit the read grant from their folder.
+`rustinel setup` resets permissions under the managed `C:\ProgramData\Rustinel` tree, so reapply integration grants there after each setup or upgrade.
 
 ### Optional rules updates
 
-Config access alone does not permit group-writable detection inputs.
+Config access alone does not permit integration-writable detection inputs.
 To also delegate rule updates, explicitly name one absolute directory:
 
 ```toml
@@ -134,8 +163,16 @@ integration_group = "rustinel-integration"
 integration_rules_directory = "/var/lib/rustinel/rules"
 ```
 
-That directory must be root-owned, assigned to the integration group, have the setgid bit, and have no access for others.
+The group can then create, edit, rename, and delete rule files and subdirectories within this tree.
+Sigma, YARA, and IOC inputs inside it accept files created by the integration account, including on reload.
+Links are refused.
+Inputs outside this directory retain the normal trust policy.
+Delegating rules updates allows the integration to change or suppress detections; only enable it for a trusted rule manager.
+
+On Linux and macOS, that directory must be root-owned, assigned to the integration group, have the setgid bit, and have no access for others.
 Its parents must remain root-controlled.
+Files must belong to the selected group, or remain root-owned without group or other write access.
+Hard-linked files, special files, and world-writable entries are refused.
 For an existing managed Linux rule tree, an administrator can prepare it with:
 
 ```sh
@@ -145,13 +182,13 @@ chmod -R g+rwX,o-rwx /var/lib/rustinel/rules
 find /var/lib/rustinel/rules -type d -exec chmod g+s {} +
 ```
 
-The group can then create, edit, rename, and delete rule files and subdirectories within this tree.
-Sigma, YARA, and IOC inputs inside it accept files created by the integration account, including on reload.
-Files must belong to the selected group, or remain root-owned without group/other write access.
-Symlinks, hard-linked files, special files, and world-writable entries are refused.
-Inputs outside this directory retain the normal trust policy.
-Delegating rules updates allows the integration to change or suppress detections; only enable it for a trusted rule manager.
+On Windows, the directory follows the config rules above, and files inside it may also be owned by the named principal.
+Remove inherited grants so no other account can write the tree:
+
+```powershell
+icacls "C:\Program Files\Example\rules" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" "NT SERVICE\ExampleAgent:(OI)(CI)M"
+```
 
 Restart Rustinel after changing either security option; hot reload updates active-response settings and rule contents, not the running process's integration policy.
-Normal `rustinel setup` preserves a valid existing config and its permissions.
+Normal `rustinel setup` preserves a valid existing config.
 `rustinel setup --force` replaces the config with private defaults, so reapply integration settings and permissions afterward.
