@@ -28,6 +28,9 @@ pub fn visit_process_memory_chunks(
     deadline: Option<Instant>,
     mut visitor: impl FnMut(&MemoryChunk) -> ControlFlow<()>,
 ) -> Result<()> {
+    // SAFETY: OpenProcess takes a PID and access flags, with no pointer arguments.
+    // The handle it returns is closed with CloseHandle below on every path that
+    // reaches the end of the scan.
     let handle = unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
@@ -58,6 +61,8 @@ pub fn visit_process_memory_chunks(
         }
 
         let mut mbi = MEMORY_BASIC_INFORMATION::default();
+        // SAFETY: `handle` is the live process handle opened above, and `mbi` is
+        // a valid MEMORY_BASIC_INFORMATION whose size is passed as the length.
         let written = unsafe {
             VirtualQueryEx(
                 handle,
@@ -131,6 +136,10 @@ pub fn visit_process_memory_chunks(
                 region,
                 |buf| {
                     let mut bytes_read = 0;
+                    // SAFETY: `handle` is the live process handle opened above,
+                    // `buf` is a writable buffer of exactly `buf.len()` bytes, and
+                    // `bytes_read` outlives the call. A foreign address that cannot
+                    // be read is reported as an error, never dereferenced here.
                     let result = unsafe {
                         ReadProcessMemory(
                             handle,
@@ -161,6 +170,8 @@ pub fn visit_process_memory_chunks(
         }
     }
 
+    // SAFETY: `handle` was opened above, is closed only here, and is not used
+    // afterwards.
     unsafe {
         let _ = CloseHandle(handle);
     }
@@ -218,6 +229,8 @@ mod tests {
 
     /// Commit one private page, apply `protect`, and run `check` with the page address.
     fn with_page(protect: u32, check: impl FnOnce(usize)) {
+        // SAFETY: the page is allocated, written within its 4096 bytes, and freed
+        // here, and `check` only receives its address as an integer.
         unsafe {
             let page = VirtualAlloc(None, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
             assert!(!page.is_null());
