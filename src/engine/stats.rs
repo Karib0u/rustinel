@@ -66,6 +66,8 @@ impl Engine {
                 .map(|(key, count)| (key.display(), *count))
                 .collect(),
             failed_rules: self.failed_rules.clone(),
+            directories: self.directories.clone(),
+            collisions: self.collisions.clone(),
             unsupported_rules: self.unsupported_rules.clone(),
             skipped_product_rules: self.skipped_product_rules,
             skipped_deferred_rules: self.skipped_deferred_rules,
@@ -99,6 +101,10 @@ pub struct EngineStats {
     pub deferred_logsource_rules: HashMap<String, usize>,
     pub unknown_logsource_rules: HashMap<String, usize>,
     pub failed_rules: Vec<(String, String)>,
+    /// What each rules directory contributed, pack first.
+    pub directories: Vec<crate::utils::rule_dirs::RuleDirectoryReport>,
+    /// Pack rules a local rule replaced by reusing their id.
+    pub collisions: Vec<crate::utils::rule_dirs::RuleCollision>,
     /// Parsed documents dropped because their references do not resolve.
     pub unsupported_rules: Vec<UnsupportedRule>,
     pub skipped_product_rules: usize,

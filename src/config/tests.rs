@@ -227,6 +227,41 @@ fn default_config_paths_remain_portable() {
 }
 
 #[test]
+fn local_rules_paths_default_empty_and_resolve_from_the_config_directory() {
+    assert!(AppConfig::default()
+        .scanner
+        .sigma_local_rules_paths
+        .is_empty());
+    assert!(AppConfig::default()
+        .scanner
+        .yara_local_rules_paths
+        .is_empty());
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let cfg = load_config_file(
+        &temp,
+        r#"
+[scanner]
+sigma_local_rules_paths = ["local/sigma", "more/sigma"]
+yara_local_rules_paths = ["local/yara"]
+"#,
+    )
+    .expect("load config");
+
+    assert_eq!(
+        cfg.scanner.sigma_local_rules_paths,
+        [
+            temp.path().join("local/sigma"),
+            temp.path().join("more/sigma")
+        ]
+    );
+    assert_eq!(
+        cfg.scanner.yara_local_rules_paths,
+        [temp.path().join("local/yara")]
+    );
+}
+
+#[test]
 fn explicit_config_has_highest_precedence_and_roots_relative_paths() {
     let temp = tempfile::tempdir().expect("tempdir");
     let explicit_dir = temp.path().join("explicit");
