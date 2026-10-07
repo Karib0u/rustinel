@@ -1,3 +1,4 @@
+use super::protection::{classify, Protection};
 use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig, RegionReader};
 use anyhow::Result;
 use std::ops::ControlFlow;
@@ -6,37 +7,19 @@ use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::Memory::{
     VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE,
-    PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD,
-    PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
 };
 
-fn is_readable(protect: PAGE_PROTECTION_FLAGS) -> bool {
-    matches!(
-        protect,
-        PAGE_READONLY
-            | PAGE_READWRITE
-            | PAGE_WRITECOPY
-            | PAGE_EXECUTE_READ
-            | PAGE_EXECUTE_READWRITE
-            | PAGE_EXECUTE_WRITECOPY
-    )
-}
-
-fn is_writable(protect: PAGE_PROTECTION_FLAGS) -> bool {
-    matches!(
-        protect,
-        PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-    )
-}
-
-fn is_executable(protect: PAGE_PROTECTION_FLAGS) -> bool {
-    matches!(
-        protect,
-        PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-    )
+/// Per-process region counts, so an excluded region is distinguishable from a failed read.
+/// `excluded_*` regions were never read; `read_failed` regions were eligible but unreadable.
+#[derive(Default)]
+struct RegionStats {
+    eligible: usize,
+    excluded_protection: usize,
+    excluded_kind: usize,
+    read_failed: usize,
 }
 
 pub fn visit_process_memory_chunks(
@@ -67,6 +50,7 @@ pub fn visit_process_memory_chunks(
 
     let mut reader = RegionReader::new(cfg, deadline);
     let mut address: usize = 0;
+    let mut stats = RegionStats::default();
 
     loop {
         if reader.is_done() {
@@ -99,10 +83,16 @@ pub fn visit_process_memory_chunks(
             continue;
         }
 
-        let protect = mbi.Protect;
-        if protect == PAGE_NOACCESS || protect.contains(PAGE_GUARD) || !is_readable(protect) {
-            continue;
-        }
+        let (writable, executable) = match classify(mbi.Protect.0) {
+            Protection::Readable {
+                writable,
+                executable,
+            } => (writable, executable),
+            Protection::Guard | Protection::NoAccess | Protection::Unreadable => {
+                stats.excluded_protection += 1;
+                continue;
+            }
+        };
 
         let kind = if mbi.Type == MEM_PRIVATE {
             MemoryRegionKind::Private
@@ -122,6 +112,7 @@ pub fn visit_process_memory_chunks(
         };
 
         if !include {
+            stats.excluded_kind += 1;
             continue;
         }
 
@@ -129,11 +120,12 @@ pub fn visit_process_memory_chunks(
             base: region_base as u64,
             size: region_size,
             readable: true,
-            writable: is_writable(protect),
-            executable: is_executable(protect),
+            writable,
+            executable,
             kind,
         };
 
+        stats.eligible += 1;
         if reader
             .read_region(
                 region,
@@ -149,6 +141,7 @@ pub fn visit_process_memory_chunks(
                         )
                     };
                     if result.is_err() || bytes_read == 0 {
+                        stats.read_failed += 1;
                         tracing::trace!(
                             target: "scanner",
                             pid = pid,
@@ -171,6 +164,16 @@ pub fn visit_process_memory_chunks(
     unsafe {
         let _ = CloseHandle(handle);
     }
+
+    tracing::debug!(
+        target: "scanner",
+        pid = pid,
+        eligible = stats.eligible,
+        excluded_protection = stats.excluded_protection,
+        excluded_kind = stats.excluded_kind,
+        read_failed = stats.read_failed,
+        "YARA memory: region summary"
+    );
 
     Ok(())
 }
