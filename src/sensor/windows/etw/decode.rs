@@ -206,6 +206,24 @@ pub(super) fn decode_single_record(
     })
 }
 
+/// The actor PID the event header names, when it names one.
+///
+/// Header PID 0 and `u32::MAX` are the ETW "no process" markers, so they are
+/// never serialized as an actor. A payload-supplied PID always wins over this
+/// fallback, and emitter-versus-actor distinctions stay with the decoders that
+/// read a dedicated client PID (Security 4698, WMI).
+fn header_actor_pid(record: &EventRecord) -> Option<u32> {
+    match record.process_id() {
+        0 | u32::MAX => None,
+        pid => Some(pid),
+    }
+}
+
+/// Payload `ProcessId` text, falling back to the validated header actor.
+fn actor_process_id(payload: Option<String>, record: &EventRecord) -> Option<String> {
+    payload.or_else(|| header_actor_pid(record).map(|pid| pid.to_string()))
+}
+
 pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
     match payload {
         SensorPayload::Dns(fields) => {
@@ -498,7 +516,7 @@ pub(super) fn decode_kernel_file_record(
         },
     };
 
-    let Some(fields) = file_event_fields(&parser, &raw_path) else {
+    let Some(fields) = file_event_fields(&parser, record, &raw_path) else {
         record_failure(record, state, EtwDecodeFailure::UnsupportedLayout);
         return None;
     };
@@ -533,12 +551,19 @@ pub(super) fn decode_kernel_file_record(
 /// Extracted so a missing field mapping is one `None` the caller can attribute
 /// as an unsupported layout, rather than a `?` that returns from the middle of
 /// the decode with no record of why.
-fn file_event_fields(parser: &Parser, raw_path: &str) -> Option<FileEventFields> {
+fn file_event_fields(
+    parser: &Parser,
+    record: &EventRecord,
+    raw_path: &str,
+) -> Option<FileEventFields> {
     let mappings = field_maps::file_event_mappings();
     Some(FileEventFields {
         source_filename: None,
         target_filename: Some(convert_nt_to_dos(raw_path)),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        process_id: actor_process_id(
+            try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+            record,
+        ),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
         // Kernel-File reports which information class was set, never the
@@ -729,7 +754,10 @@ pub(super) fn pending_registry_event(
     let fields = RegistryEventFields {
         target_object: None,
         details: registry_details(parser),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        process_id: actor_process_id(
+            try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+            record,
+        ),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
         event_type: try_get_string(parser, "EventType"),
@@ -830,7 +858,10 @@ pub(super) fn decode_dns(parser: &Parser, record: &EventRecord) -> Option<Decode
         query_results: try_get_string(parser, mappings.get_etw_field("QueryResults")?),
         record_type: None,
         query_status: try_get_uint(parser, mappings.get_etw_field("QueryStatus")?),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        process_id: actor_process_id(
+            try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+            record,
+        ),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
     };
@@ -851,7 +882,10 @@ pub(super) fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option
         hashes: None,
         imphash: None,
         image_loaded,
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        process_id: actor_process_id(
+            try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+            record,
+        ),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
         original_file_name: None,
@@ -878,7 +912,10 @@ pub(super) fn decode_powershell(parser: &Parser, record: &EventRecord) -> Option
         script_block_id: try_get_string(parser, mappings.get_etw_field("ScriptBlockId")?),
         path: try_get_string(parser, mappings.get_etw_field("Path")?)
             .map(|path| convert_nt_to_dos(&path)),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        process_id: actor_process_id(
+            try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+            record,
+        ),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
@@ -899,7 +936,10 @@ pub(super) fn decode_powershell_module(
     let fields = PowerShellModuleFields {
         context_info: try_get_string(parser, mappings.get_etw_field("ContextInfo")?),
         payload: try_get_string(parser, mappings.get_etw_field("Payload")?),
-        process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+        process_id: actor_process_id(
+            try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
+            record,
+        ),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
         user: try_get_string(parser, mappings.get_etw_field("User")?),
