@@ -206,7 +206,7 @@ rustinel rules update [--catalog-url <URL>] [--rules-dir <PATH>]
 
 | Option | Description |
 | --- | --- |
-| `--catalog-url <URL>` | Rules catalog index URL. Default: `https://github.com/Karib0u/rustinel-rules/releases/latest/download/index.json`. |
+| `--catalog-url <URL>` | Rules catalog index URL. Default: the URL recorded in `state.json` by `rules install` or `setup`, else `https://github.com/Karib0u/rustinel-rules/releases/latest/download/index.json`. The same HTTPS and GitHub release URL checks apply. |
 | `--rules-dir <PATH>` | Rules root directory, containing current, staging, and state.json. |
 
 ### `rustinel rules install`
