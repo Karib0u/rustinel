@@ -18,6 +18,8 @@ pub const FIELD_NAMES: [&str; FIELD_COUNT] = [
     "tty_index",
 ];
 
+// SAFETY: `ReadPlan` (a `u32` and an array of `ReadStep`, itself three `u32`) is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for ReadPlan {}
 
 pub struct TaskPlans {
@@ -694,7 +696,11 @@ mod tests {
     }
 }
 
+// SAFETY: `SocketOffsets` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for super::socket_tuple_abi::SocketOffsets {}
+// SAFETY: `FileIdentityOffsets` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for super::file_identity_abi::FileIdentityOffsets {}
 
 pub struct FileIdentityLayout {

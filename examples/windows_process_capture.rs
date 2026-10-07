@@ -85,6 +85,8 @@ fn main() -> anyhow::Result<()> {
     let mut exit = creation;
     let mut kernel = creation;
     let mut user = creation;
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing, and
+    // the four FILETIME out-pointers refer to live locals.
     unsafe {
         windows::Win32::System::Threading::GetProcessTimes(
             windows::Win32::System::Threading::GetCurrentProcess(),

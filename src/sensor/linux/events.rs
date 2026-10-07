@@ -64,6 +64,7 @@ fn clock_samples() -> (SystemTime, Duration) {
         tv_sec: 0,
         tv_nsec: 0,
     };
+    // SAFETY: `current` is a valid out-pointer for a timespec.
     let uptime = if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut current) } == 0 {
         Duration::new(current.tv_sec.max(0) as u64, current.tv_nsec.max(0) as u32)
     } else {
@@ -742,6 +743,9 @@ mod tests {
         event.args_count = 2;
 
         // Same path the ring-buffer drain takes: raw bytes in, struct out.
+        // SAFETY: `event` is a live, fully initialized repr(C) ProcessEvent, so
+        // viewing its `size_of` bytes is in bounds. The layout carries explicit
+        // padding fields, so no byte is uninitialized.
         let bytes = unsafe {
             core::slice::from_raw_parts(
                 (&event as *const ProcessEvent).cast::<u8>(),

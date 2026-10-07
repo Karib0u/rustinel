@@ -8,6 +8,8 @@ use crate::{
 use anyhow::{Context, Result};
 use aya::{maps::HashMap, Ebpf};
 
+// SAFETY: `InventoryIdentity` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for InventoryIdentity {}
 
 pub fn seed(bpf: &mut Ebpf, host: &HostState) -> Result<()> {
@@ -23,16 +25,18 @@ pub fn seed(bpf: &mut Ebpf, host: &HostState) -> Result<()> {
 
 fn seed_inner(bpf: &mut Ebpf, host: &HostState, snapshot: &mut InventorySnapshot) -> Result<()> {
     let cache = &host.processes;
+    // SAFETY: sysconf takes an integer name and has no pointer arguments.
     let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
     anyhow::ensure!(
         hz > 0 && hz <= 1_000_000,
         "unsupported proc clock frequency"
     );
+    // SAFETY: libc::timespec is a plain C struct of integers, for which all-zero
+    // bytes is a valid value.
     let mut now: libc::timespec = unsafe { std::mem::zeroed() };
-    anyhow::ensure!(
-        unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) } == 0,
-        "reading boot clock"
-    );
+    // SAFETY: `now` is a valid out-pointer for a timespec.
+    let boot_clock = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) };
+    anyhow::ensure!(boot_clock == 0, "reading boot clock");
     let identity_time = now.tv_sec as u64 * 1_000_000_000 + now.tv_nsec as u64;
     let mut inventory = HashMap::<_, u32, InventoryIdentity>::try_from(
         bpf.map_mut("PROCESS_INVENTORY")

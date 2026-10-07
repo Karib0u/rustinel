@@ -5433,8 +5433,12 @@ level: high
         fn start() -> Self {
             use std::io::Write;
             use std::os::fd::{AsRawFd, FromRawFd};
+            // SAFETY: the name is a NUL-terminated C string literal and the flag is a
+            // valid memfd_create flag.
             let fd = unsafe { libc::memfd_create(c"payload".as_ptr(), libc::MFD_CLOEXEC) };
             assert!(fd >= 0, "memfd_create: {}", io::Error::last_os_error());
+            // SAFETY: memfd_create returned a new descriptor (checked non-negative
+            // above) that nothing else owns.
             let mut file = unsafe { File::from_raw_fd(fd) };
             let mut bytes = std::fs::read("/bin/sh").unwrap();
             bytes.extend_from_slice(b"evil!!");

@@ -187,6 +187,7 @@ fn yara_disk_scan_reports_missing_file_as_failure() {
 fn yara_disk_scan_reports_unreadable_file_as_failure() {
     use std::os::unix::fs::PermissionsExt;
 
+    // SAFETY: geteuid takes no arguments and cannot fail.
     if unsafe { libc::geteuid() } == 0 {
         return;
     }

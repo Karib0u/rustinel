@@ -73,7 +73,9 @@ fn assert_verifier_acceptance() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires root, tracefs, kernel BTF, and a built eBPF object"]
 async fn live_task_identity_matches_proc() {
-    assert_eq!(unsafe { libc::geteuid() }, 0);
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    assert_eq!(euid, 0);
     let plans = rustinel::sensor::linux::task_btf::TaskPlans::load();
     assert!(plans.warnings.is_empty(), "{:?}", plans.warnings);
     // This child predates attachment and must reconcile through the inventory.
@@ -88,6 +90,10 @@ async fn live_task_identity_matches_proc() {
     existing.0.stdin.as_mut().unwrap().write_all(b"x").unwrap();
     let mut command = Command::new("/bin/cat");
     command.stdin(Stdio::piped()).stdout(Stdio::null());
+    // SAFETY: the closure runs between fork and exec in this ignored live test.
+    // It only makes raw syscalls on values it creates itself and shares no state
+    // with the parent; ptsname is not async-signal-safe but is only reached in
+    // the single-threaded child.
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() < 0 {
@@ -189,6 +195,7 @@ async fn live_task_identity_matches_proc() {
                 let (raw_major, raw_minor, index) = identity.controlling_tty.unwrap();
                 assert_eq!((raw_major, raw_minor + index), (major, minor));
                 let start = identity.kernel_start_boottime.unwrap();
+                // SAFETY: sysconf takes an integer name and has no pointer arguments.
                 let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
                 assert_eq!(
                     start / 1_000_000_000 * hz + start % 1_000_000_000 * hz / 1_000_000_000,
@@ -228,6 +235,7 @@ async fn live_task_identity_matches_proc() {
                     .unwrap()
                     .start_time
                     .unwrap();
+                // SAFETY: sysconf takes an integer name and has no pointer arguments.
                 let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
                 assert_eq!(
                     start / 1_000_000_000 * hz + start % 1_000_000_000 * hz / 1_000_000_000,
@@ -246,7 +254,9 @@ async fn live_task_identity_matches_proc() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires root, process-memory access, kernel BTF, and a built eBPF object and memory_target example"]
 async fn live_ebpf_process_reaches_yara_memory_scan() {
-    assert_eq!(unsafe { libc::geteuid() }, 0);
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    assert_eq!(euid, 0);
     let plans = rustinel::sensor::linux::task_btf::TaskPlans::load();
     assert!(plans.warnings.is_empty(), "{:?}", plans.warnings);
 

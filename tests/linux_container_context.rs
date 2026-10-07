@@ -76,7 +76,9 @@ fn field<'a>(event: &'a NormalizedEvent, name: &str) -> Option<&'a str> {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires root, docker, kernel BTF, and a built eBPF object; podman is optional"]
 async fn live_container_context_reaches_sigma() {
-    assert_eq!(unsafe { libc::geteuid() }, 0);
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    assert_eq!(euid, 0);
     assert!(available("docker"), "docker is required");
     let docker = Container::start("docker");
     let podman = available("podman").then(|| Container::start("podman"));

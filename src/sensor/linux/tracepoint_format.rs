@@ -109,9 +109,17 @@ pub(super) struct FileTracepointOffsets {
     pub dup3_new_fd: u32,
 }
 
+// SAFETY: `ProcessTracepointOffsets` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for ProcessTracepointOffsets {}
+// SAFETY: `NetworkTracepointOffsets` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for NetworkTracepointOffsets {}
+// SAFETY: `DnsTracepointOffsets` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for DnsTracepointOffsets {}
+// SAFETY: `FileTracepointOffsets` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for FileTracepointOffsets {}
 
 #[derive(Debug, Default)]

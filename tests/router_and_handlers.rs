@@ -121,6 +121,7 @@ async fn yara_memory_handler_queues_only_process_starts() {
 fn expected_linux_start_time(event_start_time: u64) -> u64 {
     #[cfg(target_os = "linux")]
     {
+        // SAFETY: sysconf takes an integer name and has no pointer arguments.
         let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
         assert!(hz > 0);
         let hz = hz as u64;

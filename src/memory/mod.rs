@@ -3,8 +3,6 @@
 //! Visits selected regions one at a time using a reusable buffer. Individual
 //! region read failures are non-fatal and are skipped.
 
-#![warn(clippy::undocumented_unsafe_blocks)]
-
 mod types;
 
 #[cfg(any(windows, test))]

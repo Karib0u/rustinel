@@ -3,8 +3,6 @@
 //! Non-blocking alert intake with a background worker that can terminate
 //! processes on alerts that meet the configured severity threshold.
 
-#![warn(clippy::undocumented_unsafe_blocks)]
-
 mod process;
 
 use crate::config::ResponseConfig;

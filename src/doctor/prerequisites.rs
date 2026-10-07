@@ -71,6 +71,7 @@ fn linux_kernel_result() -> DiagnosticResult {
 
 #[cfg(target_os = "linux")]
 fn linux_privilege_result() -> DiagnosticResult {
+    // SAFETY: geteuid takes no arguments and cannot fail.
     if unsafe { libc::geteuid() } == 0 {
         return DiagnosticResult::pass("required_privileges", "Running with root privileges");
     }
