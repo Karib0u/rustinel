@@ -149,6 +149,9 @@ fn vm_entries(task: mach_port_t, pid: u32) -> Vec<VmEntry> {
         let mut info_count = basic_info_count();
         let mut object_name: mach_port_t = MACH_PORT_NULL;
 
+        // SAFETY: every out-pointer refers to a live local, `info_count` holds the
+        // capacity of `info` in 32-bit words as the call requires, and `task` is
+        // a port the caller obtained from task_for_pid and still owns.
         let kr = unsafe {
             mach_vm_region(
                 task,
@@ -166,6 +169,8 @@ fn vm_entries(task: mach_port_t, pid: u32) -> Vec<VmEntry> {
         // Mach port per region (this can run over many regions and repeatedly
         // when memory scanning is enabled). On failure it stays MACH_PORT_NULL.
         if object_name != MACH_PORT_NULL {
+            // SAFETY: `object_name` is a send right that mach_vm_region just
+            // returned to this task, and it is released exactly once.
             unsafe {
                 let _ = mach_port_deallocate(mach_task_self(), object_name);
             }
@@ -200,6 +205,8 @@ pub fn visit_process_memory_chunks(
     mut visitor: impl FnMut(&MemoryChunk) -> ControlFlow<()>,
 ) -> Result<()> {
     let mut task: mach_port_t = MACH_PORT_NULL;
+    // SAFETY: `task` is a valid out-pointer, and the call has no other pointer
+    // arguments. A failure leaves it MACH_PORT_NULL and is handled below.
     let kr = unsafe { task_for_pid(mach_task_self(), pid as i32, &mut task) };
     if kr != KERN_SUCCESS {
         anyhow::bail!(
@@ -252,6 +259,8 @@ pub fn visit_process_memory_chunks(
         }
     }
 
+    // SAFETY: `task` was obtained from task_for_pid above, is released only
+    // here, and is not used afterwards.
     unsafe {
         let _ = mach_port_deallocate(mach_task_self(), task);
     }
@@ -262,6 +271,9 @@ pub fn visit_process_memory_chunks(
 /// Read into the region buffer at `address`. Returns `None` on failure.
 fn read_region(task: mach_port_t, address: mach_vm_address_t, buf: &mut [u8]) -> Option<usize> {
     let mut out_size: mach_vm_size_t = 0;
+    // SAFETY: the destination is `buf`, a writable buffer of exactly `buf.len()`
+    // bytes, and `out_size` is a valid out-pointer. The kernel copies from the
+    // target task and reports an unreadable address as an error.
     let kr = unsafe {
         mach_vm_read_overwrite(
             task,
@@ -336,6 +348,7 @@ mod tests {
     #[test]
     fn own_shared_cache_is_found_and_excludes_the_heap() {
         let heap = vec![0u8; 256 * 1024];
+        // SAFETY: mach_task_self takes no arguments and returns this task's port.
         let task = unsafe { mach_task_self() };
         let entries = vm_entries(task, std::process::id());
         let ranges = shared_cache_ranges(&entries);
@@ -368,12 +381,15 @@ mod tests {
     fn anonymous_region_below_a_file_mapping_has_no_filename() {
         use std::os::fd::AsRawFd;
 
+        // SAFETY: sysconf takes an integer name and has no pointer arguments.
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
         let file = tempfile::NamedTempFile::new().expect("temp file");
         file.as_file().set_len(page as u64).expect("size temp file");
 
         // Reserve two pages, then map the file over the upper one so the
         // anonymous page sits immediately below it.
+        // SAFETY: a null hint with MAP_ANON asks the kernel for a fresh mapping
+        // and no file descriptor is read.
         let base = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
@@ -385,7 +401,10 @@ mod tests {
             )
         };
         assert_ne!(base, libc::MAP_FAILED, "anonymous mmap failed");
+        // SAFETY: `base` maps `2 * page` bytes, so `base + page` stays inside it.
         let upper = unsafe { base.cast::<u8>().add(page) }.cast::<libc::c_void>();
+        // SAFETY: MAP_FIXED replaces the upper page of the mapping created above,
+        // which this test owns, with a read-only view of a one-page file.
         let mapped = unsafe {
             libc::mmap(
                 upper,
@@ -401,6 +420,8 @@ mod tests {
         let pid = std::process::id();
         let (_, anonymous) = region_details(pid, base as u64);
         let (_, file_backed) = region_details(pid, upper as u64);
+        // SAFETY: `base` and `2 * page` describe the mapping created above, and
+        // nothing references it after this call.
         unsafe { libc::munmap(base, 2 * page) };
 
         assert_eq!(anonymous, None);
