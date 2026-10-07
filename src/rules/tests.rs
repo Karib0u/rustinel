@@ -238,7 +238,7 @@ fn update_current_or_older_catalog_skips_download_and_restart() {
     let before = fs::read(temp.path().join("state.json")).unwrap();
     for version in ["0.1.0", "0.0.9", "0.1.0+build.2"] {
         catalog.packs[0].version = version.into();
-        let result = update_active_pack(&catalog, &state, temp.path(), |_| {
+        let result = update_active_pack(&catalog, &state, &test_catalog_url(), temp.path(), |_| {
             panic!("no-op must not download")
         })
         .unwrap();
@@ -259,7 +259,7 @@ fn update_installs_active_pack_and_requires_restart() {
     let state = load_update_state(temp.path()).unwrap();
     fs::write(temp.path().join("current/obsolete.yml"), b"old").unwrap();
     catalog.packs[0].version = "v0.2.0".into();
-    let outcome = update_active_pack(&catalog, &state, temp.path(), |pack| {
+    let outcome = update_active_pack(&catalog, &state, &test_catalog_url(), temp.path(), |pack| {
         assert_eq!(pack.id, state.pack_id);
         Ok(archive.clone())
     })
@@ -285,9 +285,11 @@ fn install_and_update_leave_local_rule_directories_untouched() {
 
     let state = load_update_state(temp.path()).unwrap();
     catalog.packs[0].version = "v0.2.0".into();
-    update_active_pack(&catalog, &state, temp.path(), |_| Ok(archive.clone()))
-        .unwrap()
-        .unwrap();
+    update_active_pack(&catalog, &state, &test_catalog_url(), temp.path(), |_| {
+        Ok(archive.clone())
+    })
+    .unwrap()
+    .unwrap();
     install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive).unwrap();
 
     assert_eq!(fs::read(&local_rule).unwrap(), b"title: Mine\n");
@@ -310,10 +312,12 @@ fn update_rejects_incompatible_missing_or_invalid_versions_before_download() {
             "version" => candidate.packs[0].version = "invalid".into(),
             _ => unreachable!(),
         }
-        assert!(update_active_pack(&candidate, &state, temp.path(), |_| {
-            panic!("invalid candidate must not download")
-        })
-        .is_err());
+        assert!(
+            update_active_pack(&candidate, &state, &test_catalog_url(), temp.path(), |_| {
+                panic!("invalid candidate must not download")
+            })
+            .is_err()
+        );
         assert_eq!(read_state(temp.path()).unwrap(), state);
     }
 }
@@ -338,13 +342,15 @@ fn failed_updates_preserve_previous_pack_and_state() {
         if case == "checksum" {
             candidate.packs[0].sha256 = "00".repeat(32);
         }
-        assert!(update_active_pack(&candidate, &state, temp.path(), |_| {
-            if case == "download" {
-                bail!("simulated download failure");
-            }
-            Ok(candidate_archive)
-        })
-        .is_err());
+        assert!(
+            update_active_pack(&candidate, &state, &test_catalog_url(), temp.path(), |_| {
+                if case == "download" {
+                    bail!("simulated download failure");
+                }
+                Ok(candidate_archive)
+            })
+            .is_err()
+        );
         assert_eq!(
             fs::read(temp.path().join("state.json")).unwrap(),
             state_bytes
@@ -428,10 +434,95 @@ fn rules_operations_reject_concurrent_writers_and_stale_update_state() {
     let state = load_update_state(temp.path()).unwrap();
     let lock = lock_rules_dir(temp.path()).unwrap();
     assert!(install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive).is_err());
-    assert!(update_active_pack(&catalog, &state, temp.path(), |_| panic!("locked")).is_err());
+    assert!(update_active_pack(
+        &catalog,
+        &state,
+        &test_catalog_url(),
+        temp.path(),
+        |_| panic!("locked")
+    )
+    .is_err());
     drop(lock);
     catalog.packs[0].version = "0.2.0".into();
     install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive).unwrap();
-    let error = update_active_pack(&catalog, &state, temp.path(), |_| panic!("stale")).unwrap_err();
+    let error = update_active_pack(&catalog, &state, &test_catalog_url(), temp.path(), |_| {
+        panic!("stale")
+    })
+    .unwrap_err();
     assert!(error.to_string().contains("state changed"), "{error:#}");
+}
+
+fn test_catalog_url() -> Url {
+    Url::parse("https://github.com/example/rules/releases/download/v1/index.json").unwrap()
+}
+
+fn state_with_url(url: Option<&str>) -> RulesState {
+    RulesState {
+        pack_id: "demo-pack".into(),
+        version: "0.1.0".into(),
+        sha256: "00".into(),
+        installed_at: "now".into(),
+        catalog_url: url.map(String::from),
+    }
+}
+
+#[test]
+fn install_records_catalog_url_and_update_preserves_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = pack_zip(current_os(), "demo-pack");
+    let mut catalog = catalog_for("demo-pack", current_os(), &archive);
+    let url = test_catalog_url();
+    let guard = lock_rules_dir(temp.path()).unwrap();
+    install_pack_archive_bytes_locked(&catalog, "demo-pack", Some(&url), temp.path(), &archive)
+        .unwrap();
+    drop(guard);
+    let state = load_update_state(temp.path()).unwrap();
+    assert_eq!(state.catalog_url.as_deref(), Some(url.as_str()));
+
+    catalog.packs[0].version = "v0.2.0".into();
+    update_active_pack(&catalog, &state, &url, temp.path(), |_| Ok(archive.clone()))
+        .unwrap()
+        .unwrap();
+    let updated = read_state(temp.path()).unwrap();
+    assert_eq!(updated.version, "v0.2.0");
+    assert_eq!(updated.catalog_url.as_deref(), Some(url.as_str()));
+}
+
+#[test]
+fn state_without_catalog_url_still_loads_and_uses_default() {
+    let old = r#"{"pack_id":"demo-pack","version":"0.1.0","sha256":"00","installed_at":"now"}"#;
+    let state: RulesState = serde_json::from_str(old).unwrap();
+    assert_eq!(state.catalog_url, None);
+    assert_eq!(
+        update_catalog_url(None, &state).unwrap().as_str(),
+        DEFAULT_CATALOG_URL
+    );
+    assert!(!serde_json::to_string(&state)
+        .unwrap()
+        .contains("catalog_url"));
+}
+
+#[test]
+fn update_catalog_url_prefers_explicit_then_recorded() {
+    let recorded = test_catalog_url();
+    let state = state_with_url(Some(recorded.as_str()));
+    assert_eq!(update_catalog_url(None, &state).unwrap(), recorded);
+    let explicit = "https://github.com/other/rules/releases/download/v2/index.json";
+    assert_eq!(
+        update_catalog_url(Some(explicit), &state).unwrap().as_str(),
+        explicit
+    );
+}
+
+#[test]
+fn update_rejects_untrusted_recorded_catalog_url() {
+    for bad in [
+        "http://github.com/a/b/releases/download/v1/index.json",
+        "https://evil.example/index.json",
+    ] {
+        assert!(
+            update_catalog_url(None, &state_with_url(Some(bad))).is_err(),
+            "{bad}"
+        );
+    }
 }

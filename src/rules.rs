@@ -80,6 +80,9 @@ pub struct RulesState {
     pub version: String,
     pub sha256: String,
     pub installed_at: String,
+    /// Catalog the pack was installed from; absent in state written before it was recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog_url: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -143,9 +146,9 @@ pub fn run_cli(command: crate::cli::RulesAction, config_path: Option<PathBuf>) -
         } => {
             let rules_dir = resolve_rules_dir(config_path, rules_dir)?;
             let state = load_update_state(&rules_dir)?;
-            let catalog_url = parse_release_url(&catalog_url)?;
+            let catalog_url = update_catalog_url(catalog_url.as_deref(), &state)?;
             let catalog = fetch_catalog(&catalog_url)?;
-            let outcome = update_active_pack(&catalog, &state, &rules_dir, |pack| {
+            let outcome = update_active_pack(&catalog, &state, &catalog_url, &rules_dir, |pack| {
                 let url = resolve_artifact_url(&catalog_url, pack)?;
                 validate_release_url(&url)?;
                 fetch_url_bytes(&url, MAX_ARTIFACT_BYTES)
@@ -181,7 +184,7 @@ pub fn install_pack_archive_bytes(
     archive: &[u8],
 ) -> Result<InstallOutcome> {
     let _lock = lock_rules_dir(rules_dir)?;
-    install_pack_archive_bytes_locked(catalog, pack_id, rules_dir, archive)
+    install_pack_archive_bytes_locked(catalog, pack_id, None, rules_dir, archive)
 }
 
 struct RulesLock(fs::File);
@@ -210,6 +213,7 @@ fn lock_rules_dir(rules_dir: &Path) -> Result<RulesLock> {
 fn install_pack_archive_bytes_locked(
     catalog: &Catalog,
     pack_id: &str,
+    catalog_url: Option<&Url>,
     rules_dir: &Path,
     archive: &[u8],
 ) -> Result<InstallOutcome> {
@@ -254,6 +258,7 @@ fn install_pack_archive_bytes_locked(
         version: pack.version.clone(),
         sha256: pack.sha256.clone(),
         installed_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        catalog_url: catalog_url.map(Url::to_string),
     };
     let state_next = work_dir.join("state-next.json");
     let state_json = serde_json::to_vec_pretty(&state)?;
@@ -282,7 +287,8 @@ pub fn download_and_install_pack(
     validate_release_url(&artifact_url)?;
     let archive = fetch_url_bytes(&artifact_url, MAX_ARTIFACT_BYTES)
         .with_context(|| format!("download {}", selected.artifact))?;
-    install_pack_archive_bytes(catalog, pack_id, rules_dir, &archive)
+    let _lock = lock_rules_dir(rules_dir)?;
+    install_pack_archive_bytes_locked(catalog, pack_id, Some(catalog_url), rules_dir, &archive)
 }
 
 fn load_update_state(rules_dir: &Path) -> Result<RulesState> {
@@ -296,9 +302,20 @@ fn load_update_state(rules_dir: &Path) -> Result<RulesState> {
     Ok(state)
 }
 
+/// An explicit URL wins, then the recorded install source, then the official catalog.
+/// The same release-URL trust checks apply to every source.
+fn update_catalog_url(explicit: Option<&str>, state: &RulesState) -> Result<Url> {
+    parse_release_url(
+        explicit
+            .or(state.catalog_url.as_deref())
+            .unwrap_or(DEFAULT_CATALOG_URL),
+    )
+}
+
 fn update_active_pack(
     catalog: &Catalog,
     state: &RulesState,
+    catalog_url: &Url,
     rules_dir: &Path,
     download: impl FnOnce(&CatalogPack) -> Result<Vec<u8>>,
 ) -> Result<Option<InstallOutcome>> {
@@ -318,7 +335,14 @@ fn update_active_pack(
     }
     validate_pack_installable(pack)?;
     let archive = download(pack)?;
-    install_pack_archive_bytes_locked(catalog, &state.pack_id, rules_dir, &archive).map(Some)
+    install_pack_archive_bytes_locked(
+        catalog,
+        &state.pack_id,
+        Some(catalog_url),
+        rules_dir,
+        &archive,
+    )
+    .map(Some)
 }
 
 fn update_message(state: &RulesState, outcome: Option<&InstallOutcome>) -> String {

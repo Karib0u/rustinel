@@ -204,9 +204,9 @@ pub enum RulesAction {
     /// Rustinel version. Restart Rustinel afterwards: a whole-pack replacement
     /// is not hot reloaded. Local edits under `rules/current` are replaced.
     Update {
-        /// Rules catalog index URL
-        #[arg(long, value_name = "URL", default_value = crate::rules::DEFAULT_CATALOG_URL)]
-        catalog_url: String,
+        /// Rules catalog index URL. Default: the URL recorded at install, else the official catalog
+        #[arg(long, value_name = "URL")]
+        catalog_url: Option<String>,
         /// Rules root directory, containing current, staging, and state.json
         #[arg(long, value_name = "PATH")]
         rules_dir: Option<std::path::PathBuf>,
@@ -253,7 +253,7 @@ mod tests {
                     },
             }) => {
                 assert_eq!(rules_dir, Some(std::path::PathBuf::from("custom-rules")));
-                assert!(catalog_url.ends_with("/v1/index.json"));
+                assert!(catalog_url.unwrap().ends_with("/v1/index.json"));
             }
             _ => panic!("expected rules update command"),
         }
