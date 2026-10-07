@@ -206,6 +206,7 @@ mod tests {
             RawLinuxProcess, RawLinuxProcessIdentity, RawProcessEvent, RawProcessPlatform,
         };
 
+        // SAFETY: sysconf takes an integer name and has no pointer arguments.
         let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
         assert!(hz > 0);
         let hz = hz as u64;

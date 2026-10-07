@@ -863,6 +863,7 @@ fn integration_rules_access_requires_a_group() {
 #[cfg(unix)]
 #[test]
 fn integration_config_cannot_be_owned_by_the_wrapper() {
+    // SAFETY: geteuid takes no arguments and cannot fail.
     if unsafe { libc::geteuid() } == 0 {
         return;
     }

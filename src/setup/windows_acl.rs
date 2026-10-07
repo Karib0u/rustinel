@@ -114,6 +114,8 @@ fn ensure_trusted_path(path: &Path) -> Result<bool> {
 fn apply_protected_dacl(path: &Path, access: ManagedAccess) -> io::Result<()> {
     let sddl = wide(std::ffi::OsStr::new(access.sddl()));
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: `sddl` is NUL-terminated and outlives the call, and `descriptor` is
+    // a valid out-pointer. On success the descriptor is freed below.
     unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             PCWSTR(sddl.as_ptr()),
@@ -125,6 +127,8 @@ fn apply_protected_dacl(path: &Path, access: ManagedAccess) -> io::Result<()> {
     .map_err(io::Error::other)?;
 
     let result = set_dacl_from_descriptor(path, descriptor);
+    // SAFETY: the descriptor was allocated by the conversion above, which
+    // requires LocalFree. It is freed once, after its last use.
     unsafe {
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
     }
@@ -135,6 +139,8 @@ fn set_dacl_from_descriptor(path: &Path, descriptor: PSECURITY_DESCRIPTOR) -> io
     let mut present = windows::core::BOOL::default();
     let mut defaulted = windows::core::BOOL::default();
     let mut dacl: *mut ACL = std::ptr::null_mut();
+    // SAFETY: `descriptor` is the valid descriptor from the caller, and the three
+    // out-pointers refer to live locals. `dacl` points into the descriptor.
     unsafe { GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted) }
         .map_err(io::Error::other)?;
     if !present.as_bool() || dacl.is_null() {
@@ -146,6 +152,8 @@ fn set_dacl_from_descriptor(path: &Path, descriptor: PSECURITY_DESCRIPTOR) -> io
     let name = wide(path.as_os_str());
     // Inherited ACEs propagate to children. secure_tree also replaces each
     // child's DACL to remove any explicit write grants or protected DACLs.
+    // SAFETY: `name` is NUL-terminated and outlives the call, and `dacl` is a
+    // non-null DACL inside `descriptor`, which the caller keeps alive.
     let status = unsafe {
         SetNamedSecurityInfoW(
             PCWSTR(name.as_ptr()),
@@ -205,6 +213,8 @@ mod tests {
     fn dacl_sddl(path: &Path) -> String {
         let name = wide(path.as_os_str());
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: `name` is NUL-terminated and outlives the call, and `descriptor`
+        // is a valid out-pointer. It is freed below.
         let status = unsafe {
             GetNamedSecurityInfoW(
                 PCWSTR(name.as_ptr()),
@@ -219,6 +229,8 @@ mod tests {
         };
         assert_eq!(status.0, 0, "read DACL of {}", path.display());
         let mut text = PWSTR::null();
+        // SAFETY: `descriptor` was returned by GetNamedSecurityInfoW above and is
+        // still allocated, and `text` is a valid out-pointer. It is freed below.
         unsafe {
             ConvertSecurityDescriptorToStringSecurityDescriptorW(
                 descriptor,
@@ -229,7 +241,11 @@ mod tests {
             )
         }
         .expect("format DACL");
+        // SAFETY: the conversion above succeeded, so `text` is a NUL-terminated
+        // wide string.
         let sddl = unsafe { text.to_string() }.expect("UTF-16 SDDL");
+        // SAFETY: `text` and `descriptor` were allocated by the calls above, which
+        // require LocalFree. Each is freed once and not used afterwards.
         unsafe {
             let _ = LocalFree(Some(HLOCAL(text.0.cast())));
             let _ = LocalFree(Some(HLOCAL(descriptor.0)));
@@ -256,6 +272,7 @@ mod tests {
 
     fn write_as_limited_user(path: &Path) -> io::Result<()> {
         let mut token = HANDLE::default();
+        // SAFETY: `token` is a valid out-pointer. It is closed below.
         unsafe {
             OpenProcessToken(
                 GetCurrentProcess(),
@@ -265,6 +282,9 @@ mod tests {
             .expect("open process token");
         }
         let mut limited = HANDLE::default();
+        // SAFETY: `token` is the open token from above, the optional SID and
+        // privilege lists are absent, and `limited` is a valid out-pointer.
+        // Impersonation applies to this thread only and is reverted below.
         unsafe {
             CreateRestrictedToken(
                 token,
@@ -278,6 +298,8 @@ mod tests {
             ImpersonateLoggedOnUser(limited).expect("impersonate limited user");
         }
         let result = fs::write(path, "probe\n");
+        // SAFETY: both handles were opened above and are closed once, and the
+        // thread stops impersonating before they are used again.
         unsafe {
             RevertToSelf().expect("restore process identity");
             CloseHandle(limited).expect("close limited token");

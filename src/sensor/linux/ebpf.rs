@@ -70,6 +70,8 @@ struct KernelCounterRow {
     kernel_map_full: u64,
 }
 
+// SAFETY: `KernelCounterRow` is repr(C) and made only of fixed-width integers with no padding, so
+// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
 unsafe impl aya::Pod for KernelCounterRow {}
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
@@ -2101,6 +2103,9 @@ mod tests {
     fn parse_event_struct_layout_matches_userspace_decoder() {
         let raw = file_event(2, 7, "/tmp/delete-me", "rm");
 
+        // SAFETY: `raw` is a live, fully initialized repr(C) FileEvent, so viewing
+        // its `size_of` bytes is in bounds. The layout carries explicit padding
+        // fields, so no byte is uninitialized.
         let bytes = unsafe {
             std::slice::from_raw_parts(
                 (&raw as *const FileEvent).cast::<u8>(),

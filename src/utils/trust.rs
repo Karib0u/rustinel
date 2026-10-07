@@ -339,6 +339,7 @@ mod imp {
         }
         if policy == Policy::Managed {
             let uid = metadata.uid();
+            // SAFETY: geteuid takes no arguments and cannot fail.
             let euid = unsafe { libc::geteuid() };
             if uid != 0 && uid != euid {
                 bail!(
@@ -367,8 +368,13 @@ mod imp {
 
     fn primary_gid(uid: u32) -> Option<u32> {
         let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+        // SAFETY: libc::passwd is a plain C struct of integers and pointers, for
+        // which all-zero bytes (null pointers) is a valid value.
         let mut passwd: libc::passwd = unsafe { std::mem::zeroed() };
         let mut result = std::ptr::null_mut();
+        // SAFETY: `passwd` and `result` are valid out-pointers, and `buffer` is
+        // writable for exactly the `buffer.len()` bytes passed. Strings inside
+        // `passwd` point into `buffer`, which outlives the single field read below.
         let status = unsafe {
             libc::getpwuid_r(
                 uid as libc::uid_t,
@@ -383,8 +389,13 @@ mod imp {
 
     fn group_has_no_members(gid: u32) -> bool {
         let mut buffer = vec![0 as libc::c_char; 64 * 1024];
+        // SAFETY: libc::group is a plain C struct of integers and pointers, for
+        // which all-zero bytes (null pointers) is a valid value.
         let mut group: libc::group = unsafe { std::mem::zeroed() };
         let mut result = std::ptr::null_mut();
+        // SAFETY: `group` and `result` are valid out-pointers, and `buffer` is
+        // writable for exactly the `buffer.len()` bytes passed. `gr_mem` points
+        // into `buffer`, which is still alive when it is read below.
         let status = unsafe {
             libc::getgrgid_r(
                 gid as libc::gid_t,
@@ -396,6 +407,8 @@ mod imp {
         };
         status == 0
             && !result.is_null()
+            // SAFETY: a successful getgrgid_r leaves `gr_mem` as a null-terminated
+            // array of pointers inside `buffer`, so reading its first element is valid.
             && (group.gr_mem.is_null() || unsafe { (*group.gr_mem).is_null() })
     }
 }
@@ -463,6 +476,9 @@ mod imp {
 
     impl Drop for Security {
         fn drop(&mut self) {
+            // SAFETY: `descriptor` was allocated by GetNamedSecurityInfoW, which
+            // requires LocalFree, and it is freed once, here. The owner and DACL
+            // pointers into it are never used after drop.
             unsafe {
                 let _ = LocalFree(Some(HLOCAL(self.descriptor.0)));
             }
@@ -481,6 +497,9 @@ mod imp {
                 dacl: std::ptr::null_mut(),
                 descriptor: PSECURITY_DESCRIPTOR::default(),
             };
+            // SAFETY: `name` is a NUL-terminated wide string that outlives the call,
+            // and every out-pointer refers to a field of `security`, which lives on.
+            // The returned descriptor is owned and freed by `Security::drop`.
             let status = unsafe {
                 GetNamedSecurityInfoW(
                     PCWSTR(name.as_ptr()),
@@ -514,6 +533,11 @@ mod imp {
         fn allowed(&self) -> Result<Vec<(PSID, u32)>> {
             let mut info = ACL_SIZE_INFORMATION::default();
             let mut entries = Vec::new();
+            // SAFETY: `dacl` is non-null (checked in `read`) and points into the
+            // descriptor this struct owns. GetAce returns indices below AceCount as
+            // valid ACE pointers, whose header and ACCESS_ALLOWED_ACE layouts are
+            // those of the ACE type tested first. The SID pointers stay valid
+            // because the descriptor outlives the returned entries' use.
             unsafe {
                 GetAclInformation(
                     self.dacl,
@@ -556,6 +580,8 @@ mod imp {
             // The owner already controls the entry, and OWNER RIGHTS means the
             // owner. A managed owner was checked above. Folders created under
             // Program Files inherit full control for TrustedInstaller.
+            // SAFETY: `sid` and `owner` point into the security descriptor, which
+            // is alive for this whole function.
             let trusted = is_system_account(sid)
                 || unsafe {
                     IsWellKnownSid(sid, WinCreatorOwnerRightsSid).as_bool()
@@ -581,6 +607,8 @@ mod imp {
 
     /// SYSTEM, Administrators, TrustedInstaller, or the agent's own account.
     fn is_system_account(sid: PSID) -> bool {
+        // SAFETY: callers pass SIDs that point into a live security descriptor or
+        // a SID buffer, which is what is_admin_or_self requires.
         let admin = unsafe { is_admin_or_self(sid) };
         admin || sid_string(sid).as_deref() == Some(TRUSTED_INSTALLER)
     }
@@ -595,6 +623,9 @@ mod imp {
             .collect();
         let (mut sid_len, mut domain_len) = (0u32, 0u32);
         let mut kind = SID_NAME_USE(0);
+        // SAFETY: `wide` is NUL-terminated and outlives the call. With no SID or
+        // domain buffer, the call only reports the required lengths through
+        // valid out-pointers.
         unsafe {
             let _ = LookupAccountNameW(
                 PCWSTR::null(),
@@ -612,6 +643,8 @@ mod imp {
         );
         let mut sid = Sid(vec![0u8; sid_len as usize]);
         let mut domain = vec![0u16; domain_len as usize];
+        // SAFETY: the SID and domain buffers are writable for exactly the
+        // lengths the first call reported, and `wide` is NUL-terminated.
         unsafe {
             LookupAccountNameW(
                 PCWSTR::null(),
@@ -640,6 +673,8 @@ mod imp {
         ];
         let shared = shared
             .into_iter()
+            // SAFETY: `psid` points into `sid`, which is alive and holds a SID
+            // that LookupAccountNameW just wrote.
             .any(|kind| unsafe { IsWellKnownSid(psid, kind) }.as_bool());
         anyhow::ensure!(
             !shared && !is_system_account(psid),
@@ -660,6 +695,8 @@ mod imp {
         let security = Security::read(path)?;
         let owner = security.owner;
         let principal = principal.as_psid();
+        // SAFETY: `owner` points into `security` and `principal` into the caller's
+        // SID buffer, and both are alive for the call.
         let owner_is_integration = unsafe { EqualSid(owner, principal) }.is_ok();
         anyhow::ensure!(
             is_system_account(owner) || (integration_owner && owner_is_integration),
@@ -671,6 +708,8 @@ mod imp {
             if mask & WRITE_MASK == 0 {
                 continue;
             }
+            // SAFETY: `sid` and `owner` point into `security` and `principal` into
+            // the caller's SID buffer, all alive for this function.
             let trusted = is_system_account(sid)
                 || unsafe {
                     IsWellKnownSid(sid, WinCreatorOwnerRightsSid).as_bool()
@@ -710,6 +749,7 @@ mod imp {
                 anyhow::ensure!(
                     mask & REPLACE_MASK == 0
                         || is_system_account(sid)
+                        // SAFETY: `sid` points into `security`, alive in this loop.
                         || unsafe { IsWellKnownSid(sid, WinCreatorOwnerRightsSid) }.as_bool(),
                     "{} grants {} full control or delete-child access; parent folders must not let other accounts replace their contents",
                     parent.display(),
@@ -720,6 +760,9 @@ mod imp {
         Ok(())
     }
 
+    /// # Safety
+    ///
+    /// `sid` must point to a valid SID that stays alive for the call.
     unsafe fn is_admin_or_self(sid: PSID) -> bool {
         IsWellKnownSid(sid, WinLocalSystemSid).as_bool()
             || IsWellKnownSid(sid, WinBuiltinAdministratorsSid).as_bool()
@@ -729,8 +772,13 @@ mod imp {
 
     fn sid_string(sid: PSID) -> Option<String> {
         let mut text = PWSTR::null();
+        // SAFETY: `sid` is a valid SID supplied by the caller, and `text` is a
+        // valid out-pointer. On success the string is allocated for us to free.
         unsafe { ConvertSidToStringSidW(sid, &mut text) }.ok()?;
+        // SAFETY: the call above succeeded, so `text` is a NUL-terminated wide string.
         let string = unsafe { text.to_string() }.ok();
+        // SAFETY: ConvertSidToStringSidW allocated `text` with LocalAlloc, and it
+        // is freed once here and not used afterwards.
         unsafe {
             let _ = LocalFree(Some(HLOCAL(text.0.cast())));
         }
@@ -750,6 +798,9 @@ mod imp {
     /// The agent's own account, as a SID buffer.
     fn current_user_sid() -> Option<&'static [u8]> {
         static SID: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+        // SAFETY: `token` is opened here and closed once before the buffer is
+        // read. `buffer` is sized by the first GetTokenInformation call, so it
+        // holds a complete TOKEN_USER whose SID pointer targets the same buffer.
         SID.get_or_init(|| unsafe {
             let mut token = HANDLE::default();
             OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).ok()?;

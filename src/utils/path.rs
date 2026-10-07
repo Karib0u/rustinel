@@ -30,6 +30,9 @@ const DRIVE_MAP_REFRESH_COOLDOWN_SECS: u64 = 10;
 fn init_drive_map() -> HashMap<String, String> {
     let mut map = HashMap::new();
 
+    // SAFETY: every call below passes pointers into live local buffers, with the
+    // buffer length given to QueryDosDeviceW as the slice it receives, and the
+    // NUL-terminated wide string outlives its call.
     unsafe {
         // Get bitmask of available logical drives (A=bit 0, B=bit 1, C=bit 2, etc.)
         let drives = GetLogicalDrives();

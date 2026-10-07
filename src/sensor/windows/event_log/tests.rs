@@ -75,6 +75,7 @@ fn callback_panic_fails_source_and_ignores_later_deliveries() {
         source,
         tx,
         state: Mutex::new(CallbackState {
+            // SAFETY: a null XML argument creates an empty bookmark.
             bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
             pending: None,
             failure: None,
@@ -94,6 +95,8 @@ fn callback_panic_fails_source_and_ignores_later_deliveries() {
         Some("Event Log callback panicked")
     );
     // A failed source must ignore this handle before attempting to render it.
+    // SAFETY: `context` is live for the call, and the callback must not touch
+    // the handle of a failed source.
     unsafe {
         assert_eq!(
             subscription_callback(
@@ -141,6 +144,7 @@ fn checkpoint_replaces_atomically_and_survives_reopen() {
         let saved = std::fs::read_to_string(&path).unwrap();
         assert_eq!(bookmark_record_id(&saved, "System").unwrap(), id);
         let wide = wide_string(&saved);
+        // SAFETY: `wide` is a NUL-terminated wide string that outlives the call.
         let bookmark = OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR(wide.as_ptr())) }.unwrap());
         assert_eq!(
             bookmark_record_id(
@@ -200,6 +204,7 @@ fn callback_errors_are_categorical_and_named() {
         source,
         tx,
         state: Mutex::new(CallbackState {
+            // SAFETY: a null XML argument creates an empty bookmark.
             bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
             pending: None,
             failure: None,
@@ -207,6 +212,8 @@ fn callback_errors_are_categorical_and_named() {
         }),
     };
     for code in [ERROR_EVT_QUERY_RESULT_STALE.0, 5] {
+        // SAFETY: `context` is live for the call, and an error notification
+        // carries a code in the handle slot rather than a real handle.
         unsafe {
             subscription_callback(
                 EvtSubscribeActionError,

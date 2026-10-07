@@ -22,6 +22,8 @@ fn to_wide(s: &str) -> Vec<u16> {
 #[cfg(windows)]
 fn free_sid(sid: PSID) {
     if !sid.0.is_null() {
+        // SAFETY: a non-null SID here was allocated by ConvertStringSidToSidW,
+        // which requires LocalFree, and the caller frees it once.
         unsafe {
             let _ = LocalFree(Some(HLOCAL(sid.0)));
         }
@@ -38,6 +40,8 @@ pub fn lookup_account_sid(sid_str: &str) -> Result<String> {
     let wide_sid = to_wide(sid_str);
     let mut sid = PSID::default();
 
+    // SAFETY: `wide_sid` is NUL-terminated and outlives the call, and `sid` is a
+    // valid out-pointer. On success the SID is freed by `free_sid`.
     unsafe {
         ConvertStringSidToSidW(PCWSTR(wide_sid.as_ptr()), &mut sid)
             .map_err(|e| anyhow!("ConvertStringSidToSidW failed: {}", e))?;
@@ -47,6 +51,8 @@ pub fn lookup_account_sid(sid_str: &str) -> Result<String> {
     let mut domain_len = 0u32;
     let mut sid_use = SID_NAME_USE(0);
 
+    // SAFETY: `sid` is valid until `free_sid`. With null name and domain buffers
+    // the call only reports the required lengths through valid out-pointers.
     unsafe {
         let _ = LookupAccountSidW(
             PCWSTR::null(),
@@ -67,6 +73,9 @@ pub fn lookup_account_sid(sid_str: &str) -> Result<String> {
     let mut name_buf = vec![0u16; name_len as usize];
     let mut domain_buf = vec![0u16; domain_len as usize];
 
+    // SAFETY: `sid` is still valid, the name and domain buffers are writable for
+    // exactly the lengths the first call reported, and the length and use
+    // arguments are valid in/out pointers.
     let lookup_result = unsafe {
         LookupAccountSidW(
             PCWSTR::null(),
@@ -104,16 +113,21 @@ pub fn lookup_account_sid(_sid_str: &str) -> Result<String> {
 
 #[cfg(unix)]
 pub fn lookup_username_by_uid(uid: u32) -> Option<String> {
+    // SAFETY: sysconf takes an integer name and has no pointer arguments.
     let mut buf_len = match unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) } {
         value if value > 0 => value as usize,
         _ => 1024,
     };
 
     while buf_len <= 64 * 1024 {
+        // SAFETY: libc::passwd is a plain C struct of integers and pointers, for
+        // which all-zero bytes (null pointers) is a valid value.
         let mut pwd = unsafe { std::mem::zeroed::<libc::passwd>() };
         let mut result = std::ptr::null_mut();
         let mut buf = vec![0u8; buf_len];
 
+        // SAFETY: `pwd` and `result` are valid out-pointers, and `buf` is writable
+        // for exactly the `buf.len()` bytes passed.
         let status = unsafe {
             libc::getpwuid_r(
                 uid as libc::uid_t,
@@ -125,6 +139,8 @@ pub fn lookup_username_by_uid(uid: u32) -> Option<String> {
         };
 
         if status == 0 && !result.is_null() && !pwd.pw_name.is_null() {
+            // SAFETY: getpwuid_r succeeded and `pw_name` is non-null, so it is a
+            // NUL-terminated string stored in `buf`, which is still alive.
             let name = unsafe { CStr::from_ptr(pwd.pw_name) };
             let value = name.to_string_lossy().trim().to_string();
             return (!value.is_empty()).then_some(value);
@@ -152,6 +168,7 @@ mod tests {
 
     #[test]
     fn lookup_current_effective_uid_returns_username() {
+        // SAFETY: geteuid takes no arguments and cannot fail.
         let uid = unsafe { libc::geteuid() } as u32;
         let username = lookup_username_by_uid(uid).expect("current uid should resolve");
         assert!(!username.is_empty());

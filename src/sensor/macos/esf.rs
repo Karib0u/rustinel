@@ -823,8 +823,9 @@ mod tests {
 
     #[test]
     fn parent_token_is_probed_at_message_version_four() {
-        // These C fields admit zero values, including raw pointers. This test
-        // only reads the audit token and never dereferences executable/tty.
+        // SAFETY: es_process_t is a plain C struct whose fields admit zero values,
+        // including null raw pointers. This test only reads the audit token and
+        // never dereferences executable or tty.
         let mut raw: endpoint_sec_sys::es_process_t = unsafe { std::mem::zeroed() };
         raw.parent_audit_token.val[5] = 42;
         raw.parent_audit_token.val[7] = 9;

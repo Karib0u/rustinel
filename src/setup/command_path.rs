@@ -161,6 +161,7 @@ mod windows_path {
 
     impl Drop for Key {
         fn drop(&mut self) {
+            // SAFETY: the key was opened by RegOpenKeyExW and is closed once, here.
             unsafe {
                 let _ = RegCloseKey(self.0);
             }
@@ -169,6 +170,8 @@ mod windows_path {
 
     fn open_environment() -> Result<Key> {
         let mut handle = HKEY::default();
+        // SAFETY: the subkey name is a static NUL-terminated string and `handle` is
+        // a valid out-pointer. On success it is owned by the returned `Key`.
         unsafe {
             RegOpenKeyExW(
                 HKEY_LOCAL_MACHINE,
@@ -192,6 +195,9 @@ mod windows_path {
         write_path(&key, &updated, kind)?;
 
         // Tell Explorer, and the shells it starts, to reload the environment.
+        // SAFETY: lParam points to a static NUL-terminated wide string that
+        // outlives the call, which is synchronous (it returns after at most the
+        // 5000 ms timeout), and no result pointer is passed.
         unsafe {
             SendMessageTimeoutW(
                 HWND_BROADCAST,
@@ -219,6 +225,8 @@ mod windows_path {
             .chain(std::iter::once(0))
             .flat_map(u16::to_le_bytes)
             .collect();
+        // SAFETY: `key` is open with set access, and `data` is a readable byte
+        // buffer whose length is passed with it.
         unsafe { RegSetValueExW(key.0, w!("Path"), None, kind, Some(&data)) }
             .ok()
             .context("write the machine Path")
@@ -229,6 +237,8 @@ mod windows_path {
         let name: PCWSTR = w!("Path");
         let mut kind = REG_VALUE_TYPE::default();
         let mut size = 0u32;
+        // SAFETY: `key` is open with query access, with no data buffer, so the call
+        // only writes the type and size through valid out-pointers.
         let status =
             unsafe { RegQueryValueExW(key.0, name, None, Some(&mut kind), None, Some(&mut size)) };
         if status == ERROR_FILE_NOT_FOUND {
@@ -240,6 +250,8 @@ mod windows_path {
         }
 
         let mut buffer = vec![0u16; (size as usize).div_ceil(2)];
+        // SAFETY: `buffer` is writable for at least `size` bytes, as the size
+        // query reported, and `size` is passed as its capacity.
         unsafe {
             RegQueryValueExW(
                 key.0,

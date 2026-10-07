@@ -410,9 +410,9 @@ fn validate_macos_binary_parents(binary_path: &Path) -> Result<()> {
     while let Some(path) = parent {
         let metadata = fs::symlink_metadata(path)
             .with_context(|| format!("inspect managed binary parent {}", path.display()))?;
-        if !metadata.is_dir()
-            || (metadata.uid() != 0 && metadata.uid() != unsafe { libc::geteuid() })
-        {
+        // SAFETY: geteuid takes no arguments and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        if !metadata.is_dir() || (metadata.uid() != 0 && metadata.uid() != euid) {
             bail!(
                 "managed binary parent {} is not a trusted directory",
                 path.display()

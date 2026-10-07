@@ -501,6 +501,7 @@ fn capture_interfaces() -> Result<BTreeSet<String>> {
 /// getifaddrs can return multiple addresses per interface; collect unique names.
 fn active_interfaces() -> Result<BTreeSet<String>> {
     let mut first = std::ptr::null_mut();
+    // SAFETY: `first` is a valid out-pointer; the list it receives is freed below.
     if unsafe { libc::getifaddrs(&mut first) } != 0 {
         return Err(io::Error::last_os_error().into());
     }
@@ -511,6 +512,7 @@ fn active_interfaces() -> Result<BTreeSet<String>> {
         let entry = unsafe { &*current };
         let active = (libc::IFF_UP | libc::IFF_RUNNING) as u32;
         if entry.ifa_flags & active == active && !entry.ifa_name.is_null() {
+            // SAFETY: `ifa_name` is non-null (checked above) and NUL-terminated.
             let name = unsafe { CStr::from_ptr(entry.ifa_name) }
                 .to_string_lossy()
                 .into_owned();
@@ -518,6 +520,8 @@ fn active_interfaces() -> Result<BTreeSet<String>> {
         }
         current = entry.ifa_next;
     }
+    // SAFETY: `first` came from the successful getifaddrs call above, and no
+    // entry reference outlives this point.
     unsafe { libc::freeifaddrs(first) };
     Ok(names)
 }
@@ -577,6 +581,8 @@ struct BpfStats {
 
 fn poll_stats(device: &BpfDevice, tracker: &mut crate::telemetry::macos::BpfStatsTracker) {
     let mut stats = BpfStats::default();
+    // SAFETY: the device fd is open, and `stats` is a writable repr(C) struct of
+    // the layout BIOCGSTATS fills in.
     let rc = unsafe { libc::ioctl(device.fd, BIOCGSTATS, &mut stats as *mut BpfStats) };
     let mut counters = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
     let counters = counters.bpf.get_or_insert_with(Default::default);
@@ -661,6 +667,7 @@ fn open_bpf_device() -> Result<RawFd> {
     let mut last_err = io::Error::new(io::ErrorKind::NotFound, "no /dev/bpf device available");
     for n in 0..256 {
         let path = CString::new(format!("/dev/bpf{n}")).expect("device path has no NUL");
+        // SAFETY: `path` is a NUL-terminated C string that outlives the call.
         let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDWR) };
         if fd >= 0 {
             return Ok(fd);
@@ -675,6 +682,8 @@ fn open_bpf_device() -> Result<RawFd> {
 }
 
 fn bind_interface(fd: RawFd, interface: &str) -> io::Result<()> {
+    // SAFETY: IfReq is a plain C struct of integers and byte arrays, for which
+    // all-zero bytes is a valid value.
     let mut req: IfReq = unsafe { std::mem::zeroed() };
     let bytes = interface.as_bytes();
     if bytes.len() >= req.ifr_name.len() {
@@ -686,6 +695,8 @@ fn bind_interface(fd: RawFd, interface: &str) -> io::Result<()> {
     for (slot, byte) in req.ifr_name.iter_mut().zip(bytes) {
         *slot = *byte as libc::c_char;
     }
+    // SAFETY: `fd` is an open bpf device, and `req` is a fully initialized
+    // NUL-terminated ifreq that outlives the call.
     let rc = unsafe { libc::ioctl(fd, BIOCSETIF, &req as *const IfReq) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
@@ -699,6 +710,8 @@ fn set_filter(fd: RawFd, program: &[BpfInsn]) -> io::Result<()> {
         bf_len: program.len() as u32,
         bf_insns: program.as_ptr(),
     };
+    // SAFETY: `fd` is an open bpf device. `prog` points at `program`, which has
+    // `bf_len` instructions and outlives the call; the kernel copies it.
     let rc = unsafe { libc::ioctl(fd, BIOCSETF, &prog as *const BpfProgram) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
@@ -708,6 +721,8 @@ fn set_filter(fd: RawFd, program: &[BpfInsn]) -> io::Result<()> {
 
 fn set_buffer_len(fd: RawFd, len: u32) -> io::Result<u32> {
     let mut value: libc::c_uint = len;
+    // SAFETY: `fd` is an open bpf device, and `value` is a writable c_uint, which
+    // is what BIOCSBLEN reads and writes.
     let rc = unsafe { libc::ioctl(fd, BIOCSBLEN, &mut value as *mut libc::c_uint) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
@@ -717,6 +732,8 @@ fn set_buffer_len(fd: RawFd, len: u32) -> io::Result<u32> {
 
 fn set_u32(fd: RawFd, request: libc::c_ulong, value: u32) -> io::Result<()> {
     let value: libc::c_uint = value;
+    // SAFETY: `fd` is an open bpf device, and `value` is a readable c_uint, which
+    // the u32-valued requests this helper is used with read.
     let rc = unsafe { libc::ioctl(fd, request, &value as *const libc::c_uint) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
@@ -726,6 +743,8 @@ fn set_u32(fd: RawFd, request: libc::c_ulong, value: u32) -> io::Result<()> {
 
 fn get_u32(fd: RawFd, request: libc::c_ulong) -> io::Result<u32> {
     let mut value: libc::c_uint = 0;
+    // SAFETY: `fd` is an open bpf device, and `value` is a writable c_uint, which
+    // the u32-valued requests this helper is used with write.
     let rc = unsafe { libc::ioctl(fd, request, &mut value as *mut libc::c_uint) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
@@ -738,6 +757,7 @@ fn set_read_timeout(fd: RawFd, timeout: Duration) -> io::Result<()> {
         tv_sec: timeout.as_secs() as libc::time_t,
         tv_usec: timeout.subsec_micros() as libc::suseconds_t,
     };
+    // SAFETY: `fd` is an open bpf device, and `tv` is a readable timeval.
     let rc = unsafe { libc::ioctl(fd, BIOCSRTIMEOUT, &tv as *const libc::timeval) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
@@ -746,6 +766,7 @@ fn set_read_timeout(fd: RawFd, timeout: Duration) -> io::Result<()> {
 }
 
 fn close_fd(fd: RawFd) {
+    // SAFETY: callers pass a descriptor they own and do not use again.
     unsafe {
         libc::close(fd);
     }
@@ -784,6 +805,7 @@ fn run_capture(
             events: libc::POLLIN,
             revents: 0,
         };
+        // SAFETY: `ready` is one initialized pollfd that lives for the call.
         let rc = unsafe { libc::poll(&mut ready, 1, READ_TIMEOUT.as_millis() as i32) };
         if rc == 0 {
             continue;
@@ -807,6 +829,7 @@ fn run_capture(
             );
             break;
         }
+        // SAFETY: `buf` is writable for `buf.len()` bytes, the length passed.
         let n = unsafe { libc::read(device.fd, buf.as_mut_ptr().cast(), buf.len()) };
         if n < 0 {
             let err = io::Error::last_os_error();

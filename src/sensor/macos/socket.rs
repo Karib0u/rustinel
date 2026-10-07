@@ -147,11 +147,16 @@ fn scan_sockets() -> Option<SocketTable> {
 fn socket_flows(socket: &SocketFDInfo) -> Vec<Flow> {
     let info = &socket.psi;
     let (protocol, ini) = match SocketInfoKind::from(info.soi_kind) {
-        // SAFETY: the kind selects the active arm of the kernel's union.
-        SocketInfoKind::Tcp => (Protocol::Tcp, unsafe { info.soi_proto.pri_tcp.tcpsi_ini }),
-        SocketInfoKind::In if info.soi_protocol == libc::IPPROTO_UDP => {
-            (Protocol::Udp, unsafe { info.soi_proto.pri_in })
-        }
+        SocketInfoKind::Tcp => (
+            Protocol::Tcp,
+            // SAFETY: the TCP kind selects the pri_tcp arm of the kernel's union.
+            unsafe { info.soi_proto.pri_tcp.tcpsi_ini },
+        ),
+        SocketInfoKind::In if info.soi_protocol == libc::IPPROTO_UDP => (
+            Protocol::Udp,
+            // SAFETY: the plain IN kind selects the pri_in arm of the kernel's union.
+            unsafe { info.soi_proto.pri_in },
+        ),
         _ => return Vec::new(),
     };
     // INI_IPV4 and INI_IPV6 from sys/proc_info.h. A dual-stack socket
@@ -170,12 +175,15 @@ fn socket_flows(socket: &SocketFDInfo) -> Vec<Flow> {
 }
 
 fn socket_ip(address: InSIAddr, ipv4: bool) -> IpAddr {
-    // SAFETY: insi_vflag identifies the initialized address representation.
+    // `ipv4` is derived from insi_vflag, which identifies the initialized
+    // address representation.
     if ipv4 {
         IpAddr::V4(Ipv4Addr::from(
+            // SAFETY: the IPv4 flag selects the ina_46 arm of the address union.
             unsafe { address.ina_46.i46a_addr4.s_addr }.to_ne_bytes(),
         ))
     } else {
+        // SAFETY: the IPv6 flag selects the ina_6 arm of the address union.
         let ip = Ipv6Addr::from(unsafe { address.ina_6.s6_addr });
         ip.to_ipv4_mapped()
             .map(IpAddr::V4)

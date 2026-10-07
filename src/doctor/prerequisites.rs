@@ -71,6 +71,7 @@ fn linux_kernel_result() -> DiagnosticResult {
 
 #[cfg(target_os = "linux")]
 fn linux_privilege_result() -> DiagnosticResult {
+    // SAFETY: geteuid takes no arguments and cannot fail.
     if unsafe { libc::geteuid() } == 0 {
         return DiagnosticResult::pass("required_privileges", "Running with root privileges");
     }
@@ -190,6 +191,7 @@ fn macos_prerequisite_results() -> Vec<DiagnosticResult> {
 
 #[cfg(target_os = "macos")]
 fn macos_privilege_result() -> DiagnosticResult {
+    // SAFETY: geteuid takes no arguments and cannot fail.
     if unsafe { libc::geteuid() } == 0 {
         DiagnosticResult::pass("required_privileges", "Running with root privileges")
     } else {
@@ -308,6 +310,9 @@ fn windows_admin_result() -> DiagnosticResult {
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing, and
+    // `token` and `elevation` are valid out-pointers. The elevation buffer size
+    // passed matches TOKEN_ELEVATION.
     unsafe {
         let mut token = HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {

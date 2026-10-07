@@ -138,6 +138,7 @@ impl ProcessTarget {
     pub(super) fn terminate(&self) -> Result<(), String> {
         let pid = libc::pid_t::try_from(self.identity.pid).map_err(|_| "invalid process PID")?;
         // macOS has no pidfd equivalent. PID reuse can still race this kill.
+        // SAFETY: kill takes a PID and a signal number, with no pointer arguments.
         let result = unsafe { libc::kill(pid, libc::SIGKILL) };
         if result == 0 {
             Ok(())

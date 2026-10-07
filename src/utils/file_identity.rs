@@ -138,6 +138,9 @@ pub(crate) fn from_file(file: &File) -> Option<FileIdentity> {
     let handle = HANDLE(file.as_raw_handle());
     let mut info = BY_HANDLE_FILE_INFORMATION::default();
     let mut basic = FILE_BASIC_INFO::default();
+    // SAFETY: `handle` comes from `file`, which is borrowed for the whole call.
+    // Both out-pointers refer to live locals, and the size passed to the Ex call
+    // is that of the FILE_BASIC_INFO behind its pointer.
     unsafe {
         GetFileInformationByHandle(handle, &mut info).ok()?;
         GetFileInformationByHandleEx(
@@ -204,11 +207,11 @@ mod tests {
         use std::os::fd::AsRawFd;
         let file = tempfile::NamedTempFile::new().unwrap();
         let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        // fstat initializes the entire stat on success.
-        assert_eq!(
-            unsafe { libc::fstat(file.as_file().as_raw_fd(), stat.as_mut_ptr()) },
-            0
-        );
+        // SAFETY: the descriptor belongs to `file`, and `stat` is writable for a
+        // whole libc::stat. fstat initializes the entire stat on success.
+        let status = unsafe { libc::fstat(file.as_file().as_raw_fd(), stat.as_mut_ptr()) };
+        assert_eq!(status, 0);
+        // SAFETY: the successful fstat above initialized the whole struct.
         let stat = unsafe { stat.assume_init() };
         assert_eq!(Some(from_stat(&stat)), from_file(file.as_file()));
         assert!(from_file(file.as_file())

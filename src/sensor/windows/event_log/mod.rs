@@ -219,6 +219,8 @@ fn run_subscription_inner(
         }
     };
     let saved_wide = saved.as_deref().map(wide_string);
+    // SAFETY: the argument is null or a NUL-terminated wide string that outlives
+    // the call. The new handle is owned by `OwnedEvtHandle`.
     let bookmark = unsafe {
         EvtCreateBookmark(
             saved_wide
@@ -277,6 +279,11 @@ fn run_subscription_inner(
         .unwrap_or_else(|e| e.into_inner())
         .bookmark
         .0;
+    // SAFETY: the channel and query are NUL-terminated wide strings that outlive
+    // the call. The context pointer targets the boxed `CallbackContext`, which
+    // stays allocated until after the subscription is closed (`drop(subscription)`
+    // below runs before `context` is dropped), and the callback has the
+    // signature EvtSubscribe expects.
     let subscribe = |origin: u32| unsafe {
         EvtSubscribe(
             None,
@@ -351,6 +358,8 @@ unsafe extern "system" fn subscription_callback(
     user_context: *const core::ffi::c_void,
     event: EVT_HANDLE,
 ) -> u32 {
+    // SAFETY: EvtSubscribe was given a pointer to the boxed `CallbackContext`,
+    // which outlives the subscription, so it is valid whenever this callback runs.
     let context = &*(user_context as *const CallbackContext);
     guard_callback(context, |state| {
         if action == EvtSubscribeActionError {
@@ -491,6 +500,8 @@ fn seed_bookmark(channel: &str, bookmark: EVT_HANDLE, path: &Path) -> Result<boo
     let channel_name = channel;
     let channel = wide_string(channel);
     let query = wide_string("*");
+    // SAFETY: the channel and query are NUL-terminated wide strings that outlive
+    // the call. The result handle is owned by `OwnedEvtHandle`.
     let result = OwnedEvtHandle(unsafe {
         EvtQuery(
             None,
@@ -501,6 +512,8 @@ fn seed_bookmark(channel: &str, bookmark: EVT_HANDLE, path: &Path) -> Result<boo
     }?);
     let mut events = [0isize; 1];
     let mut returned = 0;
+    // SAFETY: `result` is an open query handle, and `events` and `returned` are
+    // valid for the one handle requested.
     match unsafe { EvtNext(result.0, &mut events, 0, 0, &mut returned) } {
         Err(err) if err.code() == ERROR_NO_MORE_ITEMS.to_hresult() => {
             // Zero means the channel was empty, not a missing processed record.
@@ -520,6 +533,8 @@ fn seed_bookmark(channel: &str, bookmark: EVT_HANDLE, path: &Path) -> Result<boo
         other => other?,
     }
     let event = OwnedEvtHandle(EVT_HANDLE(events[0]));
+    // SAFETY: `bookmark` is an open bookmark handle from the caller, and
+    // `event` is the open event handle EvtNext just returned.
     unsafe { EvtUpdateBookmark(bookmark, event.0) }?;
     write_checkpoint(path, &render_xml(bookmark, EvtRenderBookmark.0)?)?;
     Ok(true)
@@ -543,11 +558,15 @@ fn bookmark_record_id(xml: &str, channel: &str) -> Result<u64> {
 
 fn oldest_record(channel: &str) -> Result<u64> {
     let channel = wide_string(channel);
+    // SAFETY: the channel is a NUL-terminated wide string that outlives the call.
+    // The log handle is owned by `OwnedEvtHandle`.
     let log = OwnedEvtHandle(unsafe {
         EvtOpenLog(None, PCWSTR(channel.as_ptr()), EvtOpenChannelPath.0)
     }?);
     let mut value = EVT_VARIANT::default();
     let mut used = 0;
+    // SAFETY: `log` is an open log handle, and `value` is a writable EVT_VARIANT
+    // whose size is passed with it.
     unsafe {
         EvtGetLogInfo(
             log.0,
@@ -560,6 +579,8 @@ fn oldest_record(channel: &str) -> Result<u64> {
     if value.Type != EvtVarTypeUInt64.0 as u32 {
         return Err(anyhow!("unexpected oldest record number type"));
     }
+    // SAFETY: the type tag was checked to be UInt64 above, so that union arm is
+    // the initialized one.
     Ok(unsafe { value.Anonymous.UInt64Val })
 }
 
@@ -570,6 +591,8 @@ fn render_event_xml(event: EVT_HANDLE) -> Result<String> {
 fn render_xml(event: EVT_HANDLE, flags: u32) -> Result<String> {
     let mut bytes_needed = 0u32;
     let mut property_count = 0u32;
+    // SAFETY: with no buffer, the call only reports the required size through
+    // valid out-pointers.
     let _ = unsafe {
         EvtRender(
             None,
@@ -586,6 +609,8 @@ fn render_xml(event: EVT_HANDLE, flags: u32) -> Result<String> {
     }
 
     let mut buffer = vec![0u16; bytes_needed.div_ceil(2) as usize];
+    // SAFETY: `buffer` is writable for at least `bytes_needed` bytes, which is
+    // passed as its size, and the out-pointers are valid.
     unsafe {
         EvtRender(
             None,
@@ -620,6 +645,7 @@ struct OwnedEvtHandle(EVT_HANDLE);
 
 impl Drop for OwnedEvtHandle {
     fn drop(&mut self) {
+        // SAFETY: this wrapper owns the handle and closes it once.
         unsafe {
             let _ = EvtClose(self.0);
         }

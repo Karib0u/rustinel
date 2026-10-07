@@ -54,6 +54,8 @@ fn main() -> anyhow::Result<()> {
         .join()
         .map_err(|_| anyhow::anyhow!("consumer panicked"))?;
     let mut memory = windows::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS::default();
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing,
+    // and `memory` is a writable PROCESS_MEMORY_COUNTERS whose size is passed.
     unsafe {
         windows::Win32::System::ProcessStatus::GetProcessMemoryInfo(
             windows::Win32::System::Threading::GetCurrentProcess(),
