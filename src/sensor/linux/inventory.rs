@@ -8,10 +8,6 @@ use crate::{
 use anyhow::{Context, Result};
 use aya::{maps::HashMap, Ebpf};
 
-// SAFETY: `InventoryIdentity` is repr(C) and made only of fixed-width integers with no padding, so
-// every bit pattern is valid and it can be copied to and from a BPF map as bytes.
-unsafe impl aya::Pod for InventoryIdentity {}
-
 pub fn seed(bpf: &mut Ebpf, host: &HostState) -> Result<()> {
     let started = std::time::Instant::now();
     let mut snapshot = InventorySnapshot::default();

@@ -40,8 +40,23 @@ See [Sensor callback failures](operations.md#sensor-callback-failures) for the o
 
 ## Linux eBPF object
 
-A Linux build embeds `ebpf/rustinel-ebpf.o` when it exists, and compiles it with nightly otherwise.
-The file is ignored by Git, so a stale copy silently embeds old programs: rebuild it whenever `ebpf/src` changes.
+The kernel and userspace event types are declared once, in the `ebpf-common` crate that both `ebpf/` and the agent depend on.
+Change a `repr(C)` event or layout there, and both sides rebuild against it.
+
+`build.rs` picks the embedded object in this order:
+
+1. `RUSTINEL_EBPF_STUB=1` embeds a stub with no programs.
+   The sensor refuses to start with it, and the build prints a warning.
+2. `RUSTINEL_EBPF_PREBUILT=1` embeds `ebpf/rustinel-ebpf.o` whatever its age, and fails if the file is missing.
+   Setting both variables is an error.
+3. Otherwise `ebpf/rustinel-ebpf.o` is embedded only when it is not older than `ebpf/`, `ebpf-common/`, and their manifests.
+   An older copy is ignored with a build warning, and the object is compiled from source with nightly.
+
+The file is ignored by Git, but a stale copy can no longer embed old programs unnoticed.
+The agent logs the chosen source (`prebuilt`, `source`, or `stub`) when it loads the embedded object.
+Changing either variable re-runs the build script.
+
+To compile the object yourself, for example with a pinned nightly:
 
 ```bash
 rustup toolchain install nightly

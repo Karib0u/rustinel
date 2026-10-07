@@ -1,15 +1,17 @@
-//! Userspace mirror of the eBPF ring-buffer event types.
+//! Userspace decoding of the eBPF ring-buffer events.
 //!
-//! **These structs must match `ebpf/src/events.rs` exactly** — same field
-//! order, same sizes, same `#[repr(C)]` layout. The userspace loader reads raw
-//! bytes from a ring buffer and transmutes them into these types. Any
-//! divergence silently produces garbage.
-//!
-//! When modifying either side, update both files together and run the
-//! cross-platform golden tests to verify byte-level compatibility.
+//! The `repr(C)` event types are declared once in `rustinel-ebpf-common`,
+//! shared with the kernel programs, and re-exported here. This module adds the
+//! decoding that only userspace needs.
 
-#[path = "../../../ebpf/src/task_identity_abi.rs"]
-pub mod task_identity_abi;
+pub use rustinel_ebpf_common::events::{
+    connect_result_is_connection, DnsEvent, FileEvent, FileEventHeader, FileIndexEvent,
+    NetworkEvent, ProcessEvent, ARGV_CAPACITY, AT_FDCWD, CONNECT_RESULT_EINPROGRESS,
+    CONNECT_RESULT_EINTR, CONNECT_RESULT_OK, DNS_EVENT_QUERY, DNS_EVENT_RESPONSE,
+    DNS_PAYLOAD_CAPACITY, FILE_FLAG_AUX_PATH_TRUNCATED, FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN,
+    PROCESS_IMAGE_CAPACITY,
+};
+pub use rustinel_ebpf_common::task_identity_abi;
 
 #[cfg(target_os = "linux")]
 use std::time::{Duration, SystemTime};
@@ -73,62 +75,30 @@ fn clock_samples() -> (SystemTime, Duration) {
     (SystemTime::now(), uptime)
 }
 
-/// Maximum bytes of argv the eBPF exec path captures. Mirrors
-/// `ARGV_CAPACITY` in `ebpf/src/events.rs`.
-pub const ARGV_CAPACITY: usize = 512;
-
-/// Bytes captured for the executable image, including the NUL terminator.
-/// Mirrors `PROCESS_IMAGE_CAPACITY` in `ebpf/src/events.rs`.
-pub const PROCESS_IMAGE_CAPACITY: usize = 256;
-
-/// Process lifecycle event.
-///
-/// - kind 1 = exec (`sched_process_exec`)
-/// - kind 2 = exit (`sched_process_exit`)
-/// - kind 3 = fork (`sched_process_fork`), consumed as an internal state update
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct ProcessEvent {
-    pub identity: self::task_identity_abi::TaskIdentity,
-    pub event_time_ns: u64,
-    pub source_seq: u64,
-    pub cgroup_id: u64,
-    /// Sensor-minted identity for this execution of `pid`.
-    pub process_start_time: u64,
-    /// Sensor-minted execution identity of `parent_pid`, when observed.
-    pub parent_process_start_time: u64,
-    pub kind: u32,
-    pub pid: u32,
-    pub uid: u32,
-    pub parent_pid: u32,
-    pub creator_tid: u32,
-    pub creator_tgid: u32,
-    pub comm: [u8; 16],
-    pub image: [u8; PROCESS_IMAGE_CAPACITY],
-    /// Valid bytes in `args`; 0 when the kernel captured no argv.
-    pub args_len: u16,
-    /// Number of argv entries in `args`.
-    pub args_count: u16,
-    /// 1 when argv exceeded the kernel capture limits.
-    pub args_truncated: u8,
-    /// 1 when `image` exceeded its kernel capture buffer.
-    pub image_truncated: u8,
-    /// 1 when `CLONE_PARENT` made `parent_pid` a creator approximation.
-    pub parent_pid_derived: u8,
-    pub _pad1: u8,
-    /// NUL-separated argv captured at `execve` entry.
-    pub args: [u8; ARGV_CAPACITY],
+/// Userspace-only accessors for [`ProcessEvent`], which is declared in the
+/// shared ABI crate and so cannot carry inherent methods here.
+pub trait ProcessEventExt {
+    fn raw_effective_uid(&self) -> Option<u32>;
+    fn raw_linux_identity(&self) -> crate::sensor::RawLinuxProcessIdentity;
+    fn exec_metadata(&self) -> Option<Box<crate::models::ExecMetadata>>;
+    fn effective_uid(&self) -> Option<String>;
+    fn linux_identity(&self) -> Box<crate::models::LinuxProcessIdentity>;
+    /// Command line reconstructed from the kernel argv capture.
+    ///
+    /// Returns `None` when the kernel captured nothing, so callers can fall
+    /// back to `/proc/<pid>/cmdline`. Arguments are joined with a single
+    /// space, matching how the `/proc` reader renders them.
+    fn kernel_command_line(&self) -> Option<String>;
 }
 
-impl ProcessEvent {
-    pub fn raw_effective_uid(&self) -> Option<u32> {
-        self.identity_value(task_identity_abi::EUID)
-            .and_then(|uid| u32::try_from(uid).ok())
+impl ProcessEventExt for ProcessEvent {
+    fn raw_effective_uid(&self) -> Option<u32> {
+        identity_value(self, task_identity_abi::EUID).and_then(|uid| u32::try_from(uid).ok())
     }
 
-    pub fn raw_linux_identity(&self) -> crate::sensor::RawLinuxProcessIdentity {
+    fn raw_linux_identity(&self) -> crate::sensor::RawLinuxProcessIdentity {
         use task_identity_abi::*;
-        let value = |field| self.identity_value(field);
+        let value = |field| identity_value(self, field);
         crate::sensor::RawLinuxProcessIdentity {
             real_group_id: Some(self.identity.real_gid),
             effective_user_id: value(EUID).and_then(|value| u32::try_from(value).ok()),
@@ -145,29 +115,23 @@ impl ProcessEvent {
         }
     }
 
-    pub fn exec_metadata(&self) -> Option<Box<crate::models::ExecMetadata>> {
+    fn exec_metadata(&self) -> Option<Box<crate::models::ExecMetadata>> {
         Some(Box::new(crate::models::ExecMetadata {
             real_user_id: Some(self.uid.to_string()),
             ..Default::default()
         }))
     }
 
-    pub fn effective_uid(&self) -> Option<String> {
-        self.identity_value(task_identity_abi::EUID)
-            .map(|uid| uid.to_string())
+    fn effective_uid(&self) -> Option<String> {
+        identity_value(self, task_identity_abi::EUID).map(|uid| uid.to_string())
     }
 
-    fn identity_value(&self, field: usize) -> Option<u64> {
-        (self.identity.valid & (1 << field) != 0).then_some(self.identity.values[field])
-    }
-
-    pub fn linux_identity(&self) -> Box<crate::models::LinuxProcessIdentity> {
+    fn linux_identity(&self) -> Box<crate::models::LinuxProcessIdentity> {
         use task_identity_abi::*;
-        let text = |field| self.identity_value(field).map(|value| value.to_string());
-        let controlling_tty = self
-            .identity_value(TTY_MAJOR)
-            .zip(self.identity_value(TTY_MINOR))
-            .zip(self.identity_value(TTY_INDEX))
+        let text = |field| identity_value(self, field).map(|value| value.to_string());
+        let controlling_tty = identity_value(self, TTY_MAJOR)
+            .zip(identity_value(self, TTY_MINOR))
+            .zip(identity_value(self, TTY_INDEX))
             .and_then(|((major, minor), index)| {
                 minor
                     .checked_add(index)
@@ -182,16 +146,11 @@ impl ProcessEvent {
             network_namespace: text(NET_NS),
             session_id: text(SESSION_ID),
             controlling_tty,
-            kernel_start_boottime: self.identity_value(START_BOOTTIME),
+            kernel_start_boottime: identity_value(self, START_BOOTTIME),
         })
     }
 
-    /// Command line reconstructed from the kernel argv capture.
-    ///
-    /// Returns `None` when the kernel captured nothing, so callers can fall
-    /// back to `/proc/<pid>/cmdline`. Arguments are joined with a single
-    /// space, matching how the `/proc` reader renders them.
-    pub fn kernel_command_line(&self) -> Option<String> {
+    fn kernel_command_line(&self) -> Option<String> {
         let len = (self.args_len as usize).min(self.args.len());
         if self.args_count == 0 || len == 0 {
             return None;
@@ -211,68 +170,19 @@ impl ProcessEvent {
     }
 }
 
-/// `connect(2)` succeeded — the connection is established.
-pub const CONNECT_RESULT_OK: i32 = 0;
-
-/// `-EINPROGRESS`: a non-blocking `connect(2)` is under way.
-pub const CONNECT_RESULT_EINPROGRESS: i32 = -115;
-
-/// `-EINTR`: a signal interrupted the wait; the kernel completes the connect
-/// in the background.
-pub const CONNECT_RESULT_EINTR: i32 = -4;
-
-/// Whether a `connect(2)` return value describes a connection that was
-/// established or is under way.
-///
-/// **Mirrors `connect_result_is_connection` in `ebpf/src/events.rs`.** The
-/// kernel already drops everything this rejects, so the check here is the
-/// decode-side half of the same contract: an event that reaches userspace
-/// carrying a failure code did not come from the emit path this file
-/// describes, and reporting it as a connection is exactly the defect
-/// [#301](https://github.com/Karib0u/rustinel/issues/301) fixed.
-pub fn connect_result_is_connection(result: i32) -> bool {
-    matches!(
-        result,
-        CONNECT_RESULT_OK | CONNECT_RESULT_EINPROGRESS | CONNECT_RESULT_EINTR
-    )
+fn identity_value(event: &ProcessEvent, field: usize) -> Option<u64> {
+    (event.identity.valid & (1 << field) != 0).then_some(event.identity.values[field])
 }
 
-/// Connection event from a kernel socket or the syscall fallback.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct NetworkEvent {
-    pub event_time_ns: u64,
-    pub source_seq: u64,
-    pub pid: u32,
-    pub uid: u32,
-    /// Socket descriptor in the syscall fallback; -1 in the fexit tier.
-    pub fd: i32,
-    /// `connect(2)` return value — always one of the values
-    /// [`connect_result_is_connection`] accepts.
-    pub ret: i32,
-    /// Destination port in host byte order.
-    pub dport: u16,
-    /// Source port. Zero until the kernel binds the socket, which has not
-    /// happened yet at `connect()` entry.
-    pub sport: u16,
-    /// Address family: 2 = IPv4, 10 = IPv6.
-    pub af: u16,
-    /// IP protocol number read from sk_protocol; zero in the syscall fallback.
-    pub protocol: u8,
-    /// TUPLE_MEASURED and INBOUND from socket_tuple_abi.
-    pub tuple_flags: u8,
-    pub daddr: [u8; 16],
-    /// Source address. Unspecified (all zero) until the socket is bound; see
-    /// [`sport`](Self::sport).
-    pub saddr: [u8; 16],
-    /// Sensor-minted identity for the process that opened the connection.
-    pub process_start_time: u64,
-}
-
-impl NetworkEvent {
+/// Userspace-only accessors for [`NetworkEvent`].
+pub trait NetworkEventExt {
     /// IP transport name measured from sk_protocol. Unknown protocols and the
     /// syscall fallback remain absent.
-    pub fn transport(&self) -> Option<&'static str> {
+    fn transport(&self) -> Option<&'static str>;
+}
+
+impl NetworkEventExt for NetworkEvent {
+    fn transport(&self) -> Option<&'static str> {
         match self.protocol {
             6 => Some("tcp"),
             17 => Some("udp"),
@@ -280,145 +190,6 @@ impl NetworkEvent {
         }
     }
 }
-
-/// Bytes captured for one file path, including the NUL terminator.
-///
-/// Mirrors `FILE_PATH_LEN` in `ebpf/src/events.rs`.
-pub const FILE_PATH_LEN: usize = 512;
-
-/// `path` did not fit in [`FILE_PATH_LEN`] and was cut short.
-pub const FILE_FLAG_PATH_TRUNCATED: u32 = 1 << 0;
-
-/// `aux_path` did not fit in [`FILE_PATH_LEN`] and was cut short.
-pub const FILE_FLAG_AUX_PATH_TRUNCATED: u32 = 1 << 1;
-
-/// File event. Produced by `handle_openat_exit` / `handle_unlinkat_exit` /
-/// `handle_renameat*_exit`.
-///
-/// `kind`: 1 = create, 2 = delete, 3 = rename, 4 = change.
-///
-/// `path` and `aux_path` are raw `*at` pathname arguments and may be relative;
-/// `dfd` and `aux_dfd` are the directory descriptors they resolve against. See
-/// [`super::paths`] for the reconstruction rules.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct FileEvent {
-    pub kind: u32,
-    pub pid: u32,
-    pub event_time_ns: u64,
-    pub source_seq: u64,
-    pub uid: u32,
-    /// Bitmask of `FILE_FLAG_*` — currently path truncation.
-    pub flags: u32,
-    /// Directory descriptor `path` is relative to, or `AT_FDCWD`.
-    pub dfd: i32,
-    /// Directory descriptor `aux_path` is relative to, or `AT_FDCWD`.
-    pub aux_dfd: i32,
-    /// Kernel token for the indexed directory currently held in `dfd`.
-    /// Zero means the index must not be used.
-    pub dfd_token: u64,
-    /// Kernel token for the indexed directory currently held in `aux_dfd`.
-    /// Zero means the index must not be used.
-    pub aux_dfd_token: u64,
-    /// Inode number measured while the kernel still held the object.
-    /// Zero means file identity was unavailable.
-    pub inode: u64,
-    /// Kernel `dev_t` from the inode's superblock.
-    pub device: u32,
-    pub _identity_pad: u32,
-    pub path: [u8; FILE_PATH_LEN],
-    pub aux_path: [u8; FILE_PATH_LEN],
-    pub comm: [u8; 16],
-    /// Sensor-minted identity for the process that performed the operation.
-    pub process_start_time: u64,
-}
-
-/// Common prefix shared by full file events and compact index events.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct FileEventHeader {
-    pub kind: u32,
-    pub pid: u32,
-}
-
-/// Compact directory-index maintenance event.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct FileIndexEvent {
-    pub kind: u32,
-    pub pid: u32,
-    pub fd: i32,
-    pub _pad: u32,
-}
-
-/// Bytes of one DNS message carried by [`DnsEvent`]. Mirrors
-/// `DNS_PAYLOAD_CAPACITY` in `ebpf/src/events.rs`.
-pub const DNS_PAYLOAD_CAPACITY: usize = 512;
-
-/// [`DnsEvent::kind`] for an outbound query.
-pub const DNS_EVENT_QUERY: u32 = 1;
-/// [`DnsEvent::kind`] for an inbound response.
-pub const DNS_EVENT_RESPONSE: u32 = 2;
-
-/// Raw DNS message observed on a DNS socket. Userspace parses `payload`.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct DnsEvent {
-    pub event_time_ns: u64,
-    pub source_seq: u64,
-    /// [`DNS_EVENT_QUERY`] or [`DNS_EVENT_RESPONSE`].
-    pub kind: u32,
-    pub pid: u32,
-    pub uid: u32,
-    pub fd: i32,
-    pub payload_len: u16,
-    pub _pad0: u16,
-    pub _pad1: u32,
-    /// Sensor-minted identity for the process that owns the socket.
-    pub process_start_time: u64,
-    pub payload: [u8; DNS_PAYLOAD_CAPACITY],
-}
-
-// ── Size assertions ──────────────────────────────────────────────────────────
-// These catch accidental struct layout divergence at compile time.
-
-const _: () = assert!(
-    core::mem::size_of::<ProcessEvent>() == 944,
-    "ProcessEvent layout changed — update ebpf/src/events.rs to match"
-);
-// The argv fields were appended after `image`; pin their offsets so a
-// reordering on either side fails the build instead of decoding garbage.
-const _: () = assert!(
-    core::mem::offset_of!(ProcessEvent, args_len) == 424
-        && core::mem::offset_of!(ProcessEvent, args_count) == 426
-        && core::mem::offset_of!(ProcessEvent, args_truncated) == 428
-        && core::mem::offset_of!(ProcessEvent, image_truncated) == 429
-        && core::mem::offset_of!(ProcessEvent, parent_pid_derived) == 430
-        && core::mem::offset_of!(ProcessEvent, args) == 432,
-    "ProcessEvent argv fields moved — update ebpf/src/events.rs to match"
-);
-// `ret` and `protocol` took over slots that used to be explicit padding, so a
-// stale copy of either side would decode zeros there and pass every event off
-// as a successful connect of unknown transport. Pin both offsets so that fails
-// the build instead.
-const _: () = assert!(
-    core::mem::size_of::<NetworkEvent>() == 80
-        && core::mem::offset_of!(NetworkEvent, ret) == 28
-        && core::mem::offset_of!(NetworkEvent, protocol) == 38,
-    "NetworkEvent layout changed — update ebpf/src/events.rs to match"
-);
-const _: () = assert!(
-    core::mem::size_of::<FileEvent>() == 1120,
-    "FileEvent layout changed — update ebpf/src/events.rs to match"
-);
-const _: () = assert!(core::mem::size_of::<FileEventHeader>() == 8);
-const _: () = assert!(core::mem::size_of::<FileIndexEvent>() == 16);
-const _: () = assert!(
-    core::mem::size_of::<DnsEvent>() == 560
-        && core::mem::offset_of!(DnsEvent, process_start_time) == 40
-        && core::mem::offset_of!(DnsEvent, payload) == 48,
-    "DnsEvent layout changed — update ebpf/src/events.rs to match"
-);
 
 /// Safely interpret a ring-buffer byte slice as a typed event.
 ///
@@ -453,7 +224,8 @@ pub mod mapping {
 
     use super::super::paths::{resolve_at_path, truncation_marker, DirFdIndex};
     use super::{
-        bytes_to_string, BootTimeConverter, DnsEvent, FileEvent, NetworkEvent, ProcessEvent,
+        bytes_to_string, BootTimeConverter, DnsEvent, FileEvent, NetworkEvent, NetworkEventExt,
+        ProcessEvent, ProcessEventExt,
     };
 
     const PROVIDER: &str = "ebpf";

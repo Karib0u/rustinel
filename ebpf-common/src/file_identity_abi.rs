@@ -16,3 +16,6 @@ pub struct FileIdentityOffsets {
     pub super_block_dev: u32,
     pub renamedata_old_dentry: u32,
 }
+
+#[cfg(feature = "aya")]
+crate::impl_pod!(FileIdentityOffsets);

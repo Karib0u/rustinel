@@ -43,3 +43,6 @@ mod tests {
         assert!(!loopback(10, &addr));
     }
 }
+
+#[cfg(feature = "aya")]
+crate::impl_pod!(SocketOffsets);

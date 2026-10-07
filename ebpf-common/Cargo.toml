@@ -1,0 +1,21 @@
+[package]
+name = "rustinel-ebpf-common"
+version = "1.0.2"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+description = "Kernel and userspace ABI shared by the Rustinel eBPF sensor"
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+warnings = "deny"
+
+[features]
+# Marks the plain-data ABI structs as `aya::Pod` so the loader can read and
+# write them through BPF maps. Off for the kernel build, which has no aya.
+aya = ["dep:aya"]
+
+[dependencies]
+aya = { version = "0.14", default-features = false, optional = true }

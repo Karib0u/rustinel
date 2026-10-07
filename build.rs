@@ -6,6 +6,38 @@ fn main() {
     }
 }
 
+// Not every item is used on every host OS the build script runs on.
+#[allow(dead_code)]
+#[path = "build/ebpf_select.rs"]
+mod ebpf_select;
+
+use ebpf_select::{Inputs, ObjectSource};
+
+/// Newest modification time under the paths the eBPF object is built from.
+fn newest_modified(paths: &[std::path::PathBuf]) -> Option<std::time::SystemTime> {
+    fn walk(path: &std::path::Path, newest: &mut Option<std::time::SystemTime>) {
+        let Ok(metadata) = std::fs::metadata(path) else {
+            return;
+        };
+        if metadata.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    walk(&entry.path(), newest);
+                }
+            }
+        } else if let Ok(modified) = metadata.modified() {
+            if newest.is_none_or(|current| modified > current) {
+                *newest = Some(modified);
+            }
+        }
+    }
+    let mut newest = None;
+    for path in paths {
+        walk(path, &mut newest);
+    }
+    newest
+}
+
 fn build_ebpf() {
     use std::{env, path::PathBuf, process::Command};
 
@@ -13,31 +45,61 @@ fn build_ebpf() {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let dst = out_dir.join("rustinel-ebpf");
 
-    // Re-run when eBPF source or its manifest changes.
+    // Re-run when anything the object is built from changes, or when the way it
+    // is chosen changes.
     println!("cargo:rerun-if-changed=ebpf/src");
     println!("cargo:rerun-if-changed=ebpf/Cargo.toml");
-    // Re-run if the pre-built artifact changes too.
+    println!("cargo:rerun-if-changed=ebpf/Cargo.lock");
+    println!("cargo:rerun-if-changed=ebpf-common/src");
+    println!("cargo:rerun-if-changed=ebpf-common/Cargo.toml");
     println!("cargo:rerun-if-changed=ebpf/rustinel-ebpf.o");
+    println!("cargo:rerun-if-changed=build/ebpf_select.rs");
+    println!("cargo:rerun-if-env-changed=RUSTINEL_EBPF_STUB");
+    println!("cargo:rerun-if-env-changed=RUSTINEL_EBPF_PREBUILT");
 
-    // If a pre-built artifact already exists (produced by a prior local build
-    // or downloaded from CI), use it directly so that a full nightly +
-    // bpf-linker toolchain is not required for every build.
     let pre_built = manifest_dir.join("ebpf/rustinel-ebpf.o");
-    if pre_built.exists() {
-        std::fs::copy(&pre_built, &dst)
-            .unwrap_or_else(|e| panic!("failed to copy pre-built eBPF artifact: {e}"));
-        return;
+    let flag = |name: &str| env::var(name).as_deref() == Ok("1");
+    let selection = ebpf_select::select(Inputs {
+        stub_requested: flag("RUSTINEL_EBPF_STUB"),
+        prebuilt_forced: flag("RUSTINEL_EBPF_PREBUILT"),
+        prebuilt_modified: std::fs::metadata(&pre_built)
+            .and_then(|metadata| metadata.modified())
+            .ok(),
+        newest_input_modified: newest_modified(&[
+            manifest_dir.join("ebpf/src"),
+            manifest_dir.join("ebpf/Cargo.toml"),
+            manifest_dir.join("ebpf/Cargo.lock"),
+            manifest_dir.join("ebpf-common/src"),
+            manifest_dir.join("ebpf-common/Cargo.toml"),
+        ]),
+    })
+    .unwrap_or_else(|message| panic!("{message}"));
+    if let Some(warning) = &selection.warning {
+        println!("cargo:warning={warning}");
+    }
+    // The sensor reports this at startup and refuses to run with a stub.
+    println!(
+        "cargo:rustc-env=RUSTINEL_EBPF_SOURCE={}",
+        selection.source.as_str()
+    );
+
+    match selection.source {
+        ObjectSource::Prebuilt => {
+            std::fs::copy(&pre_built, &dst)
+                .unwrap_or_else(|e| panic!("failed to copy pre-built eBPF artifact: {e}"));
+            return;
+        }
+        ObjectSource::Stub => {
+            // Skips the nightly/bpf-linker build and writes a bare ELF64 LE/BPF
+            // header. Use this for cargo check / clippy / unit tests where the
+            // nightly toolchain is unavailable.
+            write_ebpf_stub(&dst);
+            return;
+        }
+        ObjectSource::Source => {}
     }
 
-    // RUSTINEL_EBPF_STUB=1 skips the full nightly/bpf-linker build and writes
-    // a bare ELF64 LE/BPF header instead.  Use this for cargo check / clippy /
-    // unit tests in environments where the nightly toolchain is unavailable.
-    if env::var("RUSTINEL_EBPF_STUB").as_deref() == Ok("1") {
-        write_ebpf_stub(&dst);
-        return;
-    }
-
-    // No pre-built artifact — compile from source using the nightly toolchain.
+    // Compile from source using the nightly toolchain.
     let ebpf_dir = manifest_dir.join("ebpf");
     let status = Command::new("cargo")
         .args(["+nightly", "build", "--release", "--bin", "rustinel-ebpf"])
