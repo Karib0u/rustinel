@@ -114,8 +114,9 @@ pub fn spawn_reload_worker(
                         let mut engine = Engine::new_with_match_debug(match_debug)
                             .with_sigma_match_mode(scanner_cfg.sigma_match_mode);
 
-                        match engine.load_rules_with_trust(
+                        match engine.load_rule_dirs_with_trust(
                             &scanner_cfg.sigma_rules_path,
+                            &scanner_cfg.sigma_local_rules_paths,
                             rule_trust.as_ref(),
                         ) {
                             Ok(()) => {
@@ -179,8 +180,9 @@ pub fn spawn_reload_worker(
                         }
 
                         let started = Instant::now();
-                        match scanner::Scanner::new_with_trust(
+                        match scanner::Scanner::new_with_dirs_and_trust(
                             &scanner_cfg.yara_rules_path,
+                            &scanner_cfg.yara_local_rules_paths,
                             rule_trust.as_ref(),
                         )
                         .map(|compiled| compiled.with_limits(scanner_cfg.yara_scan_limits()))

@@ -9,7 +9,7 @@
 //! Requirements: root (or access to the bpf device nodes). PID attribution for
 //! captured flows is best-effort via libproc; see the socket helper.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{CStr, CString};
 use std::io;
 use std::os::unix::io::RawFd;
@@ -21,7 +21,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, Result};
 use tokio::sync::mpsc::Sender;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use super::packet::{self, ParsedPacket, Transport, DLT_EN10MB, TCP_FLAG_ACK, TCP_FLAG_SYN};
 use super::socket;
@@ -47,6 +47,21 @@ const BPF_BUFFER_LEN: u32 = 1 << 18; // 256 KiB
 
 /// Read timeout so the capture loop wakes periodically to observe shutdown.
 const READ_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// How often the supervisor re-enumerates active interfaces and reconciles
+/// capture workers. A new interface starts capturing within this interval.
+const RECONCILE_INTERVAL: Duration = Duration::from_secs(5);
+/// Supervisor wake-up granularity, so shutdown is observed promptly.
+const SUPERVISOR_TICK: Duration = Duration::from_millis(200);
+/// First delay before restarting a failed worker; doubles per failure.
+const RESTART_BACKOFF_INITIAL: Duration = Duration::from_secs(1);
+/// Upper bound on the restart delay.
+const RESTART_BACKOFF_MAX: Duration = Duration::from_secs(60);
+/// Consecutive failures after which an interface is reported as persistently
+/// failing (in the log and in the interface `error` telemetry).
+const PERSISTENT_FAILURE_THRESHOLD: u32 = 5;
+/// A worker that ran this long is considered healthy and resets its backoff.
+const STABLE_UPTIME: Duration = Duration::from_secs(60);
 
 /// Bound on connection-attribution jobs queued for the worker thread. When the
 /// worker falls behind (a burst of new connections), the capture thread emits
@@ -178,7 +193,11 @@ impl Default for BpfSensor {
 
 impl Sensor for BpfSensor {
     /// Each interface has its own device and capture thread. A failed open
-    /// does not prevent the remaining interfaces from starting.
+    /// does not prevent the remaining interfaces from starting. After the
+    /// initial start a supervisor thread reconciles the active interface set
+    /// every [`RECONCILE_INTERVAL`]: it starts capture on new interfaces,
+    /// restarts failed workers with bounded backoff, and stops workers whose
+    /// interface went away.
     fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
         let interfaces = capture_interfaces()?;
         let mut threads = self.threads.lock().expect("bpf thread mutex poisoned");
@@ -190,37 +209,32 @@ impl Sensor for BpfSensor {
             .map_err(|e| warn!("failed to spawn bpf attribution worker: {e}"))
             .ok();
 
-        for interface in interfaces {
-            let result = BpfDevice::open(&interface).and_then(|device| {
-                set_interface_status(&interface, true, Some(device.link_type), None);
-                info!(interface = %interface, link_type = device.link_type,
-                    buffer_len = device.buffer_len, "bpf capture device ready");
-                let shutdown = Arc::clone(&self.shutdown);
-                let tx = tx.clone();
-                let attribution_tx = attribution_tx.clone();
-                std::thread::Builder::new()
-                    .name(format!("rustinel-bpf-{interface}"))
-                    .spawn(move || run_capture(device, tx, shutdown, attribution_tx))
-                    .map_err(|e| anyhow!("failed to spawn bpf capture thread: {e}"))
-            });
-            match result {
+        let mut supervisor = Supervisor::new(tx, attribution_tx);
+        supervisor.reconcile(&interfaces, Instant::now());
+        let started = supervisor.has_workers();
+        let mut result = if started {
+            Ok(())
+        } else {
+            Err(anyhow!("no capture interfaces available"))
+        };
+        if started {
+            let shutdown = Arc::clone(&self.shutdown);
+            match std::thread::Builder::new()
+                .name("rustinel-bpf-supervisor".to_string())
+                .spawn(move || supervisor.run(shutdown))
+            {
                 Ok(handle) => threads.push(handle),
-                Err(error) => {
-                    warn!(interface = %interface, %error, "bpf interface unavailable");
-                    set_interface_status(&interface, false, None, Some(error.to_string()));
-                }
+                Err(e) => result = Err(anyhow!("failed to spawn bpf supervisor thread: {e}")),
             }
+        } else {
+            drop(supervisor);
         }
-        let started = !threads.is_empty();
-        drop(attribution_tx);
         if let Some(worker) = attribution_worker {
-            // Join captures first, then the shared worker after every sender closes.
+            // Join the supervisor (and so every capture thread) first, then the
+            // shared worker once every sender has closed.
             threads.push(worker);
         }
-        if !started {
-            return Err(anyhow!("no capture interfaces available"));
-        }
-        Ok(())
+        result
     }
 
     fn shutdown(&self) {
@@ -234,6 +248,240 @@ impl Sensor for BpfSensor {
             let _ = handle.join();
         }
     }
+}
+
+/// A running per-interface capture thread.
+struct Worker {
+    stop: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+    started: Instant,
+}
+
+/// Restart bookkeeping for an interface that has failed.
+struct Retry {
+    failures: u32,
+    next_attempt: Instant,
+}
+
+/// Owns every capture worker and reconciles them against the interface set.
+struct Supervisor {
+    tx: Sender<SensorEvent>,
+    attribution_tx: SyncSender<AttributionJob>,
+    workers: BTreeMap<String, Worker>,
+    retries: BTreeMap<String, Retry>,
+}
+
+impl Supervisor {
+    fn new(tx: Sender<SensorEvent>, attribution_tx: SyncSender<AttributionJob>) -> Self {
+        Self {
+            tx,
+            attribution_tx,
+            workers: BTreeMap::new(),
+            retries: BTreeMap::new(),
+        }
+    }
+
+    fn has_workers(&self) -> bool {
+        !self.workers.is_empty()
+    }
+
+    fn run(mut self, shutdown: Arc<AtomicBool>) {
+        let mut last = Instant::now();
+        while !shutdown.load(Ordering::Relaxed) {
+            std::thread::sleep(SUPERVISOR_TICK);
+            if last.elapsed() < RECONCILE_INTERVAL {
+                continue;
+            }
+            last = Instant::now();
+            match capture_interfaces() {
+                Ok(desired) => self.reconcile(&desired, Instant::now()),
+                // Keep the current workers: a transient getifaddrs failure
+                // must not tear down healthy capture.
+                Err(error) => warn!(%error, "bpf interface enumeration failed"),
+            }
+        }
+        self.stop_all();
+    }
+
+    /// One reconcile pass: reap dead workers, stop workers for interfaces that
+    /// are gone, and start (or retry) capture on the rest.
+    fn reconcile(&mut self, desired: &BTreeSet<String>, now: Instant) {
+        self.reap(now);
+        let running: BTreeSet<String> = self.workers.keys().cloned().collect();
+        let (start, stop) = plan_reconcile(desired, &running);
+        for interface in stop {
+            if let Some(worker) = self.workers.remove(&interface) {
+                worker.stop.store(true, Ordering::SeqCst);
+                let _ = worker.handle.join();
+            }
+            info!(interface = %interface, "bpf interface removed, capture stopped");
+        }
+        // Forget interfaces that are gone, including ones that never started.
+        let gone: Vec<String> = self
+            .retries
+            .keys()
+            .filter(|name| !desired.contains(*name))
+            .cloned()
+            .collect();
+        for interface in gone {
+            self.retries.remove(&interface);
+        }
+        remove_interface_status(|name| !desired.contains(name));
+        for interface in start {
+            if self
+                .retries
+                .get(&interface)
+                .is_some_and(|retry| retry.next_attempt > now)
+            {
+                continue;
+            }
+            self.start_worker(&interface, now);
+        }
+    }
+
+    /// Collect workers whose thread exited on its own and schedule a restart.
+    fn reap(&mut self, now: Instant) {
+        let finished: Vec<String> = self
+            .workers
+            .iter()
+            .filter(|(_, worker)| worker.handle.is_finished())
+            .map(|(name, _)| name.clone())
+            .collect();
+        for interface in finished {
+            let Some(worker) = self.workers.remove(&interface) else {
+                continue;
+            };
+            let uptime = now.saturating_duration_since(worker.started);
+            let _ = worker.handle.join();
+            warn!(interface = %interface, ?uptime, "bpf capture worker exited, scheduling restart");
+            let previous = self.retries.get(&interface).map_or(0, |r| r.failures);
+            self.record_failure(&interface, now, uptime, previous, None);
+        }
+    }
+
+    fn start_worker(&mut self, interface: &str, now: Instant) {
+        match self.spawn_worker(interface) {
+            Ok(worker) => {
+                if self.retries.contains_key(interface) {
+                    info!(interface = %interface, "bpf capture restarted");
+                    note_restart(interface);
+                }
+                self.workers.insert(interface.to_string(), worker);
+            }
+            Err(error) => {
+                warn!(interface = %interface, %error, "bpf interface unavailable");
+                let previous = self.retries.get(interface).map_or(0, |r| r.failures);
+                self.record_failure(interface, now, Duration::ZERO, previous, Some(error));
+            }
+        }
+    }
+
+    fn spawn_worker(&self, interface: &str) -> Result<Worker> {
+        let device = BpfDevice::open(interface)?;
+        set_interface_status(interface, true, Some(device.link_type), None);
+        info!(interface = %interface, link_type = device.link_type,
+            buffer_len = device.buffer_len, "bpf capture device ready");
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let tx = self.tx.clone();
+        let attribution_tx = self.attribution_tx.clone();
+        let handle = std::thread::Builder::new()
+            .name(format!("rustinel-bpf-{interface}"))
+            .spawn(move || run_capture(device, tx, worker_stop, attribution_tx))
+            .map_err(|e| anyhow!("failed to spawn bpf capture thread: {e}"))?;
+        Ok(Worker {
+            stop,
+            handle,
+            started: Instant::now(),
+        })
+    }
+
+    /// Schedule the next attempt and surface persistent failure in telemetry.
+    fn record_failure(
+        &mut self,
+        interface: &str,
+        now: Instant,
+        uptime: Duration,
+        previous: u32,
+        error: Option<anyhow::Error>,
+    ) {
+        let failures = next_failure_count(previous, uptime);
+        let delay = restart_delay(failures);
+        self.retries.insert(
+            interface.to_string(),
+            Retry {
+                failures,
+                next_attempt: now + delay,
+            },
+        );
+        let persistent = failures >= PERSISTENT_FAILURE_THRESHOLD;
+        if failures == PERSISTENT_FAILURE_THRESHOLD {
+            error!(interface = %interface, failures,
+                "bpf capture is failing persistently, still retrying with backoff");
+        }
+        let cause = error
+            .map(|e| e.to_string())
+            .or_else(|| recorded_interface_error(interface))
+            .unwrap_or_else(|| "capture worker exited".to_string());
+        let message = format!(
+            "{}{cause} (failure {failures}, retry in {}s)",
+            if persistent {
+                "persistent failure: "
+            } else {
+                ""
+            },
+            delay.as_secs()
+        );
+        set_interface_status(interface, false, None, Some(message));
+    }
+
+    fn stop_all(&mut self) {
+        for worker in self.workers.values() {
+            worker.stop.store(true, Ordering::SeqCst);
+        }
+        for (_, worker) in std::mem::take(&mut self.workers) {
+            let _ = worker.handle.join();
+        }
+    }
+}
+
+impl Drop for Supervisor {
+    fn drop(&mut self) {
+        // Workers that outlive the supervisor must still observe shutdown.
+        for worker in self.workers.values() {
+            worker.stop.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Which interfaces need a worker started, and which workers must be stopped.
+fn plan_reconcile(
+    desired: &BTreeSet<String>,
+    running: &BTreeSet<String>,
+) -> (Vec<String>, Vec<String>) {
+    (
+        desired.difference(running).cloned().collect(),
+        running.difference(desired).cloned().collect(),
+    )
+}
+
+/// Consecutive failure count after another failure. A worker that stayed up
+/// for [`STABLE_UPTIME`] is treated as healthy, so its next failure starts a
+/// fresh backoff rather than extending a stale one.
+fn next_failure_count(previous: u32, uptime: Duration) -> u32 {
+    if uptime >= STABLE_UPTIME {
+        1
+    } else {
+        previous.saturating_add(1)
+    }
+}
+
+/// Exponential restart delay: 1s, 2s, 4s, ... capped at [`RESTART_BACKOFF_MAX`].
+fn restart_delay(failures: u32) -> Duration {
+    let shift = failures.saturating_sub(1).min(16);
+    RESTART_BACKOFF_INITIAL
+        .saturating_mul(1u32 << shift)
+        .min(RESTART_BACKOFF_MAX)
 }
 
 fn capture_interfaces() -> Result<BTreeSet<String>> {
@@ -290,6 +538,36 @@ fn set_interface_status(
         entry.link_type = link_type;
     }
     entry.error = error;
+}
+
+/// The error a capture worker recorded just before it exited, if any.
+fn recorded_interface_error(interface: &str) -> Option<String> {
+    let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    collectors
+        .bpf
+        .as_ref()?
+        .interfaces
+        .get(interface)?
+        .error
+        .clone()
+}
+
+/// Drop telemetry entries for interfaces matching `gone`, so a removed
+/// interface does not linger as a stale (or stale-active) entry.
+fn remove_interface_status(gone: impl Fn(&str) -> bool) {
+    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    if let Some(bpf) = collectors.bpf.as_mut() {
+        bpf.interfaces.retain(|name, _| !gone(name));
+    }
+}
+
+fn note_restart(interface: &str) {
+    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    let bpf = collectors.bpf.get_or_insert_with(Default::default);
+    bpf.interfaces
+        .entry(interface.to_string())
+        .or_default()
+        .restarts += 1;
 }
 
 #[repr(C)]
@@ -860,6 +1138,77 @@ mod tests {
         record
     }
 
+    fn names(items: &[&str]) -> BTreeSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn plan_reconcile_starts_new_and_stops_removed_interfaces() {
+        let (start, stop) = plan_reconcile(&names(&["en0", "en1"]), &names(&["en0", "utun3"]));
+        assert_eq!(start, vec!["en1".to_string()]);
+        assert_eq!(stop, vec!["utun3".to_string()]);
+
+        let (start, stop) = plan_reconcile(&names(&["en0"]), &names(&["en0"]));
+        assert!(start.is_empty() && stop.is_empty());
+    }
+
+    #[test]
+    fn restart_delay_doubles_and_is_capped() {
+        let delays: Vec<u64> = (1..=8).map(|n| restart_delay(n).as_secs()).collect();
+        assert_eq!(delays, vec![1, 2, 4, 8, 16, 32, 60, 60]);
+        assert_eq!(restart_delay(u32::MAX), RESTART_BACKOFF_MAX);
+    }
+
+    #[test]
+    fn failure_count_resets_after_a_stable_run() {
+        assert_eq!(next_failure_count(3, Duration::from_secs(1)), 4);
+        assert_eq!(next_failure_count(3, STABLE_UPTIME), 1);
+        assert_eq!(next_failure_count(u32::MAX, Duration::ZERO), u32::MAX);
+    }
+
+    fn supervisor() -> Supervisor {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let (attribution_tx, _attribution_rx) = std::sync::mpsc::sync_channel(1);
+        Supervisor::new(tx, attribution_tx)
+    }
+
+    #[test]
+    fn failed_open_backs_off_and_reports_persistent_failure() {
+        let name = "nonexistent-bpf-test0";
+        let mut supervisor = supervisor();
+        let desired = names(&[name]);
+        let mut now = Instant::now();
+        for failures in 1..=PERSISTENT_FAILURE_THRESHOLD {
+            supervisor.reconcile(&desired, now);
+            assert!(!supervisor.has_workers());
+            assert_eq!(supervisor.retries[name].failures, failures);
+            // Inside the backoff window no new attempt is made.
+            supervisor.reconcile(&desired, now);
+            assert_eq!(supervisor.retries[name].failures, failures);
+            now += restart_delay(failures);
+        }
+        let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+        let entry = &collectors.bpf.as_ref().unwrap().interfaces[name];
+        assert!(!entry.active);
+        assert!(entry
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("persistent failure: "));
+        drop(collectors);
+
+        // The interface disappearing clears its retry state and telemetry.
+        supervisor.reconcile(&BTreeSet::new(), now);
+        assert!(supervisor.retries.is_empty());
+        let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+        assert!(!collectors
+            .bpf
+            .as_ref()
+            .unwrap()
+            .interfaces
+            .contains_key(name));
+    }
+
     #[test]
     fn bpf_filter_accepts_and_ends_with_a_drop() {
         // BPF_RET | BPF_K: a terminating return with an immediate operand.
@@ -1219,6 +1568,43 @@ level: high
 
     /// Run alone as root. The override can include a nonexistent interface to
     /// verify that its failure does not stop loopback capture.
+    fn interface_status(name: &str) -> Option<crate::telemetry::BpfInterfaceSnapshot> {
+        let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+        collectors.bpf.as_ref()?.interfaces.get(name).cloned()
+    }
+
+    #[test]
+    #[ignore = "requires root and BPF access"]
+    fn live_supervisor_restarts_isolates_and_removes_workers() {
+        let mut supervisor = supervisor();
+        let mut now = Instant::now();
+
+        // A bogus interface fails without disturbing healthy loopback capture.
+        supervisor.reconcile(&names(&["lo0", "nonexistent-bpf-live0"]), now);
+        assert!(interface_status("lo0").unwrap().active);
+        assert!(!interface_status("nonexistent-bpf-live0").unwrap().active);
+
+        // Kill the lo0 worker: it is reaped, then restarted after the backoff.
+        supervisor.workers["lo0"].stop.store(true, Ordering::SeqCst);
+        while !supervisor.workers["lo0"].handle.is_finished() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        now += Duration::from_secs(1);
+        supervisor.reconcile(&names(&["lo0"]), now);
+        assert!(!supervisor.has_workers());
+        assert!(!interface_status("lo0").unwrap().active);
+        now += restart_delay(1);
+        supervisor.reconcile(&names(&["lo0"]), now);
+        let lo0 = interface_status("lo0").unwrap();
+        assert!(lo0.active && lo0.error.is_none());
+        assert_eq!(lo0.restarts, 1);
+
+        // Removing the interface stops the worker and clears its status.
+        supervisor.reconcile(&BTreeSet::new(), now);
+        assert!(!supervisor.has_workers());
+        assert!(interface_status("lo0").is_none());
+    }
+
     #[test]
     #[ignore = "requires root, BPF access, and an available loopback UDP port 53"]
     fn live_bpf_capture_attributes_dns() {

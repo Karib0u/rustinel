@@ -16,7 +16,7 @@ Fields a platform never fills are listed in [Field availability](field-availabil
 | Correlation rules (`event_count`, `value_count`, `temporal`, ...) | Yes, windows use event time |
 | Filter rules | Yes |
 
-Rules are loaded recursively from `scanner.sigma_rules_path`.
+Rules are loaded recursively from `scanner.sigma_rules_path` and from every directory in `scanner.sigma_local_rules_paths`.
 A correlation or filter can reference a rule in another file.
 A filter must name its target rules by id, name, or title under `filter.rules`.
 A filter with `rules: any`, an empty list, or no `rules` key is not loaded, because it would suppress matches for every rule in the tree; `rustinel doctor` reports it as `untargeted_filter`.

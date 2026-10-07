@@ -73,6 +73,41 @@ rules/
 └── state.json    active pack ID and version
 ```
 
+## Keep local rules next to a pack
+
+`rules install` and `rules update` replace `rules/current` and nothing else.
+Put your own detections in a sibling directory and list it, so the pack and your rules load together:
+
+```text
+rules/
+├── current/      managed pack, replaced by install and update
+├── local/        yours: sigma/ and yara/, never touched
+├── staging/
+└── state.json
+```
+
+```toml
+[scanner]
+sigma_local_rules_paths = ["/var/lib/rustinel/rules/local/sigma"]
+yara_local_rules_paths = ["/var/lib/rustinel/rules/local/yara"]
+```
+
+The managed layout puts `rules` at `/var/lib/rustinel/rules` on Linux, `/Library/Application Support/Rustinel/rules` on macOS, and `C:\ProgramData\Rustinel\rules` on Windows.
+Both options take a list, and a relative path is resolved against the config file.
+The single `sigma_rules_path` and `yara_rules_path` keep working and still name the pack.
+
+Each local directory is read recursively and held to the same [input trust](security.md) checks as the pack.
+Hot reload watches them too.
+If one local directory fails validation, the reload is rejected and the previous rules stay active, so fix or remove the directory named in the log.
+
+A local rule wins over a pack rule that has the same Sigma `id` or the same YARA rule name.
+The pack rule is dropped, and startup, the log, and `rustinel doctor` name the pack and local sources.
+Rules without an `id` never collide.
+`rustinel doctor` lists every directory with its rule count (`sigma_rules_dirs`, `yara_rules_dirs`) and reports collisions (`sigma_rules_collision`, `yara_rules_collision`).
+
+Local directories apply to Sigma and YARA only.
+IOC files keep a single path.
+
 ## Manual installation
 
 Download a pack ZIP, `index.json`, and `index.json.minisig` from the same [rules release](https://github.com/Karib0u/rustinel-rules/releases/latest).

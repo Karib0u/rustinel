@@ -58,8 +58,25 @@ pub fn ensure_output_directory(directory: &Path) -> io::Result<()> {
 
 /// Open a regular owner-controlled file without following its final symlink.
 pub fn open_output_file(path: &Path, append: bool) -> io::Result<fs::File> {
+    open_owned_file(path, append, false)
+}
+
+/// Create a new regular file, failing with [`io::ErrorKind::AlreadyExists`]
+/// when anything, including a dangling symlink, already occupies the path.
+/// The existence check and the creation are one atomic operation, so a
+/// destination that appears after an earlier validation is still refused.
+pub fn create_new_output_file(path: &Path) -> io::Result<fs::File> {
+    open_owned_file(path, false, true)
+}
+
+fn open_owned_file(path: &Path, append: bool, exclusive: bool) -> io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
-    options.write(true).create(true);
+    options.write(true);
+    if exclusive {
+        options.create_new(true);
+    } else {
+        options.create(true);
+    }
     if append {
         options.append(true);
     }
@@ -112,7 +129,7 @@ pub fn open_output_file(path: &Path, append: bool) -> io::Result<fs::File> {
     }
     #[cfg(windows)]
     check_windows_owner(&file, path)?;
-    if !append {
+    if !append && !exclusive {
         file.set_len(0)?;
     }
     Ok(file)
@@ -178,10 +195,69 @@ pub fn restrict_file_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Whether anything, including a dangling symlink, occupies `path`.
+pub fn path_is_occupied(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(err),
+    }
+}
+
+/// Whether two paths name the same file: the same canonical path, or on Unix
+/// the same device and inode, which also catches hard links.
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    if let (Ok(a), Ok(b)) = (fs::canonicalize(a), fs::canonicalize(b)) {
+        if a == b {
+            return true;
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(a), Ok(b)) = (fs::metadata(a), fs::metadata(b)) {
+            return a.dev() == b.dev() && a.ino() == b.ino();
+        }
+    }
+    false
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn exclusive_creation_refuses_existing_files_and_dangling_links() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let existing = temp.path().join("existing");
+        fs::write(&existing, b"evidence").expect("write");
+        let err = create_new_output_file(&existing).expect_err("existing file refused");
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&existing).expect("read"), b"evidence");
+
+        let link = temp.path().join("dangling");
+        std::os::unix::fs::symlink(temp.path().join("missing"), &link).expect("symlink");
+        assert!(create_new_output_file(&link).is_err());
+        assert!(!temp.path().join("missing").exists());
+    }
+
+    #[test]
+    fn same_file_sees_symlinks_and_hard_links() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let original = temp.path().join("a");
+        fs::write(&original, b"x").expect("write");
+        let soft = temp.path().join("soft");
+        let hard = temp.path().join("hard");
+        std::os::unix::fs::symlink(&original, &soft).expect("symlink");
+        fs::hard_link(&original, &hard).expect("hard link");
+        let other = temp.path().join("other");
+        fs::write(&other, b"x").expect("write");
+
+        assert!(same_file(&original, &soft));
+        assert!(same_file(&original, &hard));
+        assert!(!same_file(&original, &other));
+    }
 
     #[test]
     fn restricts_file_to_the_owner() {

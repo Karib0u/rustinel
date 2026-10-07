@@ -274,6 +274,26 @@ fn update_installs_active_pack_and_requires_restart() {
 }
 
 #[test]
+fn install_and_update_leave_local_rule_directories_untouched() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = pack_zip(current_os(), "demo-pack");
+    let mut catalog = catalog_for("demo-pack", current_os(), &archive);
+    install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive).unwrap();
+    let local_rule = temp.path().join("local/sigma/mine.yml");
+    fs::create_dir_all(local_rule.parent().unwrap()).unwrap();
+    fs::write(&local_rule, b"title: Mine\n").unwrap();
+
+    let state = load_update_state(temp.path()).unwrap();
+    catalog.packs[0].version = "v0.2.0".into();
+    update_active_pack(&catalog, &state, temp.path(), |_| Ok(archive.clone()))
+        .unwrap()
+        .unwrap();
+    install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive).unwrap();
+
+    assert_eq!(fs::read(&local_rule).unwrap(), b"title: Mine\n");
+}
+
+#[test]
 fn update_rejects_incompatible_missing_or_invalid_versions_before_download() {
     let temp = tempfile::tempdir().unwrap();
     let archive = pack_zip(current_os(), "demo-pack");

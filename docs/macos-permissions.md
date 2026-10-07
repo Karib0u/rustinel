@@ -37,7 +37,11 @@ If Endpoint Security refuses the client, the error ends with one of these codes:
 ## Network and DNS
 
 Network and DNS events come from packet capture on `/dev/bpf*`, which needs root.
-Rustinel captures on every interface that is up when it starts.
+Rustinel captures on every interface that is up, and re-checks the interface list every 5 seconds.
+An interface that comes up later starts capturing without a restart, and capture stops cleanly when an interface goes away.
+A capture worker that fails is restarted with a delay that doubles from 1 second up to 60 seconds.
+After 5 consecutive failures the interface is reported as a persistent failure in `telemetry.json` and `rustinel doctor`, and restarts continue at the 60 second cap.
+A failing interface does not affect capture on the others.
 If capture cannot start, Rustinel logs a warning and keeps collecting process and file events.
 
 To limit capture to some interfaces, set `RUSTINEL_BPF_INTERFACE` to a comma-separated list such as `en0,utun0`.
