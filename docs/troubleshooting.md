@@ -144,6 +144,7 @@ CRITICAL: ETW sensor thread died unexpectedly
 Packet capture needs root.
 If it cannot start, the log says `macOS network/DNS sensor unavailable` and process and file events continue.
 Check the `macos_bpf_interface_<name>` results in `doctor`.
+Failed capture workers are restarted automatically with backoff; `persistent failure` in the error means five consecutive failures.
 
 ## Reporting a bug
 

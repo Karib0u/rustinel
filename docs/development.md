@@ -98,6 +98,8 @@ scripts/macos/package-app.sh \
 
 Grant the bundle Full Disk Access, then run `sudo ./target/release/Rustinel.app/Contents/MacOS/rustinel run`.
 
+`scripts/macos/test-bpf-lifecycle.sh` builds and signs the bundle, then checks interface reconcile, restart, and removal with a live test and a `feth` interface; it needs root and a Terminal with Full Disk Access.
+
 On a SIP-disabled test Mac, `--adhoc` replaces `--profile` and `--identity`.
 Never use it on a normal Mac.
 
