@@ -46,6 +46,10 @@ If something fails, check the [requirements](installation.md#requirements).
     .\rustinel.exe run
     ```
 
+The first elevated run creates the `logs` folder, owned by root.
+The package does not ship one, because Rustinel refuses an output folder that belongs to another account.
+If startup fails on the log folder, the message names it and nothing is changed.
+
 ## 3. Trigger the demo rule
 
 In a second terminal:

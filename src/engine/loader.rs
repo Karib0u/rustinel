@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use rsigma_parser::{
@@ -17,6 +17,8 @@ use rsigma_parser::{
 };
 use serde::Deserialize;
 use tracing::{debug, info, warn};
+
+use crate::utils::rule_dirs::{RuleCollision, RuleDirectoryReport, RuleDirectoryRole};
 
 use super::logsource::{logsource_key, normalize_logsource_in_place};
 use super::{Engine, RuleLoadDecision, UnsupportedRuleKind};
@@ -41,6 +43,14 @@ struct DocumentSources {
 }
 
 impl DocumentSources {
+    fn extend(&mut self, other: DocumentSources) {
+        self.rules.extend(other.rules);
+        self.correlations.extend(other.correlations);
+        self.filters.extend(other.filters);
+        self.temporal_without_condition
+            .extend(other.temporal_without_condition);
+    }
+
     fn add_collection(
         &mut self,
         source_path: &str,
@@ -141,17 +151,119 @@ impl Engine {
         rules_dir: P,
         trust: Option<&crate::utils::trust::RuleTrust>,
     ) -> Result<()> {
-        let rules_dir = rules_dir.as_ref();
+        self.load_rule_dirs_with_trust(rules_dir.as_ref(), &[], trust)
+    }
 
-        if !rules_dir.exists() {
-            info!("Rules directory does not exist: {:?}", rules_dir);
-            return Ok(());
+    /// Load the managed pack directory and then each local directory into one
+    /// rule set. Every directory is trust-checked before anything is read, and
+    /// any failure rejects the whole load. A local rule that reuses the `id` of
+    /// a rule from an earlier directory replaces it and is recorded as a
+    /// collision.
+    pub fn load_rule_dirs_with_trust(
+        &mut self,
+        pack_dir: &Path,
+        local_dirs: &[PathBuf],
+        trust: Option<&crate::utils::trust::RuleTrust>,
+    ) -> Result<()> {
+        let directories = std::iter::once((pack_dir, RuleDirectoryRole::Pack))
+            .chain(
+                local_dirs
+                    .iter()
+                    .map(|dir| (dir.as_path(), RuleDirectoryRole::Local)),
+            )
+            .collect::<Vec<_>>();
+
+        let mut collection = SigmaCollection::new();
+        let mut sources = DocumentSources::default();
+        let mut reports = Vec::new();
+        let mut collisions = Vec::new();
+
+        for (dir, role) in directories {
+            let mut report = RuleDirectoryReport::new(dir, role);
+            if !dir.exists() {
+                info!("Rules directory does not exist: {:?}", dir);
+                reports.push(report);
+                continue;
+            }
+
+            crate::utils::trust::verify_rule_input(dir, trust).with_context(|| {
+                format!("{} Sigma rules directory {}", role.as_str(), dir.display())
+            })?;
+            info!(
+                role = role.as_str(),
+                "Loading Sigma rules from: {:?} (recursive)", dir
+            );
+
+            let files_before = self.rule_files_found;
+            let mut dir_collection = SigmaCollection::new();
+            let mut dir_sources = DocumentSources::default();
+            self.collect_rules_recursive(dir, &mut dir_collection, &mut dir_sources)
+                .with_context(|| {
+                    format!("{} Sigma rules directory {}", role.as_str(), dir.display())
+                })?;
+            report.files = self.rule_files_found - files_before;
+
+            if role == RuleDirectoryRole::Local {
+                for rule in &dir_collection.rules {
+                    let Some(id) = rule.id.as_deref() else {
+                        continue;
+                    };
+                    let overridden = collection
+                        .rules
+                        .iter()
+                        .find(|earlier| earlier.id.as_deref() == Some(id))
+                        .map(|earlier| sources.rule_path(earlier));
+                    let Some(overridden) = overridden else {
+                        continue;
+                    };
+                    collection
+                        .rules
+                        .retain(|earlier| earlier.id.as_deref() != Some(id));
+                    let collision = RuleCollision {
+                        rule_id: id.to_string(),
+                        overridden,
+                        winner: dir_sources.rule_path(rule),
+                    };
+                    warn!(
+                        rule_id = %collision.rule_id,
+                        overridden = %collision.overridden,
+                        winner = %collision.winner,
+                        "Local Sigma rule replaces a rule with the same id"
+                    );
+                    collisions.push(collision);
+                }
+            }
+
+            collection.rules.extend(dir_collection.rules);
+            collection.correlations.extend(dir_collection.correlations);
+            collection.filters.extend(dir_collection.filters);
+            sources.extend(dir_sources);
+            reports.push(report);
         }
 
-        crate::utils::trust::verify_rule_input(rules_dir, trust)?;
-        info!("Loading Sigma rules from: {:?} (recursive)", rules_dir);
-
-        self.load_rules_recursive(rules_dir)?;
+        let loaded_sources = self.load_collection(collection, sources)?;
+        for source in &loaded_sources {
+            let owner = reports
+                .iter_mut()
+                .filter(|report| Path::new(source).starts_with(&report.path))
+                .max_by_key(|report| report.path.components().count());
+            if let Some(report) = owner {
+                report.rules += 1;
+            }
+        }
+        for report in &reports {
+            info!(
+                role = report.role.as_str(),
+                path = ?report.path,
+                files = report.files,
+                rules = report.rules,
+                exists = report.exists,
+                "Sigma rules directory loaded"
+            );
+        }
+        self.directories = reports;
+        self.collisions = collisions;
+        let rules_dir = pack_dir;
 
         let stats = self.stats();
         info!("Loaded {} Sigma rules total", stats.total_rules);
@@ -207,14 +319,6 @@ impl Engine {
         }
 
         Ok(())
-    }
-
-    /// Parse all rule files, then compile the filtered collection once.
-    pub(crate) fn load_rules_recursive<P: AsRef<Path>>(&mut self, dir: P) -> Result<()> {
-        let mut collection = SigmaCollection::new();
-        let mut sources = DocumentSources::default();
-        self.collect_rules_recursive(dir.as_ref(), &mut collection, &mut sources)?;
-        self.load_collection(collection, sources)
     }
 
     fn collect_rules_recursive(
@@ -279,8 +383,13 @@ impl Engine {
         Ok(errors)
     }
 
-    fn load_collection(&mut self, parsed: SigmaCollection, sources: DocumentSources) -> Result<()> {
+    fn load_collection(
+        &mut self,
+        parsed: SigmaCollection,
+        sources: DocumentSources,
+    ) -> Result<Vec<String>> {
         let mut collection = SigmaCollection::new();
+        let mut loaded_sources = Vec::new();
         let mut loaded_rule_keys = HashSet::new();
         let mut filter_rule_keys = HashSet::new();
 
@@ -309,6 +418,7 @@ impl Engine {
             }
             add_detection_keys(&mut loaded_rule_keys, &rule);
             add_filter_keys(&mut filter_rule_keys, &rule);
+            loaded_sources.push(sources.rule_path(&rule));
             collection.rules.push(rule);
         }
 
@@ -326,7 +436,7 @@ impl Engine {
 
         self.store.add_collection(&collection)?;
         self.rule_count += collection.rules.len();
-        Ok(())
+        Ok(loaded_sources)
     }
 
     fn record_unresolved_reference(&mut self, source_path: &str, identity: String) {

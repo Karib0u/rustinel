@@ -125,6 +125,12 @@ pub struct Engine {
     /// Failed rule paths and error messages (for diagnostics)
     failed_rules: Vec<(String, String)>,
 
+    /// What each loaded rules directory contributed.
+    directories: Vec<crate::utils::rule_dirs::RuleDirectoryReport>,
+
+    /// Pack rules replaced by a local rule with the same id.
+    collisions: Vec<crate::utils::rule_dirs::RuleCollision>,
+
     /// Parsed documents dropped because their rule references do not resolve.
     unsupported_rules: Vec<UnsupportedRule>,
 
@@ -190,6 +196,8 @@ impl Engine {
             rule_count: 0,
             rule_files_found: 0,
             failed_rules: Vec::new(),
+            directories: Vec::new(),
+            collisions: Vec::new(),
             unsupported_rules: Vec::new(),
             skipped_product_rules: 0,
             skipped_deferred_rules: 0,

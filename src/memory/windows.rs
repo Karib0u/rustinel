@@ -1,3 +1,4 @@
+use super::protection::{classify, Protection};
 use super::{MemoryChunk, MemoryRegion, MemoryRegionKind, MemoryScanConfig, RegionReader};
 use anyhow::Result;
 use std::ops::ControlFlow;
@@ -6,37 +7,19 @@ use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::Memory::{
     VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE,
-    PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD,
-    PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
 };
 
-fn is_readable(protect: PAGE_PROTECTION_FLAGS) -> bool {
-    matches!(
-        protect,
-        PAGE_READONLY
-            | PAGE_READWRITE
-            | PAGE_WRITECOPY
-            | PAGE_EXECUTE_READ
-            | PAGE_EXECUTE_READWRITE
-            | PAGE_EXECUTE_WRITECOPY
-    )
-}
-
-fn is_writable(protect: PAGE_PROTECTION_FLAGS) -> bool {
-    matches!(
-        protect,
-        PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-    )
-}
-
-fn is_executable(protect: PAGE_PROTECTION_FLAGS) -> bool {
-    matches!(
-        protect,
-        PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-    )
+/// Per-process region counts, so an excluded region is distinguishable from a failed read.
+/// `excluded_*` regions were never read; `read_failed` regions were eligible but unreadable.
+#[derive(Default)]
+struct RegionStats {
+    eligible: usize,
+    excluded_protection: usize,
+    excluded_kind: usize,
+    read_failed: usize,
 }
 
 pub fn visit_process_memory_chunks(
@@ -67,6 +50,7 @@ pub fn visit_process_memory_chunks(
 
     let mut reader = RegionReader::new(cfg, deadline);
     let mut address: usize = 0;
+    let mut stats = RegionStats::default();
 
     loop {
         if reader.is_done() {
@@ -99,10 +83,16 @@ pub fn visit_process_memory_chunks(
             continue;
         }
 
-        let protect = mbi.Protect;
-        if protect == PAGE_NOACCESS || protect.contains(PAGE_GUARD) || !is_readable(protect) {
-            continue;
-        }
+        let (writable, executable) = match classify(mbi.Protect.0) {
+            Protection::Readable {
+                writable,
+                executable,
+            } => (writable, executable),
+            Protection::Guard | Protection::NoAccess | Protection::Unreadable => {
+                stats.excluded_protection += 1;
+                continue;
+            }
+        };
 
         let kind = if mbi.Type == MEM_PRIVATE {
             MemoryRegionKind::Private
@@ -122,6 +112,7 @@ pub fn visit_process_memory_chunks(
         };
 
         if !include {
+            stats.excluded_kind += 1;
             continue;
         }
 
@@ -129,11 +120,12 @@ pub fn visit_process_memory_chunks(
             base: region_base as u64,
             size: region_size,
             readable: true,
-            writable: is_writable(protect),
-            executable: is_executable(protect),
+            writable,
+            executable,
             kind,
         };
 
+        stats.eligible += 1;
         if reader
             .read_region(
                 region,
@@ -149,6 +141,7 @@ pub fn visit_process_memory_chunks(
                         )
                     };
                     if result.is_err() || bytes_read == 0 {
+                        stats.read_failed += 1;
                         tracing::trace!(
                             target: "scanner",
                             pid = pid,
@@ -172,5 +165,90 @@ pub fn visit_process_memory_chunks(
         let _ = CloseHandle(handle);
     }
 
+    tracing::debug!(
+        target: "scanner",
+        pid = pid,
+        eligible = stats.eligible,
+        excluded_protection = stats.excluded_protection,
+        excluded_kind = stats.excluded_kind,
+        read_failed = stats.read_failed,
+        "YARA memory: region summary"
+    );
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::System::Memory::{
+        VirtualAlloc, VirtualFree, VirtualProtect, MEM_RELEASE, MEM_RESERVE, PAGE_GUARD,
+        PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
+    };
+
+    const PAGE_NOCACHE: u32 = 0x200;
+    const PAGE_WRITECOMBINE: u32 = 0x400;
+
+    fn scan_config() -> MemoryScanConfig {
+        MemoryScanConfig {
+            max_process_bytes: usize::MAX / 2,
+            max_region_bytes: 1 << 20,
+            include_private: true,
+            include_image: false,
+            include_mapped: false,
+            delay_ms: 0,
+        }
+    }
+
+    /// Whether a scanned chunk covers `page`. Matching by address avoids finding a copy of
+    /// the marker on this test's own heap.
+    fn page_is_scanned(page: usize) -> bool {
+        let mut found = false;
+        visit_process_memory_chunks(std::process::id(), &scan_config(), None, |chunk| {
+            let start = chunk.base as usize;
+            if (start..start + chunk.bytes.len()).contains(&page) {
+                found = true;
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+        found
+    }
+
+    /// Commit one private page, apply `protect`, and run `check` with the page address.
+    fn with_page(protect: u32, check: impl FnOnce(usize)) {
+        unsafe {
+            let page = VirtualAlloc(None, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            assert!(!page.is_null());
+            std::ptr::write_bytes(page as *mut u8, 0x41, 4096);
+            let mut old = PAGE_PROTECTION_FLAGS(0);
+            VirtualProtect(page, 4096, PAGE_PROTECTION_FLAGS(protect), &mut old).unwrap();
+            check(page as usize);
+            let _ = VirtualFree(page, 0, MEM_RELEASE);
+        }
+    }
+
+    #[test]
+    fn pages_with_modifier_bits_are_scanned() {
+        for (name, protect) in [
+            ("rw", 0x04),
+            ("rw+nocache", 0x04 | PAGE_NOCACHE),
+            ("rw+writecombine", 0x04 | PAGE_WRITECOMBINE),
+            ("ro+nocache", 0x02 | PAGE_NOCACHE),
+        ] {
+            with_page(protect, |page| {
+                assert!(page_is_scanned(page), "{name} page not scanned");
+            });
+        }
+    }
+
+    #[test]
+    fn guard_and_no_access_pages_are_not_scanned() {
+        for (name, protect) in [("guard", 0x04 | PAGE_GUARD.0), ("noaccess", 0x01)] {
+            with_page(protect, |page| {
+                assert!(!page_is_scanned(page), "{name} page was scanned");
+            });
+        }
+    }
 }

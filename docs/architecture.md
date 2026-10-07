@@ -144,7 +144,7 @@ The loader refuses an object whose event ABI does not match.
 ## macOS sensor
 
 `EsfSensor` subscribes to Endpoint Security exec, exit, and file events.
-`BpfSensor` opens one `/dev/bpf` device per active interface and attributes flows to processes through a periodically refreshed socket list.
+`BpfSensor` opens one `/dev/bpf` device per active interface, reconciles the interface set every 5 seconds (starting, restarting, and stopping workers), and attributes flows to processes through a periodically refreshed socket list.
 Endpoint Security is required; packet capture is best effort.
 
 ## Callback panic audit

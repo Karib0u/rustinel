@@ -28,7 +28,9 @@ use crate::capture::manifest::{
 };
 use crate::models::CanonicalEvent;
 use crate::sensor::Platform;
-use crate::utils::fs::{ensure_output_directory, open_output_file};
+use crate::utils::fs::{
+    create_new_output_file, ensure_output_directory, open_output_file, path_is_occupied,
+};
 use crate::utils::{now_timestamp_string, LogRateLimiter};
 
 /// Target name for capture operational logs.
@@ -169,7 +171,12 @@ impl CaptureRecorder {
         let file = create_payload_file(&payload_path)?;
 
         let manifest = CaptureManifest::started(&payload_path, platform, now_timestamp_string());
-        write_manifest(&manifest_path, &manifest)?;
+        if let Err(err) = create_manifest_file(&manifest_path, &manifest) {
+            // Only the payload this call just created is removed; the
+            // manifest path was never ours when creation failed.
+            let _ = std::fs::remove_file(&payload_path);
+            return Err(err);
+        }
 
         let counters = Arc::new(CaptureCounters::default());
         let (tx, rx) = mpsc::channel::<String>(QUEUE_CAPACITY);
@@ -294,8 +301,37 @@ fn create_payload_file(payload_path: &Path) -> anyhow::Result<File> {
         )
     })?;
 
-    open_output_file(payload_path, false)
+    // Both halves of the pair are checked before either is created, so a
+    // payload-only or manifest-only collision leaves everything untouched.
+    let manifest_path = manifest_path_for(payload_path);
+    for existing in [payload_path, manifest_path.as_path()] {
+        if path_is_occupied(existing)
+            .with_context(|| format!("failed to inspect {}", existing.display()))?
+        {
+            anyhow::bail!(
+                "refusing to overwrite existing file {}; choose a new --output path or remove it first",
+                existing.display()
+            );
+        }
+    }
+
+    create_new_output_file(payload_path)
         .with_context(|| format!("failed to create recording {}", payload_path.display()))
+}
+
+/// Create the manifest sidecar exclusively and write its initial contents.
+fn create_manifest_file(manifest_path: &Path, manifest: &CaptureManifest) -> anyhow::Result<()> {
+    let body = serde_json::to_string_pretty(manifest).context("failed to serialize manifest")?;
+    let mut file = create_new_output_file(manifest_path)
+        .with_context(|| format!("failed to create manifest {}", manifest_path.display()))?;
+    let written = file.write_all(format!("{body}\n").as_bytes());
+    if let Err(err) = written {
+        drop(file);
+        let _ = std::fs::remove_file(manifest_path);
+        return Err(err)
+            .with_context(|| format!("failed to write manifest {}", manifest_path.display()));
+    }
+    Ok(())
 }
 
 fn write_manifest(manifest_path: &Path, manifest: &CaptureManifest) -> anyhow::Result<()> {
@@ -640,5 +676,30 @@ mod tests {
         std::os::unix::fs::symlink(&target, temp.path().join("capture.ndjson")).unwrap();
         assert!(create_payload_file(&temp.path().join("capture.ndjson")).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"safe");
+    }
+
+    #[test]
+    fn existing_payload_or_manifest_is_refused_untouched() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = temp.path().join("session.ndjson");
+        let manifest = manifest_path_for(&payload);
+
+        for (occupied, free) in [(&payload, &manifest), (&manifest, &payload)] {
+            std::fs::write(occupied, b"evidence").unwrap();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let _guard = runtime.enter();
+            let err = CaptureRecorder::start(payload.clone(), Platform::MacOS)
+                .err()
+                .expect("collision refused");
+            assert!(
+                err.to_string().contains(&occupied.display().to_string()),
+                "{err}"
+            );
+            assert_eq!(std::fs::read(occupied).unwrap(), b"evidence");
+            assert!(!free.exists(), "no misleading half pair");
+            std::fs::remove_file(occupied).unwrap();
+        }
     }
 }

@@ -78,9 +78,11 @@ Sigma and YARA rules, YARA scan limits, and optional memory scanning.
 | --- | --- | --- |
 | `sigma_enabled` | `true` | Evaluate Sigma rules. |
 | `sigma_rules_path` | `"rules/current/sigma"` | Sigma rules directory, loaded recursively. |
+| `sigma_local_rules_paths` | `[]` | Extra Sigma directories, loaded recursively after the managed pack. `rules install` and `rules update` never touch them, and a local rule wins over a pack rule with the same `id`. |
 | `sigma_match_mode` | `"best"` | `best` emits the highest-severity detection per pass; `all` emits every matching detection rule. |
 | `yara_enabled` | `true` | Scan new process executables and qualifying files written to disk with YARA. |
 | `yara_rules_path` | `"rules/current/yara"` | Directory of `.yar` and `.yara` files, loaded recursively. |
+| `yara_local_rules_paths` | `[]` | Extra YARA directories, compiled after the managed pack. `rules install` and `rules update` never touch them, and a local rule wins over a pack rule with the same name. |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Path prefixes YARA never scans. Replaces `allowlist.paths` for YARA once set. |
 | `yara_scan_timeout_ms` | `10000` | Time limit for one file scan, or for all memory reads of one process. `0` disables it. |
 | `yara_max_file_mb` | `64` | Larger files are reported as oversized instead of scanned. `0` disables the limit. |
@@ -89,9 +91,9 @@ Sigma and YARA rules, YARA scan limits, and optional memory scanning.
 | `yara_memory_delay_ms` | `750` | Wait after process start before reading memory, so packed code can unpack. |
 | `yara_memory_max_process_mb` | `64` | Stop reading a process after this many MB. |
 | `yara_memory_max_region_mb` | `8` | Most memory read from one region at a time, in MB. |
-| `yara_memory_include_private` | `true` | Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded. On macOS, the dyld shared cache counts as library memory and is scanned under the image and mapped options instead. |
+| `yara_memory_include_private` | `true` | Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded. On macOS, the dyld shared cache counts as library memory and is scanned under the image and mapped options instead. On Windows, committed `MEM_PRIVATE` regions are scanned. |
 | `yara_memory_include_image` | `false` | Scan memory backed by executables and libraries. Linux memfd executions include memfd image mappings even when this is disabled. |
-| `yara_memory_include_mapped` | `false` | Scan memory-mapped files. |
+| `yara_memory_include_mapped` | `false` | Scan memory-mapped files. On Windows, a committed region is scanned when its base protection is readable (read-only, read-write, write-copy, execute-read, execute-read-write, or execute-write-copy), whatever modifier bits such as `PAGE_NOCACHE` or `PAGE_WRITECOMBINE` accompany it. `PAGE_GUARD`, `PAGE_NOACCESS`, and execute-only regions are never read, and reserved and free regions are not scanned. At debug level the `scanner` target logs one region summary per process, separating `excluded_protection` and `excluded_kind` (never read) from `read_failed` (eligible but the read failed). |
 
 ### `[allowlist]`
 
@@ -273,6 +275,8 @@ Excluded paths use directory boundaries, including for IOC hashing.
 ## File permissions
 
 Rustinel refuses a config file or rule folder that another account can change, and writes its logs readable by their owner only.
+An existing `logging.directory` or `alerts.directory` must belong to the account running Rustinel, otherwise startup fails and the folder is left unchanged.
+Missing folders are created with mode `0700`.
 See [Input trust](security.md#input-trust).
 
 ## Unknown options

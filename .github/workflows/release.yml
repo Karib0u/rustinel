@@ -237,7 +237,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           PKG="rustinel-${GITHUB_REF_NAME#v}-${TARGET}"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/scripts/install" "$PKG/examples"
           ditto "$RUNNER_TEMP/Rustinel.app" "$PKG/Rustinel.app"
           ln -s "Rustinel.app/Contents/MacOS/rustinel" "$PKG/rustinel"
           cp config.toml README.md packaging/macos/com.rustinel.agent.plist "$PKG/"
@@ -247,7 +247,6 @@ jobs:
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
-          touch "$PKG/logs/.gitkeep"
           tar czf "$PKG.tar.gz" "$PKG"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -527,7 +526,7 @@ jobs:
       - name: Package Linux x86_64
         run: |
           PKG="rustinel-${VERSION}-x86_64-unknown-linux-musl"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/scripts/install" "$PKG/examples"
           cp dist/linux-x86_64/rustinel "$PKG/"
           chmod +x "$PKG/rustinel"
           cp config.toml README.md rustinel.service "$PKG/"
@@ -537,7 +536,6 @@ jobs:
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
-          touch "$PKG/logs/.gitkeep"
           tar czf "$PKG.tar.gz" "$PKG"
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -545,7 +543,7 @@ jobs:
       - name: Package Linux arm64
         run: |
           PKG="rustinel-${VERSION}-aarch64-unknown-linux-musl"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/scripts/install" "$PKG/examples"
           cp dist/linux-arm64/rustinel "$PKG/"
           chmod +x "$PKG/rustinel"
           cp config.toml README.md rustinel.service "$PKG/"
@@ -555,7 +553,6 @@ jobs:
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
-          touch "$PKG/logs/.gitkeep"
           tar czf "$PKG.tar.gz" "$PKG"
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -563,7 +560,7 @@ jobs:
       - name: Package Windows x86_64
         run: |
           PKG="rustinel-${VERSION}-x86_64-pc-windows-msvc"
-          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/logs" "$PKG/scripts/install" "$PKG/examples"
+          mkdir -p "$PKG/rules/sigma" "$PKG/rules/yara" "$PKG/rules/ioc" "$PKG/scripts/install" "$PKG/examples"
           cp dist/windows-x86_64/rustinel.exe "$PKG/"
           cp config.toml README.md "$PKG/"
           cp scripts/install/install.sh scripts/install/install.ps1 "$PKG/scripts/install/"
@@ -571,8 +568,17 @@ jobs:
           [[ -d rules/sigma ]] && cp -r rules/sigma/. "$PKG/rules/sigma/" || touch "$PKG/rules/sigma/.gitkeep"
           [[ -d rules/yara  ]] && cp -r rules/yara/.  "$PKG/rules/yara/"  || touch "$PKG/rules/yara/.gitkeep"
           [[ -d rules/ioc   ]] && cp -r rules/ioc/.   "$PKG/rules/ioc/"   || touch "$PKG/rules/ioc/.gitkeep"
-          touch "$PKG/logs/.gitkeep"
           zip -r "$PKG.zip" "$PKG"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Check portable packages ship no output directory
+        run: |
+          for package in rustinel-*-unknown-linux-musl.tar.gz dist/macos-*/*.tar.gz; do
+            python3 tests/portable_package_ownership.py "$package"
+          done
+          python3 tests/portable_package_ownership.py "rustinel-${VERSION}-x86_64-unknown-linux-musl.tar.gz" --run
+          unzip -Z1 "rustinel-${VERSION}-x86_64-pc-windows-msvc.zip" | { ! grep -q '/logs'; }
         env:
           VERSION: ${{ steps.version.outputs.version }}
 

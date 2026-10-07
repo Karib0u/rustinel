@@ -64,6 +64,29 @@ pub(super) fn fingerprint_file(path: &Path) -> Fingerprint {
     }
 }
 
+/// One fingerprint over several directories, so a change in any of them is a change.
+pub(super) fn fingerprint_dirs<'a>(
+    roots: impl IntoIterator<Item = &'a PathBuf>,
+    extensions: &[&str],
+) -> Fingerprint {
+    let mut hasher = DefaultHasher::new();
+    let mut file_count = 0_u64;
+    let mut exists = false;
+
+    for root in roots {
+        let fingerprint = fingerprint_dir(root, extensions);
+        fingerprint.digest.hash(&mut hasher);
+        file_count += fingerprint.file_count;
+        exists = exists || fingerprint.exists;
+    }
+
+    Fingerprint {
+        digest: hasher.finish(),
+        file_count,
+        exists,
+    }
+}
+
 pub(super) fn fingerprint_dir(root: &Path, extensions: &[&str]) -> Fingerprint {
     let mut hasher = DefaultHasher::new();
     let mut file_count = 0_u64;

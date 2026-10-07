@@ -34,6 +34,9 @@ pub struct BpfInterfaceSnapshot {
     pub active: bool,
     pub link_type: Option<u32>,
     pub error: Option<String>,
+    /// Capture workers restarted after a failure.
+    #[serde(default)]
+    pub restarts: u64,
     pub kernel_received: u64,
     pub kernel_dropped: u64,
     pub stats_polls: u64,
