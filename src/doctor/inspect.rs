@@ -118,6 +118,10 @@ pub struct ResolvedPaths {
     pub config_file: Option<PathBuf>,
     pub sigma_rules: PathBuf,
     pub yara_rules: PathBuf,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sigma_local_rules: Vec<PathBuf>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub yara_local_rules: Vec<PathBuf>,
     pub ioc_hashes: PathBuf,
     pub ioc_ips: PathBuf,
     pub ioc_domains: PathBuf,
@@ -389,6 +393,12 @@ pub fn format_human(report: &DoctorReport) -> String {
         }
         output.push_str(&format!("  sigma rules: {}\n", paths.sigma_rules.display()));
         output.push_str(&format!("  yara rules: {}\n", paths.yara_rules.display()));
+        for path in &paths.sigma_local_rules {
+            output.push_str(&format!("  sigma local rules: {}\n", path.display()));
+        }
+        for path in &paths.yara_local_rules {
+            output.push_str(&format!("  yara local rules: {}\n", path.display()));
+        }
         output.push_str(&format!("  ioc hashes: {}\n", paths.ioc_hashes.display()));
         output.push_str(&format!("  ioc ips: {}\n", paths.ioc_ips.display()));
         output.push_str(&format!("  ioc domains: {}\n", paths.ioc_domains.display()));
@@ -655,6 +665,8 @@ impl ResolvedPaths {
             config_file,
             sigma_rules: cfg.scanner.sigma_rules_path.clone(),
             yara_rules: cfg.scanner.yara_rules_path.clone(),
+            sigma_local_rules: cfg.scanner.sigma_local_rules_paths.clone(),
+            yara_local_rules: cfg.scanner.yara_local_rules_paths.clone(),
             ioc_hashes: cfg.ioc.hashes_path.clone(),
             ioc_ips: cfg.ioc.ips_path.clone(),
             ioc_domains: cfg.ioc.domains_path.clone(),

@@ -14,6 +14,11 @@ pub(crate) fn path_results(cfg: &AppConfig, paths: &ResolvedPaths) -> Vec<Diagno
             "Sigma rules directory",
             &paths.sigma_rules,
         ));
+        results.extend(local_directory_checks(
+            "sigma_local_rules_dir",
+            "Local Sigma rules directory",
+            &paths.sigma_local_rules,
+        ));
     } else {
         results.push(DiagnosticResult::pass(
             "sigma_rules_dir",
@@ -26,6 +31,11 @@ pub(crate) fn path_results(cfg: &AppConfig, paths: &ResolvedPaths) -> Vec<Diagno
             "yara_rules_dir",
             "YARA rules directory",
             &paths.yara_rules,
+        ));
+        results.extend(local_directory_checks(
+            "yara_local_rules_dir",
+            "Local YARA rules directory",
+            &paths.yara_local_rules,
         ));
     } else {
         results.push(DiagnosticResult::pass(
@@ -102,6 +112,41 @@ fn directory_check(id: &str, label: &str, path: &Path) -> DiagnosticResult {
         )
         .with_fix("Fix permissions or update config.toml"),
     }
+}
+
+/// A local directory may be created after the agent starts, so a missing one
+/// is a warning rather than a failure.
+fn local_directory_checks(
+    id: &str,
+    label: &str,
+    paths: &[std::path::PathBuf],
+) -> Vec<DiagnosticResult> {
+    paths
+        .iter()
+        .map(|path| match std::fs::metadata(path) {
+            Ok(metadata) if metadata.is_dir() => {
+                DiagnosticResult::pass(id, format!("{label} exists: {}", path.display()))
+            }
+            Ok(_) => DiagnosticResult::fail(
+                id,
+                format!("{label} is not a directory"),
+                path.display().to_string(),
+            )
+            .with_fix("Update config.toml to point at a directory"),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => DiagnosticResult::warn(
+                id,
+                format!("{label} does not exist"),
+                path.display().to_string(),
+            )
+            .with_fix("Create the directory or remove it from config.toml"),
+            Err(err) => DiagnosticResult::fail(
+                id,
+                format!("{label} could not be inspected"),
+                format!("{}: {err}", path.display()),
+            )
+            .with_fix("Fix permissions or update config.toml"),
+        })
+        .collect()
 }
 
 fn directory_exists_check(id: &str, label: &str, path: &Path) -> DiagnosticResult {

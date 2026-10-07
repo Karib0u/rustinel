@@ -336,9 +336,13 @@ pub struct AppConfig {
 pub struct ScannerConfig {
     pub sigma_enabled: bool,
     pub sigma_rules_path: PathBuf,
+    /// Extra Sigma directories loaded after the pack and never touched by `rules install` or `rules update`.
+    pub sigma_local_rules_paths: Vec<PathBuf>,
     pub sigma_match_mode: SigmaMatchMode,
     pub yara_enabled: bool,
     pub yara_rules_path: PathBuf,
+    /// Extra YARA directories loaded after the pack and never touched by `rules install` or `rules update`.
+    pub yara_local_rules_paths: Vec<PathBuf>,
     pub yara_allowlist_paths: Vec<String>,
     /// Timeout per file or across one process's memory regions. 0 disables it.
     pub yara_scan_timeout_ms: u64,
@@ -537,9 +541,11 @@ impl AppConfig {
             // Scanner
             .set_default("scanner.sigma_enabled", true)?
             .set_default("scanner.sigma_rules_path", "rules/current/sigma")?
+            .set_default("scanner.sigma_local_rules_paths", Vec::<String>::new())?
             .set_default("scanner.sigma_match_mode", "best")?
             .set_default("scanner.yara_enabled", true)?
             .set_default("scanner.yara_rules_path", "rules/current/yara")?
+            .set_default("scanner.yara_local_rules_paths", Vec::<String>::new())?
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
             .set_default(
                 "scanner.yara_scan_timeout_ms",
@@ -684,6 +690,14 @@ impl AppConfig {
             "SCANNER__YARA_RULES_PATH",
             environment,
         );
+        for path in self
+            .scanner
+            .sigma_local_rules_paths
+            .iter_mut()
+            .chain(self.scanner.yara_local_rules_paths.iter_mut())
+        {
+            resolve_path(path, base_dir);
+        }
         resolve_path_from_config(
             &mut self.logging.directory,
             base_dir,
@@ -1002,9 +1016,11 @@ impl Default for AppConfig {
             scanner: ScannerConfig {
                 sigma_enabled: true,
                 sigma_rules_path: PathBuf::from("rules/current/sigma"),
+                sigma_local_rules_paths: Vec::new(),
                 sigma_match_mode: SigmaMatchMode::Best,
                 yara_enabled: true,
                 yara_rules_path: PathBuf::from("rules/current/yara"),
+                yara_local_rules_paths: Vec::new(),
                 yara_allowlist_paths: Vec::new(),
                 yara_scan_timeout_ms: scanner::DEFAULT_SCAN_TIMEOUT_MS,
                 yara_max_file_mb: scanner::DEFAULT_MAX_FILE_MB,

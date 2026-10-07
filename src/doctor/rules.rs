@@ -1,6 +1,7 @@
 use crate::config::{AppConfig, InstallPlatform};
 use crate::doctor::inspect::{DiagnosticResult, ResolvedPaths, RulePackDiagnostic};
 use crate::engine::EngineStats;
+use crate::utils::rule_dirs::{RuleCollision, RuleDirectoryReport, RuleDirectoryRole};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -212,7 +213,7 @@ pub(crate) fn rule_validation_results(
     }
 
     if cfg.scanner.yara_enabled {
-        results.push(validate_yara_rules(cfg));
+        results.extend(validate_yara_rules(cfg));
     } else {
         results.push(DiagnosticResult::pass(
             "yara_rules_parse",
@@ -248,9 +249,11 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Vec<Diagn
         cfg.alerts.match_debug,
     );
 
-    if let Err(err) =
-        engine.load_rules_with_trust(&cfg.scanner.sigma_rules_path, cfg.security.rules())
-    {
+    if let Err(err) = engine.load_rule_dirs_with_trust(
+        &cfg.scanner.sigma_rules_path,
+        &cfg.scanner.sigma_local_rules_paths,
+        cfg.security.rules(),
+    ) {
         return vec![DiagnosticResult::fail(
             "sigma_rules_parse",
             "Sigma rule loading failed",
@@ -293,6 +296,13 @@ fn validate_sigma_rules(cfg: &AppConfig, platform: InstallPlatform) -> Vec<Diagn
     }
 
     let mut results = Vec::new();
+    results.extend(directory_diagnostics(
+        "sigma_rules_dirs",
+        "sigma_rules_collision",
+        "Sigma",
+        &stats.directories,
+        &stats.collisions,
+    ));
 
     if stats.unsupported_rules.is_empty() {
         results.push(DiagnosticResult::pass(
@@ -360,24 +370,94 @@ pub(crate) fn inert_rules_diagnostic(stats: &EngineStats) -> DiagnosticResult {
     }
 }
 
-fn validate_yara_rules(cfg: &AppConfig) -> DiagnosticResult {
-    match crate::scanner::Scanner::new_with_trust(
+/// One line per loaded directory with its rule count, and a warning for each
+/// pack rule a local rule replaced.
+fn directory_diagnostics(
+    dirs_id: &str,
+    collision_id: &str,
+    kind: &str,
+    directories: &[RuleDirectoryReport],
+    collisions: &[RuleCollision],
+) -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+    if directories
+        .iter()
+        .any(|dir| dir.role == RuleDirectoryRole::Local)
+    {
+        let detail = directories
+            .iter()
+            .map(RuleDirectoryReport::summary)
+            .collect::<Vec<_>>()
+            .join("; ");
+        results.push(
+            DiagnosticResult::pass(
+                dirs_id,
+                format!("{kind} rules loaded from {} directories", directories.len()),
+            )
+            .with_detail(detail),
+        );
+    }
+    if !collisions.is_empty() {
+        let detail = collisions
+            .iter()
+            .take(5)
+            .map(RuleCollision::summary)
+            .collect::<Vec<_>>()
+            .join("; ");
+        results.push(
+            DiagnosticResult::warn(
+                collision_id,
+                format!(
+                    "{} local {kind} rules replace a pack rule with the same id",
+                    collisions.len()
+                ),
+                detail,
+            )
+            .with_fix("Rename the local rule if it should run next to the pack rule, or keep it to override the pack"),
+        );
+    }
+    results
+}
+
+fn validate_yara_rules(cfg: &AppConfig) -> Vec<DiagnosticResult> {
+    let scanner = match crate::scanner::Scanner::new_with_dirs_and_trust(
         &cfg.scanner.yara_rules_path,
+        &cfg.scanner.yara_local_rules_paths,
         cfg.security.rules(),
     ) {
-        Ok(scanner) if scanner.failed_files() > 0 => DiagnosticResult::fail(
+        Ok(scanner) => scanner,
+        Err(err) => {
+            return vec![DiagnosticResult::fail(
+                "yara_rules_parse",
+                "YARA rule loading failed",
+                format!("{err:#}"),
+            )
+            .with_fix(
+                "Fix unreadable or invalid YARA rule files, or remove write access for other accounts",
+            )];
+        }
+    };
+    let mut results = directory_diagnostics(
+        "yara_rules_dirs",
+        "yara_rules_collision",
+        "YARA",
+        scanner.directories(),
+        scanner.collisions(),
+    );
+    results.push(match scanner {
+        scanner if scanner.failed_files() > 0 => DiagnosticResult::fail(
             "yara_rules_parse",
             format!("{} YARA files failed to compile", scanner.failed_files()),
             cfg.scanner.yara_rules_path.display().to_string(),
         )
         .with_fix("Fix the invalid YARA files or remove them from the active pack"),
-        Ok(scanner) if scanner.files_found() == 0 => DiagnosticResult::warn(
+        scanner if scanner.files_found() == 0 => DiagnosticResult::warn(
             "yara_rules_parse",
             "No YARA files found",
             cfg.scanner.yara_rules_path.display().to_string(),
         )
         .with_fix("Install a rules pack or point scanner.yara_rules_path at rules/current/yara"),
-        Ok(scanner) => DiagnosticResult::pass(
+        scanner => DiagnosticResult::pass(
             "yara_rules_parse",
             format!(
                 "Compiled {} of {} YARA files",
@@ -385,15 +465,8 @@ fn validate_yara_rules(cfg: &AppConfig) -> DiagnosticResult {
                 scanner.files_found()
             ),
         ),
-        Err(err) => DiagnosticResult::fail(
-            "yara_rules_parse",
-            "YARA rule loading failed",
-            format!("{err:#}"),
-        )
-        .with_fix(
-            "Fix unreadable or invalid YARA rule files, or remove write access for other accounts",
-        ),
-    }
+    });
+    results
 }
 
 fn validate_ioc_files(cfg: &AppConfig) -> Vec<DiagnosticResult> {
@@ -532,6 +605,8 @@ mod tests {
             deferred_logsource_rules: Default::default(),
             unknown_logsource_rules: Default::default(),
             failed_rules: Vec::new(),
+            directories: Vec::new(),
+            collisions: Vec::new(),
             unsupported_rules: Vec::new(),
             skipped_product_rules: 0,
             skipped_deferred_rules: 0,

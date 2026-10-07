@@ -78,9 +78,11 @@ Sigma and YARA rules, YARA scan limits, and optional memory scanning.
 | --- | --- | --- |
 | `sigma_enabled` | `true` | Evaluate Sigma rules. |
 | `sigma_rules_path` | `"rules/current/sigma"` | Sigma rules directory, loaded recursively. |
+| `sigma_local_rules_paths` | `[]` | Extra Sigma directories, loaded recursively after the managed pack. `rules install` and `rules update` never touch them, and a local rule wins over a pack rule with the same `id`. |
 | `sigma_match_mode` | `"best"` | `best` emits the highest-severity detection per pass; `all` emits every matching detection rule. |
 | `yara_enabled` | `true` | Scan new process executables and qualifying files written to disk with YARA. |
 | `yara_rules_path` | `"rules/current/yara"` | Directory of `.yar` and `.yara` files, loaded recursively. |
+| `yara_local_rules_paths` | `[]` | Extra YARA directories, compiled after the managed pack. `rules install` and `rules update` never touch them, and a local rule wins over a pack rule with the same name. |
 | `yara_allowlist_paths` | inherits `allowlist.paths` | Path prefixes YARA never scans. Replaces `allowlist.paths` for YARA once set. |
 | `yara_scan_timeout_ms` | `10000` | Time limit for one file scan, or for all memory reads of one process. `0` disables it. |
 | `yara_max_file_mb` | `64` | Larger files are reported as oversized instead of scanned. `0` disables the limit. |

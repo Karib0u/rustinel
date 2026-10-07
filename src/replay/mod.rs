@@ -117,7 +117,11 @@ impl Replay {
 
         if config.scanner.sigma_enabled {
             sigma
-                .load_rules_with_trust(&config.scanner.sigma_rules_path, config.security.rules())
+                .load_rule_dirs_with_trust(
+                    &config.scanner.sigma_rules_path,
+                    &config.scanner.sigma_local_rules_paths,
+                    config.security.rules(),
+                )
                 .with_context(|| {
                     format!(
                         "failed to load Sigma rules from {}",

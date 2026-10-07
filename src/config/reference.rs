@@ -107,6 +107,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         description: "Sigma rules directory, loaded recursively.",
     },
     ConfigOption {
+        key: "scanner.sigma_local_rules_paths",
+        default_note: None,
+        description: "Extra Sigma directories, loaded recursively after the managed pack. `rules install` and `rules update` never touch them, and a local rule wins over a pack rule with the same `id`.",
+    },
+    ConfigOption {
         key: "scanner.sigma_match_mode",
         default_note: None,
         description: "`best` emits the highest-severity detection per pass; `all` emits every matching detection rule.",
@@ -120,6 +125,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         key: "scanner.yara_rules_path",
         default_note: None,
         description: "Directory of `.yar` and `.yara` files, loaded recursively.",
+    },
+    ConfigOption {
+        key: "scanner.yara_local_rules_paths",
+        default_note: None,
+        description: "Extra YARA directories, compiled after the managed pack. `rules install` and `rules update` never touch them, and a local rule wins over a pack rule with the same name.",
     },
     ConfigOption {
         key: "scanner.yara_allowlist_paths",
