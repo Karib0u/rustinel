@@ -229,3 +229,71 @@ fn a_missing_recording_is_rejected() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("absent.ndjson"), "{stderr}");
 }
+
+fn read_all(paths: &[&Path]) -> Vec<Vec<u8>> {
+    paths
+        .iter()
+        .map(|path| std::fs::read(path).expect("read file"))
+        .collect()
+}
+
+#[test]
+fn an_existing_output_is_refused_and_left_untouched() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config = write_config(temp.path());
+    let payload = copy_fixture(temp.path());
+    let manifest = payload.with_extension("manifest.json");
+    let output = temp.path().join("results.ndjson");
+    std::fs::write(&output, b"earlier results").expect("write output");
+    let before = read_all(&[&payload, &manifest, &output]);
+
+    let result = replay(&config, &payload, &["--output", output.to_str().unwrap()]);
+
+    assert!(!result.status.success());
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(stderr.contains("results.ndjson"), "{stderr}");
+    assert_eq!(read_all(&[&payload, &manifest, &output]), before);
+}
+
+#[test]
+fn an_output_aliasing_the_recording_is_refused() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config = write_config(temp.path());
+    let payload = copy_fixture(temp.path());
+    let manifest = payload.with_extension("manifest.json");
+    let before = read_all(&[&payload, &manifest]);
+
+    for target in [&payload, &manifest] {
+        let result = replay(&config, &payload, &["--output", target.to_str().unwrap()]);
+        assert!(!result.status.success());
+        assert_eq!(read_all(&[&payload, &manifest]), before);
+    }
+
+    #[cfg(unix)]
+    {
+        let link = temp.path().join("alias.ndjson");
+        std::os::unix::fs::symlink(&payload, &link).expect("symlink");
+        let result = replay(&config, &payload, &["--output", link.to_str().unwrap()]);
+        assert!(!result.status.success());
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        assert!(stderr.contains("same file"), "{stderr}");
+        assert_eq!(read_all(&[&payload, &manifest]), before);
+    }
+}
+
+#[test]
+fn a_new_output_is_written() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config = write_config(temp.path());
+    let payload = copy_fixture(temp.path());
+    let output = temp.path().join("fresh.ndjson");
+
+    let result = replay(&config, &payload, &["--output", output.to_str().unwrap()]);
+
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(output.exists());
+}

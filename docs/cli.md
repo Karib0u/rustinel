@@ -74,7 +74,7 @@ rustinel capture [--output <PATH>]
 
 | Option | Description |
 | --- | --- |
-| `--output <PATH>` | Recording path. Defaults to &lt;capture.directory&gt;/rustinel-capture-&lt;UTC timestamp&gt;.ndjson. |
+| `--output <PATH>` | Recording path. Defaults to &lt;capture.directory&gt;/rustinel-capture-&lt;UTC timestamp&gt;.ndjson. Refuses to start if the recording or its manifest already exists. |
 
 ## `rustinel replay`
 
@@ -89,7 +89,7 @@ rustinel replay <RECORDING> [--output <PATH>]
 | Option | Description |
 | --- | --- |
 | `<RECORDING>` | Recording to replay, as written by `rustinel capture`. Its manifest sidecar must sit next to it. |
-| `--output <PATH>` | Write ECS NDJSON alerts here instead of a console alert list. |
+| `--output <PATH>` | Write ECS NDJSON alerts here instead of a console alert list. Refuses an existing file, and the recording itself. |
 
 ## `rustinel doctor`
 

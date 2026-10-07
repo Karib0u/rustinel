@@ -47,6 +47,10 @@ rustinel replay ~/captures/session.ndjson --config candidate.toml
 rustinel replay ~/captures/session.ndjson --output results.ndjson
 ```
 
+`--output` never overwrites.
+Replay refuses an existing file, and an output that aliases the recording or its manifest, before it reads any event.
+Pick a new name or remove the old report yourself.
+
 ## What replay skips
 
 - YARA and hash indicators, because a recording holds events, not files.
