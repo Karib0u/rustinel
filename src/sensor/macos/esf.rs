@@ -556,7 +556,7 @@ enum FileAction {
 
 impl FileAction {
     /// Return the (action, event id, action code) triple for this class, taken
-    /// from the shared [`FILE_EVENT_NORMALIZATION`] table so macOS lands in the
+    /// from the shared [`event_actions::EVENT_ACTIONS`] table so macOS lands in the
     /// same Sigma category as Linux and Windows for the same operation.
     fn normalization(self) -> (SensorAction, u16, u8) {
         let action = match self {

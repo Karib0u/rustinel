@@ -7,8 +7,8 @@ use common::{
 };
 use rustinel::{
     engine::Engine,
-    models::EventFields,
-    sensor::{Platform, SensorAction, SensorNormalization, FILE_EVENT_NORMALIZATION},
+    models::{CanonicalEvent, EventCategory, EventFields},
+    sensor::{event_actions::rows_for, Platform, SensorAction, SensorNormalization},
 };
 
 #[cfg(target_os = "linux")]
@@ -355,6 +355,29 @@ fn equivalent_windows_and_linux_events_normalize_to_shared_sigma_fields() {
     }
 }
 
+#[test]
+fn replayed_file_events_keep_the_action_of_the_live_event() {
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+        for row in rows_for(EventCategory::File) {
+            let normalized = TestNormalizer::new()
+                .normalizer
+                .normalize(&file_event(
+                    platform,
+                    row.action,
+                    None,
+                    Some(test_file_path(platform)),
+                ))
+                .expect("file event normalizes");
+            let replayed = CanonicalEvent::from_normalized(normalized);
+            assert_eq!(
+                replayed.action, row.action,
+                "{:?} on {platform:?}",
+                row.action
+            );
+        }
+    }
+}
+
 /// Every Sigma file category the engine can route an event into.
 const ALL_FILE_CATEGORIES: &[&str] = &[
     "file_event",
@@ -412,10 +435,11 @@ level: medium
 #[test]
 fn file_actions_carry_the_shared_normalization_on_every_platform() {
     for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
-        for (action, expected) in FILE_EVENT_NORMALIZATION {
-            let event = file_event(platform, *action, None, Some(test_file_path(platform)));
+        for row in rows_for(EventCategory::File) {
+            let (action, expected) = (row.action, row.normalization());
+            let event = file_event(platform, action, None, Some(test_file_path(platform)));
             assert_eq!(
-                event.normalization, *expected,
+                event.normalization, expected,
                 "{action:?} normalization on {platform:?}"
             );
         }
@@ -429,7 +453,7 @@ fn same_file_action_yields_same_sigma_categories_on_every_platform() {
     // category pinned down.
     assert_eq!(
         FILE_ACTION_CATEGORIES.len(),
-        FILE_EVENT_NORMALIZATION.len(),
+        rows_for(EventCategory::File).count(),
         "every normalized file action needs a category expectation"
     );
 

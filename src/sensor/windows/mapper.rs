@@ -6,6 +6,7 @@
 use ferrisetw::EventRecord;
 
 use crate::models::EventCategory;
+use crate::sensor::event_actions;
 use crate::sensor::{SensorAction, SensorNormalization};
 
 pub fn normalization_for_record(
@@ -61,26 +62,19 @@ fn action_code_for_record(
     }
 }
 
-/// Maps a routed file action to the platform-shared action code scheme
-/// (64 = create, 65 = modify, 70 = delete, 71 = rename), read from the same
-/// [`crate::sensor::FILE_EVENT_NORMALIZATION`] table the Linux and macOS
+/// Maps a routed file action to its action code (64 = create, 65 = modify,
+/// 70 = delete, 71 = rename), read from the shared
+/// [`crate::sensor::event_actions::EVENT_ACTIONS`] table the Linux and macOS
 /// sensors use.
 fn file_action_code(action: SensorAction) -> u8 {
-    SensorNormalization::for_file_action(action)
-        .map_or(0, |normalization| normalization.action_code)
+    event_actions::row_for_action(EventCategory::File, action).map_or(0, |row| row.action_code)
 }
 
-/// Maps a routed registry action to the action code the engine's Sigma
-/// category selection expects (36 = key created, 38 = key or value deleted,
-/// 39 = value set), which [`crate::engine::alert`] turns into `registry_add`,
-/// `registry_delete` and `registry_set`.
+/// Maps a routed registry action to its action code (36 = key created, 38 =
+/// key or value deleted, 39 = value set), from the same table. The engine
+/// turns these into `registry_add`, `registry_delete` and `registry_set`.
 fn registry_action_code(action: SensorAction) -> u8 {
-    match action {
-        SensorAction::Create => 36,
-        SensorAction::Delete => 38,
-        SensorAction::Set => 39,
-        _ => 0,
-    }
+    event_actions::row_for_action(EventCategory::Registry, action).map_or(0, |row| row.action_code)
 }
 
 fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &EventRecord) -> u16 {
@@ -120,19 +114,12 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
             10 => 7,
             _ => raw_event_id,
         },
-        // 72 has no entry in the shared table: no sensor emits it, but it is
-        // accepted here as an alias for delete because the engine's opcode
-        // fallback treats it as one.
-        EventCategory::File => match action_code {
-            72 => 23,
-            code => SensorNormalization::for_file_action_code(code)
-                .map_or(raw_event_id, |normalization| normalization.event_id),
-        },
-        EventCategory::Registry => match action_code {
-            36 | 38 | 41 => 12,
-            39 => 13,
-            _ => raw_event_id,
-        },
+        // The table also claims alias codes (72 for delete, 41 for a registry
+        // delete) that no sensor emits, so every consumer agrees on them.
+        EventCategory::File | EventCategory::Registry => {
+            event_actions::row_for_code(category, action_code)
+                .map_or(raw_event_id, |row| row.event_id)
+        }
         EventCategory::Network => match action_code {
             12 | 15 => 3,
             _ => raw_event_id,
@@ -154,7 +141,8 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
 mod tests {
     use super::{file_action_code, map_to_sysmon_id, registry_action_code};
     use crate::models::EventCategory;
-    use crate::sensor::{SensorAction, FILE_EVENT_NORMALIZATION};
+    use crate::sensor::event_actions::rows_for;
+    use crate::sensor::SensorAction;
 
     #[test]
     fn process_start_maps_to_sysmon_1() {
@@ -173,12 +161,13 @@ mod tests {
 
     #[test]
     fn file_actions_map_to_shared_action_codes() {
-        for (action, expected) in FILE_EVENT_NORMALIZATION {
-            let code = file_action_code(*action);
-            assert_eq!(code, expected.action_code, "action code for {action:?}");
+        for row in rows_for(EventCategory::File) {
+            let action = row.action;
+            let code = file_action_code(action);
+            assert_eq!(code, row.action_code, "action code for {action:?}");
             assert_eq!(
                 map_to_sysmon_id(EventCategory::File, code, u16::from(code)),
-                expected.event_id,
+                row.event_id,
                 "event id for {action:?}"
             );
         }
