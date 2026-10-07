@@ -13,7 +13,7 @@ use rustinel::models::{
     PowerShellModuleFields, PowerShellScriptFields, ProcessCreationFields, RegistryEventFields,
     SecurityAuditFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
-use rustinel::sensor::{Platform, ProcessStartKey, SensorPayload};
+use rustinel::sensor::{Platform, ProcessStartKey, RawPayload};
 use serde_json::json;
 
 fn security_audit_fields(pairs: &[(&str, &str)]) -> SecurityAuditFields {
@@ -56,7 +56,7 @@ fn linux_process_image_source_survives_normalization_and_maps_to_ecs() {
     for source in ["proc", "execve"] {
         let fixture = TestNormalizer::new();
         let mut event = process_start_event(Platform::Linux);
-        let SensorPayload::Process(fields) = &mut event.payload else {
+        let RawPayload::Process(fields) = &mut event.payload else {
             panic!("expected process payload");
         };
         let rustinel::sensor::RawProcessPlatform::Linux(platform) = fields.platform.as_mut() else {
@@ -439,7 +439,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
 #[test]
 fn related_ip_and_user_are_deduplicated() {
     let mut network = network_connect_event(Platform::Windows);
-    if let rustinel::sensor::SensorPayload::Network(fields) = &mut network.payload {
+    if let rustinel::sensor::RawPayload::Network(fields) = &mut network.payload {
         fields.source_ip = Some(TEST_DESTINATION_IP.to_string());
         fields.user = Some(r"ACME\alice".to_string());
     }

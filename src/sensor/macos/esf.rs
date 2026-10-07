@@ -4,7 +4,7 @@
 //! Security framework via the `endpoint-sec` crate. On `start()` it spawns a
 //! dedicated thread that owns the ES client, the client must be created and
 //! released on the same thread, subscribes to process events, and translates
-//! each message into a [`SensorEvent`] for the shared pipeline.
+//! each message into a [`RawEvent`] for the shared pipeline.
 //!
 //! Endpoint Security delivers messages on its own dispatch queue, so the
 //! keepalive thread simply holds the client alive until shutdown; the actual
@@ -35,8 +35,8 @@ use tracing::{info, warn};
 
 use crate::models::{FileEventFields, FileObjectIdentity};
 use crate::sensor::{
-    Platform, ProcessStartKey, RawMacOsExec, RawMacOsProcess, RawProcessEvent, RawProcessPlatform,
-    RawUserId, Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+    Platform, ProcessStartKey, RawEvent, RawMacOsExec, RawMacOsProcess, RawPayload,
+    RawProcessEvent, RawProcessPlatform, RawUserId, Sensor, SensorAction, SensorNormalization,
 };
 
 /// Poll interval for the keepalive thread to observe the shutdown flag.
@@ -82,7 +82,7 @@ impl Sensor for EsfSensor {
     /// Spawn the Endpoint Security client thread and block until the client is
     /// created and subscribed, so initialization errors (missing entitlement,
     /// not root, TCC denial) surface synchronously to the caller.
-    fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
+    fn start(&self, tx: Sender<RawEvent>) -> Result<()> {
         let shutdown = Arc::clone(&self.shutdown);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
@@ -175,7 +175,7 @@ fn try_open_full_disk_access_settings() {
 /// alive until shutdown. The client is dropped (released) on this thread, as
 /// Endpoint Security requires.
 fn run_client(
-    tx: Sender<SensorEvent>,
+    tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
 ) {
@@ -247,11 +247,11 @@ fn run_client(
     info!("Endpoint Security sensor shutting down");
 }
 
-/// Translate an Endpoint Security message into a shared [`SensorEvent`].
+/// Translate an Endpoint Security message into a shared [`RawEvent`].
 ///
 /// Returns `None` for messages that carry no detection signal or are not yet
 /// mapped. Per-event-class translation is filled in incrementally.
-fn build_sensor_event(msg: &Message, identities: &mut ExecIdentities) -> Option<SensorEvent> {
+fn build_sensor_event(msg: &Message, identities: &mut ExecIdentities) -> Option<RawEvent> {
     match msg.event()? {
         Event::NotifyExec(exec) => build_exec_event(msg, &exec, identities),
         Event::NotifyExit(_) => build_exit_event(msg),
@@ -332,7 +332,7 @@ fn signature_status(flags: u32) -> &'static str {
 /// Plain, FFI-free description of an exec, extracted from an ESF event.
 ///
 /// Keeping this separate from the Endpoint Security types lets the
-/// `SensorEvent` assembly be unit-tested without a live ES client.
+/// `RawEvent` assembly be unit-tested without a live ES client.
 struct RawExec {
     pid: u32,
     image: String,
@@ -354,7 +354,7 @@ fn build_exec_event(
     msg: &Message,
     exec: &EventExec,
     identities: &mut ExecIdentities,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     let target = exec.target();
     let token = target.audit_token();
 
@@ -436,11 +436,11 @@ fn build_exec_event(
     }))
 }
 
-/// Assemble a process-start [`SensorEvent`] from FFI-free exec fields.
-fn process_start_event(raw: RawExec) -> SensorEvent {
+/// Assemble a process-start [`RawEvent`] from FFI-free exec fields.
+fn process_start_event(raw: RawExec) -> RawEvent {
     let parent_process_id = (raw.parent_pid > 0).then_some(raw.parent_pid as u32);
 
-    SensorEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::MacOS,
@@ -458,7 +458,7 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
             start_time: raw.start_time,
         }),
         parent_process_start_key: raw.parent_process_start_key,
-        payload: SensorPayload::Process(RawProcessEvent {
+        payload: RawPayload::Process(RawProcessEvent {
             process_id: raw.pid,
             parent_process_id,
             process_start_time: Some(raw.start_time),
@@ -488,7 +488,7 @@ fn process_start_event(raw: RawExec) -> SensorEvent {
 ///
 /// ESF reports the exiting process as the message's acting process; the exit
 /// status is not carried in the shared payload (matching the Linux sensor).
-fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
+fn build_exit_event(msg: &Message) -> Option<RawEvent> {
     let process = msg.process();
     let token = process.audit_token();
     Some(process_stop_event(
@@ -500,15 +500,15 @@ fn build_exit_event(msg: &Message) -> Option<SensorEvent> {
     ))
 }
 
-/// Assemble a process-stop [`SensorEvent`] from FFI-free fields.
+/// Assemble a process-stop [`RawEvent`] from FFI-free fields.
 fn process_stop_event(
     pid: u32,
     user: u32,
     start_time: Option<u64>,
     event_time: SystemTime,
     source_seq: Option<u64>,
-) -> SensorEvent {
-    SensorEvent {
+) -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::MacOS,
@@ -523,7 +523,7 @@ fn process_stop_event(
         source_seq,
         process_start_key: start_time.map(|start_time| ProcessStartKey { pid, start_time }),
         parent_process_start_key: None,
-        payload: SensorPayload::Process(RawProcessEvent {
+        payload: RawPayload::Process(RawProcessEvent {
             process_id: pid,
             parent_process_id: None,
             process_start_time: None,
@@ -606,7 +606,7 @@ fn actor(msg: &Message) -> (u32, Option<String>, String, Option<ProcessStartKey>
     )
 }
 
-fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent> {
+fn build_create_event(msg: &Message, create: &EventCreate) -> Option<RawEvent> {
     let (target, identity) = create_destination(create.destination()?)?;
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
@@ -623,7 +623,7 @@ fn build_create_event(msg: &Message, create: &EventCreate) -> Option<SensorEvent
     })
 }
 
-fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent> {
+fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<RawEvent> {
     let target = osstr_to_string(unlink.target().path());
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
@@ -640,7 +640,7 @@ fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<SensorEvent
     })
 }
 
-fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent> {
+fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<RawEvent> {
     let target = rename_destination_path(rename.destination()?)?;
     let source = osstr_to_string(rename.source().path());
     // A rename moves the source object, so its identity is the one that now
@@ -665,7 +665,7 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<SensorEvent
 ///
 /// Filtering on `modified` keeps the high-volume close stream down to actual
 /// content changes, the closest ESF analog to Sysmon's file-change event.
-fn build_close_event(msg: &Message, close: &EventClose) -> Option<SensorEvent> {
+fn build_close_event(msg: &Message, close: &EventClose) -> Option<RawEvent> {
     if !close.modified() {
         return None;
     }
@@ -720,14 +720,14 @@ fn rename_destination_path(dest: EventRenameDestinationFile) -> Option<String> {
     (!path.is_empty()).then_some(path)
 }
 
-/// Assemble a file [`SensorEvent`] from FFI-free fields.
-fn file_event(raw: RawFile) -> Option<SensorEvent> {
+/// Assemble a file [`RawEvent`] from FFI-free fields.
+fn file_event(raw: RawFile) -> Option<RawEvent> {
     if raw.target.is_empty() {
         return None;
     }
     let (action, event_id, action_code) = raw.action.normalization();
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::MacOS,
@@ -742,7 +742,7 @@ fn file_event(raw: RawFile) -> Option<SensorEvent> {
         source_seq: raw.source_seq,
         process_start_key: raw.process_start_key,
         parent_process_start_key: None,
-        payload: SensorPayload::File(FileEventFields {
+        payload: RawPayload::File(FileEventFields {
             source_filename: raw.source,
             target_filename: Some(raw.target),
             process_id: Some(raw.pid.to_string()),
@@ -786,7 +786,7 @@ fn system_time_nanos(time: SystemTime) -> u64 {
 ///
 /// The ESF message handler runs on the client's own queue and must return
 /// promptly, so overflow is shed and counted, see [`crate::telemetry`].
-fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
+fn try_send(tx: &Sender<RawEvent>, event: RawEvent) {
     let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
 
@@ -951,7 +951,7 @@ mod tests {
             None,
         ));
         let mut orphan = make(43, "/bin/sh", parent, unsigned_metadata());
-        if let SensorPayload::Process(fields) = &mut orphan.payload {
+        if let RawPayload::Process(fields) = &mut orphan.payload {
             let RawProcessPlatform::MacOS(RawMacOsProcess {
                 parent_process_id_derived,
                 ..
@@ -1056,7 +1056,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), Some("/usr/bin/curl"));
                 assert_eq!(
                     fields.command_line.as_deref(),
@@ -1113,7 +1113,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
                 assert!(fields.source_filename.is_none());
                 assert_eq!(fields.image.as_deref(), Some("/usr/bin/touch"));
@@ -1143,7 +1143,7 @@ mod tests {
         assert_eq!(event.normalization, shared(SensorAction::Rename));
 
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(fields.source_filename.as_deref(), Some("/tmp/old.txt"));
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
             }
@@ -1174,7 +1174,7 @@ mod tests {
         raw.identity = Some(identity);
         let event = file_event(raw).expect("modify event should build");
         match event.payload {
-            SensorPayload::File(fields) => assert_eq!(fields.file_identity, Some(identity)),
+            RawPayload::File(fields) => assert_eq!(fields.file_identity, Some(identity)),
             other => panic!("unexpected payload: {other:?}"),
         }
     }
@@ -1208,7 +1208,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.process_id, 4242);
                 assert_eq!(fields.user, Some(RawUserId::Unix(501)));
                 assert!(fields.image.is_none());
@@ -1235,7 +1235,7 @@ mod tests {
         });
 
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert!(fields.parent_process_id.is_none());
                 assert!(fields.command_line.is_none());
                 assert!(fields.current_directory.is_none());

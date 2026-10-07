@@ -31,7 +31,7 @@ pub use deferred::{ArtifactFieldNeeds, DetectionPass};
 pub(crate) use deferred::{HASHES_FIELD, IMPHASH_FIELD};
 pub use detect::EventDetectors;
 pub use detectors::DetectorStore;
-pub use handler::{DetectionPipeline, NormalizedEventHandler};
+pub use handler::{CanonicalEventDispatcher, DetectionPipeline};
 pub(crate) use logsource::{current_platform, RuleLoadDecision};
 pub use logsource::{LogSource, LogSourceClassification, LogSourceKey, LogSourceStatus};
 pub use stats::{EngineStats, UnsupportedRule, UnsupportedRuleKind};

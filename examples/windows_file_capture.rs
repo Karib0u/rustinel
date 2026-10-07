@@ -3,7 +3,7 @@
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
     use rustinel::{
-        sensor::{windows::etw::EtwSensor, Sensor, SensorPayload},
+        sensor::{windows::etw::EtwSensor, RawPayload, Sensor},
         telemetry::TelemetrySnapshot,
     };
     use std::{io::Write, sync::Arc, time::Duration};
@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     let consumer = std::thread::spawn(move || {
         let mut targets = std::collections::BTreeSet::new();
         while let Some(event) = rx.blocking_recv() {
-            if let SensorPayload::File(fields) = event.payload {
+            if let RawPayload::File(fields) = event.payload {
                 if let Some(path) = fields.target_filename.filter(|p| {
                     p.to_ascii_lowercase().starts_with(&expected_directory) && p.contains("\\held-")
                 }) {

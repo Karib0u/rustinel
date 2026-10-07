@@ -4,7 +4,7 @@
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
     use rustinel::sensor::windows::etw::EtwSensor;
-    use rustinel::sensor::{Sensor, SensorAction, SensorPayload};
+    use rustinel::sensor::{RawPayload, Sensor, SensorAction};
     use rustinel::state::HostState;
     use serde_json::json;
     use std::sync::Arc;
@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
         let mut events = Vec::new();
         while let Some(event) = rx.blocking_recv() {
             if event.action == SensorAction::Start
-                && matches!(event.payload, SensorPayload::Process(_))
+                && matches!(event.payload, RawPayload::Process(_))
             {
                 let latency = SystemTime::now()
                     .duration_since(event.timestamp)

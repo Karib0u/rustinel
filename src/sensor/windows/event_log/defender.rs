@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::field_availability::contract_for_event_id;
 use crate::models::SecurityAuditFields;
-use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
+use crate::sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization};
 
 use super::{parse_system_time, EventLogSource};
 
@@ -16,7 +16,7 @@ pub(super) const fn source() -> EventLogSource {
     EventLogSource::new("defender-operational", CHANNEL, QUERY, decode)
 }
 
-fn decode(xml: &str) -> Result<SensorEvent> {
+fn decode(xml: &str) -> Result<RawEvent> {
     let document = roxmltree::Document::parse(xml).context("invalid Defender event XML")?;
     let system = document
         .descendants()
@@ -91,7 +91,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         1006 | 1015 | 1116 | 1117 | 1119 | 1121 => SensorAction::Create,
         _ => SensorAction::Set,
     };
-    Ok(SensorEvent {
+    Ok(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -106,7 +106,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         source_seq: Some(source_seq),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Defender(fields),
+        payload: RawPayload::Defender(fields),
     })
 }
 
@@ -119,7 +119,7 @@ fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Opti
 #[cfg(test)]
 mod tests {
     use super::{decode, CHANNEL, PROVIDER, QUERY};
-    use crate::sensor::SensorPayload;
+    use crate::sensor::RawPayload;
 
     fn event(id: u16, data: &str) -> String {
         format!(
@@ -133,7 +133,7 @@ mod tests {
         let decoded = decode(&xml).unwrap();
         assert_eq!(decoded.normalization.event_id, 5001);
         assert_eq!(decoded.source_seq, Some(7702));
-        let SensorPayload::Defender(fields) = decoded.payload else {
+        let RawPayload::Defender(fields) = decoded.payload else {
             panic!("Defender payload expected")
         };
         assert_eq!(fields.get("Provider_Name"), Some(PROVIDER));
@@ -147,7 +147,7 @@ mod tests {
     fn decodes_exclusion_change_with_native_names() {
         let xml = event(5007, "<Data Name='Old Value'>-</Data><Data Name='New Value'>HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths\\C:\\Tools = 0x0</Data><Data Name='Unknown'>discard</Data>");
         let decoded = decode(&xml).unwrap();
-        let SensorPayload::Defender(fields) = decoded.payload else {
+        let RawPayload::Defender(fields) = decoded.payload else {
             panic!("Defender payload expected")
         };
         assert!(fields.get("New Value").unwrap().contains("Exclusions"));
@@ -174,7 +174,7 @@ mod tests {
         ] {
             let xml = event(id, &format!("<Data Name='{native}'>sample</Data>"));
             let decoded = decode(&xml).unwrap();
-            let SensorPayload::Defender(fields) = decoded.payload else {
+            let RawPayload::Defender(fields) = decoded.payload else {
                 panic!("Defender payload expected")
             };
             assert_eq!(fields.get(native), Some("sample"));

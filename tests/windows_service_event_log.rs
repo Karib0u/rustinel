@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rustinel::sensor::windows::EtwSensor;
-use rustinel::sensor::{Sensor, SensorPayload};
+use rustinel::sensor::{RawPayload, Sensor};
 
 struct TemporaryService(String);
 
@@ -55,7 +55,7 @@ fn service_installation_reaches_the_normalized_sensor_channel() {
     while Instant::now() < deadline {
         match rx.try_recv() {
             Ok(event) => {
-                if let SensorPayload::Service(fields) = &event.payload {
+                if let RawPayload::Service(fields) = &event.payload {
                     if fields.service_name.as_deref() == Some(service_name.as_str()) {
                         matched = Some(event);
                         break;
@@ -77,7 +77,7 @@ fn service_installation_reaches_the_normalized_sensor_channel() {
     let event = matched.expect("System event 7045 must reach the sensor channel");
     assert_eq!(event.provider, "windows_event_log");
     assert_eq!(event.normalization.event_id, 7045);
-    let SensorPayload::Service(fields) = event.payload else {
+    let RawPayload::Service(fields) = event.payload else {
         unreachable!();
     };
     // `event.provider` names the sensor; `Provider_Name` names the Windows

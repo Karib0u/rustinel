@@ -20,7 +20,7 @@ use tracing::{error, info};
 use crate::artifact::{spawn_artifact_resolver, ArtifactRuntime};
 use crate::capture::{CaptureRecorder, CaptureStatus};
 use crate::config::AppConfig;
-use crate::engine::NormalizedEventHandler;
+use crate::engine::CanonicalEventDispatcher;
 use crate::runtime::logging::{init_operational_logging, log_startup_banner};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use crate::runtime::signals::ShutdownSignals;
@@ -97,7 +97,7 @@ impl CaptureContext {
 
         // The only handler: no detectors, no alert sink, no response engine.
         let mut downstream = SensorEventRouter::new();
-        downstream.register_handler(Box::new(NormalizedEventHandler::recording(
+        downstream.register_handler(Box::new(CanonicalEventDispatcher::recording(
             Arc::clone(&host_state),
             recorder.sink(),
         )));

@@ -15,8 +15,8 @@ use rustinel::models::{
 };
 use rustinel::normalizer::Normalizer;
 use rustinel::sensor::{
-    Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorNormalization,
-    SensorPayload,
+    Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, SensorAction,
+    SensorNormalization,
 };
 use rustinel::state::{DnsCache, HostState, ProcessCache, SidCache};
 use serde_json::Value;
@@ -112,9 +112,9 @@ pub fn renamed_test_file_path(platform: Platform) -> &'static str {
     }
 }
 
-pub fn process_start_event(platform: Platform) -> SensorEvent {
+pub fn process_start_event(platform: Platform) -> RawEvent {
     let image = image_for(platform);
-    SensorEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform,
@@ -132,7 +132,7 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
             start_time: TEST_PROCESS_START_TIME,
         }),
         parent_process_start_key: None,
-        payload: SensorPayload::Process(RawProcessEvent::from_compatibility(
+        payload: RawPayload::Process(RawProcessEvent::from_compatibility(
             ProcessCreationFields {
                 hashes: None,
                 imphash: None,
@@ -193,8 +193,8 @@ pub fn process_start_event(platform: Platform) -> SensorEvent {
 ///
 /// `provider` is the Rustinel sensor that collected the record; the Windows
 /// provider that wrote it travels in the payload as `Provider_Name`.
-pub fn service_installation_event() -> SensorEvent {
-    SensorEvent {
+pub fn service_installation_event() -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -209,7 +209,7 @@ pub fn service_installation_event() -> SensorEvent {
         source_seq: None,
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Service(ServiceCreationFields {
+        payload: RawPayload::Service(ServiceCreationFields {
             provider_name: Some(TEST_SERVICE_PROVIDER.to_string()),
             service_name: Some(TEST_SERVICE_NAME.to_string()),
             service_file_name: Some(TEST_SERVICE_IMAGE_PATH.to_string()),
@@ -223,8 +223,8 @@ pub fn service_installation_event() -> SensorEvent {
     }
 }
 
-pub fn powershell_classic_start_event() -> SensorEvent {
-    SensorEvent {
+pub fn powershell_classic_start_event() -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -239,14 +239,14 @@ pub fn powershell_classic_start_event() -> SensorEvent {
         source_seq: Some(1_132_233),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::PowerShellClassicStart(PowerShellClassicStartFields {
+        payload: RawPayload::PowerShellClassicStart(PowerShellClassicStartFields {
             data: Some(TEST_PS_CLASSIC_DATA.to_string()),
         }),
     }
 }
 
-pub fn network_connect_event(platform: Platform) -> SensorEvent {
-    SensorEvent {
+pub fn network_connect_event(platform: Platform) -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform,
@@ -264,7 +264,7 @@ pub fn network_connect_event(platform: Platform) -> SensorEvent {
             start_time: TEST_PROCESS_START_TIME,
         }),
         parent_process_start_key: None,
-        payload: SensorPayload::Network(NetworkConnectionFields {
+        payload: RawPayload::Network(NetworkConnectionFields {
             destination_ip: Some(TEST_DESTINATION_IP.to_string()),
             source_ip: Some(TEST_SOURCE_IP.to_string()),
             destination_port: Some(TEST_DESTINATION_PORT.to_string()),
@@ -279,7 +279,7 @@ pub fn network_connect_event(platform: Platform) -> SensorEvent {
     }
 }
 
-pub fn file_create_event(platform: Platform) -> SensorEvent {
+pub fn file_create_event(platform: Platform) -> RawEvent {
     file_event(
         platform,
         SensorAction::Create,
@@ -288,7 +288,7 @@ pub fn file_create_event(platform: Platform) -> SensorEvent {
     )
 }
 
-pub fn file_delete_event(platform: Platform) -> SensorEvent {
+pub fn file_delete_event(platform: Platform) -> RawEvent {
     file_event(
         platform,
         SensorAction::Delete,
@@ -297,7 +297,7 @@ pub fn file_delete_event(platform: Platform) -> SensorEvent {
     )
 }
 
-pub fn file_modify_event(platform: Platform) -> SensorEvent {
+pub fn file_modify_event(platform: Platform) -> RawEvent {
     file_event(
         platform,
         SensorAction::Modify,
@@ -306,7 +306,7 @@ pub fn file_modify_event(platform: Platform) -> SensorEvent {
     )
 }
 
-pub fn file_rename_event(platform: Platform) -> SensorEvent {
+pub fn file_rename_event(platform: Platform) -> RawEvent {
     file_event(
         platform,
         SensorAction::Rename,
@@ -315,8 +315,8 @@ pub fn file_rename_event(platform: Platform) -> SensorEvent {
     )
 }
 
-pub fn dns_query_event(platform: Platform) -> SensorEvent {
-    SensorEvent {
+pub fn dns_query_event(platform: Platform) -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform,
@@ -334,7 +334,7 @@ pub fn dns_query_event(platform: Platform) -> SensorEvent {
             start_time: TEST_PROCESS_START_TIME,
         }),
         parent_process_start_key: None,
-        payload: SensorPayload::Dns(DnsQueryFields {
+        payload: RawPayload::Dns(DnsQueryFields {
             user: None,
             query_name: Some(TEST_DOMAIN.to_string()),
             query_results: Some(TEST_DESTINATION_IP.to_string()),
@@ -369,8 +369,8 @@ pub const TEST_PS_MODULE_PAYLOAD: &str = concat!(
 
 /// Windows PowerShell module logging event (ETW 4103), the `ps_module`
 /// logsource. Only Windows publishes it, so there is no platform parameter.
-pub fn powershell_module_event() -> SensorEvent {
-    SensorEvent {
+pub fn powershell_module_event() -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -385,7 +385,7 @@ pub fn powershell_module_event() -> SensorEvent {
         source_seq: None,
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::PowerShellModule(PowerShellModuleFields {
+        payload: RawPayload::PowerShellModule(PowerShellModuleFields {
             context_info: Some(TEST_PS_MODULE_CONTEXT.to_string()),
             payload: Some(TEST_PS_MODULE_PAYLOAD.to_string()),
             process_id: Some(TEST_PID.to_string()),
@@ -398,8 +398,8 @@ pub fn powershell_module_event() -> SensorEvent {
 /// Windows PowerShell script-block logging event (ETW 4104), the existing
 /// `ps_script` logsource. This keeps the compatibility test independent of a
 /// live PowerShell provider.
-pub fn powershell_script_event() -> SensorEvent {
-    SensorEvent {
+pub fn powershell_script_event() -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -414,7 +414,7 @@ pub fn powershell_script_event() -> SensorEvent {
         source_seq: None,
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Scripting(PowerShellScriptFields {
+        payload: RawPayload::Scripting(PowerShellScriptFields {
             script_block_text: Some("Get-Process".to_string()),
             script_block_id: Some("script-block-4104".to_string()),
             message_number: None,
@@ -434,8 +434,8 @@ pub fn file_event(
     action: SensorAction,
     source_filename: Option<&str>,
     target_filename: Option<&str>,
-) -> SensorEvent {
-    SensorEvent {
+) -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform,
@@ -451,7 +451,7 @@ pub fn file_event(
             start_time: TEST_PROCESS_START_TIME,
         }),
         parent_process_start_key: None,
-        payload: SensorPayload::File(FileEventFields {
+        payload: RawPayload::File(FileEventFields {
             source_filename: source_filename.map(ToString::to_string),
             target_filename: target_filename.map(ToString::to_string),
             process_id: Some(TEST_PID.to_string()),
@@ -773,27 +773,23 @@ pub fn assert_normalized_field_eq(event: &NormalizedEvent, field: &str, expected
     );
 }
 
-pub fn event_fields_from_payload(event: SensorEvent) -> EventFields {
+pub fn event_fields_from_payload(event: RawEvent) -> EventFields {
     match event.payload {
-        SensorPayload::Process(fields) => {
-            EventFields::ProcessCreation(fields.compatibility_fields())
-        }
-        SensorPayload::Network(fields) => EventFields::NetworkConnection(fields),
-        SensorPayload::File(fields) => EventFields::FileEvent(fields),
-        SensorPayload::Dns(fields) => EventFields::DnsQuery(fields),
-        SensorPayload::Registry(fields) => EventFields::RegistryEvent(fields),
-        SensorPayload::ImageLoad(fields) => EventFields::ImageLoad(fields),
-        SensorPayload::Scripting(fields) => EventFields::PowerShellScript(fields),
-        SensorPayload::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
-        SensorPayload::PowerShellClassicStart(fields) => {
-            EventFields::PowerShellClassicStart(fields)
-        }
-        SensorPayload::Wmi(fields) => EventFields::WmiEvent(fields),
-        SensorPayload::Service(fields) => EventFields::ServiceCreation(fields),
-        SensorPayload::Task(fields) => EventFields::TaskCreation(fields),
-        SensorPayload::Security(fields) => EventFields::SecurityAudit(fields),
-        SensorPayload::Defender(fields) => EventFields::SecurityAudit(fields),
-        SensorPayload::Application(fields) => EventFields::ApplicationEvent(fields),
+        RawPayload::Process(fields) => EventFields::ProcessCreation(fields.compatibility_fields()),
+        RawPayload::Network(fields) => EventFields::NetworkConnection(fields),
+        RawPayload::File(fields) => EventFields::FileEvent(fields),
+        RawPayload::Dns(fields) => EventFields::DnsQuery(fields),
+        RawPayload::Registry(fields) => EventFields::RegistryEvent(fields),
+        RawPayload::ImageLoad(fields) => EventFields::ImageLoad(fields),
+        RawPayload::Scripting(fields) => EventFields::PowerShellScript(fields),
+        RawPayload::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
+        RawPayload::PowerShellClassicStart(fields) => EventFields::PowerShellClassicStart(fields),
+        RawPayload::Wmi(fields) => EventFields::WmiEvent(fields),
+        RawPayload::Service(fields) => EventFields::ServiceCreation(fields),
+        RawPayload::Task(fields) => EventFields::TaskCreation(fields),
+        RawPayload::Security(fields) => EventFields::SecurityAudit(fields),
+        RawPayload::Defender(fields) => EventFields::SecurityAudit(fields),
+        RawPayload::Application(fields) => EventFields::ApplicationEvent(fields),
     }
 }
 

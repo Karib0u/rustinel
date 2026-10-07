@@ -13,7 +13,7 @@ use common::{
 use rustinel::{
     engine::Engine,
     models::{DetectionEngine, EventCategory, EventFields, SecurityAuditFields, WmiEventFields},
-    sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload},
+    sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization},
 };
 
 #[test]
@@ -45,7 +45,7 @@ level: high
         "NewValue",
         r"HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths\C:\Tools = 0x0",
     );
-    let raw = SensorEvent {
+    let raw = RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -60,7 +60,7 @@ level: high
         source_seq: Some(1),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Defender(fields),
+        payload: RawPayload::Defender(fields),
     };
     let normalized = TestNormalizer::new().normalizer.normalize(&raw).unwrap();
     assert_eq!(normalized.category, EventCategory::Defender);
@@ -188,7 +188,7 @@ level: high
 
     let mut event = process_start_event(Platform::Windows);
     match &mut event.payload {
-        SensorPayload::Process(fields) => {
+        RawPayload::Process(fields) => {
             fields.integrity_level = Some("System".to_string());
         }
         other => panic!("unexpected payload: {other:?}"),
@@ -369,7 +369,7 @@ detection:
 level: high
 "#,
     );
-    let raw = SensorEvent {
+    let raw = RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -384,7 +384,7 @@ level: high
         source_seq: Some(1),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Wmi(WmiEventFields {
+        payload: RawPayload::Wmi(WmiEventFields {
             event_namespace: Some("//./root/subscription".into()),
             filter_name: Some("RustinelWmiFixture".into()),
             consumer_class: Some("CommandLineEventConsumer".into()),
@@ -464,7 +464,7 @@ level: critical
     let mut event = dns_query_event(Platform::Windows);
     event.normalization.event_id = 3008;
     match &mut event.payload {
-        SensorPayload::Dns(fields) => {
+        RawPayload::Dns(fields) => {
             fields.query_name = Some("aaa.stage.example.test".to_string());
         }
         other => panic!("unexpected payload: {other:?}"),

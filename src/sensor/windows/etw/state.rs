@@ -5,7 +5,7 @@ use super::super::registry_paths::RegistryPathCache;
 use super::routing::EtwRouting;
 use crate::models::RegistryEventFields;
 use crate::sensor::{
-    Platform, ProcessStartKey, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+    Platform, ProcessStartKey, RawEvent, RawPayload, SensorAction, SensorNormalization,
 };
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::{Mutex, MutexGuard};
@@ -84,11 +84,11 @@ impl ProcessIdentityIndex {
         })
     }
 
-    fn attribute(&mut self, event: &mut SensorEvent) {
+    fn attribute(&mut self, event: &mut RawEvent) {
         let event_at = system_time_to_filetime(event.timestamp);
         self.cleanup(event_at);
 
-        if let SensorPayload::Process(fields) = &event.payload {
+        if let RawPayload::Process(fields) = &event.payload {
             if event.action == SensorAction::Start {
                 event.parent_process_start_key = fields
                     .parent_process_id
@@ -172,14 +172,14 @@ pub(super) struct PendingRegistryEvent {
 }
 
 impl PendingRegistryEvent {
-    pub(super) fn into_sensor_event(mut self, key_path: &str) -> SensorEvent {
+    pub(super) fn into_sensor_event(mut self, key_path: &str) -> RawEvent {
         let target_object = match self.value_name.as_deref() {
             Some(value) if !value.is_empty() => format!("{key_path}\\{value}"),
             _ => key_path.to_string(),
         };
         self.fields.target_object = Some(target_object);
 
-        SensorEvent {
+        RawEvent {
             process_name: None,
             provenance: {
                 let mut provenance = crate::models::Provenance::default();
@@ -195,7 +195,7 @@ impl PendingRegistryEvent {
             source_seq: None,
             process_start_key: None,
             parent_process_start_key: None,
-            payload: SensorPayload::Registry(self.fields),
+            payload: RawPayload::Registry(self.fields),
         }
     }
 }
@@ -257,7 +257,7 @@ impl PendingRegistryEvents {
         key_object: u64,
         key_path: &str,
         named_at: i64,
-    ) -> (Vec<SensorEvent>, usize) {
+    ) -> (Vec<RawEvent>, usize) {
         let mut dropped = self.expire(named_at);
         let Some(events) = self.by_key_object.remove(&key_object) else {
             return (Vec::new(), dropped);
@@ -347,7 +347,7 @@ impl EtwState {
         }
     }
 
-    pub(super) fn attribute_process_identity(&self, event: &mut SensorEvent) {
+    pub(super) fn attribute_process_identity(&self, event: &mut RawEvent) {
         self.host
             .process_identities
             .lock()
@@ -387,9 +387,9 @@ impl EtwState {
 mod tests {
     use super::*;
     use crate::models::RegistryEventFields;
+    use crate::sensor::RawPayload;
     use crate::sensor::SensorAction;
     use crate::sensor::SensorNormalization;
-    use crate::sensor::SensorPayload;
     use std::time::UNIX_EPOCH;
 
     fn pending_registry_set(event_at: i64, value_name: &str) -> PendingRegistryEvent {
@@ -461,7 +461,7 @@ mod tests {
         assert_eq!(dropped, 0);
         assert_eq!(events.len(), 1);
         assert_eq!(pending.event_count, 0);
-        let SensorPayload::Registry(fields) = &events[0].payload else {
+        let RawPayload::Registry(fields) = &events[0].payload else {
             panic!("replayed event must keep its registry payload");
         };
         assert_eq!(

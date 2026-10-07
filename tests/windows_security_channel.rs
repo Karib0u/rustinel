@@ -15,7 +15,7 @@ use common::{assert_ecs_field_eq, ecs_json, SigmaFixture, TestNormalizer};
 use rustinel::{
     engine::{Engine, LogSource, LogSourceStatus},
     models::{EventCategory, EventFields, NormalizedEvent, SecurityAuditFields},
-    sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload},
+    sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization},
 };
 
 fn audit_fields(pairs: &[(&str, &str)]) -> SecurityAuditFields {
@@ -26,11 +26,11 @@ fn audit_fields(pairs: &[(&str, &str)]) -> SecurityAuditFields {
     fields
 }
 
-fn security_event(event_id: u16, action: SensorAction, pairs: &[(&str, &str)]) -> SensorEvent {
+fn security_event(event_id: u16, action: SensorAction, pairs: &[(&str, &str)]) -> RawEvent {
     let fields = audit_fields(pairs);
     let pid = fields.process_id();
 
-    SensorEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -45,11 +45,11 @@ fn security_event(event_id: u16, action: SensorAction, pairs: &[(&str, &str)]) -
         source_seq: None,
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Security(fields),
+        payload: RawPayload::Security(fields),
     }
 }
 
-fn normalize(event: &SensorEvent) -> NormalizedEvent {
+fn normalize(event: &RawEvent) -> NormalizedEvent {
     TestNormalizer::new()
         .normalizer
         .normalize(event)
@@ -146,7 +146,7 @@ level: high
 /// and an `EventID` selection.
 #[test]
 fn each_supported_event_family_matches_a_windows_security_rule() {
-    let cases: Vec<(&str, &str, SensorEvent)> = vec![
+    let cases: Vec<(&str, &str, RawEvent)> = vec![
         (
             "service.yml",
             "Security Service Installation",
@@ -690,7 +690,7 @@ level: medium
     let benign_task = task(r"C:\Program Files\Vendor\update.exe", "--quiet");
 
     // (event, the rule it must fire, or None for a near miss)
-    let cases: Vec<(SensorEvent, Option<&str>)> = vec![
+    let cases: Vec<(RawEvent, Option<&str>)> = vec![
         (
             security_event(
                 4698,

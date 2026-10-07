@@ -28,14 +28,14 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::System::EventLog::*;
 
-use crate::sensor::SensorEvent;
+use crate::sensor::RawEvent;
 
 use super::etw::{PROCESS_TRACE_SESSION_NAME, TRACE_SESSION_NAME};
 
 const EVENT_LOG_WAIT: Duration = Duration::from_millis(250);
 const DECODE_WARNING_WINDOW: Duration = Duration::from_secs(60);
 
-type EventDecoder = fn(&str) -> Result<SensorEvent>;
+type EventDecoder = fn(&str) -> Result<RawEvent>;
 
 #[derive(Clone, Copy)]
 struct EventLogSource {
@@ -67,7 +67,7 @@ pub(super) struct EventLogSubscriptions {
 
 impl EventLogSubscriptions {
     pub(super) fn start(
-        tx: Sender<SensorEvent>,
+        tx: Sender<RawEvent>,
         shutdown: Arc<AtomicBool>,
         directory: &Path,
         security_filtering_platform_connections: bool,
@@ -120,7 +120,7 @@ struct EventLogSubscription {
 impl EventLogSubscription {
     fn start(
         source: EventLogSource,
-        tx: Sender<SensorEvent>,
+        tx: Sender<RawEvent>,
         shutdown: Arc<AtomicBool>,
         checkpoint: PathBuf,
     ) -> Result<Self> {
@@ -158,7 +158,7 @@ impl EventLogSubscription {
 
 fn run_subscription(
     source: EventLogSource,
-    tx: Sender<SensorEvent>,
+    tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     startup_tx: mpsc::SyncSender<std::result::Result<(), String>>,
     checkpoint: PathBuf,
@@ -191,7 +191,7 @@ fn run_subscription(
 // The box remains alive until EvtClose has waited for outstanding callbacks.
 struct CallbackContext {
     source: EventLogSource,
-    tx: Sender<SensorEvent>,
+    tx: Sender<RawEvent>,
     state: Mutex<CallbackState>,
 }
 
@@ -204,7 +204,7 @@ struct CallbackState {
 
 fn run_subscription_inner(
     source: EventLogSource,
-    tx: Sender<SensorEvent>,
+    tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     startup_tx: &mpsc::SyncSender<std::result::Result<(), String>>,
     checkpoint: &Path,

@@ -10,13 +10,13 @@ use rustinel::engine::compatibility::{analyze_rules, CompatibilityVerdict};
 use rustinel::engine::{Engine, LogSource, LogSourceStatus};
 use rustinel::field_availability::{availability_for_event, missing_always_fields, Availability};
 use rustinel::models::{ApplicationEventFields, EventCategory};
-use rustinel::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
+use rustinel::sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization};
 
 fn event(provider: &str, id: u16) -> rustinel::models::NormalizedEvent {
     let mut fields = ApplicationEventFields::default();
     fields.insert("Provider_Name", provider);
     fields.insert("Level", "2");
-    let raw = SensorEvent {
+    let raw = RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -31,7 +31,7 @@ fn event(provider: &str, id: u16) -> rustinel::models::NormalizedEvent {
         source_seq: Some(42),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Application(fields),
+        payload: RawPayload::Application(fields),
     };
     TestNormalizer::new().normalizer.normalize(&raw).unwrap()
 }

@@ -17,7 +17,7 @@ use rustinel::{
     alerts::AlertSink,
     capture::{CaptureRecorder, CaptureStatus},
     config::ResponseConfig,
-    engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler},
+    engine::{CanonicalEventDispatcher, DetectionPipeline, DetectorStore, Engine},
     ioc::IocEngine,
     models::NormalizedEvent,
     scanner::Scanner,
@@ -53,7 +53,7 @@ async fn capture_records_every_normalized_event_in_order() {
 
     let harness = TestNormalizer::new();
     let handler =
-        NormalizedEventHandler::recording(Arc::clone(&harness.host_state), recorder.sink());
+        CanonicalEventDispatcher::recording(Arc::clone(&harness.host_state), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
 
@@ -93,7 +93,7 @@ async fn capture_records_canonical_events_without_alert_enrichment() {
 
     let harness = TestNormalizer::new();
     let handler =
-        NormalizedEventHandler::recording(Arc::clone(&harness.host_state), recorder.sink());
+        CanonicalEventDispatcher::recording(Arc::clone(&harness.host_state), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
     // A process start first, so the cache holds context the alert path would
@@ -134,7 +134,7 @@ async fn capture_does_not_evaluate_detectors_or_write_alerts() {
 
     let harness = TestNormalizer::new();
     let handler =
-        NormalizedEventHandler::recording(Arc::clone(&harness.host_state), recorder.sink());
+        CanonicalEventDispatcher::recording(Arc::clone(&harness.host_state), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
     router.route_raw_event(&harness.host_state, &process_start_event(Platform::Linux));
@@ -182,7 +182,7 @@ async fn live_protection_does_not_write_a_recording() {
     ));
 
     let harness = TestNormalizer::new();
-    let handler = NormalizedEventHandler::detecting(
+    let handler = CanonicalEventDispatcher::detecting(
         Arc::clone(&harness.host_state),
         DetectionPipeline {
             detectors,
@@ -224,7 +224,7 @@ async fn shutdown_finalizes_queued_events_and_the_manifest() {
 
     let harness = TestNormalizer::new();
     let handler =
-        NormalizedEventHandler::recording(Arc::clone(&harness.host_state), recorder.sink());
+        CanonicalEventDispatcher::recording(Arc::clone(&harness.host_state), recorder.sink());
     let mut router = SensorEventRouter::new();
     router.register_handler(Box::new(handler));
     for _ in 0..64 {

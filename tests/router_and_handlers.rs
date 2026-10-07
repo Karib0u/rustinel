@@ -8,10 +8,10 @@ use rustinel::utils::hash_command_line;
 use rustinel::{
     alerts::AlertSink,
     config::ResponseConfig,
-    engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler},
+    engine::{CanonicalEventDispatcher, DetectionPipeline, DetectorStore, Engine},
     ioc::IocEngine,
     scanner::{normalize_allowlist_paths, Scanner, YaraMemoryEventHandler},
-    sensor::{Platform, SensorAction, SensorEventHandler, SensorEventRouter},
+    sensor::{CanonicalEventHandler, Platform, SensorAction, SensorEventRouter},
 };
 use tokio::sync::mpsc;
 
@@ -47,7 +47,7 @@ async fn router_invokes_sigma_handler_and_writes_alert() {
     ));
 
     let harness = TestNormalizer::new();
-    let handler = NormalizedEventHandler::detecting(
+    let handler = CanonicalEventDispatcher::detecting(
         Arc::clone(&harness.host_state),
         DetectionPipeline {
             detectors,
@@ -81,7 +81,7 @@ async fn yara_memory_handler_queues_only_process_starts() {
 
     let before_enqueue = std::time::Instant::now();
     let mut start = process_start_event(Platform::Linux);
-    let rustinel::sensor::SensorPayload::Process(fields) = &mut start.payload else {
+    let rustinel::sensor::RawPayload::Process(fields) = &mut start.payload else {
         unreachable!();
     };
     let rustinel::sensor::RawProcessPlatform::Linux(source) = fields.platform.as_mut() else {
@@ -165,7 +165,7 @@ async fn yara_memory_handler_respects_allowlisted_paths() {
 
 #[tokio::test]
 async fn targeted_memory_scanning_selects_linux_memfd_execs_and_respects_allowlists() {
-    use rustinel::sensor::{CanonicalEventHandler, SensorPayload};
+    use rustinel::sensor::{CanonicalEventHandler, RawPayload};
     let (tx, mut rx) = mpsc::channel(4);
     let mut handler = YaraMemoryEventHandler {
         tx,
@@ -173,7 +173,7 @@ async fn targeted_memory_scanning_selects_linux_memfd_execs_and_respects_allowli
         scan_all_processes: false,
     };
     let mut start = process_start_event(Platform::Linux);
-    let SensorPayload::Process(fields) = &mut start.payload else {
+    let RawPayload::Process(fields) = &mut start.payload else {
         unreachable!()
     };
     fields.image = Some("/memfd:trusted/payload (deleted)".to_string());

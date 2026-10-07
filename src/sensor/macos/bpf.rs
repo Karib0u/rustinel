@@ -3,7 +3,7 @@
 //! Endpoint Security does not surface network connections or DNS, so the macOS
 //! sensor pairs ESF with a BPF capture device. [`BpfSensor`] opens a `/dev/bpf`
 //! device for each active interface and reads link-layer frames on dedicated
-//! capture threads. Captured frames are parsed into [`SensorEvent`] values
+//! capture threads. Captured frames are parsed into [`RawEvent`] values
 //! (network connections and DNS queries) for the shared pipeline.
 //!
 //! Requirements: root (or access to the bpf device nodes). PID attribution for
@@ -26,9 +26,7 @@ use tracing::{error, info, warn};
 use super::packet::{self, ParsedPacket, Transport, DLT_EN10MB, TCP_FLAG_ACK, TCP_FLAG_SYN};
 use super::socket;
 use crate::models::{DnsQueryFields, NetworkConnectionFields};
-use crate::sensor::{
-    Platform, Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
-};
+use crate::sensor::{Platform, RawEvent, RawPayload, Sensor, SensorAction, SensorNormalization};
 
 /// Sysmon-compatible event ID emitted for network-connect events.
 const EVENT_ID_NETWORK_CONNECT: u16 = 3;
@@ -198,7 +196,7 @@ impl Sensor for BpfSensor {
     /// every [`RECONCILE_INTERVAL`]: it starts capture on new interfaces,
     /// restarts failed workers with bounded backoff, and stops workers whose
     /// interface went away.
-    fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
+    fn start(&self, tx: Sender<RawEvent>) -> Result<()> {
         let interfaces = capture_interfaces()?;
         let mut threads = self.threads.lock().expect("bpf thread mutex poisoned");
         let (attribution_tx, attribution_rx) = std::sync::mpsc::sync_channel(ATTRIBUTION_QUEUE_CAP);
@@ -265,14 +263,14 @@ struct Retry {
 
 /// Owns every capture worker and reconciles them against the interface set.
 struct Supervisor {
-    tx: Sender<SensorEvent>,
+    tx: Sender<RawEvent>,
     attribution_tx: SyncSender<AttributionJob>,
     workers: BTreeMap<String, Worker>,
     retries: BTreeMap<String, Retry>,
 }
 
 impl Supervisor {
-    fn new(tx: Sender<SensorEvent>, attribution_tx: SyncSender<AttributionJob>) -> Self {
+    fn new(tx: Sender<RawEvent>, attribution_tx: SyncSender<AttributionJob>) -> Self {
         Self {
             tx,
             attribution_tx,
@@ -755,7 +753,7 @@ fn close_fd(fd: RawFd) {
 
 /// A network or DNS event awaiting best-effort process attribution.
 struct AttributionJob {
-    event: SensorEvent,
+    event: RawEvent,
     flow: socket::Flow,
 }
 
@@ -766,7 +764,7 @@ struct AttributionJob {
 /// which is exactly when the kernel would otherwise drop packets.
 fn run_capture(
     device: BpfDevice,
-    tx: Sender<SensorEvent>,
+    tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     attribution_tx: SyncSender<AttributionJob>,
 ) {
@@ -855,7 +853,7 @@ fn run_capture(
 /// Each wake-up drains everything already queued and resolves the whole batch
 /// against one [`socket::SocketOwnerCache`], so a burst of connections costs
 /// one system-wide scan rather than one per connection.
-fn run_attribution_worker(rx: Receiver<AttributionJob>, tx: Sender<SensorEvent>) {
+fn run_attribution_worker(rx: Receiver<AttributionJob>, tx: Sender<RawEvent>) {
     let mut cache = socket::SocketOwnerCache::new(socket::INVENTORY_TTL);
     while let Ok(job) = rx.recv() {
         for mut job in std::iter::once(job).chain(rx.try_iter()) {
@@ -892,14 +890,14 @@ fn for_each_packet(buf: &[u8], mut handle: impl FnMut(SystemTime, &[u8])) {
     }
 }
 
-/// Parse a captured frame and emit any resulting [`SensorEvent`].
+/// Parse a captured frame and emit any resulting [`RawEvent`].
 ///
 /// Network and DNS events share the off-thread socket attribution path.
 fn handle_packet(
     link_type: u32,
     event_time: SystemTime,
     frame: &[u8],
-    tx: &Sender<SensorEvent>,
+    tx: &Sender<RawEvent>,
     attribution_tx: &SyncSender<AttributionJob>,
 ) {
     let Some(parsed) = packet::parse(link_type, frame) else {
@@ -919,8 +917,8 @@ fn handle_packet(
 /// blocks and the event is never lost; only its attribution is best-effort.
 fn enqueue_attribution(
     attribution_tx: &SyncSender<AttributionJob>,
-    tx: &Sender<SensorEvent>,
-    event: SensorEvent,
+    tx: &Sender<RawEvent>,
+    event: RawEvent,
     flow: socket::Flow,
 ) {
     let job = AttributionJob { event, flow };
@@ -938,7 +936,7 @@ fn enqueue_attribution(
 /// on the attribution worker, never on the capture thread.
 fn apply_socket_owner(
     cache: &mut socket::SocketOwnerCache,
-    event: &mut SensorEvent,
+    event: &mut RawEvent,
     flow: socket::Flow,
 ) {
     let Some(owner) = cache.find_socket_owner(flow) else {
@@ -946,7 +944,7 @@ fn apply_socket_owner(
     };
     event.pid = Some(owner.pid);
     match &mut event.payload {
-        SensorPayload::Network(fields) => {
+        RawPayload::Network(fields) => {
             fields.process_id = Some(owner.pid.to_string());
             event.provenance.mark_derived("ProcessId");
             event
@@ -960,7 +958,7 @@ fn apply_socket_owner(
             }
             fields.image = owner.image;
         }
-        SensorPayload::Dns(fields) => {
+        RawPayload::Dns(fields) => {
             fields.process_id = Some(owner.pid.to_string());
             event.provenance.mark_derived("ProcessId");
             event
@@ -1001,7 +999,7 @@ fn packet_flow(packet: &ParsedPacket) -> socket::Flow {
 /// Only SYN segments with ACK clear are treated as new connections. PID and
 /// image attribution are filled in best-effort by the attribution worker; the
 /// normalizer enriches the rest.
-fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<SensorEvent> {
+fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<RawEvent> {
     let Transport::Tcp {
         src_port,
         dst_port,
@@ -1015,7 +1013,7 @@ fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<
         return None;
     }
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: None,
         provenance: {
             let mut provenance = crate::models::Provenance::default();
@@ -1034,7 +1032,7 @@ fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<
         source_seq: None,
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Network(NetworkConnectionFields {
+        payload: RawPayload::Network(NetworkConnectionFields {
             destination_ip: Some(packet.dst_ip.to_string()),
             source_ip: Some(packet.src_ip.to_string()),
             destination_port: Some(dst_port.to_string()),
@@ -1058,7 +1056,7 @@ fn build_network_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<
 ///
 /// Handles UDP queries directly and DNS-over-TCP by skipping the 2-byte length
 /// prefix. Responses are rejected by the shared parser (QR bit).
-fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<SensorEvent> {
+fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<RawEvent> {
     let (dst_port, dns_payload) = match &packet.transport {
         Transport::Udp {
             dst_port, payload, ..
@@ -1073,7 +1071,7 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<Sens
 
     let (query_name, qtype) = crate::sensor::dns::parse_question(dns_payload)?;
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::MacOS,
@@ -1088,7 +1086,7 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<Sens
         source_seq: None,
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Dns(DnsQueryFields {
+        payload: RawPayload::Dns(DnsQueryFields {
             user: None,
             query_name: Some(query_name),
             query_results: None,
@@ -1105,7 +1103,7 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<Sens
 /// The capture loop reads a fixed-size kernel buffer, so blocking here would
 /// overflow that buffer instead. Overflow is shed and counted — see
 /// [`crate::telemetry`].
-fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
+fn try_send(tx: &Sender<RawEvent>, event: RawEvent) {
     let _ = crate::telemetry::try_send_sensor_event(tx, event);
 }
 
@@ -1302,7 +1300,7 @@ mod tests {
         assert_eq!(event.action, SensorAction::Connect);
         assert_eq!(event.normalization.event_id, EVENT_ID_NETWORK_CONNECT);
         match event.payload {
-            SensorPayload::Network(fields) => {
+            RawPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("93.184.216.34"));
                 assert_eq!(fields.source_ip.as_deref(), Some("10.0.0.5"));
                 assert_eq!(fields.destination_port.as_deref(), Some("443"));
@@ -1328,7 +1326,7 @@ mod tests {
         // the queue full, so the capture thread must emit the event itself
         // rather than block or drop it.
         let (attribution_tx, _attribution_rx) = std::sync::mpsc::sync_channel::<AttributionJob>(0);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<SensorEvent>(8);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<RawEvent>(8);
 
         let event = build_network_event(&tcp_packet(TCP_FLAG_SYN), SystemTime::UNIX_EPOCH)
             .expect("syn should emit");
@@ -1344,7 +1342,7 @@ mod tests {
             .expect("event should still reach the pipeline");
         assert!(received.pid.is_none(), "event should be unattributed");
         match received.payload {
-            SensorPayload::Network(fields) => assert!(fields.process_id.is_none()),
+            RawPayload::Network(fields) => assert!(fields.process_id.is_none()),
             other => panic!("unexpected payload: {other:?}"),
         }
     }
@@ -1396,7 +1394,7 @@ mod tests {
         assert_eq!(event.action, SensorAction::Query);
         assert_eq!(event.normalization.event_id, EVENT_ID_DNS_QUERY);
         match event.payload {
-            SensorPayload::Dns(fields) => {
+            RawPayload::Dns(fields) => {
                 assert_eq!(fields.query_name.as_deref(), Some("sub.example.test"));
                 assert_eq!(fields.record_type.as_deref(), Some("AAAA"));
             }
@@ -1627,7 +1625,7 @@ level: high
             }
             std::thread::sleep(Duration::from_millis(100));
             while let Ok(event) = rx.try_recv() {
-                if let SensorPayload::Dns(fields) = event.payload {
+                if let RawPayload::Dns(fields) = event.payload {
                     found |= fields.query_name.as_deref() == Some(query_name.as_str())
                         && event.pid == Some(std::process::id())
                         && fields.process_id == Some(std::process::id().to_string());

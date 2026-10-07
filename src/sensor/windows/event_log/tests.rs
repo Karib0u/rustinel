@@ -1,5 +1,5 @@
 use super::*;
-use crate::sensor::SensorPayload;
+use crate::sensor::RawPayload;
 use crate::telemetry::event_log::WINDOWS_EVENT_LOG;
 
 #[test]
@@ -253,7 +253,7 @@ fn powershell(script: &str) {
     );
 }
 
-fn decode_test_record(xml: &str) -> Result<SensorEvent> {
+fn decode_test_record(xml: &str) -> Result<RawEvent> {
     let document = roxmltree::Document::parse(xml)?;
     let id = document
         .descendants()
@@ -266,7 +266,7 @@ fn decode_test_record(xml: &str) -> Result<SensorEvent> {
     ))
 }
 
-fn receive(rx: &mut tokio::sync::mpsc::Receiver<SensorEvent>) -> SensorEvent {
+fn receive(rx: &mut tokio::sync::mpsc::Receiver<RawEvent>) -> RawEvent {
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         if let Ok(event) = rx.try_recv() {
@@ -300,7 +300,7 @@ fn native_powershell_classic_start_subscription() {
     let event = receive(&mut rx);
     assert_eq!(event.normalization.event_id, 400);
     assert_eq!(event.provider, "windows_event_log");
-    let SensorPayload::PowerShellClassicStart(fields) = event.payload else {
+    let RawPayload::PowerShellClassicStart(fields) = event.payload else {
         panic!("expected classic PowerShell start payload");
     };
     let data = fields.data.expect("event 400 Data");

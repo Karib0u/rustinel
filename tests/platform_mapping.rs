@@ -26,7 +26,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         DNS_EVENT_RESPONSE, DNS_PAYLOAD_CAPACITY, FILE_PATH_LEN, PROCESS_IMAGE_CAPACITY,
     };
     use rustinel::sensor::linux::paths::{DirFdIndex, AT_FDCWD};
-    use rustinel::sensor::{SensorAction, SensorPayload};
+    use rustinel::sensor::{RawPayload, SensorAction};
     use std::os::fd::AsRawFd;
 
     let mut process = ProcessEvent {
@@ -63,7 +63,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     assert_eq!(mapped.action, SensorAction::Start);
     assert_eq!(mapped.normalization.event_id, 1);
     match mapped.payload {
-        SensorPayload::Process(ref fields) => assert_eq!(
+        RawPayload::Process(ref fields) => assert_eq!(
             fields.command_line.as_deref(),
             Some("/usr/bin/curl -sS https://example.test")
         ),
@@ -75,7 +75,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     process.image_truncated = 1;
     let mapped = mapping::process_event_to_sensor(&process);
     match mapped.payload {
-        SensorPayload::Process(fields) => {
+        RawPayload::Process(fields) => {
             assert_eq!(
                 fields.image.as_deref().map(str::len),
                 Some(PROCESS_IMAGE_CAPACITY - 1)
@@ -113,7 +113,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     network.saddr[..4].copy_from_slice(&[10, 0, 0, 5]);
     let mapped = mapping::network_event_to_sensor(&network);
     match mapped.payload {
-        SensorPayload::Network(fields) => {
+        RawPayload::Network(fields) => {
             assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
             assert!(fields.source_ip.is_none());
             assert!(fields.source_port.is_none());
@@ -154,7 +154,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     network.saddr = [0; 16];
     let mapped = mapping::network_event_to_sensor(&network);
     match mapped.payload {
-        SensorPayload::Network(fields) => {
+        RawPayload::Network(fields) => {
             assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
             assert!(fields.source_ip.is_none());
             assert!(fields.source_port.is_none());
@@ -166,7 +166,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     network.af = 10;
     let mapped = mapping::network_event_to_sensor(&network);
     match mapped.payload {
-        SensorPayload::Network(fields) => assert!(fields.source_ip.is_none()),
+        RawPayload::Network(fields) => assert!(fields.source_ip.is_none()),
         _ => panic!("expected network payload"),
     }
 
@@ -195,7 +195,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         .expect("absolute paths should map");
     assert_eq!(mapped.action, SensorAction::Rename);
     match mapped.payload {
-        SensorPayload::File(fields) => {
+        RawPayload::File(fields) => {
             assert_eq!(fields.source_filename.as_deref(), Some("/tmp/old.txt"));
             assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
             assert!(fields.path_truncated.is_none());
@@ -232,7 +232,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     let mapped = mapping::file_event_to_sensor(&DirFdIndex::new(), &relative)
         .expect("descriptor-relative paths should map");
     match mapped.payload {
-        SensorPayload::File(fields) => {
+        RawPayload::File(fields) => {
             assert_eq!(fields.source_filename.as_deref(), Some("/etc/shadow"));
             assert_eq!(fields.target_filename.as_deref(), Some("/tmp/shadow.bak"));
         }
@@ -283,7 +283,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
     dns.payload[..message.len()].copy_from_slice(&message);
     let mapped = mapping::dns_event_to_sensor(&dns).expect("dns response should map");
     match mapped.payload {
-        SensorPayload::Dns(fields) => {
+        RawPayload::Dns(fields) => {
             assert_eq!(fields.query_name.as_deref(), Some("example.test"));
             assert_eq!(fields.query_results.as_deref(), Some("198.51.100.10;"));
             assert_eq!(fields.record_type.as_deref(), Some("A"));

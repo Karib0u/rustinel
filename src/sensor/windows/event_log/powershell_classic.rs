@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Context, Result};
 
 use crate::models::PowerShellClassicStartFields;
-use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
+use crate::sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization};
 
 use super::{parse_system_time, EventLogSource};
 
@@ -20,7 +20,7 @@ pub(super) const fn source() -> EventLogSource {
     )
 }
 
-fn decode(xml: &str) -> Result<SensorEvent> {
+fn decode(xml: &str) -> Result<RawEvent> {
     let document = roxmltree::Document::parse(xml).context("invalid PowerShell event XML")?;
     let system = document
         .descendants()
@@ -78,7 +78,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .and_then(|node| node.attribute("ProcessID"))
         .and_then(|value| value.parse::<u32>().ok());
 
-    Ok(SensorEvent {
+    Ok(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -93,7 +93,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         source_seq: Some(source_seq),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::PowerShellClassicStart(PowerShellClassicStartFields {
+        payload: RawPayload::PowerShellClassicStart(PowerShellClassicStartFields {
             data: Some(data.to_string()),
         }),
     })
@@ -108,7 +108,7 @@ fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Opti
 #[cfg(test)]
 mod tests {
     use super::decode;
-    use crate::sensor::{SensorAction, SensorPayload};
+    use crate::sensor::{RawPayload, SensorAction};
 
     const EVENT_400: &str = r#"
 <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
@@ -143,7 +143,7 @@ RunspaceId=2a928607-64a6-4806-ac3f-d9f2cd92ef54</Data>
         assert_eq!(event.source_seq, Some(1_132_233));
         assert_eq!(event.pid, Some(12_740));
 
-        let SensorPayload::PowerShellClassicStart(fields) = event.payload else {
+        let RawPayload::PowerShellClassicStart(fields) = event.payload else {
             panic!("expected classic PowerShell start payload");
         };
         let data = fields.data.expect("event 400 Data");

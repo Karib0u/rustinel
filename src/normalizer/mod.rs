@@ -13,7 +13,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::models::*;
 use crate::sensor::{
-    Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorPayload,
+    Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, SensorAction,
 };
 use crate::state::{HostState, ProcessMetadata};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
@@ -31,50 +31,38 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
     }
 
     /// Generate the Sigma-compatible view for a raw event.
-    pub fn normalize(&self, event: &SensorEvent) -> Option<NormalizedEvent> {
+    pub fn normalize(&self, event: &RawEvent) -> Option<NormalizedEvent> {
         let mut provenance = event.provenance.clone();
         let fields = match &event.payload {
-            SensorPayload::Process(fields) => {
-                self.normalize_process(event, fields, &mut provenance)
-            }
-            SensorPayload::Network(fields) => {
+            RawPayload::Process(fields) => self.normalize_process(event, fields, &mut provenance),
+            RawPayload::Network(fields) => {
                 self.normalize_network(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::File(fields) => {
-                self.normalize_file(event, fields.clone(), &mut provenance)
-            }
-            SensorPayload::Dns(fields) => {
-                self.normalize_dns(event, fields.clone(), &mut provenance)
-            }
-            SensorPayload::Registry(fields) => {
+            RawPayload::File(fields) => self.normalize_file(event, fields.clone(), &mut provenance),
+            RawPayload::Dns(fields) => self.normalize_dns(event, fields.clone(), &mut provenance),
+            RawPayload::Registry(fields) => {
                 self.normalize_registry(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::ImageLoad(fields) => {
+            RawPayload::ImageLoad(fields) => {
                 self.normalize_image_load(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::Scripting(fields) => {
+            RawPayload::Scripting(fields) => {
                 self.normalize_powershell(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::PowerShellModule(fields) => {
+            RawPayload::PowerShellModule(fields) => {
                 self.normalize_powershell_module(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::PowerShellClassicStart(fields) => {
+            RawPayload::PowerShellClassicStart(fields) => {
                 Some(EventFields::PowerShellClassicStart(fields.clone()))
             }
-            SensorPayload::Wmi(fields) => {
-                self.normalize_wmi(event, fields.clone(), &mut provenance)
-            }
-            SensorPayload::Service(fields) => {
+            RawPayload::Wmi(fields) => self.normalize_wmi(event, fields.clone(), &mut provenance),
+            RawPayload::Service(fields) => {
                 self.normalize_service(event, fields.clone(), &mut provenance)
             }
-            SensorPayload::Task(fields) => {
-                self.normalize_task(event, fields.clone(), &mut provenance)
-            }
-            SensorPayload::Security(fields) => Some(EventFields::SecurityAudit(fields.clone())),
-            SensorPayload::Defender(fields) => Some(EventFields::SecurityAudit(fields.clone())),
-            SensorPayload::Application(fields) => {
-                Some(EventFields::ApplicationEvent(fields.clone()))
-            }
+            RawPayload::Task(fields) => self.normalize_task(event, fields.clone(), &mut provenance),
+            RawPayload::Security(fields) => Some(EventFields::SecurityAudit(fields.clone())),
+            RawPayload::Defender(fields) => Some(EventFields::SecurityAudit(fields.clone())),
+            RawPayload::Application(fields) => Some(EventFields::ApplicationEvent(fields.clone())),
         }?;
 
         let normalized = NormalizedEvent {
@@ -124,7 +112,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_process(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         raw: &RawProcessEvent,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -290,7 +278,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_file(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: FileEventFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -314,7 +302,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_registry(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: RegistryEventFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -326,7 +314,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_network(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: NetworkConnectionFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -349,7 +337,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_dns(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: DnsQueryFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -370,7 +358,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_image_load(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: ImageLoadFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -381,7 +369,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_powershell(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: PowerShellScriptFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -392,7 +380,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_powershell_module(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: PowerShellModuleFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -403,7 +391,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_wmi(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: WmiEventFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -413,7 +401,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_service(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: ServiceCreationFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -425,7 +413,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn normalize_task(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         mut fields: TaskCreationFields,
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
@@ -449,7 +437,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
     fn enrich_image(
         &self,
-        event: &SensorEvent,
+        event: &RawEvent,
         image: &mut Option<String>,
         provenance: &mut Provenance,
     ) {
@@ -465,7 +453,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         provenance.inherit(&metadata.provenance, "Image", "Image");
     }
 
-    fn metadata_for_event(&self, event: &SensorEvent) -> Option<ProcessMetadata> {
+    fn metadata_for_event(&self, event: &RawEvent) -> Option<ProcessMetadata> {
         let key = event.process_start_key?;
         self.state
             .processes
@@ -664,7 +652,7 @@ mod tests {
 
     #[test]
     fn populated_never_field_fails_and_increments_telemetry() {
-        let event = SensorEvent {
+        let event = RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Windows,
@@ -679,7 +667,7 @@ mod tests {
             source_seq: None,
             process_start_key: None,
             parent_process_start_key: None,
-            payload: SensorPayload::ImageLoad(ImageLoadFields {
+            payload: RawPayload::ImageLoad(ImageLoadFields {
                 hashes: None,
                 imphash: None,
                 image_loaded: Some(r"C:\Windows\System32\kernel32.dll".into()),
@@ -709,7 +697,7 @@ mod tests {
         use crate::state::container::{ContainerIdentity, ContainerResolution};
         const ID: &str = "4f0a3c1b2d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8";
         let event = process_start_event(Platform::Linux, "ebpf", 4242);
-        let SensorPayload::Process(raw) = &event.payload else {
+        let RawPayload::Process(raw) = &event.payload else {
             unreachable!()
         };
         let mut fields = raw.compatibility_fields();
@@ -770,7 +758,7 @@ mod tests {
             )
             .unwrap();
             let mut event = process_start_event(Platform::Linux, "test", pid);
-            let SensorPayload::Process(raw) = &mut event.payload else {
+            let RawPayload::Process(raw) = &mut event.payload else {
                 unreachable!()
             };
             let RawProcessPlatform::Linux(source) = raw.platform.as_mut() else {
@@ -788,7 +776,7 @@ mod tests {
     fn legacy_markers_preserve_sigma_values_and_generalize_fidelity() {
         let normalizer = build_normalizer();
         let mut event = process_start_event(Platform::Linux, "test", 4242);
-        if let SensorPayload::Process(fields) = &mut event.payload {
+        if let RawPayload::Process(fields) = &mut event.payload {
             let crate::sensor::RawProcessPlatform::Linux(source) = fields.platform.as_mut() else {
                 unreachable!()
             };
@@ -803,7 +791,7 @@ mod tests {
 
         for marker in [None, Some("target"), Some("source"), Some("source,target")] {
             let mut event = file_event(Platform::Linux, "test", 4242);
-            if let SensorPayload::File(fields) = &mut event.payload {
+            if let RawPayload::File(fields) = &mut event.payload {
                 fields.source_filename = Some("/tmp/source".into());
                 fields.path_truncated = marker.map(str::to_string);
             }
@@ -828,7 +816,7 @@ mod tests {
     fn cache_enrichment_preserves_truncation_in_image_and_parent_fields() {
         let normalizer = build_normalizer();
         let mut parent = process_start_with_identity(4242, 100, "/usr/bin/truncated");
-        if let SensorPayload::Process(fields) = &mut parent.payload {
+        if let RawPayload::Process(fields) = &mut parent.payload {
             let crate::sensor::RawProcessPlatform::Linux(source) = fields.platform.as_mut() else {
                 unreachable!()
             };
@@ -855,7 +843,7 @@ mod tests {
     fn dns_cache_hostname_is_derived_but_native_hostname_is_measured() {
         let normalizer = build_normalizer();
         let mut event = network_event(Platform::Linux, "test", 4242);
-        let SensorPayload::Network(fields) = &mut event.payload else {
+        let RawPayload::Network(fields) = &mut event.payload else {
             unreachable!()
         };
         normalizer.state.dns.update(
@@ -870,7 +858,7 @@ mod tests {
         assert!(normalized
             .provenance
             .has("DestinationHostname", Fidelity::Derived));
-        let SensorPayload::Network(fields) = &mut event.payload else {
+        let RawPayload::Network(fields) = &mut event.payload else {
             unreachable!()
         };
         fields.destination_hostname = Some("native.test".into());
@@ -884,7 +872,7 @@ mod tests {
     fn unknown_and_missing_fields_do_not_become_false_or_measured_values() {
         let normalizer = build_normalizer();
         let mut event = network_event(Platform::MacOS, "test", 4242);
-        if let SensorPayload::Network(fields) = &mut event.payload {
+        if let RawPayload::Network(fields) = &mut event.payload {
             fields.initiated = None;
             fields.image = None;
         }
@@ -904,7 +892,7 @@ mod tests {
             // each live collector's required-field contract.
             let provider = "test";
             let mut dns = file_event(platform, provider, 4242);
-            dns.payload = SensorPayload::Dns(DnsQueryFields {
+            dns.payload = RawPayload::Dns(DnsQueryFields {
                 user: None,
                 query_name: Some("example.test".into()),
                 query_results: None,
@@ -934,7 +922,7 @@ mod tests {
                 engine.load_rules(rules.path()).unwrap();
                 for user in [Some("0"), Some("4294967295"), Some("alice"), None] {
                     match &mut event.payload {
-                        SensorPayload::Process(fields) => {
+                        RawPayload::Process(fields) => {
                             fields.user = user.map(|value| {
                                 value
                                     .parse()
@@ -950,9 +938,9 @@ mod tests {
                                     user.and_then(|value| value.parse().ok());
                             }
                         }
-                        SensorPayload::File(fields) => fields.user = user.map(str::to_string),
-                        SensorPayload::Network(fields) => fields.user = user.map(str::to_string),
-                        SensorPayload::Dns(fields) => fields.user = user.map(str::to_string),
+                        RawPayload::File(fields) => fields.user = user.map(str::to_string),
+                        RawPayload::Network(fields) => fields.user = user.map(str::to_string),
+                        RawPayload::Dns(fields) => fields.user = user.map(str::to_string),
                         _ => unreachable!(),
                     }
                     let normalized = build_normalizer().normalize(&event).unwrap();
@@ -999,7 +987,7 @@ mod tests {
     fn windows_live_command_line_provenance_survives_recording() {
         let normalizer = build_normalizer();
         let mut event = process_start_event(Platform::Windows, "etw", 4242);
-        if let SensorPayload::Process(fields) = &mut event.payload {
+        if let RawPayload::Process(fields) = &mut event.payload {
             fields.command_line = Some("cmd.exe /c test".into());
             fields
                 .windows_mut()
@@ -1015,7 +1003,7 @@ mod tests {
         let json = serde_json::to_vec(&normalized).unwrap();
         let replayed: NormalizedEvent = serde_json::from_slice(&json).unwrap();
         assert_eq!(replayed.provenance, normalized.provenance);
-        if let SensorPayload::Process(fields) = &mut event.payload {
+        if let RawPayload::Process(fields) = &mut event.payload {
             fields
                 .windows_mut()
                 .expect("Windows test event")
@@ -1078,20 +1066,16 @@ mod tests {
         assert!(second.source_seq.is_none());
     }
 
-    fn process_payload(
-        platform: Platform,
-        pid: u32,
-        fields: ProcessCreationFields,
-    ) -> SensorPayload {
-        SensorPayload::Process(RawProcessEvent::from_compatibility(
+    fn process_payload(platform: Platform, pid: u32, fields: ProcessCreationFields) -> RawPayload {
+        RawPayload::Process(RawProcessEvent::from_compatibility(
             fields,
             platform,
             Some(pid),
         ))
     }
 
-    fn process_start_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
-        SensorEvent {
+    fn process_start_event(platform: Platform, provider: &'static str, pid: u32) -> RawEvent {
+        RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform,
@@ -1156,8 +1140,8 @@ mod tests {
         provider: &'static str,
         pid: u32,
         with_start_key: bool,
-    ) -> SensorEvent {
-        SensorEvent {
+    ) -> RawEvent {
+        RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform,
@@ -1211,8 +1195,8 @@ mod tests {
         }
     }
 
-    fn network_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
-        SensorEvent {
+    fn network_event(platform: Platform, provider: &'static str, pid: u32) -> RawEvent {
+        RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform,
@@ -1230,7 +1214,7 @@ mod tests {
                 start_time: 123_456,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::Network(NetworkConnectionFields {
+            payload: RawPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
                 source_ip: (platform == Platform::Windows).then(|| "10.0.0.5".to_string()),
                 destination_port: Some("443".to_string()),
@@ -1245,8 +1229,8 @@ mod tests {
         }
     }
 
-    fn file_event(platform: Platform, provider: &'static str, pid: u32) -> SensorEvent {
-        SensorEvent {
+    fn file_event(platform: Platform, provider: &'static str, pid: u32) -> RawEvent {
+        RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform,
@@ -1264,7 +1248,7 @@ mod tests {
                 start_time: 123_456,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::File(FileEventFields {
+            payload: RawPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/sample.txt".to_string()),
                 process_id: Some(pid.to_string()),
@@ -1311,7 +1295,7 @@ mod tests {
             None,
         );
 
-        let event = SensorEvent {
+        let event = RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Windows,
@@ -1405,7 +1389,7 @@ mod tests {
             None,
         );
 
-        let build_event = || SensorEvent {
+        let build_event = || RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Windows,
@@ -1420,7 +1404,7 @@ mod tests {
             source_seq: None,
             process_start_key: None,
             parent_process_start_key: None,
-            payload: SensorPayload::Network(NetworkConnectionFields {
+            payload: RawPayload::Network(NetworkConnectionFields {
                 destination_ip: Some("198.51.100.10".to_string()),
                 source_ip: Some("10.0.0.5".to_string()),
                 destination_port: Some("443".to_string()),
@@ -1439,7 +1423,7 @@ mod tests {
 
         let mut restarted = build_event();
         restarted.pid = Some(8);
-        if let SensorPayload::Network(fields) = &mut restarted.payload {
+        if let RawPayload::Network(fields) = &mut restarted.payload {
             fields.process_id = Some("8".to_string());
             fields.user = Some("bob".to_string());
             fields.destination_hostname = Some("new.example.test".to_string());
@@ -1459,7 +1443,7 @@ mod tests {
     #[test]
     fn normalizer_preserves_sensor_supplied_compat_metadata() {
         let normalizer = build_normalizer();
-        let event = SensorEvent {
+        let event = RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -1474,7 +1458,7 @@ mod tests {
             source_seq: None,
             process_start_key: None,
             parent_process_start_key: None,
-            payload: SensorPayload::File(FileEventFields {
+            payload: RawPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/test".to_string()),
                 process_id: Some("9".to_string()),
@@ -1516,7 +1500,7 @@ mod tests {
             None,
         );
 
-        let event = SensorEvent {
+        let event = RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -1531,7 +1515,7 @@ mod tests {
             source_seq: None,
             process_start_key: None,
             parent_process_start_key: None,
-            payload: SensorPayload::File(FileEventFields {
+            payload: RawPayload::File(FileEventFields {
                 source_filename: None,
                 target_filename: Some("/tmp/test".to_string()),
                 process_id: Some("9".to_string()),
@@ -1589,10 +1573,10 @@ mod tests {
         );
     }
 
-    fn process_start_with_identity(pid: u32, start_time: u64, image: &str) -> SensorEvent {
+    fn process_start_with_identity(pid: u32, start_time: u64, image: &str) -> RawEvent {
         let mut event = process_start_event(Platform::Linux, "ebpf", pid);
         event.process_start_key = Some(ProcessStartKey { pid, start_time });
-        if let SensorPayload::Process(fields) = &mut event.payload {
+        if let RawPayload::Process(fields) = &mut event.payload {
             fields.image = Some(image.to_string());
         }
         event
@@ -1627,7 +1611,7 @@ mod tests {
             );
             let normalizer = Normalizer::new(state);
             let mut dns = file_event(platform, "test", 4242);
-            dns.payload = SensorPayload::Dns(DnsQueryFields {
+            dns.payload = RawPayload::Dns(DnsQueryFields {
                 query_name: Some("example.test".into()),
                 query_results: None,
                 record_type: Some("A".into()),
@@ -1684,7 +1668,7 @@ mod tests {
         );
         let normalizer = Normalizer::new(state);
         let payloads = [
-            SensorPayload::ImageLoad(ImageLoadFields {
+            RawPayload::ImageLoad(ImageLoadFields {
                 hashes: None,
                 imphash: None,
                 image_loaded: Some(r"C:\Windows\System32\amsi.dll".into()),
@@ -1699,7 +1683,7 @@ mod tests {
                 signature: None,
                 user: None,
             }),
-            SensorPayload::Scripting(PowerShellScriptFields {
+            RawPayload::Scripting(PowerShellScriptFields {
                 script_block_text: Some("Get-Process".into()),
                 script_block_id: None,
                 message_number: None,
@@ -1709,7 +1693,7 @@ mod tests {
                 image: None,
                 user: None,
             }),
-            SensorPayload::PowerShellModule(PowerShellModuleFields {
+            RawPayload::PowerShellModule(PowerShellModuleFields {
                 context_info: Some("Host Application = powershell.exe".into()),
                 payload: None,
                 process_id: Some("4242".into()),
@@ -1823,7 +1807,7 @@ mod tests {
             pid: parent_pid,
             start_time: 100,
         });
-        if let SensorPayload::Process(fields) = &mut child.payload {
+        if let RawPayload::Process(fields) = &mut child.payload {
             fields.parent_process_id = Some(parent_pid);
         }
 
@@ -1864,7 +1848,7 @@ mod tests {
             pid: parent_pid,
             start_time: 100,
         });
-        if let SensorPayload::Process(fields) = &mut system_parent.payload {
+        if let RawPayload::Process(fields) = &mut system_parent.payload {
             fields.user = Some(crate::sensor::RawUserId::WindowsSid("S-1-5-18".into()));
         }
         let normalized_parent = normalizer
@@ -1881,7 +1865,7 @@ mod tests {
             pid: parent_pid,
             start_time: 150,
         });
-        if let SensorPayload::Process(fields) = &mut reused_parent.payload {
+        if let RawPayload::Process(fields) = &mut reused_parent.payload {
             fields.user = Some(crate::sensor::RawUserId::Name("LAB\\other".into()));
         }
         normalizer
@@ -1898,7 +1882,7 @@ mod tests {
             pid: parent_pid,
             start_time: 100,
         });
-        if let SensorPayload::Process(fields) = &mut child.payload {
+        if let RawPayload::Process(fields) = &mut child.payload {
             fields.parent_process_id = Some(parent_pid);
         }
 

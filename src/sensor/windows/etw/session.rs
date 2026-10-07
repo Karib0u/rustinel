@@ -5,7 +5,7 @@ use super::decode::decode_record;
 use super::providers::{EtwProvider, EtwProviders};
 use super::state::EtwState;
 use super::{EtwSensor, PROCESS_TRACE_SESSION_NAME, TRACE_SESSION_NAME};
-use crate::sensor::SensorEvent;
+use crate::sensor::RawEvent;
 use anyhow::Result;
 use ferrisetw::provider::{EventFilter, Provider};
 use ferrisetw::trace::{TraceBuilder, TraceProperties, TraceTrait, UserTrace};
@@ -187,7 +187,7 @@ pub(super) fn build_session(
     properties: TraceProperties,
     providers: Vec<EtwProvider>,
     state: &Arc<EtwState>,
-    tx: &Sender<SensorEvent>,
+    tx: &Sender<RawEvent>,
 ) -> TraceBuilder<UserTrace> {
     info!(
         "ETW session '{}' buffers: {} KB x {}-{} ({} MB ceiling), flush {}s",
@@ -221,7 +221,7 @@ pub(super) fn build_session(
             .add_callback(move |record, schema_locator| {
                 let decoded = decode_record(record, schema_locator, &state);
                 for event in decoded.replayed.into_iter().chain(decoded.primary) {
-                    if !matches!(event.payload, crate::sensor::SensorPayload::Process(_)) {
+                    if !matches!(event.payload, crate::sensor::RawPayload::Process(_)) {
                         let _ = crate::telemetry::try_send_sensor_event(&tx, event);
                         continue;
                     }
@@ -289,7 +289,7 @@ impl EtwSensor {
     /// sensor that silently runs without process events.
     pub(super) fn run_sessions(
         &self,
-        tx: &Sender<SensorEvent>,
+        tx: &Sender<RawEvent>,
         readiness: &mut Option<oneshot::Sender<std::result::Result<(), String>>>,
     ) -> Result<()> {
         let process_identities = match crate::platform::windows::snapshot_process_start_keys() {

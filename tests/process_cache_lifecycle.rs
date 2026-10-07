@@ -1,13 +1,13 @@
 use std::time::SystemTime;
 
 use rustinel::sensor::{
-    Platform, ProcessStartKey, RawLinuxProcess, RawLinuxProcessIdentity, RawProcessEvent,
-    RawProcessPlatform, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+    Platform, ProcessStartKey, RawEvent, RawLinuxProcess, RawLinuxProcessIdentity, RawPayload,
+    RawProcessEvent, RawProcessPlatform, SensorAction, SensorNormalization,
 };
 use rustinel::state::{HostState, StateLimits};
 
-fn process_event(pid: u32, start_time: u64, action: SensorAction) -> SensorEvent {
-    SensorEvent {
+fn process_event(pid: u32, start_time: u64, action: SensorAction) -> RawEvent {
+    RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Linux,
@@ -27,7 +27,7 @@ fn process_event(pid: u32, start_time: u64, action: SensorAction) -> SensorEvent
         source_seq: None,
         process_start_key: Some(ProcessStartKey { pid, start_time }),
         parent_process_start_key: None,
-        payload: SensorPayload::Process(RawProcessEvent {
+        payload: RawPayload::Process(RawProcessEvent {
             process_id: pid,
             parent_process_id: None,
             process_start_time: None,
@@ -59,13 +59,13 @@ fn process_event(pid: u32, start_time: u64, action: SensorAction) -> SensorEvent
     }
 }
 
-fn fork_event(pid: u32, start_time: u64) -> SensorEvent {
+fn fork_event(pid: u32, start_time: u64) -> RawEvent {
     let mut event = process_event(pid, start_time, SensorAction::Fork);
     event.parent_process_start_key = Some(ProcessStartKey {
         pid: 1,
         start_time: 1,
     });
-    let SensorPayload::Process(process) = &mut event.payload else {
+    let RawPayload::Process(process) = &mut event.payload else {
         unreachable!()
     };
     process.parent_process_id = Some(1);

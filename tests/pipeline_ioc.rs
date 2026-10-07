@@ -10,7 +10,7 @@ use rustinel::{
     engine::{Engine, EventDetectors},
     ioc::{HashCache, IocEngine, IocKind},
     models::{CanonicalEvent, EventFields, Provenance},
-    sensor::{Platform, SensorPayload},
+    sensor::{Platform, RawPayload},
 };
 use std::sync::Arc;
 
@@ -160,7 +160,7 @@ fn ip_cidr_index_preserves_ipv4_ipv6_overlap_and_feed_order() {
 
     let event_for = |destination_ip: &str| {
         let mut event = network_connect_event(Platform::Linux);
-        let SensorPayload::Network(fields) = &mut event.payload else {
+        let RawPayload::Network(fields) = &mut event.payload else {
             panic!("expected network fields");
         };
         fields.destination_ip = Some(destination_ip.to_string());
