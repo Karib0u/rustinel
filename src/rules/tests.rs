@@ -285,9 +285,11 @@ fn install_and_update_leave_local_rule_directories_untouched() {
 
     let state = load_update_state(temp.path()).unwrap();
     catalog.packs[0].version = "v0.2.0".into();
-    update_active_pack(&catalog, &state, temp.path(), |_| Ok(archive.clone()))
-        .unwrap()
-        .unwrap();
+    update_active_pack(&catalog, &state, &test_catalog_url(), temp.path(), |_| {
+        Ok(archive.clone())
+    })
+    .unwrap()
+    .unwrap();
     install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive).unwrap();
 
     assert_eq!(fs::read(&local_rule).unwrap(), b"title: Mine\n");
