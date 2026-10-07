@@ -7,7 +7,7 @@
 //! 2. Loads and attaches the Linux telemetry eBPF programs.
 //! 3. Takes ownership of the ring-buffer maps.
 //! 4. Spawns a tokio task that polls all ring buffers and converts raw events
-//!    into [`SensorEvent`] values for the shared pipeline.
+//!    into [`RawEvent`] values for the shared pipeline.
 //!
 //! Requirements: Linux 5.8+ and eBPF privileges; runtime BTF enables task identity.
 
@@ -25,8 +25,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::models::{DnsQueryFields, FileEventFields, NetworkConnectionFields};
 use crate::sensor::{
-    Platform, ProcessStartKey, RawLinuxProcess, RawProcessEvent, RawProcessPlatform, RawUserId,
-    Sensor, SensorAction, SensorEvent, SensorNormalization, SensorPayload,
+    Platform, ProcessStartKey, RawEvent, RawLinuxProcess, RawPayload, RawProcessEvent,
+    RawProcessPlatform, RawUserId, Sensor, SensorAction, SensorNormalization,
 };
 use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 
@@ -103,7 +103,7 @@ impl Default for EbpfSensor {
 impl Sensor for EbpfSensor {
     /// Load eBPF programs, attach tracepoints, and spawn the ring-buffer
     /// polling task. Returns immediately; the task runs in the background.
-    fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
+    fn start(&self, tx: Sender<RawEvent>) -> Result<()> {
         // Use the embedded object by default; accept an env-var override so
         // developers can hot-swap a freshly compiled eBPF binary without
         // rebuilding the whole userspace crate.
@@ -405,7 +405,7 @@ async fn run_ring_poll(
     file_ring: RingBuf<MapData>,
     dns_ring: RingBuf<MapData>,
     kernel_counters: PerCpuArray<MapData, KernelCounterRow>,
-    tx: Sender<SensorEvent>,
+    tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     host: Arc<crate::state::HostState>,
 ) -> Result<()> {
@@ -516,7 +516,7 @@ fn refresh_kernel_counters(counters: &PerCpuArray<MapData, KernelCounterRow>) ->
 
 fn drain_process_ring(
     rb: &mut RingBuf<MapData>,
-    tx: &Sender<SensorEvent>,
+    tx: &Sender<RawEvent>,
     time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
@@ -539,7 +539,7 @@ fn drain_process_ring(
 
 fn drain_network_ring(
     rb: &mut RingBuf<MapData>,
-    tx: &Sender<SensorEvent>,
+    tx: &Sender<RawEvent>,
     time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
@@ -568,7 +568,7 @@ fn drain_network_ring(
 /// [`super::paths`] for when resolution fails.
 fn drain_file_ring(
     rb: &mut RingBuf<MapData>,
-    tx: &Sender<SensorEvent>,
+    tx: &Sender<RawEvent>,
     dir_fds: &mut DirFdIndex,
     unresolved: &mut u64,
     host: &crate::state::HostState,
@@ -646,7 +646,7 @@ fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) -> bool {
 
 fn drain_dns_ring(
     rb: &mut RingBuf<MapData>,
-    tx: &Sender<SensorEvent>,
+    tx: &Sender<RawEvent>,
     time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
@@ -678,14 +678,14 @@ fn resolve_exec_image(raw_filename: &str, raw_truncated: bool) -> Option<(String
 fn build_process_event_with_clock(
     ev: &ProcessEvent,
     time_converter: BootTimeConverter,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     match ev.kind {
         PROCESS_EVENT_EXEC => {
             let (image, image_truncated) =
                 resolve_exec_image(&bytes_to_string(&ev.image), ev.image_truncated != 0)?;
 
             let event_time = time_converter.system_time(ev.event_time_ns);
-            Some(SensorEvent {
+            Some(RawEvent {
                 process_name: Some(bytes_to_string(&ev.comm)).filter(|name| !name.is_empty()),
                 provenance: {
                     let mut provenance = crate::models::Provenance::default();
@@ -709,7 +709,7 @@ fn build_process_event_with_clock(
                     ev.parent_pid,
                     ev.parent_process_start_time,
                 ),
-                payload: SensorPayload::Process(RawProcessEvent {
+                payload: RawPayload::Process(RawProcessEvent {
                     process_id: ev.pid,
                     parent_process_id: (ev.parent_pid != 0).then_some(ev.parent_pid),
                     // Kept out of the Sigma-facing field view for compatibility;
@@ -739,7 +739,7 @@ fn build_process_event_with_clock(
                 }),
             })
         }
-        PROCESS_EVENT_EXIT => Some(SensorEvent {
+        PROCESS_EVENT_EXIT => Some(RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -754,7 +754,7 @@ fn build_process_event_with_clock(
             source_seq: Some(ev.source_seq),
             process_start_key: process_start_key(ev.pid, ev.process_start_time),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(RawProcessEvent {
+            payload: RawPayload::Process(RawProcessEvent {
                 process_id: ev.pid,
                 parent_process_id: None,
                 process_start_time: None,
@@ -781,7 +781,7 @@ fn build_process_event_with_clock(
                 })),
             }),
         }),
-        PROCESS_EVENT_FORK => Some(SensorEvent {
+        PROCESS_EVENT_FORK => Some(RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -799,7 +799,7 @@ fn build_process_event_with_clock(
                 ev.parent_pid,
                 ev.parent_process_start_time,
             ),
-            payload: SensorPayload::Process(RawProcessEvent {
+            payload: RawPayload::Process(RawProcessEvent {
                 process_id: ev.pid,
                 parent_process_id: (ev.parent_pid != 0).then_some(ev.parent_pid),
                 process_start_time: None,
@@ -833,7 +833,7 @@ fn build_process_event_with_clock(
 fn build_network_event_with_clock(
     ev: &NetworkEvent,
     time_converter: BootTimeConverter,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     // The kernel emits only attempts that connected, so this rejects nothing
     // in practice. It is the decode-side half of that contract: a refused or
     // unreachable destination is an attempt, not a connection, and a rule
@@ -867,7 +867,7 @@ fn build_network_event_with_clock(
 
     let user = linux_user_id(ev.uid);
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Linux,
@@ -882,7 +882,7 @@ fn build_network_event_with_clock(
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
-        payload: SensorPayload::Network(NetworkConnectionFields {
+        payload: RawPayload::Network(NetworkConnectionFields {
             destination_ip: Some(destination_ip),
             source_ip: (ev.tuple_flags & super::socket_tuple_abi::TUPLE_MEASURED != 0).then(|| {
                 if ev.af == 2 {
@@ -910,7 +910,7 @@ fn build_file_event_with_clock(
     dir_fds: &DirFdIndex,
     unresolved: &mut u64,
     time_converter: BootTimeConverter,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     let raw_path = bytes_to_string(&ev.path);
     if raw_path.is_empty() {
         return None;
@@ -955,7 +955,7 @@ fn build_file_event_with_clock(
     let user = linux_user_id(ev.uid);
     let path_truncated = truncation_marker(ev.flags, source_filename.is_some()).map(str::to_string);
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: Some(bytes_to_string(&ev.comm)).filter(|name| !name.is_empty()),
         provenance: {
             let mut provenance = crate::models::Provenance::default();
@@ -976,7 +976,7 @@ fn build_file_event_with_clock(
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
-        payload: SensorPayload::File(FileEventFields {
+        payload: RawPayload::File(FileEventFields {
             source_filename,
             target_filename: Some(target_filename),
             process_id: Some(ev.pid.to_string()),
@@ -1000,7 +1000,7 @@ fn build_file_event_with_clock(
 fn build_dns_event_with_clock(
     ev: &DnsEvent,
     time_converter: BootTimeConverter,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
     let payload = &ev.payload[..payload_len];
 
@@ -1022,7 +1022,7 @@ fn build_dns_event_with_clock(
     };
     let record_type = crate::sensor::dns::record_type_name(qtype).unwrap_or("OTHER");
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Linux,
@@ -1037,7 +1037,7 @@ fn build_dns_event_with_clock(
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
-        payload: SensorPayload::Dns(DnsQueryFields {
+        payload: RawPayload::Dns(DnsQueryFields {
             user: None,
             query_name: Some(query_name),
             query_results,
@@ -1060,7 +1060,7 @@ fn process_start_key(pid: u32, start_time: u64) -> Option<ProcessStartKey> {
 /// Blocking here would stall the perf-buffer poll loop and lose the events
 /// behind it in the kernel instead, so overflow is shed. The count is what
 /// makes that trade auditable — see [`crate::telemetry`].
-fn try_send(tx: &Sender<SensorEvent>, event: SensorEvent) {
+fn try_send(tx: &Sender<RawEvent>, event: RawEvent) {
     // Both the full and closed cases are already counted; the reason is in the
     // rate-limited warning the telemetry module emits.
     let _ = crate::telemetry::try_send_sensor_event(tx, event);
@@ -1313,12 +1313,12 @@ fn features_for_program(program: &str) -> &'static [&'static str] {
 }
 
 #[cfg(test)]
-fn build_process_event(ev: &ProcessEvent) -> Option<SensorEvent> {
+fn build_process_event(ev: &ProcessEvent) -> Option<RawEvent> {
     build_process_event_with_clock(ev, BootTimeConverter::capture())
 }
 
 #[cfg(test)]
-fn build_network_event(ev: &NetworkEvent) -> Option<SensorEvent> {
+fn build_network_event(ev: &NetworkEvent) -> Option<RawEvent> {
     build_network_event_with_clock(ev, BootTimeConverter::capture())
 }
 
@@ -1327,11 +1327,11 @@ fn build_file_event(
     ev: &FileEvent,
     dir_fds: &DirFdIndex,
     unresolved: &mut u64,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     build_file_event_with_clock(ev, dir_fds, unresolved, BootTimeConverter::capture())
 }
 
-pub(crate) fn build_dns_event(ev: &DnsEvent) -> Option<SensorEvent> {
+pub(crate) fn build_dns_event(ev: &DnsEvent) -> Option<RawEvent> {
     build_dns_event_with_clock(ev, BootTimeConverter::capture())
 }
 
@@ -1556,7 +1556,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), Some("/usr/bin/bash"));
                 assert_eq!(fields.process_id, DEAD_PID);
                 assert!(matches!(*fields.platform, RawProcessPlatform::Linux(_)));
@@ -1587,7 +1587,7 @@ mod tests {
             })
         );
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.parent_process_id, Some(41));
                 assert!(fields.image.is_none());
             }
@@ -1610,7 +1610,7 @@ mod tests {
             })
         );
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.parent_process_id, Some(41));
                 assert_eq!(fields.user, Some(RawUserId::Unix(1000)));
                 let RawProcessPlatform::Linux(source) = *fields.platform else {
@@ -1634,7 +1634,7 @@ mod tests {
         let event = build_process_event(&raw).expect("process exec should build");
         assert!(event.parent_process_start_key.is_none());
         match event.payload {
-            SensorPayload::Process(fields) => assert!(fields.parent_process_id.is_none()),
+            RawPayload::Process(fields) => assert!(fields.parent_process_id.is_none()),
             other => panic!("unexpected payload: {:?}", other),
         }
     }
@@ -1651,7 +1651,7 @@ mod tests {
         let event = build_process_event(&raw).expect("process exec should build");
         assert!(event.parent_process_start_key.is_none());
         match event.payload {
-            SensorPayload::Process(fields) => assert!(fields.parent_process_id.is_none()),
+            RawPayload::Process(fields) => assert!(fields.parent_process_id.is_none()),
             other => panic!("unexpected payload: {:?}", other),
         }
     }
@@ -1691,7 +1691,7 @@ mod tests {
 
         let event = build_process_event(&raw).expect("process exec should build");
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref(), Some("./rustinel"));
                 assert!(matches!(*fields.platform, RawProcessPlatform::Linux(_)));
             }
@@ -1710,7 +1710,7 @@ mod tests {
 
         let event = build_process_event(&raw).expect("process exec should build");
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.command_line.as_deref(), Some("/bin/true --quiet"));
             }
             other => panic!("unexpected payload: {:?}", other),
@@ -1767,7 +1767,7 @@ mod tests {
 
         let event = build_process_event(&raw).expect("raw image should build an event");
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.image.as_deref().map(str::len), Some(255));
                 let RawProcessPlatform::Linux(source) = *fields.platform else {
                     panic!("expected Linux process facts")
@@ -1795,7 +1795,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::Process(fields) => {
+            RawPayload::Process(fields) => {
                 assert_eq!(fields.process_id, 42);
                 assert!(fields.image.is_none());
             }
@@ -1834,7 +1834,7 @@ mod tests {
         measured.tuple_flags = super::super::socket_tuple_abi::TUPLE_MEASURED
             | super::super::socket_tuple_abi::INBOUND;
         match build_network_event(&measured).unwrap().payload {
-            SensorPayload::Network(fields) => {
+            RawPayload::Network(fields) => {
                 assert_eq!(fields.source_ip.as_deref(), Some("10.0.0.5"));
                 assert_eq!(fields.source_port.as_deref(), Some("51324"));
                 assert_eq!(fields.protocol.as_deref(), Some("tcp"));
@@ -1852,7 +1852,7 @@ mod tests {
             })
         );
         match event.payload {
-            SensorPayload::Network(fields) => {
+            RawPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
                 assert!(fields.source_ip.is_none());
                 assert!(fields.source_port.is_none());
@@ -1886,14 +1886,14 @@ mod tests {
 
         let event = build_network_event(&raw).expect("udp connect should build");
         match event.payload {
-            SensorPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("udp")),
+            RawPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("udp")),
             other => panic!("unexpected payload: {:?}", other),
         }
 
         raw.protocol = 6; // TCP
         let event = build_network_event(&raw).expect("tcp connect should build");
         match event.payload {
-            SensorPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("tcp")),
+            RawPayload::Network(fields) => assert_eq!(fields.protocol.as_deref(), Some("tcp")),
             other => panic!("unexpected payload: {:?}", other),
         }
     }
@@ -1920,7 +1920,7 @@ mod tests {
         let mut measured = raw;
         measured.tuple_flags = super::super::socket_tuple_abi::TUPLE_MEASURED;
         match build_network_event(&measured).unwrap().payload {
-            SensorPayload::Network(fields) => {
+            RawPayload::Network(fields) => {
                 assert_eq!(fields.source_ip.as_deref(), Some("fe80::20"));
                 assert_eq!(fields.source_port.as_deref(), Some("5353"));
                 assert_eq!(fields.initiated, Some(true));
@@ -1929,7 +1929,7 @@ mod tests {
         }
         let event = build_network_event(&raw).expect("ipv6 network event should build");
         match event.payload {
-            SensorPayload::Network(fields) => {
+            RawPayload::Network(fields) => {
                 assert_eq!(fields.destination_ip.as_deref(), Some("2001:db8::10"));
                 assert!(fields.source_ip.is_none());
                 assert_eq!(fields.destination_port.as_deref(), Some("8443"));
@@ -1999,7 +1999,7 @@ mod tests {
             let event = build_network_event(&raw)
                 .unwrap_or_else(|| panic!("connect() returning {result} is a connection"));
             match event.payload {
-                SensorPayload::Network(fields) => {
+                RawPayload::Network(fields) => {
                     assert_eq!(fields.destination_ip.as_deref(), Some("198.51.100.10"));
                     assert_eq!(fields.initiated, Some(true));
                 }
@@ -2045,7 +2045,7 @@ mod tests {
         );
         assert_eq!(event.process_name.as_deref(), Some("touch"));
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert!(fields.source_filename.is_none());
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/test.txt"));
                 assert!(fields.image.is_none());
@@ -2063,7 +2063,7 @@ mod tests {
         let event =
             build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("file event should build");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(
                     fields.file_identity,
                     Some(crate::models::FileObjectIdentity {
@@ -2089,7 +2089,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/deleted.txt"));
                 assert!(fields.image.is_none());
             }
@@ -2113,13 +2113,13 @@ mod tests {
             .expect("decoded file event should build");
 
         match built.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 let normalized = fields.clone();
                 assert_eq!(
                     normalized.target_filename.as_deref(),
                     Some("/tmp/delete-me")
                 );
-                let event_fields = SensorPayload::File(fields).into_event_fields();
+                let event_fields = RawPayload::File(fields).into_event_fields();
                 assert!(matches!(event_fields, EventFields::FileEvent(_)));
             }
             other => panic!("unexpected payload: {:?}", other),
@@ -2140,7 +2140,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(fields.source_filename.as_deref(), Some("/tmp/old.txt"));
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
             }
@@ -2157,7 +2157,7 @@ mod tests {
         let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
             .expect("cwd-relative event should build");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(
                     fields.target_filename.as_deref(),
                     Some(format!("{}/payload.sh", cwd.display()).as_str())
@@ -2178,7 +2178,7 @@ mod tests {
         let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
             .expect("dirfd-relative event should build");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 // Without the descriptor this is the bare string "passwd",
                 // which names a different file under every directory on the
                 // disk.
@@ -2208,7 +2208,7 @@ mod tests {
         let event =
             build_file_event(&delete, &dir_fds, &mut 0).expect("indexed dfd should resolve");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(
                     fields.target_filename.as_deref(),
                     Some("/tmp/watched/victim.txt")
@@ -2241,7 +2241,7 @@ mod tests {
         let event =
             build_file_event(&delete, &dir_fds, &mut 0).expect("indexed dfd should resolve");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(
                     fields.target_filename.as_deref(),
                     Some("/tmp/second/victim.txt")
@@ -2313,7 +2313,7 @@ mod tests {
 
         let event = build_file_event(&create, &dir_fds, &mut 0).expect("nested dfd should resolve");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(
                     fields.target_filename.as_deref(),
                     Some("/srv/data/nested/payload.sh")
@@ -2343,7 +2343,7 @@ mod tests {
             .expect("absolute event should build");
         assert_eq!(unresolved, 0);
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/absolute.txt"));
                 assert!(fields.path_truncated.is_none());
             }
@@ -2360,7 +2360,7 @@ mod tests {
         let event = build_file_event(&raw, &DirFdIndex::new(), &mut 0)
             .expect("truncated event should build");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 let target = fields.target_filename.expect("target should be present");
                 assert_eq!(target.len(), FILE_PATH_LEN - 1);
                 assert_eq!(fields.path_truncated.as_deref(), Some("target"));
@@ -2385,7 +2385,7 @@ mod tests {
         let event =
             build_file_event(&raw, &DirFdIndex::new(), &mut 0).expect("rename event should build");
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 assert_eq!(fields.source_filename.as_deref(), Some("/etc/shadow"));
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/shadow.bak"));
                 assert_eq!(fields.path_truncated.as_deref(), Some("source"));
@@ -2404,7 +2404,7 @@ mod tests {
             .expect("rename event should build");
         assert_eq!(unresolved, 0);
         match event.payload {
-            SensorPayload::File(fields) => {
+            RawPayload::File(fields) => {
                 // Omitted rather than emitted as the bare name "old.txt".
                 assert!(fields.source_filename.is_none());
                 assert_eq!(fields.target_filename.as_deref(), Some("/tmp/new.txt"));
@@ -2429,7 +2429,7 @@ mod tests {
         );
 
         match event.payload {
-            SensorPayload::Dns(fields) => {
+            RawPayload::Dns(fields) => {
                 assert_eq!(fields.query_name.as_deref(), Some("example.test"));
                 assert_eq!(fields.query_results, None);
                 assert_eq!(fields.query_status, None);
@@ -2450,7 +2450,7 @@ mod tests {
             .expect("response should build")
             .payload
         {
-            SensorPayload::Dns(fields) => {
+            RawPayload::Dns(fields) => {
                 assert_eq!(fields.query_name.as_deref(), Some("example.test"));
                 assert_eq!(fields.record_type.as_deref(), Some("A"));
                 assert_eq!(
@@ -2483,7 +2483,7 @@ mod tests {
     fn build_dns_event_names_unlisted_record_types_other() {
         let raw = raw_dns_query("example.test", 65);
         match build_dns_event(&raw).expect("query should build").payload {
-            SensorPayload::Dns(fields) => assert_eq!(fields.record_type.as_deref(), Some("OTHER")),
+            RawPayload::Dns(fields) => assert_eq!(fields.record_type.as_deref(), Some("OTHER")),
             other => panic!("unexpected payload: {:?}", other),
         }
     }

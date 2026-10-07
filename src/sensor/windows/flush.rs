@@ -41,7 +41,7 @@ use windows::Win32::System::Diagnostics::Etw::{
 };
 
 use super::registry_value_data::session_handle;
-use crate::sensor::SensorEvent;
+use crate::sensor::RawEvent;
 
 pub(super) const DEFAULT_INTERVAL_MS: u64 = 20;
 const MIN_INTERVAL: Duration = Duration::from_millis(20);
@@ -114,7 +114,7 @@ pub(super) fn spawn(
     session_name: &str,
     interval: Option<Duration>,
     shutdown: Arc<AtomicBool>,
-    sensor_tx: Sender<SensorEvent>,
+    sensor_tx: Sender<RawEvent>,
     pause_on_backpressure: bool,
 ) -> Result<Option<JoinHandle<()>>> {
     let Some(interval) = interval else {
@@ -173,7 +173,7 @@ fn run(
     handle: CONTROLTRACE_HANDLE,
     interval: Duration,
     shutdown: Arc<AtomicBool>,
-    sensor_tx: Sender<SensorEvent>,
+    sensor_tx: Sender<RawEvent>,
     pause_on_backpressure: bool,
     name: &str,
 ) {

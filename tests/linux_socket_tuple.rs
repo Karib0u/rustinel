@@ -1,6 +1,6 @@
 #![cfg(target_os = "linux")]
 
-use rustinel::sensor::{linux::EbpfSensor, Sensor, SensorPayload};
+use rustinel::sensor::{linux::EbpfSensor, RawPayload, Sensor};
 use std::{
     net::{TcpListener, TcpStream, UdpSocket},
     time::{Duration, Instant},
@@ -73,7 +73,7 @@ async fn live_tuple_and_connection_churn() {
         if event.pid != Some(pid) {
             continue;
         }
-        let SensorPayload::Network(fields) = event.payload else {
+        let RawPayload::Network(fields) = event.payload else {
             continue;
         };
         max_delay = max_delay.max(event.timestamp.elapsed().unwrap_or_default());
@@ -125,7 +125,7 @@ async fn live_tuple_and_connection_churn() {
     while let Ok(Some(event)) = tokio::time::timeout_at(until, rx.recv()).await {
         if event.pid == Some(pid) {
             assert!(
-                !matches!(event.payload, SensorPayload::Network(_)),
+                !matches!(event.payload, RawPayload::Network(_)),
                 "loopback leaked to ring"
             );
         }
@@ -163,7 +163,7 @@ async fn live_without_socket_btf_uses_syscall_fallback() {
         if event.pid != Some(std::process::id()) {
             continue;
         }
-        let SensorPayload::Network(fields) = event.payload else {
+        let RawPayload::Network(fields) = event.payload else {
             continue;
         };
         assert_eq!(

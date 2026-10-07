@@ -445,8 +445,8 @@ pub fn bytes_to_string(buf: &[u8]) -> String {
 pub mod mapping {
     use crate::models::{FileEventFields, NetworkConnectionFields, ProcessCreationFields};
     use crate::sensor::{
-        Platform, ProcessStartKey, RawProcessEvent, SensorAction, SensorEvent, SensorNormalization,
-        SensorPayload,
+        Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, SensorAction,
+        SensorNormalization,
     };
     use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -457,13 +457,13 @@ pub mod mapping {
 
     const PROVIDER: &str = "ebpf";
 
-    pub fn process_event_to_sensor(event: &ProcessEvent) -> SensorEvent {
+    pub fn process_event_to_sensor(event: &ProcessEvent) -> RawEvent {
         let action = match event.kind {
             2 => SensorAction::Stop,
             3 => SensorAction::Fork,
             _ => SensorAction::Start,
         };
-        SensorEvent {
+        RawEvent {
             process_name: (action == SensorAction::Start)
                 .then(|| bytes_to_string(&event.comm))
                 .filter(|name| !name.is_empty()),
@@ -494,7 +494,7 @@ pub mod mapping {
                 event.parent_pid,
                 event.parent_process_start_time,
             ),
-            payload: SensorPayload::Process(RawProcessEvent::from_compatibility(
+            payload: RawPayload::Process(RawProcessEvent::from_compatibility(
                 ProcessCreationFields {
                     hashes: None,
                     imphash: None,
@@ -534,8 +534,8 @@ pub mod mapping {
         }
     }
 
-    pub fn network_event_to_sensor(event: &NetworkEvent) -> SensorEvent {
-        SensorEvent {
+    pub fn network_event_to_sensor(event: &NetworkEvent) -> RawEvent {
+        RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -550,7 +550,7 @@ pub mod mapping {
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
             parent_process_start_key: None,
-            payload: SensorPayload::Network(NetworkConnectionFields {
+            payload: RawPayload::Network(NetworkConnectionFields {
                 destination_ip: Some(ip_to_string(event.af, &event.daddr)),
                 source_ip: (event.tuple_flags & super::super::socket_tuple_abi::TUPLE_MEASURED
                     != 0)
@@ -575,7 +575,7 @@ pub mod mapping {
     /// `None` when the target path cannot be resolved — see
     /// [`resolve_at_path`] for when that happens and why a raw relative name is
     /// not an acceptable substitute.
-    pub fn file_event_to_sensor(index: &DirFdIndex, event: &FileEvent) -> Option<SensorEvent> {
+    pub fn file_event_to_sensor(index: &DirFdIndex, event: &FileEvent) -> Option<RawEvent> {
         let action = match event.kind {
             2 => SensorAction::Delete,
             3 => SensorAction::Rename,
@@ -599,7 +599,7 @@ pub mod mapping {
                 resolve_at_path(index, event.pid, event.aux_dfd, event.aux_dfd_token, &value)
             });
 
-        Some(SensorEvent {
+        Some(RawEvent {
             process_name: Some(bytes_to_string(&event.comm)).filter(|name| !name.is_empty()),
             provenance: {
                 let mut provenance = crate::models::Provenance::default();
@@ -620,7 +620,7 @@ pub mod mapping {
             source_seq: Some(event.source_seq),
             process_start_key: process_start_key(event.pid, event.process_start_time),
             parent_process_start_key: None,
-            payload: SensorPayload::File(FileEventFields {
+            payload: RawPayload::File(FileEventFields {
                 path_truncated: truncation_marker(event.flags, source_filename.is_some())
                     .map(str::to_string),
                 source_filename,
@@ -640,7 +640,7 @@ pub mod mapping {
     }
 
     /// Decode a raw DNS message. `None` when the question does not parse.
-    pub fn dns_event_to_sensor(event: &DnsEvent) -> Option<SensorEvent> {
+    pub fn dns_event_to_sensor(event: &DnsEvent) -> Option<RawEvent> {
         super::super::ebpf::build_dns_event(event)
     }
 

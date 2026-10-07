@@ -15,7 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rustinel::sensor::windows::EtwSensor;
-use rustinel::sensor::{Sensor, SensorPayload};
+use rustinel::sensor::{RawPayload, Sensor};
 
 /// The *Security System Extension* audit subcategory, which is what makes
 /// Windows log event 4697.
@@ -123,7 +123,7 @@ fn a_service_installation_reaches_the_sensor_as_security_event_4697() {
                 if event.normalization.event_id != 4697 {
                     continue;
                 }
-                if let SensorPayload::Security(fields) = &event.payload {
+                if let RawPayload::Security(fields) = &event.payload {
                     if fields.get("ServiceName") == Some(service_name.as_str()) {
                         matched = Some(event.clone());
                         break;
@@ -144,7 +144,7 @@ fn a_service_installation_reaches_the_sensor_as_security_event_4697() {
 
     let event = matched.expect("Security event 4697 must reach the sensor channel");
     assert_eq!(event.provider, "windows_event_log");
-    let SensorPayload::Security(fields) = event.payload else {
+    let RawPayload::Security(fields) = event.payload else {
         unreachable!();
     };
     assert_eq!(fields.get("ServiceName"), Some(service_name.as_str()));

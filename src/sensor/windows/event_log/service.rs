@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Context, Result};
 
 use crate::models::ServiceCreationFields;
-use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
+use crate::sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization};
 
 use super::{parse_system_time, EventLogSource};
 
@@ -22,7 +22,7 @@ pub(super) const fn source() -> EventLogSource {
     )
 }
 
-fn decode(xml: &str) -> Result<SensorEvent> {
+fn decode(xml: &str) -> Result<RawEvent> {
     let document = roxmltree::Document::parse(xml).context("invalid service event XML")?;
     let system = document
         .descendants()
@@ -81,7 +81,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .parse::<u64>()
         .context("service event XML has an invalid EventRecordID")?;
 
-    Ok(SensorEvent {
+    Ok(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -96,7 +96,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         source_seq: Some(source_seq),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Service(ServiceCreationFields {
+        payload: RawPayload::Service(ServiceCreationFields {
             // Carried from the record rather than assumed: the guard above has
             // already rejected anything else, so this is the provider the
             // Windows Event Log actually named.
@@ -122,7 +122,7 @@ fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Opti
 #[cfg(test)]
 mod tests {
     use super::decode;
-    use crate::sensor::{SensorAction, SensorPayload};
+    use crate::sensor::{RawPayload, SensorAction};
 
     const EVENT_7045: &str = r#"
 <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
@@ -151,7 +151,7 @@ mod tests {
         assert_eq!(event.provider, "windows_event_log");
         assert_eq!(event.source_seq, Some(91234));
 
-        let SensorPayload::Service(fields) = event.payload else {
+        let RawPayload::Service(fields) = event.payload else {
             panic!("expected service payload");
         };
         assert_eq!(

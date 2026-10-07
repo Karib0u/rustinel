@@ -11,7 +11,7 @@ use tracing::{info, warn};
 use crate::alerts::AlertSink;
 use crate::artifact::{spawn_artifact_resolver, ArtifactRuntime};
 use crate::config::{AppConfig, ResponseConfig};
-use crate::engine::{DetectionPipeline, DetectorStore, Engine, NormalizedEventHandler};
+use crate::engine::{CanonicalEventDispatcher, DetectionPipeline, DetectorStore, Engine};
 use crate::ioc::IocEngine;
 use crate::memory::MemoryScanConfig;
 use crate::response::ResponseEngine;
@@ -296,7 +296,7 @@ impl LivePipeline {
         let host_state = state.host;
 
         // Detection handlers + router
-        let sigma_handler = NormalizedEventHandler::detecting(
+        let sigma_handler = CanonicalEventDispatcher::detecting(
             Arc::clone(&host_state),
             DetectionPipeline {
                 detectors: Arc::clone(&detectors),

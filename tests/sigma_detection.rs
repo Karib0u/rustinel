@@ -16,7 +16,7 @@ use common::{
 };
 use rustinel::engine::Engine;
 use rustinel::models::{AlertSeverity, MatchDebugLevel};
-use rustinel::sensor::{Platform, SensorPayload};
+use rustinel::sensor::{Platform, RawPayload};
 use serde_json::json;
 
 fn engine_with(fixture: &SigmaFixture, platform: Platform) -> Engine {
@@ -418,7 +418,7 @@ level: high
         .expect("outbound event should normalize");
 
     let mut accepted = network_connect_event(Platform::Windows);
-    if let SensorPayload::Network(fields) = &mut accepted.payload {
+    if let RawPayload::Network(fields) = &mut accepted.payload {
         fields.initiated = Some(false);
     }
     let inbound = harness
@@ -464,7 +464,7 @@ level: high
     }
 
     let mut unknown = network_connect_event(Platform::MacOS);
-    if let SensorPayload::Network(fields) = &mut unknown.payload {
+    if let RawPayload::Network(fields) = &mut unknown.payload {
         fields.initiated = None;
     }
     let harness = TestNormalizer::new();

@@ -28,7 +28,7 @@ pub struct DetectionPipeline {
 }
 
 /// Handler that dispatches canonical events to capture, detection, or both.
-pub struct NormalizedEventHandler {
+pub struct CanonicalEventDispatcher {
     /// Host state retained for live-only alert context enrichment.
     pub host_state: Arc<HostState>,
     /// Behavioral recording sink. Fed immediately after canonicalization, before
@@ -39,7 +39,7 @@ pub struct NormalizedEventHandler {
     pub detection: Option<DetectionPipeline>,
 }
 
-impl NormalizedEventHandler {
+impl CanonicalEventDispatcher {
     /// Live protection: evaluate every canonical event against the detectors.
     pub fn detecting(host_state: Arc<HostState>, detection: DetectionPipeline) -> Self {
         Self {
@@ -59,7 +59,7 @@ impl NormalizedEventHandler {
     }
 }
 
-impl CanonicalEventHandler for NormalizedEventHandler {
+impl CanonicalEventHandler for CanonicalEventDispatcher {
     fn handle_event(&self, event: &CanonicalEvent) {
         tracing::trace!(
             target: TARGET_ENGINE,

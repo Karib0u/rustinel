@@ -50,9 +50,6 @@ pub trait CanonicalEventHandler: Send + Sync {
     fn handle_event(&self, event: &crate::models::CanonicalEvent);
 }
 
-/// Compatibility name retained while downstream handlers are renamed.
-pub use CanonicalEventHandler as SensorEventHandler;
-
 /// Platform that produced the raw sensor event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -226,9 +223,6 @@ impl SensorNormalization {
     }
 }
 
-/// Compatibility name for callers that have not yet adopted `RawEvent`.
-pub type SensorEvent = RawEvent;
-
 /// Shared event router that dispatches canonical events to downstream handlers.
 pub struct SensorEventRouter {
     handlers: Vec<Box<dyn CanonicalEventHandler>>,
@@ -284,9 +278,6 @@ pub enum RawPayload {
     Defender(SecurityAuditFields),
     Application(ApplicationEventFields),
 }
-
-/// Compatibility name retained for unmigrated call sites.
-pub type SensorPayload = RawPayload;
 
 impl RawPayload {
     /// Return the shared event category for this payload.
@@ -365,7 +356,7 @@ mod tests {
 
     #[test]
     fn payload_category_matches_variant() {
-        let payload = SensorPayload::Process(RawProcessEvent::from_compatibility(
+        let payload = RawPayload::Process(RawProcessEvent::from_compatibility(
             crate::models::ProcessCreationFields {
                 hashes: None,
                 imphash: None,
@@ -400,12 +391,12 @@ mod tests {
         ));
 
         assert_eq!(payload.category(), EventCategory::Process);
-        assert!(SensorPayload::try_from(payload.into_event_fields()).is_err());
+        assert!(RawPayload::try_from(payload.into_event_fields()).is_err());
     }
 
     #[test]
     fn sensor_event_category_is_derived_from_payload() {
-        let payload = SensorPayload::Network(NetworkConnectionFields {
+        let payload = RawPayload::Network(NetworkConnectionFields {
             destination_ip: Some("198.51.100.10".to_string()),
             source_ip: Some("10.0.0.5".to_string()),
             destination_port: Some("443".to_string()),
@@ -418,7 +409,7 @@ mod tests {
             initiated: Some(true),
         });
 
-        let event = SensorEvent {
+        let event = RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Linux,
@@ -443,7 +434,7 @@ mod tests {
 
     #[test]
     fn payload_round_trips_through_event_fields() {
-        let payload = SensorPayload::File(FileEventFields {
+        let payload = RawPayload::File(FileEventFields {
             source_filename: None,
             target_filename: Some("/tmp/example".to_string()),
             process_id: Some("77".to_string()),
@@ -456,7 +447,7 @@ mod tests {
         });
 
         let fields = payload.into_event_fields();
-        let payload = SensorPayload::try_from(fields).expect("file fields should map");
+        let payload = RawPayload::try_from(fields).expect("file fields should map");
 
         assert_eq!(payload.category(), EventCategory::File);
     }
@@ -466,6 +457,6 @@ mod tests {
         let fields =
             EventFields::Generic(HashMap::from([("key".to_string(), "value".to_string())]));
 
-        assert!(SensorPayload::try_from(fields).is_err());
+        assert!(RawPayload::try_from(fields).is_err());
     }
 }

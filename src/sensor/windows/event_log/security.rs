@@ -18,7 +18,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::field_availability::contract_for_event_id;
 use crate::models::SecurityAuditFields;
-use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
+use crate::sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization};
 
 use super::{parse_system_time, EventLogSource};
 
@@ -113,7 +113,7 @@ fn action_for_event(event_id: u16) -> SensorAction {
     }
 }
 
-fn decode(xml: &str) -> Result<SensorEvent> {
+fn decode(xml: &str) -> Result<RawEvent> {
     let document = roxmltree::Document::parse(xml).context("invalid security event XML")?;
     let system = document
         .descendants()
@@ -184,7 +184,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
     // so the parsed value rides along on the event instead.
     let pid = fields.process_id();
 
-    Ok(SensorEvent {
+    Ok(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -199,7 +199,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         source_seq: Some(source_seq),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Security(fields),
+        payload: RawPayload::Security(fields),
     })
 }
 
@@ -237,7 +237,7 @@ mod tests {
     use crate::engine::Engine;
     use crate::field_availability::FIELD_AVAILABILITY;
     use crate::normalizer::Normalizer;
-    use crate::sensor::{SensorAction, SensorPayload};
+    use crate::sensor::{RawPayload, SensorAction};
     use crate::state::HostState;
     use std::sync::Arc;
 
@@ -262,7 +262,7 @@ mod tests {
 
     fn fields(xml: &str) -> crate::models::SecurityAuditFields {
         let event = decode(xml).expect("event should decode");
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         fields
@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(event.provider, "windows_event_log");
         assert_eq!(event.source_seq, Some(81234));
 
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("ServiceName"), Some("RustinelIssue315"));
@@ -339,7 +339,7 @@ mod tests {
         let event = decode(&xml).expect("4624 should decode");
         assert_eq!(event.action, SensorAction::Start);
 
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("LogonType"), Some("3"));
@@ -450,7 +450,7 @@ level: high
         // Hex in the payload for rules, parsed for the pipeline.
         assert_eq!(event.pid, Some(0x4d8));
 
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("ProcessId"), Some("0x4d8"));
@@ -526,7 +526,7 @@ level: high
         let event = decode(&xml).expect("5136 should decode");
         assert_eq!(event.action, SensorAction::Modify);
 
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(
@@ -616,7 +616,7 @@ level: high
 
         let event = decode(&xml).expect("4698 should decode");
         assert_eq!(event.action, SensorAction::Register);
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("TaskName"), Some(r"\RustinelIssue479"));
@@ -644,7 +644,7 @@ level: high
 
         let event = decode(&xml).expect("4702 should decode");
         assert_eq!(event.action, SensorAction::Modify);
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert!(fields
@@ -682,7 +682,7 @@ level: high
 
         let event = decode(&xml).expect("4625 should decode");
         assert_eq!(event.action, SensorAction::Start);
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("Status"), Some("0xc000006e"));
@@ -727,7 +727,7 @@ level: high
         );
         let event = decode(&created).expect("4720 should decode");
         assert_eq!(event.action, SensorAction::Create);
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("SamAccountName"), Some("rustinel479$"));
@@ -748,7 +748,7 @@ level: high
         );
         let event = decode(&added).expect("4732 should decode");
         assert_eq!(event.action, SensorAction::Modify);
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("TargetSid"), Some("S-1-5-32-544"));
@@ -816,7 +816,7 @@ level: high
         let event = decode(xml).expect("1102 should decode");
         assert_eq!(event.action, SensorAction::Delete);
         assert_eq!(event.source_seq, Some(1));
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(
@@ -851,7 +851,7 @@ level: high
         let event = decode(&xml).expect("4657 should decode");
         assert_eq!(event.action, SensorAction::Set);
         assert_eq!(event.pid, Some(0x1a2c));
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("ObjectValueName"), Some(r"C:\Users\Public"));
@@ -879,7 +879,7 @@ level: high
         let event = decode(&xml).expect("5156 should decode");
         assert_eq!(event.action, SensorAction::Connect);
         assert_eq!(event.pid, Some(5104));
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("ProcessID"), Some("5104"));
@@ -916,7 +916,7 @@ level: high
         );
         let event = decode(&device).expect("6416 should decode");
         assert_eq!(event.action, SensorAction::Register);
-        let SensorPayload::Security(fields) = event.payload else {
+        let RawPayload::Security(fields) = event.payload else {
             panic!("expected a security payload");
         };
         assert_eq!(fields.get("ClassName"), Some("DiskDrive"));

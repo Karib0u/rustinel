@@ -16,7 +16,7 @@ mod session;
 pub(crate) mod state;
 
 use super::event_log::EventLogSubscriptions;
-use crate::sensor::{Sensor, SensorEvent};
+use crate::sensor::{RawEvent, Sensor};
 use anyhow::Result;
 use ferrisetw::trace::stop_trace_by_name;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -112,7 +112,7 @@ impl EtwSensor {
     /// channel before this method returns them.
     pub fn start_with_readiness(
         &self,
-        tx: Sender<SensorEvent>,
+        tx: Sender<RawEvent>,
         readiness: oneshot::Sender<std::result::Result<(), String>>,
     ) -> Result<()> {
         self.start_inner(tx, Some(readiness))
@@ -120,7 +120,7 @@ impl EtwSensor {
 
     fn start_inner(
         &self,
-        tx: Sender<SensorEvent>,
+        tx: Sender<RawEvent>,
         mut readiness: Option<oneshot::Sender<std::result::Result<(), String>>>,
     ) -> Result<()> {
         info!("Starting ETW sensor...");
@@ -160,7 +160,7 @@ impl Default for EtwSensor {
 }
 
 impl Sensor for EtwSensor {
-    fn start(&self, tx: Sender<SensorEvent>) -> Result<()> {
+    fn start(&self, tx: Sender<RawEvent>) -> Result<()> {
         self.start_inner(tx, None)
     }
 

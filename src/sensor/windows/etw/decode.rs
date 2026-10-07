@@ -19,8 +19,8 @@ use crate::models::{
 use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::classify_kernel_network_event;
 use crate::sensor::{
-    Platform, ProcessStartKey, RawProcessEvent, RawProcessPlatform, RawWindowsProcess,
-    SensorAction, SensorEvent, SensorPayload,
+    Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, RawProcessPlatform,
+    RawWindowsProcess, SensorAction,
 };
 use crate::telemetry::{
     EtwDecodeFailure, EtwDecodeFailureKey, RegistryPathSource, ETW_DECODE, WINDOWS_FILE_ATTRIBUTION,
@@ -51,12 +51,12 @@ pub(super) const UNRESOLVED_REGISTRY_SAMPLE: u64 = 20;
 
 #[derive(Default)]
 pub(super) struct DecodedEtwEvents {
-    pub(super) primary: Option<SensorEvent>,
-    pub(super) replayed: Vec<SensorEvent>,
+    pub(super) primary: Option<RawEvent>,
+    pub(super) replayed: Vec<RawEvent>,
 }
 
 impl DecodedEtwEvents {
-    pub(super) fn single(primary: Option<SensorEvent>) -> Self {
+    pub(super) fn single(primary: Option<RawEvent>) -> Self {
         Self {
             primary,
             replayed: Vec::new(),
@@ -68,7 +68,7 @@ impl DecodedEtwEvents {
 pub(super) struct DecodedEtwEvent {
     pub(super) pid: Option<u32>,
     pub(super) process_start_key: Option<ProcessStartKey>,
-    pub(super) payload: SensorPayload,
+    pub(super) payload: RawPayload,
 }
 
 /// Attribute a decode failure to a bounded provider/event/version key.
@@ -124,7 +124,7 @@ pub(super) fn decode_single_record(
     record: &EventRecord,
     schema_locator: &SchemaLocator,
     state: &EtwState,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     if record.provider_id() == state.routing.kernel_file_guid {
         return decode_kernel_file_record(record, schema_locator, state);
     }
@@ -190,7 +190,7 @@ pub(super) fn decode_single_record(
 
     let normalization = mapper::normalization_for_record(category, action, record);
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -224,9 +224,9 @@ fn actor_process_id(payload: Option<String>, record: &EventRecord) -> Option<Str
     payload.or_else(|| header_actor_pid(record).map(|pid| pid.to_string()))
 }
 
-pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
+pub(super) fn has_matchable_fields(payload: &RawPayload) -> bool {
     match payload {
-        SensorPayload::Dns(fields) => {
+        RawPayload::Dns(fields) => {
             fields.query_name.is_some()
                 || fields.query_results.is_some()
                 || fields.record_type.is_some()
@@ -234,7 +234,7 @@ pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
                 || fields.process_id.is_some()
                 || fields.image.is_some()
         }
-        SensorPayload::Scripting(fields) => {
+        RawPayload::Scripting(fields) => {
             fields.script_block_text.is_some()
                 || fields.script_block_id.is_some()
                 || fields.message_number.is_some()
@@ -244,14 +244,14 @@ pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
                 || fields.image.is_some()
                 || fields.user.is_some()
         }
-        SensorPayload::PowerShellModule(fields) => {
+        RawPayload::PowerShellModule(fields) => {
             fields.context_info.is_some()
                 || fields.payload.is_some()
                 || fields.process_id.is_some()
                 || fields.image.is_some()
                 || fields.user.is_some()
         }
-        SensorPayload::Wmi(fields) => {
+        RawPayload::Wmi(fields) => {
             fields.operation.is_some()
                 || fields.user.is_some()
                 || fields.query.is_some()
@@ -271,7 +271,7 @@ pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
                 || fields.component.is_some()
                 || fields.result_code.is_some()
         }
-        SensorPayload::Service(fields) => {
+        RawPayload::Service(fields) => {
             fields.service_name.is_some()
                 || fields.service_file_name.is_some()
                 || fields.service_type.is_some()
@@ -281,7 +281,7 @@ pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
                 || fields.process_id.is_some()
                 || fields.image.is_some()
         }
-        SensorPayload::Task(fields) => {
+        RawPayload::Task(fields) => {
             fields.task_name.is_some()
                 || fields.task_content.is_some()
                 || fields.user_name.is_some()
@@ -349,7 +349,7 @@ pub(super) fn decode_process(
     Some(DecodedEtwEvent {
         pid: Some(pid),
         process_start_key,
-        payload: SensorPayload::Process(fields),
+        payload: RawPayload::Process(fields),
     })
 }
 
@@ -398,7 +398,7 @@ pub(super) fn decode_kernel_file_record(
     record: &EventRecord,
     schema_locator: &SchemaLocator,
     state: &EtwState,
-) -> Option<SensorEvent> {
+) -> Option<RawEvent> {
     // Checked before the schema lookup: the FILEIO keyword needed for Close
     // and SetInformation also delivers every read and query on the machine,
     // and decoding those would be pure overhead.
@@ -526,7 +526,7 @@ pub(super) fn decode_kernel_file_record(
     let pid = parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id()));
     let normalization = mapper::normalization_for_record(EventCategory::File, action, record);
 
-    Some(SensorEvent {
+    Some(RawEvent {
         process_name: None,
         provenance: {
             let mut provenance = crate::models::Provenance::default();
@@ -544,7 +544,7 @@ pub(super) fn decode_kernel_file_record(
         source_seq: None,
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::File(fields),
+        payload: RawPayload::File(fields),
     })
 }
 
@@ -848,7 +848,7 @@ pub(super) fn decode_network(parser: &Parser, record: &EventRecord) -> Option<De
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: SensorPayload::Network(fields),
+        payload: RawPayload::Network(fields),
     })
 }
 
@@ -871,7 +871,7 @@ pub(super) fn decode_dns(parser: &Parser, record: &EventRecord) -> Option<Decode
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: SensorPayload::Dns(fields),
+        payload: RawPayload::Dns(fields),
     })
 }
 
@@ -903,7 +903,7 @@ pub(super) fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: SensorPayload::ImageLoad(fields),
+        payload: RawPayload::ImageLoad(fields),
     })
 }
 
@@ -928,7 +928,7 @@ pub(super) fn decode_powershell(parser: &Parser, record: &EventRecord) -> Option
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: SensorPayload::Scripting(fields),
+        payload: RawPayload::Scripting(fields),
     })
 }
 
@@ -952,7 +952,7 @@ pub(super) fn decode_powershell_module(
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: SensorPayload::PowerShellModule(fields),
+        payload: RawPayload::PowerShellModule(fields),
     })
 }
 
@@ -1018,7 +1018,7 @@ pub(super) fn decode_wmi(parser: &Parser, record: &EventRecord) -> Option<Decode
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: SensorPayload::Wmi(fields),
+        payload: RawPayload::Wmi(fields),
     })
 }
 
@@ -1036,7 +1036,7 @@ pub(super) fn decode_task(parser: &Parser, record: &EventRecord) -> Option<Decod
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: SensorPayload::Task(fields),
+        payload: RawPayload::Task(fields),
     })
 }
 
@@ -1046,7 +1046,7 @@ mod tests {
     use super::*;
     use crate::models::PowerShellModuleFields;
     use crate::models::PowerShellScriptFields;
-    use crate::sensor::SensorPayload;
+    use crate::sensor::RawPayload;
 
     #[test]
     fn kernel_process_assembly_keeps_native_facts_and_does_not_enrich() {
@@ -1080,7 +1080,7 @@ mod tests {
 
     #[test]
     fn fieldless_provider_payload_is_not_matchable() {
-        let empty = SensorPayload::Scripting(PowerShellScriptFields {
+        let empty = RawPayload::Scripting(PowerShellScriptFields {
             script_block_text: None,
             script_block_id: None,
             message_number: None,
@@ -1092,7 +1092,7 @@ mod tests {
         });
         assert!(!has_matchable_fields(&empty));
 
-        let populated = SensorPayload::Scripting(PowerShellScriptFields {
+        let populated = RawPayload::Scripting(PowerShellScriptFields {
             script_block_text: Some("Get-Process".to_string()),
             script_block_id: None,
             message_number: None,
@@ -1104,7 +1104,7 @@ mod tests {
         });
         assert!(has_matchable_fields(&populated));
 
-        let empty_module = SensorPayload::PowerShellModule(PowerShellModuleFields {
+        let empty_module = RawPayload::PowerShellModule(PowerShellModuleFields {
             context_info: None,
             payload: None,
             process_id: None,
@@ -1113,7 +1113,7 @@ mod tests {
         });
         assert!(!has_matchable_fields(&empty_module));
 
-        let populated_module = SensorPayload::PowerShellModule(PowerShellModuleFields {
+        let populated_module = RawPayload::PowerShellModule(PowerShellModuleFields {
             context_info: Some("Host Application = powershell.exe".to_string()),
             payload: None,
             process_id: None,

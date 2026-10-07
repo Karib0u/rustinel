@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::field_availability::{application_contract, Availability};
 use crate::models::ApplicationEventFields;
-use crate::sensor::{Platform, SensorAction, SensorEvent, SensorNormalization, SensorPayload};
+use crate::sensor::{Platform, RawEvent, RawPayload, SensorAction, SensorNormalization};
 
 use super::{parse_system_time, EventLogSource};
 
@@ -46,7 +46,7 @@ pub(super) const fn source() -> EventLogSource {
     EventLogSource::new("application", "Application", QUERY, decode)
 }
 
-fn decode(xml: &str) -> Result<SensorEvent> {
+fn decode(xml: &str) -> Result<RawEvent> {
     let document = roxmltree::Document::parse(xml).context("invalid Application event XML")?;
     let system = document
         .descendants()
@@ -125,7 +125,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         .parse::<u64>()
         .context("Application event XML has an invalid EventRecordID")?;
 
-    Ok(SensorEvent {
+    Ok(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
@@ -140,7 +140,7 @@ fn decode(xml: &str) -> Result<SensorEvent> {
         source_seq: Some(source_seq),
         process_start_key: None,
         parent_process_start_key: None,
-        payload: SensorPayload::Application(fields),
+        payload: RawPayload::Application(fields),
     })
 }
 
@@ -167,7 +167,7 @@ mod tests {
         let event = decode(&xml("Application Error", 1000,
             "<Data>lsass.exe</Data><Data>10.0.1</Data><Data>stamp</Data><Data>netlogon.dll</Data><Data>10.0.1</Data><Data>stamp</Data><Data>c0000409</Data>"))
             .unwrap();
-        let SensorPayload::Application(fields) = event.payload else {
+        let RawPayload::Application(fields) = event.payload else {
             panic!("expected Application payload")
         };
         assert_eq!(fields.get("Provider_Name"), Some("Application Error"));
@@ -188,7 +188,7 @@ mod tests {
             "<Data>statement:EXEC</Data>",
         ))
         .unwrap();
-        let SensorPayload::Application(fields) = event.payload else {
+        let RawPayload::Application(fields) = event.payload else {
             panic!("expected Application payload")
         };
         assert_eq!(fields.get("Provider_Name"), Some("MSSQLSERVER$AUDIT"));

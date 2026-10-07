@@ -15,8 +15,8 @@ use rustinel::{
     runtime::yara::spawn_yara_memory_worker,
     scanner::{Scanner, YaraMemoryEventHandler},
     sensor::{
-        linux::EbpfSensor, Platform, RawProcessPlatform, RawUserId, Sensor, SensorAction,
-        SensorEventHandler, SensorPayload,
+        linux::EbpfSensor, CanonicalEventHandler, Platform, RawPayload, RawProcessPlatform,
+        RawUserId, Sensor, SensorAction,
     },
     utils::query_process_identity,
 };
@@ -118,8 +118,7 @@ async fn live_task_identity_matches_proc() {
     let mut inventory_key = None;
     tokio::time::timeout(Duration::from_secs(15), async {
         while let Some(event) = rx.recv().await {
-            if event.pid == Some(existing.0.id()) && matches!(event.payload, SensorPayload::File(_))
-            {
+            if event.pid == Some(existing.0.id()) && matches!(event.payload, RawPayload::File(_)) {
                 let key = event
                     .process_start_key
                     .expect("inventory must produce an identity");
@@ -128,7 +127,7 @@ async fn live_task_identity_matches_proc() {
                 inventory_key = Some(key);
             }
             if event.pid == Some(target_pid) && event.action == SensorAction::Start {
-                let SensorPayload::Process(fields) = event.payload else {
+                let RawPayload::Process(fields) = event.payload else {
                     continue;
                 };
                 let RawProcessPlatform::Linux(source) = fields.platform.as_ref() else {
@@ -217,7 +216,7 @@ async fn live_task_identity_matches_proc() {
                     event.process_start_key, inventory_key,
                     "exec must mint a new execution identity"
                 );
-                let SensorPayload::Process(fields) = event.payload else {
+                let RawPayload::Process(fields) = event.payload else {
                     continue;
                 };
                 let RawProcessPlatform::Linux(source) = *fields.platform else {
@@ -287,7 +286,7 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
     .expect("timed out waiting for target exec event");
     sensor.shutdown();
 
-    let SensorPayload::Process(fields) = &event.payload else {
+    let RawPayload::Process(fields) = &event.payload else {
         panic!("target exec did not carry process fields");
     };
     let RawProcessPlatform::Linux(source) = fields.platform.as_ref() else {
@@ -389,7 +388,7 @@ async fn live_without_btf_keeps_base_telemetry() {
     tokio::time::timeout(Duration::from_secs(10), async {
         while let Some(event) = rx.recv().await {
             if event.pid == Some(target.0.id()) && event.action == SensorAction::Start {
-                let SensorPayload::Process(fields) = event.payload else {
+                let RawPayload::Process(fields) = event.payload else {
                     continue;
                 };
                 assert!(fields.user.is_none());

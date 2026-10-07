@@ -1,7 +1,7 @@
 //! Owned classic system logger, reusable for additional kernel providers.
 
 use super::{session::process_session_properties, state::EtwState};
-use crate::sensor::SensorEvent;
+use crate::sensor::RawEvent;
 use crate::telemetry::WINDOWS_PROCESS_CORRELATION as METRICS;
 use anyhow::{Context, Result};
 use ferrisetw::provider::{kernel_providers, Provider};
@@ -45,7 +45,7 @@ pub(super) struct ClassicSession {
 impl ClassicSession {
     pub(super) fn start(
         state: Arc<EtwState>,
-        tx: Sender<SensorEvent>,
+        tx: Sender<RawEvent>,
         loss: Arc<super::super::loss::LossCounters>,
         flush_interval_ms: u64,
     ) -> Result<Self> {
@@ -153,7 +153,7 @@ impl ClassicSession {
     }
 }
 
-pub(super) fn send(state: &EtwState, tx: &Sender<SensorEvent>, events: Vec<SensorEvent>) {
+pub(super) fn send(state: &EtwState, tx: &Sender<RawEvent>, events: Vec<RawEvent>) {
     for mut event in events {
         state.attribute_process_identity(&mut event);
         let _ = crate::telemetry::try_send_sensor_event(tx, event);

@@ -3471,7 +3471,7 @@ mod tests {
         let payload = temp.path().join("captures").join("session.ndjson");
         let recorder = crate::capture::CaptureRecorder::start(payload.clone(), Platform::Windows)
             .expect("capture starts");
-        let downstream = router_with(crate::engine::NormalizedEventHandler::recording(
+        let downstream = router_with(crate::engine::CanonicalEventDispatcher::recording(
             Arc::new(HostState::default()),
             recorder.sink(),
         ));

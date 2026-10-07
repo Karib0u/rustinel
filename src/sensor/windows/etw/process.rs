@@ -1,7 +1,7 @@
 //! Bounded correlation of classic creation facts and manifest process identity.
 
 use super::parser::{filetime_to_system_time, try_get_uint_as_u64};
-use crate::sensor::{RawUserId, SensorAction, SensorEvent, SensorPayload};
+use crate::sensor::{RawEvent, RawPayload, RawUserId, SensorAction};
 use crate::telemetry::WINDOWS_PROCESS_CORRELATION as METRICS;
 use ferrisetw::{parser::Parser, schema_locator::SchemaLocator, EventRecord};
 use std::collections::{HashMap, VecDeque};
@@ -30,7 +30,7 @@ struct Pending<T> {
 #[derive(Default)]
 pub(super) struct ProcessCorrelation {
     classic: HashMap<u32, VecDeque<Pending<ClassicProcess>>>,
-    manifest: HashMap<u32, VecDeque<Pending<SensorEvent>>>,
+    manifest: HashMap<u32, VecDeque<Pending<RawEvent>>>,
     count: usize,
     unavailable: bool,
 }
@@ -40,7 +40,7 @@ impl ProcessCorrelation {
         &mut self,
         record: &EventRecord,
         locator: &SchemaLocator,
-    ) -> Vec<SensorEvent> {
+    ) -> Vec<RawEvent> {
         METRICS
             .classic_records
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -124,7 +124,7 @@ impl ProcessCorrelation {
         self.insert_classic(value, Instant::now())
     }
 
-    fn insert_classic(&mut self, value: ClassicProcess, now: Instant) -> Vec<SensorEvent> {
+    fn insert_classic(&mut self, value: ClassicProcess, now: Instant) -> Vec<RawEvent> {
         let pid = value.pid;
         self.classic.entry(pid).or_default().push_back(Pending {
             received: now,
@@ -138,15 +138,15 @@ impl ProcessCorrelation {
         out
     }
 
-    pub(super) fn disable(&mut self) -> Vec<SensorEvent> {
+    pub(super) fn disable(&mut self) -> Vec<RawEvent> {
         self.unavailable = true;
         self.expire(Instant::now(), true)
     }
 
-    pub(super) fn manifest(&mut self, event: SensorEvent) -> Vec<SensorEvent> {
+    pub(super) fn manifest(&mut self, event: RawEvent) -> Vec<RawEvent> {
         if self.unavailable {
             if event.action == SensorAction::Start
-                && matches!(event.payload, SensorPayload::Process(_))
+                && matches!(event.payload, RawPayload::Process(_))
             {
                 METRICS
                     .unmatched
@@ -154,7 +154,7 @@ impl ProcessCorrelation {
             }
             return vec![event];
         }
-        if !matches!(event.payload, SensorPayload::Process(_)) {
+        if !matches!(event.payload, RawPayload::Process(_)) {
             return vec![event];
         }
         let Some(pid) = event.pid else {
@@ -175,7 +175,7 @@ impl ProcessCorrelation {
         out
     }
 
-    fn resolve(&mut self, pid: u32) -> Vec<SensorEvent> {
+    fn resolve(&mut self, pid: u32) -> Vec<RawEvent> {
         let mut out = Vec::new();
         if let (Some(manifest), Some(classic)) =
             (self.manifest.get_mut(&pid), self.classic.get_mut(&pid))
@@ -214,7 +214,7 @@ impl ProcessCorrelation {
                 let mut event = manifest.remove(index).unwrap().value;
                 let facts = classic.remove(classic_index).unwrap().value;
                 self.count -= 2;
-                if let SensorPayload::Process(fields) = &mut event.payload {
+                if let RawPayload::Process(fields) = &mut event.payload {
                     let evidence = fields
                         .windows_mut()
                         .expect("Windows process payload carries Windows source metadata");
@@ -256,7 +256,7 @@ impl ProcessCorrelation {
         out
     }
 
-    pub(super) fn expire(&mut self, now: Instant, all: bool) -> Vec<SensorEvent> {
+    pub(super) fn expire(&mut self, now: Instant, all: bool) -> Vec<RawEvent> {
         let mut out = Vec::new();
         for entries in self.manifest.values_mut() {
             while entries.front().is_some_and(|entry| {
@@ -291,14 +291,14 @@ impl ProcessCorrelation {
     }
 }
 
-fn same_creation(event: &SensorEvent, classic: &ClassicProcess) -> bool {
+fn same_creation(event: &RawEvent, classic: &ClassicProcess) -> bool {
     if classic.rundown || event.action != SensorAction::Start {
         return false;
     }
     let Some(key) = event.process_start_key else {
         return false;
     };
-    let SensorPayload::Process(fields) = &event.payload else {
+    let RawPayload::Process(fields) = &event.payload else {
         return false;
     };
     let skew = event
@@ -347,12 +347,12 @@ mod tests {
     use crate::models::ProcessCreationFields;
     use crate::sensor::{Platform, ProcessStartKey, SensorNormalization};
 
-    fn manifest(start: u64, at: u64) -> SensorEvent {
+    fn manifest(start: u64, at: u64) -> RawEvent {
         let fields: ProcessCreationFields = serde_json::from_value(serde_json::json!({
             "ProcessId": "42", "ParentProcessId": "7", "Image": "C:\\Windows\\cmd.exe"
         }))
         .unwrap();
-        SensorEvent {
+        RawEvent {
             process_name: None,
             provenance: Default::default(),
             platform: Platform::Windows,
@@ -370,7 +370,7 @@ mod tests {
                 start_time: start,
             }),
             parent_process_start_key: None,
-            payload: SensorPayload::Process(crate::sensor::RawProcessEvent::from_compatibility(
+            payload: RawPayload::Process(crate::sensor::RawProcessEvent::from_compatibility(
                 fields,
                 Platform::Windows,
                 Some(42),
@@ -411,7 +411,7 @@ mod tests {
             };
             assert_eq!(out.len(), 1);
             assert_eq!(out[0].process_start_key.unwrap().start_time, BASE);
-            let SensorPayload::Process(fields) = &out[0].payload else {
+            let RawPayload::Process(fields) = &out[0].payload else {
                 panic!()
             };
             assert_eq!(fields.command_line.as_deref(), Some(command));
@@ -441,7 +441,7 @@ mod tests {
             };
             assert_eq!(out.len(), 1);
             assert_eq!(out[0].process_start_key.unwrap().start_time, BASE);
-            let SensorPayload::Process(fields) = &out[0].payload else {
+            let RawPayload::Process(fields) = &out[0].payload else {
                 panic!("expected process creation")
             };
             assert_eq!(fields.command_line.as_deref(), Some("cmd.exe /c whoami"));
@@ -465,7 +465,7 @@ mod tests {
             assert!(correlation.manifest(event).is_empty());
             let out = correlation.expire(Instant::now(), true);
             assert_eq!(out.len(), 1);
-            let SensorPayload::Process(fields) = &out[0].payload else {
+            let RawPayload::Process(fields) = &out[0].payload else {
                 panic!()
             };
             assert!(fields.command_line.is_none());
@@ -491,7 +491,7 @@ mod tests {
             };
             assert_eq!(out.len(), 1);
             assert_eq!(out[0].process_start_key.unwrap().start_time, start);
-            let SensorPayload::Process(fields) = &out[0].payload else {
+            let RawPayload::Process(fields) = &out[0].payload else {
                 panic!("expected process creation")
             };
             assert_eq!(
@@ -544,7 +544,7 @@ mod tests {
         for reverse in [false, true] {
             let mut correlation = ProcessCorrelation::default();
             let mut event = manifest(BASE, BASE + 100);
-            if let SensorPayload::Process(fields) = &mut event.payload {
+            if let RawPayload::Process(fields) = &mut event.payload {
                 fields.command_line = Some(live.clone());
             }
             let mut out = if reverse {
@@ -554,7 +554,7 @@ mod tests {
                 correlation.insert_classic(classic(BASE + 150, &captured), Instant::now());
                 correlation.manifest(event)
             };
-            if let SensorPayload::Process(fields) = &mut out[0].payload {
+            if let RawPayload::Process(fields) = &mut out[0].payload {
                 crate::state::enrich_windows_command_line(fields, Some(live.clone()));
             }
             let normalizer = Normalizer::new(Arc::new(HostState::default()));
@@ -588,13 +588,13 @@ mod tests {
         ] {
             let mut correlation = ProcessCorrelation::default();
             let mut event = manifest(BASE, BASE + 100);
-            if let SensorPayload::Process(fields) = &mut event.payload {
+            if let RawPayload::Process(fields) = &mut event.payload {
                 fields.command_line = live;
             }
             correlation.manifest(event);
             let out =
                 correlation.insert_classic(classic(BASE + 150, &classic_value), Instant::now());
-            let SensorPayload::Process(fields) = &out[0].payload else {
+            let RawPayload::Process(fields) = &out[0].payload else {
                 panic!()
             };
             assert_eq!(fields.command_line.as_ref(), Some(&classic_value));
@@ -611,16 +611,16 @@ mod tests {
         for command in [String::new(), "été 🦀 ".repeat(4000)] {
             let mut correlation = ProcessCorrelation::default();
             let mut event = manifest(BASE, BASE + 100);
-            if let SensorPayload::Process(fields) = &mut event.payload {
+            if let RawPayload::Process(fields) = &mut event.payload {
                 fields.command_line = Some("modified PEB".into());
                 fields.windows_mut().unwrap().command_line_source = Some("live_query".into());
             }
             correlation.manifest(event);
             let mut out = correlation.insert_classic(classic(BASE + 150, &command), Instant::now());
-            if let SensorPayload::Process(fields) = &mut out[0].payload {
+            if let RawPayload::Process(fields) = &mut out[0].payload {
                 crate::state::enrich_windows_command_line(fields, Some("modified PEB".into()));
             }
-            let SensorPayload::Process(fields) = &out[0].payload else {
+            let RawPayload::Process(fields) = &out[0].payload else {
                 panic!()
             };
             assert_eq!(fields.command_line.as_ref(), Some(&command));
