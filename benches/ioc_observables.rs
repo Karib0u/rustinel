@@ -243,6 +243,8 @@ Start-Process -FilePath "C:\ProgramData\Agent\agent.exe" -ArgumentList '--server
         EventFields::PowerShellScript(PowerShellScriptFields {
             script_block_text: Some(block),
             script_block_id: None,
+            message_number: None,
+            message_total: None,
             path: Some(r"C:\ProgramData\Agent\install.ps1".to_string()),
             process_id: None,
             image: None,

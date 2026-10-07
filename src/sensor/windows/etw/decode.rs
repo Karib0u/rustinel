@@ -219,6 +219,8 @@ pub(super) fn has_matchable_fields(payload: &SensorPayload) -> bool {
         SensorPayload::Scripting(fields) => {
             fields.script_block_text.is_some()
                 || fields.script_block_id.is_some()
+                || fields.message_number.is_some()
+                || fields.message_total.is_some()
                 || fields.path.is_some()
                 || fields.process_id.is_some()
                 || fields.image.is_some()
@@ -876,6 +878,8 @@ pub(super) fn decode_powershell(parser: &Parser, record: &EventRecord) -> Option
     let fields = PowerShellScriptFields {
         script_block_text: try_get_string(parser, mappings.get_etw_field("ScriptBlockText")?),
         script_block_id: try_get_string(parser, mappings.get_etw_field("ScriptBlockId")?),
+        message_number: try_get_uint(parser, mappings.get_etw_field("MessageNumber")?),
+        message_total: try_get_uint(parser, mappings.get_etw_field("MessageTotal")?),
         path: try_get_string(parser, mappings.get_etw_field("Path")?)
             .map(|path| convert_nt_to_dos(&path)),
         process_id: try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
@@ -1039,6 +1043,8 @@ mod tests {
         let empty = SensorPayload::Scripting(PowerShellScriptFields {
             script_block_text: None,
             script_block_id: None,
+            message_number: None,
+            message_total: None,
             path: None,
             process_id: None,
             image: None,
@@ -1049,6 +1055,8 @@ mod tests {
         let populated = SensorPayload::Scripting(PowerShellScriptFields {
             script_block_text: Some("Get-Process".to_string()),
             script_block_id: None,
+            message_number: None,
+            message_total: None,
             path: None,
             process_id: None,
             image: None,

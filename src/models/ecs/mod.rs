@@ -187,6 +187,8 @@ impl From<&Alert> for EcsAlert {
             edr_task_user_name: None,
             edr_powershell_script_block_text: None,
             edr_powershell_script_block_id: None,
+            edr_powershell_message_number: None,
+            edr_powershell_message_total: None,
             edr_powershell_context_info: None,
             edr_powershell_payload: None,
             edr_powershell_data: None,
@@ -337,6 +339,8 @@ impl From<&Alert> for EcsAlert {
                 ecs.file_path = f.path.clone();
                 ecs.edr_powershell_script_block_text = f.script_block_text.clone();
                 ecs.edr_powershell_script_block_id = f.script_block_id.clone();
+                ecs.edr_powershell_message_number = f.message_number.clone();
+                ecs.edr_powershell_message_total = f.message_total.clone();
             }
             EventFields::PowerShellModule(f) => {
                 ecs.process_executable = f.image.clone();

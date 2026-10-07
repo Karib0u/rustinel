@@ -606,6 +606,8 @@ impl NormalizedEvent {
             EventFields::PowerShellScript(f) => match key {
                 Field::ScriptBlockText => f.script_block_text.as_deref().map(Value::String),
                 Field::ScriptBlockId => f.script_block_id.as_deref().map(Value::String),
+                Field::MessageNumber => f.message_number.as_deref().map(Value::String),
+                Field::MessageTotal => f.message_total.as_deref().map(Value::String),
                 Field::Path => f.path.as_deref().map(Value::String),
                 Field::ProcessId => f.process_id.as_deref().map(Value::String),
                 Field::ProcessImage => f.image.as_deref().map(Value::String),

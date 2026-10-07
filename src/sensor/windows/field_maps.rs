@@ -120,6 +120,8 @@ static POWERSHELL_SCRIPT_MAP: LazyLock<FieldMapping> = LazyLock::new(|| {
     FieldMapping::new(&[
         ("ScriptBlockText", "ScriptBlockText"),
         ("ScriptBlockId", "ScriptBlockId"),
+        ("MessageNumber", "MessageNumber"),
+        ("MessageTotal", "MessageTotal"),
         ("Path", "Path"),
         ("ProcessId", "ProcessID"),
         ("Image", "ImageName"),
