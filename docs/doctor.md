@@ -65,7 +65,8 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | `process_inventory` | Startup inventory failed or seeded no processes; reports duration and coverage |
 | `artifact_resolver` | A file could not be hashed, scanned, or read for PE metadata in time: a queue was full, a budget expired, the file was too large or changed, or reading failed. Reports dropped jobs separately for process images, loaded images, and written files, and warns that written-file drops leave a YARA and hash IOC detection gap. Also covers a [deferred pass](detection.md#deferred-pass) that ran without `Hashes` or `Imphash` |
 | `field_contract_violations` | A normalized event populated a field declared `Never`; detection filters the contradictory field until the decoder or contract is corrected |
-| `pipeline_telemetry` | Warns when a pipeline queue dropped events or `telemetry.enabled = false`. Fails when the alert writer dropped alerts |
+| `pipeline_telemetry` | Warns when a pipeline queue dropped events or `telemetry.enabled = false`. Fails when the alert writer dropped alerts. Also warns when the snapshot is unreadable or malformed, or missing while the service is running |
+| `telemetry_snapshot` | How old the snapshot is, see [Snapshot freshness](#snapshot-freshness) |
 | `alert_webhooks` | An alert failed, was dropped, was too large, or was abandoned at shutdown for a [webhook](output.md#webhooks). The alert file still has it |
 | `linux_ebpf` | A kernel ring or map filled, records were short or unusable, file paths could not be rebuilt, or counters do not add up |
 | `linux_ebpf_<feature>_capability` | A kernel hook is missing, so that feature is degraded. The rest keeps working |
@@ -79,3 +80,24 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | `windows_process_correlation` | Two sources disagreed about a process command line (Windows) |
 | `windows_event_log_<channel>` | The System or Security subscription failed or went stale (Windows) |
 | `windows_event_log_<channel>_retention` | Records were overwritten before Rustinel read them, for example while it was stopped (Windows) |
+
+## Snapshot freshness
+
+Service state alone does not show that collection is working, so `doctor` also judges whether `telemetry.json` is usable and current.
+A snapshot is stale after `2 × telemetry.snapshot_interval_secs + 30` seconds, which allows one missed write and scheduler delay.
+A timestamp more than 60 seconds ahead of this host's clock is reported as `future`.
+
+`--json` carries this in `telemetry_snapshot`: `state`, `age_secs`, `interval_secs`, `stale_after_secs`, and `path`.
+
+| `state` | Meaning | Result |
+| --- | --- | --- |
+| `fresh` | Written within the stale threshold | `PASS` |
+| `stale` | Older than the threshold. Service running: runtime health is degraded or unknown | `WARN` when the service is running, otherwise `PASS` with a note that it is not evidence of current health |
+| `historical` | Older than the threshold and the managed service is not running, so the counters describe its last run | `PASS` |
+| `future`, `invalid_timestamp` | Freshness cannot be assessed | `WARN` |
+| `missing` | No file. A running service should have written one | `WARN` when the service is running, otherwise `PASS` (never started) |
+| `unreadable` | The file exists but cannot be read, for example for permissions | `WARN` |
+| `malformed` | The file is not a valid snapshot | `WARN` |
+| `disabled` | `telemetry.enabled = false` | `WARN` |
+
+Portable runs and unknown service state are never treated as "not running": there, an old snapshot is reported as `stale` without a claim about current health.
