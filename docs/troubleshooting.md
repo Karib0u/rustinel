@@ -137,9 +137,13 @@ CRITICAL: ETW sensor thread died unexpectedly
 ## No operational log, or alerts fail to write
 
 - `logging.directory` and `alerts.directory` must be writable by the account running Rustinel, and the disk must not be full.
-- If the log folder cannot be used, Rustinel fails to start and says why. It never falls back to a temporary folder.
-- An existing log folder must belong to the account running Rustinel. A folder owned by another account is refused and left unchanged. Delete it or point `logging.directory` and `alerts.directory` elsewhere.
-- The portable package ships no `logs` folder. The first elevated run creates it, so do not create it as your own user first.
+- If the log folder cannot be used, Rustinel fails to start and says why.
+  It never falls back to a temporary folder.
+- An existing log folder must belong to the account running Rustinel.
+  A folder owned by another account is refused and left unchanged.
+  Delete it or point `logging.directory` and `alerts.directory` elsewhere.
+- The portable package ships no `logs` folder.
+  The first elevated run creates it, so do not create it as your own user first.
 
 ## macOS: no network or DNS events
 
