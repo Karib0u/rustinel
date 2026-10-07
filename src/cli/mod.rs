@@ -74,7 +74,8 @@ pub enum Commands {
     /// you want to record, and press Ctrl-C when the session is complete.
     Capture {
         /// Recording path.
-        /// Defaults to <capture.directory>/rustinel-capture-<UTC timestamp>.ndjson
+        /// Defaults to <capture.directory>/rustinel-capture-<UTC timestamp>.ndjson.
+        /// Refuses to start if the recording or its manifest already exists.
         #[arg(long, value_name = "PATH")]
         output: Option<std::path::PathBuf>,
     },
@@ -88,7 +89,8 @@ pub enum Commands {
         /// Its manifest sidecar must sit next to it.
         #[arg(value_name = "RECORDING")]
         recording: std::path::PathBuf,
-        /// Write ECS NDJSON alerts here instead of a console alert list
+        /// Write ECS NDJSON alerts here instead of a console alert list.
+        /// Refuses an existing file, and the recording itself.
         #[arg(long, value_name = "PATH")]
         output: Option<std::path::PathBuf>,
     },
