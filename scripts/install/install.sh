@@ -117,8 +117,8 @@ Start monitoring:
 Demo trigger from another terminal:
   whoami
 
-Show the alert:
-  cat "$install_dir/logs/alerts.json."*
+Show the alert (the log folder is created by the elevated run and readable by root only):
+  sudo sh -c 'cat "\$1"/logs/alerts.json.*' sh "$install_dir"
 
 EOF
 
@@ -210,7 +210,8 @@ fi
 
 if [ -e "$install_dir" ]; then
   if [ "$force" -eq 1 ]; then
-    rm -rf "$install_dir"
+    # A previous elevated run leaves root-owned output behind.
+    rm -rf "$install_dir" 2>/dev/null || sudo rm -rf "$install_dir"
   else
     echo "Install directory already exists: $install_dir" >&2
     echo "Pass --force to replace it, or choose another --dir." >&2

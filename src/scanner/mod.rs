@@ -4,9 +4,9 @@
 //! `crate::artifact`; this module queues process-memory scans.
 
 use anyhow::{Context, Result};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Sender;
@@ -20,6 +20,7 @@ use crate::models::{
 use crate::sensor::{CanonicalEventHandler, Platform, SensorAction};
 use crate::utils::cache::trim_to_headroom;
 use crate::utils::file_identity::{self, FileIdentity};
+use crate::utils::rule_dirs::{RuleCollision, RuleDirectoryReport, RuleDirectoryRole};
 use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
 
 /// Strip NT namespace prefix and convert to a path the YARA scanner can open.
@@ -231,6 +232,10 @@ pub struct Scanner {
     compiled_files: usize,
     files_found: usize,
     failed_files: usize,
+    directories: Vec<RuleDirectoryReport>,
+    collisions: Vec<RuleCollision>,
+    /// `(namespace, rule name)` of pack rules a local rule replaced.
+    shadowed: HashSet<(String, String)>,
     limits: ScanLimits,
     cache: Mutex<YaraScanCache>,
 }
@@ -245,56 +250,99 @@ impl Scanner {
         rules_dir: P,
         trust: Option<&crate::utils::trust::RuleTrust>,
     ) -> Result<Self> {
-        let rules_dir = rules_dir.as_ref();
+        Self::new_with_dirs_and_trust(rules_dir.as_ref(), &[], trust)
+    }
+
+    /// Compile the managed pack directory and then each local directory into
+    /// one scanner. Every directory is trust-checked before anything is read,
+    /// and any failure rejects the whole load. Local directories compile into
+    /// their own namespaces, so a local rule can reuse a pack rule's name; the
+    /// pack rule is then suppressed and the collision recorded.
+    pub fn new_with_dirs_and_trust(
+        pack_dir: &Path,
+        local_dirs: &[PathBuf],
+        trust: Option<&crate::utils::trust::RuleTrust>,
+    ) -> Result<Self> {
         let mut compiler = Compiler::new();
         let mut files_found = 0;
         let mut files_compiled = 0;
         let mut files_failed = 0;
+        let mut reports = Vec::new();
+        // Namespace of each directory, in load order. The pack keeps the
+        // default namespace so its alerts are unchanged.
+        let mut namespaces = Vec::new();
+        let directories = std::iter::once((pack_dir, RuleDirectoryRole::Pack)).chain(
+            local_dirs
+                .iter()
+                .map(|dir| (dir.as_path(), RuleDirectoryRole::Local)),
+        );
 
-        crate::utils::trust::verify_rule_input(rules_dir, trust)?;
-        info!("Loading YARA rules from: {:?} (recursive)", rules_dir);
+        for (index, (dir, role)) in directories.enumerate() {
+            let mut report = RuleDirectoryReport::new(dir, role);
+            crate::utils::trust::verify_rule_input(dir, trust).with_context(|| {
+                format!("{} YARA rules directory {}", role.as_str(), dir.display())
+            })?;
+            info!(
+                role = role.as_str(),
+                "Loading YARA rules from: {:?} (recursive)", dir
+            );
 
-        if rules_dir.exists() && rules_dir.is_dir() {
-            let mut queue = VecDeque::from([rules_dir.to_path_buf()]);
-            while let Some(dir) = queue.pop_front() {
-                for entry in fs::read_dir(&dir)? {
-                    let entry = entry?;
-                    let path = entry.path();
-                    if path.is_dir() {
-                        queue.push_back(path);
-                        continue;
-                    }
-                    if let Some(ext) = path.extension() {
-                        if ext == "yar" || ext == "yara" {
-                            files_found += 1;
-                            debug!("Found YARA rule file: {:?}", path);
-                            let src = fs::read_to_string(&path)
-                                .with_context(|| format!("Failed to read {:?}", path))?;
+            let namespace = if role == RuleDirectoryRole::Pack {
+                "default".to_string()
+            } else {
+                let namespace = format!("local-{index}");
+                compiler.new_namespace(&namespace);
+                namespace
+            };
 
-                            match compiler.add_source(src.as_str()) {
-                                Ok(_) => {
-                                    files_compiled += 1;
-                                    debug!("✓ Compiled YARA rule: {:?}", path);
-                                }
-                                Err(e) => {
-                                    files_failed += 1;
-                                    info!("Failed to compile YARA rule {:?}: {}", path, e);
+            if dir.is_dir() {
+                let mut queue = VecDeque::from([dir.to_path_buf()]);
+                while let Some(current) = queue.pop_front() {
+                    for entry in fs::read_dir(&current)
+                        .with_context(|| format!("Failed to read {:?}", current))?
+                    {
+                        let entry = entry?;
+                        let path = entry.path();
+                        if path.is_dir() {
+                            queue.push_back(path);
+                            continue;
+                        }
+                        if let Some(ext) = path.extension() {
+                            if ext == "yar" || ext == "yara" {
+                                files_found += 1;
+                                report.files += 1;
+                                debug!("Found YARA rule file: {:?}", path);
+                                let src = fs::read_to_string(&path)
+                                    .with_context(|| format!("Failed to read {:?}", path))?;
+
+                                match compiler.add_source(src.as_str()) {
+                                    Ok(_) => {
+                                        files_compiled += 1;
+                                        debug!("✓ Compiled YARA rule: {:?}", path);
+                                    }
+                                    Err(e) => {
+                                        files_failed += 1;
+                                        info!("Failed to compile YARA rule {:?}: {}", path, e);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } else {
+                info!(
+                    "YARA rules directory does not exist or is not a directory: {:?}",
+                    dir
+                );
             }
-        } else {
-            info!(
-                "YARA rules directory does not exist or is not a directory: {:?}",
-                rules_dir
-            );
+
+            namespaces.push(namespace);
+            reports.push(report);
         }
 
         if files_failed > 0 {
             warn!(
-                path = ?rules_dir,
+                path = ?pack_dir,
                 failed_files = files_failed,
                 compiled_files = files_compiled,
                 "Some YARA rule files failed to compile; see the operational log for details"
@@ -302,15 +350,68 @@ impl Scanner {
         }
 
         let rules = compiler.build();
+
+        // A later directory wins: suppress an earlier rule of the same name.
+        let mut positions_by_name: HashMap<String, Vec<usize>> = HashMap::new();
+        for rule in rules.iter() {
+            let Some(position) = namespaces.iter().position(|ns| ns == rule.namespace()) else {
+                continue;
+            };
+            reports[position].rules += 1;
+            positions_by_name
+                .entry(rule.identifier().to_string())
+                .or_default()
+                .push(position);
+        }
+        let mut shadowed = HashSet::new();
+        let mut collisions = Vec::new();
+        let mut names = positions_by_name.into_iter().collect::<Vec<_>>();
+        names.sort();
+        for (name, mut positions) in names {
+            positions.sort_unstable();
+            positions.dedup();
+            let Some((&winner, overridden)) = positions.split_last() else {
+                continue;
+            };
+            for &earlier in overridden {
+                shadowed.insert((namespaces[earlier].clone(), name.clone()));
+                reports[earlier].rules = reports[earlier].rules.saturating_sub(1);
+                warn!(
+                    rule = %name,
+                    overridden = %reports[earlier].path.display(),
+                    winner = %reports[winner].path.display(),
+                    "Local YARA rule replaces a rule with the same name"
+                );
+                collisions.push(RuleCollision {
+                    rule_id: name.clone(),
+                    overridden: reports[earlier].path.display().to_string(),
+                    winner: reports[winner].path.display().to_string(),
+                });
+            }
+        }
+
         info!(
             "YARA Scanner: Found {} rule files, compiled {} successfully",
             files_found, files_compiled
         );
+        for report in &reports {
+            info!(
+                role = report.role.as_str(),
+                path = ?report.path,
+                files = report.files,
+                rules = report.rules,
+                exists = report.exists,
+                "YARA rules directory loaded"
+            );
+        }
         Ok(Self {
             rules,
             compiled_files: files_compiled,
             files_found,
             failed_files: files_failed,
+            directories: reports,
+            collisions,
+            shadowed,
             limits: ScanLimits::default(),
             cache: Mutex::new(YaraScanCache::new()),
         })
@@ -326,6 +427,9 @@ impl Scanner {
             compiled_files: 0,
             files_found: 0,
             failed_files: 0,
+            directories: Vec::new(),
+            collisions: Vec::new(),
+            shadowed: HashSet::new(),
             limits: ScanLimits::default(),
             cache: Mutex::new(YaraScanCache::new()),
         }
@@ -353,6 +457,16 @@ impl Scanner {
         self.failed_files
     }
 
+    /// What each rules directory contributed, pack first.
+    pub fn directories(&self) -> &[RuleDirectoryReport] {
+        &self.directories
+    }
+
+    /// Pack rules a local rule replaced by reusing their name.
+    pub fn collisions(&self) -> &[RuleCollision] {
+        &self.collisions
+    }
+
     /// Scan a file path and return matching rule details.
     ///
     /// Files above the configured maximum size are rejected before the scan
@@ -370,7 +484,11 @@ impl Scanner {
             let scan_results = scanner.scan_file(path).map_err(|err| {
                 self.map_scan_error(err, || format!("YARA scan failed for {path}"))
             })?;
-            Ok(collect_yara_matches(scan_results, match_debug))
+            Ok(collect_yara_matches(
+                scan_results,
+                match_debug,
+                &self.shadowed,
+            ))
         })
     }
 
@@ -487,18 +605,28 @@ impl Scanner {
                 ScanError::Failed(anyhow::Error::new(err).context("YARA memory scan failed"))
             }
         })?;
-        Ok(collect_yara_matches(scan_results, match_debug))
+        Ok(collect_yara_matches(
+            scan_results,
+            match_debug,
+            &self.shadowed,
+        ))
     }
 }
 
 fn collect_yara_matches(
     scan_results: yara_x::ScanResults,
     match_debug: MatchDebugLevel,
+    shadowed: &HashSet<(String, String)>,
 ) -> Vec<YaraRuleMatch> {
     let mut matches = Vec::new();
 
     for rule in scan_results.matching_rules() {
         let rule_name = rule.identifier().to_string();
+        if !shadowed.is_empty()
+            && shadowed.contains(&(rule.namespace().to_string(), rule_name.clone()))
+        {
+            continue;
+        }
         let include_meta = !matches!(match_debug, MatchDebugLevel::Off);
         let include_strings = matches!(match_debug, MatchDebugLevel::Full);
 

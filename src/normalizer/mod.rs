@@ -375,6 +375,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
+        self.enrich_image(event, &mut fields.image, provenance);
         Some(EventFields::ImageLoad(fields))
     }
 
@@ -385,6 +386,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
+        self.enrich_image(event, &mut fields.image, provenance);
         Some(EventFields::PowerShellScript(fields))
     }
 
@@ -395,6 +397,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
+        self.enrich_image(event, &mut fields.image, provenance);
         Some(EventFields::PowerShellModule(fields))
     }
 
@@ -1656,6 +1659,84 @@ mod tests {
                     .get_field("Image")
                     .is_none());
             }
+        }
+    }
+
+    #[test]
+    fn image_load_and_powershell_take_image_from_exact_identity() {
+        let state = Arc::new(HostState::default());
+        state.processes.add(
+            4242,
+            100,
+            r"C:\Windows\System32\powershell.exe".into(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let normalizer = Normalizer::new(state);
+        let payloads = [
+            SensorPayload::ImageLoad(ImageLoadFields {
+                hashes: None,
+                imphash: None,
+                image_loaded: Some(r"C:\Windows\System32\amsi.dll".into()),
+                process_id: Some("4242".into()),
+                image: None,
+                original_file_name: None,
+                product: None,
+                description: None,
+                company: None,
+                file_version: None,
+                signed: None,
+                signature: None,
+                user: None,
+            }),
+            SensorPayload::Scripting(PowerShellScriptFields {
+                script_block_text: Some("Get-Process".into()),
+                script_block_id: None,
+                path: None,
+                process_id: Some("4242".into()),
+                image: None,
+                user: None,
+            }),
+            SensorPayload::PowerShellModule(PowerShellModuleFields {
+                context_info: Some("Host Application = powershell.exe".into()),
+                payload: None,
+                process_id: Some("4242".into()),
+                image: None,
+                user: None,
+            }),
+        ];
+        for payload in payloads {
+            let mut event = file_event(Platform::Windows, "etw", 4242);
+            event.payload = payload;
+            event.process_start_key = Some(ProcessStartKey {
+                pid: 4242,
+                start_time: 100,
+            });
+            let normalized = normalizer.normalize(&event).unwrap();
+            assert_eq!(normalized.get_field("ProcessId"), Some("4242"));
+            assert_eq!(
+                normalized.get_field("Image"),
+                Some(r"C:\Windows\System32\powershell.exe")
+            );
+
+            // A reused PID resolves to a different generation, so no image is
+            // borrowed from the earlier process.
+            event.process_start_key.as_mut().unwrap().start_time = 101;
+            assert!(normalizer
+                .normalize(&event)
+                .unwrap()
+                .get_field("Image")
+                .is_none());
         }
     }
 

@@ -14,6 +14,7 @@ pub(crate) mod path_allowlist;
 #[cfg(windows)]
 pub mod pe;
 pub mod process;
+pub mod rule_dirs;
 pub mod time;
 pub mod trust;
 pub mod user;

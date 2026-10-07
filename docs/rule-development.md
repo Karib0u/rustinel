@@ -82,7 +82,9 @@ A reload that fails keeps the previous rules active and logs the error.
 ## Keep custom rules safe from pack updates
 
 `rustinel rules update` replaces everything under `rules/current`.
-Keep your own rules in a separate folder under version control, and either copy them in after an update or point `scanner.sigma_rules_path` at your folder.
+Keep your own rules in a separate folder and list it in `scanner.sigma_local_rules_paths` or `scanner.yara_local_rules_paths`.
+Local directories load with the pack, reload with it, and are never touched by install or update.
+See [local rules](rule-packs.md#keep-local-rules-next-to-a-pack).
 
 ## Contribute to the official packs
 

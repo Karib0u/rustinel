@@ -139,7 +139,7 @@ Its `high_water_mark` is zero because the writer does not expose queue depth.
 | `esf.kernel_dropped_by_event_type` | The same drops by event type. Do not add to the total |
 | `bpf.kernel_received`, `bpf.kernel_dropped` | Packets seen and dropped by the kernel, summed over interfaces |
 | `bpf.stats_polls`, `bpf.stats_errors` | Successful and failed reads of the kernel counters |
-| `bpf.interfaces.<name>` | The same per interface, plus `active`, `link_type`, and `error` |
+| `bpf.interfaces.<name>` | The same per interface, plus `active`, `link_type`, `restarts` (workers restarted after a failure), and `error` (prefixed `persistent failure:` after 5 consecutive failures). Entries for interfaces that went away are removed |
 
 ## `windows_event_log`
 
