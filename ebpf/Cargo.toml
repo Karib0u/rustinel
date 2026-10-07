@@ -24,4 +24,4 @@ warnings = "deny"
 
 [dependencies]
 aya-ebpf = "0.2"
-rustinel-ebpf-common = { path = "../ebpf-common" }
+rustinel-ebpf-common = { version = "1.0.2", path = "../ebpf-common" }
