@@ -177,3 +177,78 @@ pub fn visit_process_memory_chunks(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::System::Memory::{
+        VirtualAlloc, VirtualFree, VirtualProtect, MEM_RELEASE, MEM_RESERVE, PAGE_GUARD,
+        PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
+    };
+
+    const PAGE_NOCACHE: u32 = 0x200;
+    const PAGE_WRITECOMBINE: u32 = 0x400;
+
+    fn scan_config() -> MemoryScanConfig {
+        MemoryScanConfig {
+            max_process_bytes: usize::MAX / 2,
+            max_region_bytes: 1 << 20,
+            include_private: true,
+            include_image: false,
+            include_mapped: false,
+            delay_ms: 0,
+        }
+    }
+
+    /// Whether a scanned chunk covers `page`. Matching by address avoids finding a copy of
+    /// the marker on this test's own heap.
+    fn page_is_scanned(page: usize) -> bool {
+        let mut found = false;
+        visit_process_memory_chunks(std::process::id(), &scan_config(), None, |chunk| {
+            let start = chunk.base as usize;
+            if (start..start + chunk.bytes.len()).contains(&page) {
+                found = true;
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+        found
+    }
+
+    /// Commit one private page, apply `protect`, and run `check` with the page address.
+    fn with_page(protect: u32, check: impl FnOnce(usize)) {
+        unsafe {
+            let page = VirtualAlloc(None, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            assert!(!page.is_null());
+            std::ptr::write_bytes(page as *mut u8, 0x41, 4096);
+            let mut old = PAGE_PROTECTION_FLAGS(0);
+            VirtualProtect(page, 4096, PAGE_PROTECTION_FLAGS(protect), &mut old).unwrap();
+            check(page as usize);
+            let _ = VirtualFree(page, 0, MEM_RELEASE);
+        }
+    }
+
+    #[test]
+    fn pages_with_modifier_bits_are_scanned() {
+        for (name, protect) in [
+            ("rw", 0x04),
+            ("rw+nocache", 0x04 | PAGE_NOCACHE),
+            ("rw+writecombine", 0x04 | PAGE_WRITECOMBINE),
+            ("ro+nocache", 0x02 | PAGE_NOCACHE),
+        ] {
+            with_page(protect, |page| {
+                assert!(page_is_scanned(page), "{name} page not scanned");
+            });
+        }
+    }
+
+    #[test]
+    fn guard_and_no_access_pages_are_not_scanned() {
+        for (name, protect) in [("guard", 0x04 | PAGE_GUARD.0), ("noaccess", 0x01)] {
+            with_page(protect, |page| {
+                assert!(!page_is_scanned(page), "{name} page was scanned");
+            });
+        }
+    }
+}
