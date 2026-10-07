@@ -159,7 +159,12 @@ name = "rustinel-ebpf"
 version = "1.0.2"
 dependencies = [
  "aya-ebpf",
+ "rustinel-ebpf-common",
 ]
+
+[[package]]
+name = "rustinel-ebpf-common"
+version = "1.0.2"
 
 [[package]]
 name = "rustversion"

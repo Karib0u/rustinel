@@ -3231,6 +3231,7 @@ dependencies = [
  "roxmltree",
  "rsigma-eval",
  "rsigma-parser",
+ "rustinel-ebpf-common",
  "self-replace",
  "semver",
  "serde",
@@ -3251,6 +3252,13 @@ dependencies = [
  "yaml_serde",
  "yara-x",
  "zip",
+]
+
+[[package]]
+name = "rustinel-ebpf-common"
+version = "1.0.2"
+dependencies = [
+ "aya",
 ]
 
 [[package]]

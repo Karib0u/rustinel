@@ -50,3 +50,6 @@ pub struct InventoryIdentity {
 }
 
 pub const INVENTORY_CAPACITY: u32 = 8192;
+
+#[cfg(feature = "aya")]
+crate::impl_pod!(ReadPlan, InventoryIdentity);

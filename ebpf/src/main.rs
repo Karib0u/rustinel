@@ -45,14 +45,14 @@
 pub mod dns;
 pub mod events;
 pub mod file;
-pub mod file_identity_abi;
 pub mod network;
 pub mod process;
 pub mod socket_tuple;
-pub mod socket_tuple_abi;
 pub mod task_identity;
-pub mod task_identity_abi;
 pub mod telemetry;
+
+// The ABI shared with the userspace loader lives in `rustinel-ebpf-common`.
+pub use rustinel_ebpf_common::{file_identity_abi, socket_tuple_abi, task_identity_abi};
 
 /// Ring-buffer and loader-global ABI implemented by this object.
 ///

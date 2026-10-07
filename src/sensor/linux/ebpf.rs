@@ -33,8 +33,8 @@ use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 use super::abi::validate_object_abi;
 use super::events::{
     bytes_to_string, connect_result_is_connection, parse_event, BootTimeConverter, DnsEvent,
-    FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, ProcessEvent, DNS_EVENT_QUERY,
-    DNS_EVENT_RESPONSE,
+    FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, NetworkEventExt, ProcessEvent,
+    ProcessEventExt, DNS_EVENT_QUERY, DNS_EVENT_RESPONSE,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 use super::tracepoint_format::{tracepoint_exists, TracepointLayouts};
@@ -117,7 +117,16 @@ impl Sensor for EbpfSensor {
                 })?)
             }
             None => {
-                info!("loading embedded eBPF object");
+                anyhow::ensure!(
+                    super::EBPF_OBJECT_SOURCE != "stub",
+                    "this build embeds the eBPF stub (RUSTINEL_EBPF_STUB=1), which has no \
+                     programs; rebuild without it or set {}",
+                    super::EBPF_OBJECT_ENV
+                );
+                info!(
+                    source = super::EBPF_OBJECT_SOURCE,
+                    "loading embedded eBPF object"
+                );
                 None
             }
         };

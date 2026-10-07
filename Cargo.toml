@@ -10,7 +10,7 @@ default-run = "rustinel"
 
 [workspace]
 members = ["."]
-default-members = ["."]
+default-members = [".", "ebpf-common"]
 resolver = "2"
 
 [lints.rust]
@@ -79,6 +79,7 @@ notify = "8.2.0"
 # Linux-specific
 [target.'cfg(target_os = "linux")'.dependencies]
 aya = { version = "0.14", default-features = false }
+rustinel-ebpf-common = { path = "ebpf-common", features = ["aya"] }
 libc = "0.2"
 object = { version = "0.40", default-features = false, features = ["elf", "read_core", "std"] }
 
