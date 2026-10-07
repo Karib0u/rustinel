@@ -273,6 +273,8 @@ Excluded paths use directory boundaries, including for IOC hashing.
 ## File permissions
 
 Rustinel refuses a config file or rule folder that another account can change, and writes its logs readable by their owner only.
+An existing `logging.directory` or `alerts.directory` must belong to the account running Rustinel, otherwise startup fails and the folder is left unchanged.
+Missing folders are created with mode `0700`.
 See [Input trust](security.md#input-trust).
 
 ## Unknown options
