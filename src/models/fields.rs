@@ -451,6 +451,23 @@ pub struct PowerShellScriptFields {
     #[serde(rename = "ScriptBlockId", skip_serializing_if = "Option::is_none")]
     pub script_block_id: Option<String>,
 
+    /// 1-based position of this fragment within the script block (event 4104 `MessageNumber`).
+    /// Long blocks are split by the provider; one fragment is not the whole script.
+    #[serde(
+        rename = "MessageNumber",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub message_number: Option<String>,
+
+    /// Total fragment count for the script block (event 4104 `MessageTotal`).
+    #[serde(
+        rename = "MessageTotal",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub message_total: Option<String>,
+
     #[serde(rename = "Path", skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 
@@ -726,5 +743,34 @@ pub fn parse_windows_process_id(value: &str) -> Option<u32> {
     {
         Some(hex) => u32::from_str_radix(hex, 16).ok(),
         None => value.parse::<u32>().ok(),
+    }
+}
+
+#[cfg(test)]
+mod powershell_fragment_tests {
+    use super::*;
+
+    #[test]
+    fn fragment_metadata_round_trips_and_old_captures_still_load() {
+        let fragment = PowerShellScriptFields {
+            script_block_text: Some("part two".into()),
+            script_block_id: Some("block".into()),
+            message_number: Some("2".into()),
+            message_total: Some("3".into()),
+            path: None,
+            process_id: None,
+            image: None,
+            user: None,
+        };
+        let json = serde_json::to_string(&fragment).unwrap();
+        assert!(json.contains(r#""MessageNumber":"2""#));
+        assert!(json.contains(r#""MessageTotal":"3""#));
+        let back: PowerShellScriptFields = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.message_number.as_deref(), Some("2"));
+        assert_eq!(back.message_total.as_deref(), Some("3"));
+
+        let old: PowerShellScriptFields =
+            serde_json::from_str(r#"{"ScriptBlockText":"x","ScriptBlockId":"b"}"#).unwrap();
+        assert!(old.message_number.is_none() && old.message_total.is_none());
     }
 }

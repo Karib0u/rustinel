@@ -417,6 +417,8 @@ pub fn powershell_script_event() -> SensorEvent {
         payload: SensorPayload::Scripting(PowerShellScriptFields {
             script_block_text: Some("Get-Process".to_string()),
             script_block_id: Some("script-block-4104".to_string()),
+            message_number: None,
+            message_total: None,
             path: Some(r"C:\lab\fixture.ps1".to_string()),
             process_id: Some(TEST_PID.to_string()),
             image: Some(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string()),

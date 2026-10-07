@@ -593,6 +593,18 @@ pub struct EcsAlert {
     pub edr_powershell_script_block_id: Option<String>,
 
     #[serde(
+        rename = "edr.powershell.message_number",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_powershell_message_number: Option<String>,
+
+    #[serde(
+        rename = "edr.powershell.message_total",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_powershell_message_total: Option<String>,
+
+    #[serde(
         rename = "edr.powershell.context_info",
         skip_serializing_if = "Option::is_none"
     )]

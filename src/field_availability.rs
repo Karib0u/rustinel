@@ -522,6 +522,16 @@ const WINDOWS_POWERSHELL_SCRIPT: &[FieldContract] = &[
         "event 4104 contains a script-block identifier",
     ),
     conditional(
+        "MessageNumber",
+        Some(UNRELEASED),
+        "event 4104 carries the fragment number of a split script block",
+    ),
+    conditional(
+        "MessageTotal",
+        Some(UNRELEASED),
+        "event 4104 carries the fragment count of a split script block",
+    ),
+    conditional(
         "Path",
         SINCE_BASELINE,
         "the script block is associated with a file",

@@ -1702,6 +1702,8 @@ mod tests {
             SensorPayload::Scripting(PowerShellScriptFields {
                 script_block_text: Some("Get-Process".into()),
                 script_block_id: None,
+                message_number: None,
+                message_total: None,
                 path: None,
                 process_id: Some("4242".into()),
                 image: None,

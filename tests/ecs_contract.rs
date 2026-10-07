@@ -298,6 +298,8 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                 EventFields::PowerShellScript(PowerShellScriptFields {
                     script_block_text: Some("Invoke-Expression".to_string()),
                     script_block_id: Some("block-1".to_string()),
+                    message_number: Some("2".to_string()),
+                    message_total: Some("3".to_string()),
                     path: Some(r"C:\Temp\a.ps1".to_string()),
                     process_id: Some("111".to_string()),
                     image: Some(
