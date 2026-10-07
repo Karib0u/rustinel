@@ -24,7 +24,7 @@ const SINCE_1_6_0: Option<&str> = Some("1.6.0");
 const SINCE_1_7_0: Option<&str> = Some("1.7.0");
 /// Marks availability that has landed but is not in any release yet.
 ///
-/// Declare new work as `Some(UNRELEASED)` rather than guessing the next
+/// Declare new work as `Some("1.9.1")` rather than guessing the next
 /// version. Preparing a release replaces every use with the version being
 /// released, and CI refuses a release tag whose contract still contains it.
 pub const UNRELEASED: &str = "unreleased";
@@ -523,12 +523,12 @@ const WINDOWS_POWERSHELL_SCRIPT: &[FieldContract] = &[
     ),
     conditional(
         "MessageNumber",
-        Some(UNRELEASED),
+        Some("1.9.1"),
         "event 4104 carries the fragment number of a split script block",
     ),
     conditional(
         "MessageTotal",
-        Some(UNRELEASED),
+        Some("1.9.1"),
         "event 4104 carries the fragment count of a split script block",
     ),
     conditional(

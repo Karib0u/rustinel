@@ -1785,7 +1785,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "MessageNumber",
-      "since": "unreleased",
+      "since": "1.9.1",
       "availability": "conditional",
       "reason": "event 4104 carries the fragment number of a split script block"
     },
@@ -1798,7 +1798,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-PowerShell",
       "field": "MessageTotal",
-      "since": "unreleased",
+      "since": "1.9.1",
       "availability": "conditional",
       "reason": "event 4104 carries the fragment count of a split script block"
     },
