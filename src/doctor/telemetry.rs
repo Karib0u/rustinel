@@ -5,44 +5,258 @@
 //! to size a detection gap.
 
 use crate::config::AppConfig;
-use crate::doctor::inspect::DiagnosticResult;
-use crate::telemetry::{snapshot_path, TelemetrySnapshot};
-use std::path::Path;
+use crate::doctor::inspect::{DiagnosticResult, InstallMode};
+use crate::telemetry::{snapshot_path, SnapshotRead, TelemetrySnapshot};
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+
+/// Whether the agent is believed to be running, from the service manager.
+///
+/// Portable runs and unreadable service state are `Unknown`: the absence of a
+/// running service there says nothing about whether an agent is alive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeState {
+    Running,
+    Starting,
+    Stopped,
+    Unknown,
+}
+
+impl RuntimeState {
+    pub(crate) fn from_service(mode: InstallMode, service_status: &str) -> Self {
+        if mode == InstallMode::Portable {
+            return Self::Unknown;
+        }
+        match service_status {
+            "running" => Self::Running,
+            "starting" => Self::Starting,
+            "stopped" | "failed" | "not-installed" => Self::Stopped,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Grace added to twice the publication interval before a snapshot is stale.
+///
+/// Twice the interval absorbs one missed write under load, and the fixed
+/// allowance covers scheduler delay and the first write after a restart.
+pub(crate) const STALE_GRACE_SECS: i64 = 30;
+/// How far ahead of this host's clock a timestamp may be before it is reported.
+pub(crate) const FUTURE_TOLERANCE_SECS: i64 = 60;
+
+/// Availability and age of the snapshot, carried in the `--json` report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TelemetrySnapshotStatus {
+    /// `disabled`, `missing`, `unreadable`, `malformed`, `invalid_timestamp`,
+    /// `future`, `fresh`, `stale`, or `historical`.
+    pub state: &'static str,
+    pub path: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age_secs: Option<i64>,
+    pub interval_secs: u64,
+    pub stale_after_secs: u64,
+}
+
+pub(crate) struct TelemetryAssessment {
+    pub(crate) results: Vec<DiagnosticResult>,
+    pub(crate) snapshot: Option<TelemetrySnapshot>,
+    pub(crate) status: TelemetrySnapshotStatus,
+}
+
+fn stale_after_secs(interval_secs: u64) -> u64 {
+    interval_secs
+        .max(1)
+        .saturating_mul(2)
+        .saturating_add(STALE_GRACE_SECS as u64)
+}
 
 /// Inspect the persisted pipeline counters for `logs_dir`.
 ///
-/// Returns the snapshot alongside the diagnostic so `--json` can carry the
-/// full per-channel numbers rather than only the summary line.
+/// Snapshot availability and freshness are judged separately from the counters
+/// inside it: an unreadable or stale snapshot is not evidence of a healthy
+/// pipeline, and a running service makes that gap a warning.
 pub(crate) fn telemetry_results(
     cfg: &AppConfig,
     logs_dir: &Path,
-) -> (Vec<DiagnosticResult>, Option<TelemetrySnapshot>) {
+    runtime: RuntimeState,
+) -> TelemetryAssessment {
+    assess(cfg, logs_dir, runtime, Utc::now())
+}
+
+fn assess(
+    cfg: &AppConfig,
+    logs_dir: &Path,
+    runtime: RuntimeState,
+    now: DateTime<Utc>,
+) -> TelemetryAssessment {
+    let path = snapshot_path(logs_dir);
+    let interval_secs = cfg.telemetry.snapshot_interval_secs;
+    let stale_after = stale_after_secs(interval_secs);
+    let status = |state, age_secs| TelemetrySnapshotStatus {
+        state,
+        path: path.clone(),
+        age_secs,
+        interval_secs,
+        stale_after_secs: stale_after,
+    };
+
     if !cfg.telemetry.enabled {
-        return (
-            vec![DiagnosticResult::warn(
+        return TelemetryAssessment {
+            results: vec![DiagnosticResult::warn(
                 "pipeline_telemetry",
                 "Pipeline drop counters are not being persisted",
                 "telemetry.enabled is false, so dropped-event totals are only visible in the agent log",
             )
             .with_fix("Set telemetry.enabled = true to make drop counters readable here")],
-            None,
-        );
+            snapshot: None,
+            status: status("disabled", None),
+        };
     }
 
-    let path = snapshot_path(logs_dir);
-    let Some(snapshot) = TelemetrySnapshot::read_from(&path) else {
-        return (
-            vec![DiagnosticResult::pass(
-                "pipeline_telemetry",
-                format!(
-                    "No pipeline telemetry snapshot yet at {} (written once the agent has run)",
-                    path.display()
-                ),
-            )],
-            None,
-        );
+    let running = runtime == RuntimeState::Running;
+    let unavailable = |state, message: String, detail: String, fix: &str| {
+        // A snapshot that cannot be used is a warning whenever it could be the
+        // only evidence of a live agent, and a passing note only when no agent
+        // is expected to have written it.
+        let result = if running || state != "missing" {
+            DiagnosticResult::warn("pipeline_telemetry", message, detail).with_fix(fix)
+        } else {
+            DiagnosticResult::pass("pipeline_telemetry", message)
+        };
+        TelemetryAssessment {
+            results: vec![result],
+            snapshot: None,
+            status: status(state, None),
+        }
     };
 
+    let snapshot = match TelemetrySnapshot::load(&path) {
+        SnapshotRead::Missing => {
+            let prefix = format!("No pipeline telemetry snapshot at {}", path.display());
+            let message = if running {
+                format!("{prefix} although the service is running; runtime health is unknown")
+            } else if runtime == RuntimeState::Starting {
+                format!("{prefix} yet (the service is starting; the first is written after one interval)")
+            } else {
+                format!("{prefix} (the agent has not written one yet)")
+            };
+            return unavailable(
+                "missing",
+                message,
+                "A running service writes the snapshot within telemetry.snapshot_interval_secs of starting. Collection and detection cannot be assessed without it".to_string(),
+                "Check that this config's log directory is the one the service uses, then inspect the service log",
+            );
+        }
+        SnapshotRead::Unreadable(err) => {
+            return unavailable(
+                "unreadable",
+                format!("Pipeline telemetry snapshot at {} could not be read; runtime health is unknown", path.display()),
+                err,
+                "Run doctor as a user that can read the log directory, or fix the file permissions",
+            );
+        }
+        SnapshotRead::Malformed(err) => {
+            return unavailable(
+                "malformed",
+                format!("Pipeline telemetry snapshot at {} is not valid; runtime health is unknown", path.display()),
+                err,
+                "Inspect the file and the agent log; the agent rewrites it every interval, so a persistent failure means it cannot write",
+            );
+        }
+        SnapshotRead::Valid(snapshot) => *snapshot,
+    };
+
+    let (state, age) = match DateTime::parse_from_rfc3339(&snapshot.captured_at) {
+        Err(_) => ("invalid_timestamp", None),
+        Ok(captured) => {
+            let age = (now - captured.with_timezone(&Utc)).num_seconds();
+            let state = if age < -FUTURE_TOLERANCE_SECS {
+                "future"
+            } else if age <= stale_after as i64 {
+                "fresh"
+            } else if runtime == RuntimeState::Stopped {
+                "historical"
+            } else {
+                "stale"
+            };
+            (state, Some(age))
+        }
+    };
+
+    let freshness = match state {
+        "fresh" => DiagnosticResult::pass(
+            "telemetry_snapshot",
+            format!(
+                "Telemetry snapshot is current ({}s old, stale after {}s)",
+                age.unwrap_or(0).max(0),
+                stale_after
+            ),
+        ),
+        "historical" => DiagnosticResult::pass(
+            "telemetry_snapshot",
+            format!(
+                "Telemetry snapshot from {} is historical: the agent is not running, so these counters describe its last run",
+                snapshot.captured_at
+            ),
+        ),
+        "stale" if running => DiagnosticResult::warn(
+            "telemetry_snapshot",
+            format!(
+                "Telemetry snapshot is {}s old but the service is running; runtime health is degraded or unknown",
+                age.unwrap_or(0)
+            ),
+            format!(
+                "Written {}, expected every {}s and stale after {}s. The agent may be hung or unable to write its log directory",
+                snapshot.captured_at, interval_secs, stale_after
+            ),
+        )
+        .with_fix("Inspect the service log; restart the service if it is not making progress"),
+        "stale" if runtime == RuntimeState::Starting => DiagnosticResult::pass(
+            "telemetry_snapshot",
+            format!(
+                "Telemetry snapshot from {} predates this start; a new one is written after one interval",
+                snapshot.captured_at
+            ),
+        ),
+        "stale" => DiagnosticResult::pass(
+            "telemetry_snapshot",
+            format!(
+                "Telemetry snapshot is {}s old; service state is unknown, so it is not evidence of current health",
+                age.unwrap_or(0)
+            ),
+        ),
+        "future" => DiagnosticResult::warn(
+            "telemetry_snapshot",
+            format!(
+                "Telemetry snapshot timestamp {} is {}s in the future; freshness cannot be assessed",
+                snapshot.captured_at,
+                -age.unwrap_or(0)
+            ),
+            "The clock moved backwards, or the snapshot was written on a host with a different clock",
+        )
+        .with_fix("Check system time on this host"),
+        _ => DiagnosticResult::warn(
+            "telemetry_snapshot",
+            format!(
+                "Telemetry snapshot timestamp {:?} is not RFC 3339; freshness cannot be assessed",
+                snapshot.captured_at
+            ),
+            "Runtime health cannot be confirmed from this snapshot",
+        )
+        .with_fix("Inspect the file and the agent log"),
+    };
+
+    let mut results = pipeline_results(snapshot.clone());
+    results.insert(1, freshness);
+    TelemetryAssessment {
+        results,
+        snapshot: Some(snapshot),
+        status: status(state, age),
+    }
+}
+
+fn pipeline_results(snapshot: TelemetrySnapshot) -> Vec<DiagnosticResult> {
     let mut results = linux_ebpf_results(&snapshot);
     results.extend(host_state_results(&snapshot));
     results.extend(artifact_resolver_results(&snapshot));
@@ -74,7 +288,7 @@ pub(crate) fn telemetry_results(
                 ),
             ),
         );
-        return (results, Some(snapshot));
+        return results;
     }
 
     let detail = dropping
@@ -107,7 +321,7 @@ pub(crate) fn telemetry_results(
     };
 
     results.insert(0, result);
-    (results, Some(snapshot))
+    results
 }
 
 fn field_contract_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
@@ -789,6 +1003,20 @@ fn etw_decode_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
 mod tests {
     use super::*;
     use crate::doctor::inspect::DiagnosticStatus;
+    use std::fs;
+
+    /// Ten seconds after the fixture snapshot's `captured_at`.
+    fn fixture_now() -> DateTime<Utc> {
+        "2026-08-24T12:00:10Z".parse().unwrap()
+    }
+
+    fn telemetry_results(
+        cfg: &AppConfig,
+        dir: &Path,
+    ) -> (Vec<DiagnosticResult>, Option<TelemetrySnapshot>) {
+        let a = assess(cfg, dir, RuntimeState::Unknown, fixture_now());
+        (a.results, a.snapshot)
+    }
     use crate::telemetry::{
         ChannelSnapshot, EtwDecodeFailureSnapshot, EtwDecodeSnapshot, FileAttributionSnapshot,
         LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, RegistrySnapshot,
@@ -1129,6 +1357,143 @@ mod tests {
         assert_eq!(capability.status, DiagnosticStatus::Warn);
         assert!(capability.message.contains("degraded"));
         assert!(capability.detail.as_deref().unwrap().contains("sendmmsg"));
+    }
+
+    fn assess_at(dir: &Path, runtime: RuntimeState, now: &str) -> TelemetryAssessment {
+        assess(&AppConfig::default(), dir, runtime, now.parse().unwrap())
+    }
+
+    fn write_fixture(dir: &Path) {
+        snapshot(vec![channel("sensor_events", 5_000, 0)])
+            .write_to(&snapshot_path(dir))
+            .expect("write snapshot");
+    }
+
+    fn freshness(a: &TelemetryAssessment) -> &DiagnosticResult {
+        a.results
+            .iter()
+            .find(|r| r.id == "telemetry_snapshot")
+            .expect("freshness result")
+    }
+
+    #[test]
+    fn a_fresh_snapshot_passes_for_a_running_service() {
+        let temp = tempfile::tempdir().unwrap();
+        write_fixture(temp.path());
+        // Default interval 30s: stale after 90s.
+        let a = assess_at(temp.path(), RuntimeState::Running, "2026-08-24T12:01:29Z");
+        assert_eq!(a.status.state, "fresh");
+        assert_eq!(a.status.stale_after_secs, 90);
+        assert_eq!(freshness(&a).status, DiagnosticStatus::Pass);
+    }
+
+    #[test]
+    fn a_stale_snapshot_warns_for_a_running_service() {
+        let temp = tempfile::tempdir().unwrap();
+        write_fixture(temp.path());
+        let a = assess_at(temp.path(), RuntimeState::Running, "2026-08-24T12:01:31Z");
+        assert_eq!(a.status.state, "stale");
+        assert_eq!(a.status.age_secs, Some(91));
+        assert_eq!(freshness(&a).status, DiagnosticStatus::Warn);
+        assert!(freshness(&a).fix.is_some());
+    }
+
+    #[test]
+    fn a_stopped_agents_old_snapshot_is_historical() {
+        let temp = tempfile::tempdir().unwrap();
+        write_fixture(temp.path());
+        let a = assess_at(temp.path(), RuntimeState::Stopped, "2026-08-25T12:00:00Z");
+        assert_eq!(a.status.state, "historical");
+        assert_eq!(freshness(&a).status, DiagnosticStatus::Pass);
+        assert!(freshness(&a).message.contains("historical"));
+    }
+
+    #[test]
+    fn unknown_service_state_makes_no_claim_of_current_health() {
+        let temp = tempfile::tempdir().unwrap();
+        write_fixture(temp.path());
+        let a = assess_at(temp.path(), RuntimeState::Unknown, "2026-08-25T12:00:00Z");
+        assert_eq!(a.status.state, "stale");
+        assert!(freshness(&a)
+            .message
+            .contains("not evidence of current health"));
+    }
+
+    #[test]
+    fn future_and_invalid_timestamps_warn() {
+        let temp = tempfile::tempdir().unwrap();
+        write_fixture(temp.path());
+        let a = assess_at(temp.path(), RuntimeState::Unknown, "2026-08-24T11:58:00Z");
+        assert_eq!(a.status.state, "future");
+        assert_eq!(freshness(&a).status, DiagnosticStatus::Warn);
+
+        let mut bad = snapshot(vec![]);
+        bad.captured_at = "yesterday".to_string();
+        bad.write_to(&snapshot_path(temp.path())).unwrap();
+        let a = assess_at(temp.path(), RuntimeState::Running, "2026-08-24T12:00:10Z");
+        assert_eq!(a.status.state, "invalid_timestamp");
+        assert_eq!(freshness(&a).status, DiagnosticStatus::Warn);
+    }
+
+    #[test]
+    fn a_missing_snapshot_depends_on_whether_the_service_runs() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = assess_at(temp.path(), RuntimeState::Running, "2026-08-24T12:00:10Z");
+        assert_eq!(a.status.state, "missing");
+        assert_eq!(a.results[0].status, DiagnosticStatus::Warn);
+        assert!(a.results[0].message.contains("runtime health is unknown"));
+
+        let a = assess_at(temp.path(), RuntimeState::Stopped, "2026-08-24T12:00:10Z");
+        assert_eq!(a.results[0].status, DiagnosticStatus::Pass);
+        assert!(a.results[0].message.contains("has not written one yet"));
+    }
+
+    #[test]
+    fn a_malformed_snapshot_warns_even_when_the_service_is_stopped() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(snapshot_path(temp.path()), b"{ not json").unwrap();
+        let a = assess_at(temp.path(), RuntimeState::Stopped, "2026-08-24T12:00:10Z");
+        assert_eq!(a.status.state, "malformed");
+        assert_eq!(a.results[0].status, DiagnosticStatus::Warn);
+        assert!(a.snapshot.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_snapshot_is_distinct_from_a_missing_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        write_fixture(temp.path());
+        let path = snapshot_path(temp.path());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&path).is_ok() {
+            return; // running as root: permissions do not apply
+        }
+        let a = assess_at(temp.path(), RuntimeState::Unknown, "2026-08-24T12:00:10Z");
+        assert_eq!(a.status.state, "unreadable");
+        assert_eq!(a.results[0].status, DiagnosticStatus::Warn);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn service_status_maps_to_runtime_state() {
+        use InstallMode::*;
+        assert_eq!(
+            RuntimeState::from_service(Portable, "running"),
+            RuntimeState::Unknown
+        );
+        assert_eq!(
+            RuntimeState::from_service(Managed, "running"),
+            RuntimeState::Running
+        );
+        assert_eq!(
+            RuntimeState::from_service(Managed, "not-installed"),
+            RuntimeState::Stopped
+        );
+        assert_eq!(
+            RuntimeState::from_service(Managed, "unknown"),
+            RuntimeState::Unknown
+        );
     }
 
     #[test]

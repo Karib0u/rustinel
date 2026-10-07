@@ -628,13 +628,39 @@ impl TelemetrySnapshot {
 
     /// Read a snapshot previously written by a running agent.
     ///
-    /// A missing or unreadable snapshot is not an error: the agent may never
-    /// have run, or may be running as a user whose files this process cannot
-    /// read.
+    /// Any failure collapses to `None`; use [`TelemetrySnapshot::load`] when
+    /// the reason matters.
     pub fn read_from(path: &Path) -> Option<Self> {
-        let bytes = fs::read(path).ok()?;
-        serde_json::from_slice(&bytes).ok()
+        match Self::load(path) {
+            SnapshotRead::Valid(snapshot) => Some(*snapshot),
+            _ => None,
+        }
     }
+
+    /// Read the snapshot at `path`, keeping apart the ways that can fail.
+    pub fn load(path: &Path) -> SnapshotRead {
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return SnapshotRead::Missing,
+            Err(err) => return SnapshotRead::Unreadable(err.to_string()),
+        };
+        match serde_json::from_slice(&bytes) {
+            Ok(snapshot) => SnapshotRead::Valid(Box::new(snapshot)),
+            Err(err) => SnapshotRead::Malformed(err.to_string()),
+        }
+    }
+}
+
+/// Outcome of reading the snapshot file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotRead {
+    /// No file: the agent has not written one, or this is not its log directory.
+    Missing,
+    /// The file exists but could not be read, for example for lack of permission.
+    Unreadable(String),
+    /// The file was read but is not a valid snapshot.
+    Malformed(String),
+    Valid(Box<TelemetrySnapshot>),
 }
 
 /// Periodically publish the pipeline counters for `rustinel doctor`.

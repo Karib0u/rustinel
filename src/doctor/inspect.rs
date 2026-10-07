@@ -7,7 +7,7 @@ use crate::doctor::path::path_results;
 use crate::doctor::prerequisites::platform_prerequisite_results;
 use crate::doctor::rules::{inspect_rule_pack, rule_validation_results};
 use crate::doctor::services::inspect_service;
-use crate::doctor::telemetry::telemetry_results;
+use crate::doctor::telemetry::{telemetry_results, RuntimeState, TelemetrySnapshotStatus};
 use crate::telemetry::TelemetrySnapshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -163,6 +163,10 @@ pub struct DoctorReport {
     /// has been written.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub telemetry: Option<TelemetrySnapshot>,
+    /// Whether that snapshot was available and current, separate from the
+    /// counters it holds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub telemetry_snapshot: Option<TelemetrySnapshotStatus>,
     pub results: Vec<DiagnosticResult>,
 }
 
@@ -189,14 +193,20 @@ impl DoctorReport {
             rule_pack,
             service,
             telemetry: None,
+            telemetry_snapshot: None,
             results,
         }
     }
 
     /// Attach the pipeline drop counters, so `--json` carries the per-channel
     /// numbers behind the summary diagnostic.
-    pub fn with_telemetry(mut self, telemetry: Option<TelemetrySnapshot>) -> Self {
+    pub fn with_telemetry(
+        mut self,
+        telemetry: Option<TelemetrySnapshot>,
+        status: TelemetrySnapshotStatus,
+    ) -> Self {
         self.telemetry = telemetry;
+        self.telemetry_snapshot = Some(status);
         self
     }
 }
@@ -250,11 +260,17 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
             results.push(field_availability_result(platform));
             results.extend(platform_prerequisite_results());
 
-            let (pipeline_results, telemetry) = telemetry_results(&cfg, &paths.logs_dir);
-            results.extend(pipeline_results);
+            // The service state decides how a missing or stale snapshot is
+            // read, so it is inspected first and its results appended last.
+            let mut service_results = Vec::new();
+            let service = inspect_service(mode, Some(&cfg), &mut service_results);
+            let runtime = RuntimeState::from_service(mode, &service.status);
+
+            let assessment = telemetry_results(&cfg, &paths.logs_dir, runtime);
+            results.extend(assessment.results);
 
             let rule_pack = inspect_rule_pack(&paths, &mut results);
-            let service = inspect_service(mode, Some(&cfg), &mut results);
+            results.extend(service_results);
 
             DoctorReport::from_results(
                 platform_label(platform),
@@ -265,7 +281,7 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
                 service,
                 results,
             )
-            .with_telemetry(telemetry)
+            .with_telemetry(assessment.snapshot, assessment.status)
         }
         Err(err) => {
             if !selected_path.as_deref().is_some_and(config_path_is_missing) {
