@@ -61,9 +61,11 @@ impl LivePipeline {
 
         if cfg.scanner.sigma_enabled {
             info!(rules_path = ?cfg.scanner.sigma_rules_path, "Loading Sigma rules");
-            if let Err(e) = sigma_engine
-                .load_rules_with_trust(&cfg.scanner.sigma_rules_path, cfg.security.rules())
-            {
+            if let Err(e) = sigma_engine.load_rule_dirs_with_trust(
+                &cfg.scanner.sigma_rules_path,
+                &cfg.scanner.sigma_local_rules_paths,
+                cfg.security.rules(),
+            ) {
                 warn!(
                     target: TARGET_CONSOLE,
                     error = format!("{e:#}"),
@@ -103,6 +105,20 @@ impl LivePipeline {
                 for (logsource, count) in stats.rules_by_logsource {
                     info!(logsource = %logsource, count, "Sigma rules loaded");
                 }
+                for directory in &stats.directories {
+                    info!(
+                        target: TARGET_CONSOLE,
+                        directory = %directory.summary(),
+                        "Sigma rules directory"
+                    );
+                }
+                for collision in &stats.collisions {
+                    warn!(
+                        target: TARGET_CONSOLE,
+                        collision = %collision.summary(),
+                        "Local Sigma rule replaces a pack rule"
+                    );
+                }
             }
         } else {
             info!(target: TARGET_CONSOLE, "Sigma detection disabled by configuration");
@@ -111,8 +127,9 @@ impl LivePipeline {
 
         // YARA scanner
         let yara_scanner = if cfg.scanner.yara_enabled {
-            match scanner::Scanner::new_with_trust(
+            match scanner::Scanner::new_with_dirs_and_trust(
                 &cfg.scanner.yara_rules_path,
+                &cfg.scanner.yara_local_rules_paths,
                 cfg.security.rules(),
             )
             .map(|s| s.with_limits(cfg.scanner.yara_scan_limits()))
@@ -132,6 +149,20 @@ impl LivePipeline {
                             compiled_files = s.compiled_files(),
                             failed_files = s.failed_files(),
                             "YARA scanner initialized"
+                        );
+                    }
+                    for directory in s.directories() {
+                        info!(
+                            target: TARGET_CONSOLE,
+                            directory = %directory.summary(),
+                            "YARA rules directory"
+                        );
+                    }
+                    for collision in s.collisions() {
+                        warn!(
+                            target: TARGET_CONSOLE,
+                            collision = %collision.summary(),
+                            "Local YARA rule replaces a pack rule"
                         );
                     }
                     Arc::new(s)

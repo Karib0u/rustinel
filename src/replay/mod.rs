@@ -44,7 +44,9 @@ use crate::engine::{Engine, EventDetectors};
 use crate::ioc::IocEngine;
 use crate::models::ecs::ReplayProvenance;
 use crate::models::DetectionEngine;
-use crate::utils::fs::restrict_file_permissions;
+use crate::utils::fs::{
+    create_new_output_file, path_is_occupied, restrict_file_permissions, same_file,
+};
 
 pub use output::Format;
 pub use recording::Recording;
@@ -100,6 +102,7 @@ impl Replay {
 
         if let Some(output) = options.output.as_deref() {
             ensure_output_is_not_the_alert_log(&config, output)?;
+            ensure_output_is_new(&recording, output)?;
         }
 
         // The recording carries its own platform, so Sigma logsource routing
@@ -114,7 +117,11 @@ impl Replay {
 
         if config.scanner.sigma_enabled {
             sigma
-                .load_rules_with_trust(&config.scanner.sigma_rules_path, config.security.rules())
+                .load_rule_dirs_with_trust(
+                    &config.scanner.sigma_rules_path,
+                    &config.scanner.sigma_local_rules_paths,
+                    config.security.rules(),
+                )
                 .with_context(|| {
                     format!(
                         "failed to load Sigma rules from {}",
@@ -263,15 +270,31 @@ pub fn run_cli(options: ReplayOptions) -> anyhow::Result<()> {
 
     match options.output.as_deref() {
         Some(path) => {
-            let mut file = std::fs::File::create(path)
+            // Exclusive creation also refuses a destination that appeared
+            // after the earlier check.
+            let mut file = create_new_output_file(path)
                 .with_context(|| format!("failed to create {}", path.display()))?;
-            // Replay results describe endpoint activity in the same detail as
-            // alerts, so they get the same owner-only permissions.
-            restrict_file_permissions(path)
-                .with_context(|| format!("failed to restrict permissions on {}", path.display()))?;
-            let report = replay.run(Format::Ecs, &mut file)?;
-            file.flush()
-                .with_context(|| format!("failed to write {}", path.display()))?;
+            // From here the file is ours, so a failed run removes it rather
+            // than leaving a truncated report that looks complete.
+            let written = (|| -> anyhow::Result<ReplayReport> {
+                // Replay results describe endpoint activity in the same detail
+                // as alerts, so they get the same owner-only permissions.
+                restrict_file_permissions(path).with_context(|| {
+                    format!("failed to restrict permissions on {}", path.display())
+                })?;
+                let report = replay.run(Format::Ecs, &mut file)?;
+                file.flush()
+                    .with_context(|| format!("failed to write {}", path.display()))?;
+                Ok(report)
+            })();
+            let report = match written {
+                Ok(report) => report,
+                Err(err) => {
+                    drop(file);
+                    let _ = std::fs::remove_file(path);
+                    return Err(err);
+                }
+            };
 
             for line in replay.header() {
                 eprintln!("{line}");
@@ -319,6 +342,29 @@ fn ensure_output_is_not_the_alert_log(config: &AppConfig, output: &Path) -> anyh
         );
     }
 
+    Ok(())
+}
+
+/// Refuse an output that is, or aliases, the recording being replayed, or that
+/// already exists. Replay never overwrites: results are evidence too.
+fn ensure_output_is_new(recording: &Recording, output: &Path) -> anyhow::Result<()> {
+    for input in [recording.payload_path(), recording.manifest_path()] {
+        if same_file(input, output) {
+            bail!(
+                "replay output {} is the same file as the recording input {}",
+                output.display(),
+                input.display()
+            );
+        }
+    }
+    if path_is_occupied(output)
+        .with_context(|| format!("failed to inspect {}", output.display()))?
+    {
+        bail!(
+            "refusing to overwrite existing file {}; choose a new --output path or remove it first",
+            output.display()
+        );
+    }
     Ok(())
 }
 

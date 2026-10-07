@@ -233,6 +233,7 @@ On Linux and macOS, SIGINT, SIGTERM, and SIGHUP all finalize the recording and i
 It stays `incomplete` when capture was killed, the writer fell behind (`lost`), or the OS dropped events first (`source_lost`).
 Replay rejects incomplete recordings, and any payload whose checksum does not match.
 Never edit a recording by hand.
+Capture never overwrites: it refuses to start when either file already exists, naming the one in the way, and leaves both untouched.
 
 ## Replay results
 

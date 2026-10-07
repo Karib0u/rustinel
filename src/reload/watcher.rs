@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, watch};
 use tracing::{info, warn};
 
 use super::fingerprint::{
-    fingerprint_dir, fingerprint_file, fingerprint_ioc_files, normalize_path,
+    fingerprint_dirs, fingerprint_file, fingerprint_ioc_files, normalize_path,
 };
 use super::ReloadTarget;
 use crate::config::{IocConfig, ReloadConfig, ScannerConfig};
@@ -48,6 +48,27 @@ impl ReloadPoller {
     }
 }
 
+/// The Sigma pack directory followed by every local directory.
+fn sigma_dirs(scanner_cfg: &ScannerConfig) -> impl Iterator<Item = &PathBuf> {
+    std::iter::once(&scanner_cfg.sigma_rules_path).chain(&scanner_cfg.sigma_local_rules_paths)
+}
+
+/// The YARA pack directory followed by every local directory.
+fn yara_dirs(scanner_cfg: &ScannerConfig) -> impl Iterator<Item = &PathBuf> {
+    std::iter::once(&scanner_cfg.yara_rules_path).chain(&scanner_cfg.yara_local_rules_paths)
+}
+
+/// A watcher registration on a missing path fails the whole setup and drops
+/// every target to polling, so a local directory that does not exist yet is
+/// left to the polling fingerprint. The pack directory keeps its existing
+/// behavior.
+fn watchable<'a>(
+    dirs: impl Iterator<Item = &'a PathBuf>,
+    pack: &'a PathBuf,
+) -> impl Iterator<Item = &'a PathBuf> {
+    dirs.filter(move |dir| *dir == pack || dir.exists())
+}
+
 /// Collect the paths to watch, and how deeply, for the enabled subsystems.
 fn watch_targets(
     scanner_cfg: &ScannerConfig,
@@ -57,16 +78,14 @@ fn watch_targets(
     let mut targets = Vec::new();
 
     if scanner_cfg.sigma_enabled {
-        targets.push((
-            scanner_cfg.sigma_rules_path.clone(),
-            notify::RecursiveMode::Recursive,
-        ));
+        for path in watchable(sigma_dirs(scanner_cfg), &scanner_cfg.sigma_rules_path) {
+            targets.push((path.clone(), notify::RecursiveMode::Recursive));
+        }
     }
     if scanner_cfg.yara_enabled {
-        targets.push((
-            scanner_cfg.yara_rules_path.clone(),
-            notify::RecursiveMode::Recursive,
-        ));
+        for path in watchable(yara_dirs(scanner_cfg), &scanner_cfg.yara_rules_path) {
+            targets.push((path.clone(), notify::RecursiveMode::Recursive));
+        }
     }
     if ioc_cfg.enabled {
         let mut parents = HashSet::new();
@@ -170,10 +189,10 @@ pub fn spawn_reload_poller(
 
         let mut sigma_fp = scanner_cfg
             .sigma_enabled
-            .then(|| fingerprint_dir(&scanner_cfg.sigma_rules_path, &["yml", "yaml"]));
+            .then(|| fingerprint_dirs(sigma_dirs(&scanner_cfg), &["yml", "yaml"]));
         let mut yara_fp = scanner_cfg
             .yara_enabled
-            .then(|| fingerprint_dir(&scanner_cfg.yara_rules_path, &["yar", "yara"]));
+            .then(|| fingerprint_dirs(yara_dirs(&scanner_cfg), &["yar", "yara"]));
         let mut ioc_fp = ioc_cfg.enabled.then(|| fingerprint_ioc_files(&ioc_cfg));
         let mut config_fp = config_path.as_ref().map(|path| fingerprint_file(path));
 
@@ -225,7 +244,7 @@ pub fn spawn_reload_poller(
             }
 
             if scanner_cfg.sigma_enabled {
-                let next = fingerprint_dir(&scanner_cfg.sigma_rules_path, &["yml", "yaml"]);
+                let next = fingerprint_dirs(sigma_dirs(&scanner_cfg), &["yml", "yaml"]);
                 if sigma_fp.as_ref() != Some(&next) {
                     sigma_fp = Some(next);
                     if reload_tx.send(ReloadTarget::Sigma).is_err() {
@@ -235,7 +254,7 @@ pub fn spawn_reload_poller(
             }
 
             if scanner_cfg.yara_enabled {
-                let next = fingerprint_dir(&scanner_cfg.yara_rules_path, &["yar", "yara"]);
+                let next = fingerprint_dirs(yara_dirs(&scanner_cfg), &["yar", "yara"]);
                 if yara_fp.as_ref() != Some(&next) {
                     yara_fp = Some(next);
                     if reload_tx.send(ReloadTarget::Yara).is_err() {
