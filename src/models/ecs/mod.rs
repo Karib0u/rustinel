@@ -525,6 +525,49 @@ mod tests {
     use crate::sensor::Platform;
     use std::collections::HashMap;
 
+    /// Every file and registry action must mean the same thing to replay, ECS,
+    /// and Sigma as it does to the table the sensors number their events from.
+    #[test]
+    fn every_event_action_row_agrees_across_consumers() {
+        use crate::engine::Engine;
+        use crate::models::CanonicalEvent;
+        use crate::sensor::event_actions::EVENT_ACTIONS;
+
+        for row in EVENT_ACTIONS {
+            let codes = std::iter::once(row.action_code).chain(row.alias_codes.iter().copied());
+            for code in codes {
+                let mut view = crate::models::canonical::tests::recorded_view();
+                view.category = row.category;
+                view.opcode = code;
+                view.event_id = row.event_id;
+                let label = format!("{:?} {:?} code {code}", row.category, row.action);
+
+                // Replay recovers the action the live event carried.
+                let replayed = CanonicalEvent::from_normalized(view.clone());
+                assert_eq!(replayed.action, row.action, "replay: {label}");
+
+                // ECS output.
+                assert_eq!(
+                    event::ecs_event_action(row.category, code, row.event_id).as_deref(),
+                    Some(row.ecs_action),
+                    "ecs action: {label}"
+                );
+                assert_eq!(
+                    event::ecs_event_type(row.category, code, row.event_id),
+                    vec![row.ecs_type.to_string()],
+                    "ecs type: {label}"
+                );
+
+                // Sigma logsource categories.
+                let categories = match row.category {
+                    EventCategory::File => Engine::sigma_file_categories_for_event(&view),
+                    _ => Engine::sigma_registry_categories_for_event(&view),
+                };
+                assert_eq!(categories, row.sigma_categories, "sigma: {label}");
+            }
+        }
+    }
+
     #[test]
     fn test_ecs_process_creation() {
         let alert = Alert {

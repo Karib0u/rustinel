@@ -1,6 +1,6 @@
 use super::Engine;
 use crate::models::{EventCategory, FieldViewName, NormalizedEvent};
-use crate::sensor::Platform;
+use crate::sensor::{event_actions, Platform};
 use serde::{Deserialize, Serialize};
 
 const SYSMON_VIEW: &str = FieldViewName::SYSMON.as_str();
@@ -769,39 +769,27 @@ impl Engine {
     /// ordinary file activity. Writes are therefore reported under the base
     /// `file_event` family only.
     ///
-    /// The numbering comes from `sensor::FILE_EVENT_NORMALIZATION`, which is
-    /// the single table every platform sensor maps its file actions through.
+    /// Both functions read `sensor::event_actions::EVENT_ACTIONS`, the single
+    /// table every platform sensor numbers its file and registry actions from.
+    /// A file event's Sysmon-compatible `event_id` wins over its `opcode`.
     pub(crate) fn sigma_file_categories_for_event(event: &NormalizedEvent) -> Vec<&'static str> {
-        match event.event_id {
-            2 => vec!["file_event", "file_change"],
-            11 => vec!["file_event", "file_create"],
-            23 => vec!["file_delete"],
-            65 => vec!["file_event"],
-            71 => vec!["file_event", "file_rename"],
-            _ => match event.opcode {
-                2 => vec!["file_event", "file_change"],
-                64 => vec!["file_event", "file_create"],
-                65 | 80 => vec!["file_event"],
-                70 | 72 => vec!["file_delete"],
-                71 => vec!["file_event", "file_rename"],
-                _ => vec!["file_event"],
-            },
+        let row = event_actions::row_for_event_id(EventCategory::File, event.event_id)
+            .or_else(|| event_actions::row_for_code(EventCategory::File, event.opcode));
+        match row {
+            Some(row) => row.sigma_categories.to_vec(),
+            None => event_actions::unknown_action(EventCategory::File)
+                .map_or_else(Vec::new, |row| row.sigma_categories.to_vec()),
         }
     }
 
     pub(crate) fn sigma_registry_categories_for_event(
         event: &NormalizedEvent,
     ) -> Vec<&'static str> {
-        let mut categories = vec!["registry_event"];
-
-        match event.opcode {
-            36 => categories.push("registry_add"),
-            39 => categories.push("registry_set"),
-            38 | 41 => categories.push("registry_delete"),
-            _ => {}
+        match event_actions::row_for_code(EventCategory::Registry, event.opcode) {
+            Some(row) => row.sigma_categories.to_vec(),
+            None => event_actions::unknown_action(EventCategory::Registry)
+                .map_or_else(Vec::new, |row| row.sigma_categories.to_vec()),
         }
-
-        categories
     }
 }
 

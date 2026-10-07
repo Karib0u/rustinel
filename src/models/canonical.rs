@@ -90,24 +90,22 @@ fn process_id_from_view(event: &NormalizedEvent) -> Option<u32> {
 
 fn action_from_view(event: &NormalizedEvent) -> SensorAction {
     use crate::models::EventCategory;
+    use crate::sensor::event_actions;
 
     match event.category {
         EventCategory::Process if event.opcode == 2 || event.event_id == 5 => SensorAction::Stop,
         EventCategory::Process => SensorAction::Start,
         EventCategory::Network => SensorAction::Connect,
-        EventCategory::File => match event.opcode {
-            70 => SensorAction::Delete,
-            71 => SensorAction::Rename,
-            65 => SensorAction::Modify,
-            2 => SensorAction::Set,
-            _ => SensorAction::Create,
-        },
+        EventCategory::File | EventCategory::Registry => {
+            event_actions::row_for_code(event.category, event.opcode).map_or_else(
+                || {
+                    event_actions::unknown_action(event.category)
+                        .map_or(SensorAction::Create, |row| row.action)
+                },
+                |row| row.action,
+            )
+        }
         EventCategory::Dns => SensorAction::Query,
-        EventCategory::Registry => match event.opcode {
-            38 => SensorAction::Delete,
-            39 => SensorAction::Set,
-            _ => SensorAction::Create,
-        },
         EventCategory::ImageLoad => SensorAction::Load,
         EventCategory::Scripting => SensorAction::Execute,
         EventCategory::PowerShellModule => SensorAction::Load,
@@ -120,14 +118,15 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::models::{EventCategory, EventFields, ProcessCreationFields};
     use crate::sensor::Platform;
 
-    #[test]
-    fn recorded_process_view_recovers_routing_metadata() {
-        let event = NormalizedEvent {
+    /// A recorded process view, which tests re-label to other categories when
+    /// only the routing metadata matters.
+    pub(crate) fn recorded_view() -> NormalizedEvent {
+        NormalizedEvent {
             timestamp: "2026-01-01T00:00:00Z".into(),
             source_seq: None,
             ingest_seq: 1,
@@ -169,7 +168,12 @@ mod tests {
             process_name: None,
             provenance: Default::default(),
             process_context: None,
-        };
+        }
+    }
+
+    #[test]
+    fn recorded_process_view_recovers_routing_metadata() {
+        let event = recorded_view();
 
         let canonical = CanonicalEvent::from_normalized(event);
         assert_eq!(canonical.action, SensorAction::Start);

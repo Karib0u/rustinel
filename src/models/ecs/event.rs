@@ -1,6 +1,6 @@
 use super::EVENT_MODULE;
 use crate::models::{Alert, AlertSeverity, EventCategory};
-use crate::sensor::Platform;
+use crate::sensor::{event_actions, Platform};
 
 pub(super) fn alert_severity_to_event_severity(severity: AlertSeverity) -> u8 {
     match severity {
@@ -149,6 +149,15 @@ pub(super) fn ecs_object_access_category(object_type: Option<&str>) -> Vec<Strin
     vec![category.to_string()]
 }
 
+/// `(event.action, event.type)` for a file or registry opcode, from the shared
+/// action table.
+fn file_or_registry_row(category: EventCategory, opcode: u8) -> (&'static str, &'static str) {
+    if let Some(row) = event_actions::row_for_code(category, opcode) {
+        return (row.ecs_action, row.ecs_type);
+    }
+    event_actions::unknown_action(category).map_or(("", ""), |row| (row.ecs_action, row.ecs_type))
+}
+
 pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16) -> Vec<String> {
     match category {
         EventCategory::Process => match opcode {
@@ -157,18 +166,9 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
             _ => vec!["info".to_string()],
         },
         EventCategory::Network => vec!["connection".to_string()],
-        EventCategory::File => match opcode {
-            64 => vec!["creation".to_string()],
-            70 | 72 => vec!["deletion".to_string()],
-            71 => vec!["change".to_string()],
-            _ => vec!["change".to_string()],
-        },
-        EventCategory::Registry => match opcode {
-            36 => vec!["creation".to_string()],
-            38 | 41 => vec!["deletion".to_string()],
-            39 => vec!["change".to_string()],
-            _ => vec!["change".to_string()],
-        },
+        EventCategory::File | EventCategory::Registry => {
+            vec![file_or_registry_row(category, opcode).1.to_string()]
+        }
         EventCategory::Dns => vec!["protocol".to_string()],
         EventCategory::ImageLoad => vec!["start".to_string()],
         EventCategory::Scripting => vec!["info".to_string()],
@@ -215,18 +215,7 @@ pub(super) fn ecs_event_action(
             _ => "process-info",
         },
         EventCategory::Network => "network-connection",
-        EventCategory::File => match opcode {
-            64 => "file-create",
-            70 | 72 => "file-delete",
-            71 => "file-rename",
-            _ => "file-change",
-        },
-        EventCategory::Registry => match opcode {
-            36 => "registry-create",
-            38 | 41 => "registry-delete",
-            39 => "registry-set",
-            _ => "registry-change",
-        },
+        EventCategory::File | EventCategory::Registry => file_or_registry_row(category, opcode).0,
         EventCategory::Dns => "dns-query",
         EventCategory::ImageLoad => "image-load",
         EventCategory::Scripting => "powershell-script",
