@@ -138,8 +138,13 @@ fn resolve_group(name: &str) -> anyhow::Result<u32> {
         "integration group must not be empty"
     );
     let mut buffer = vec![0 as libc::c_char; 64 * 1024];
+    // SAFETY: libc::group is a plain C struct of integers and pointers, for which
+    // all-zero bytes (null pointers) is a valid value.
     let mut group: libc::group = unsafe { std::mem::zeroed() };
     let mut result = std::ptr::null_mut();
+    // SAFETY: `name` is a NUL-terminated C string, `group` and `result` are valid
+    // out-pointers, and `buffer` is writable for exactly the `buffer.len()` bytes
+    // passed.
     let status = unsafe {
         libc::getgrnam_r(
             name.as_ptr(),
@@ -173,8 +178,13 @@ pub(crate) mod test_support {
 
     impl Fixture {
         pub fn new() -> Self {
-            assert_eq!(unsafe { libc::geteuid() }, 0, "run this test as root");
+            // SAFETY: geteuid takes no arguments and cannot fail.
+            let euid = unsafe { libc::geteuid() };
+            assert_eq!(euid, 0, "run this test as root");
             let name = CString::new("nobody").unwrap();
+            // SAFETY: `name` is a NUL-terminated C string. Both lookups return
+            // pointers into libc-owned static storage, checked for null before use
+            // and read before any other passwd or group call.
             let (uid, gid, group) = unsafe {
                 let account = libc::getpwnam(name.as_ptr());
                 assert!(!account.is_null());
@@ -206,7 +216,9 @@ pub(crate) mod test_support {
 
         pub fn permissions(&self, path: &Path, mode: u32) {
             let name = CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
-            assert_eq!(unsafe { libc::chown(name.as_ptr(), 0, self.gid) }, 0);
+            // SAFETY: `name` is a NUL-terminated C string that outlives the call.
+            let status = unsafe { libc::chown(name.as_ptr(), 0, self.gid) };
+            assert_eq!(status, 0);
             fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
         }
 
@@ -240,6 +252,10 @@ pub(crate) mod test_support {
                 .args(["-c", script])
                 .env("FIXTURE", self.root.path());
             let (uid, gid) = (self.uid, self.gid);
+            // SAFETY: the closure runs between fork and exec, so it must be
+            // async-signal-safe. It only calls setgroups, setgid, and setuid, and
+            // reads the integers it captured, with no allocation or locking on the
+            // success path.
             unsafe {
                 command.pre_exec(move || {
                     if libc::setgroups(0, std::ptr::null()) != 0

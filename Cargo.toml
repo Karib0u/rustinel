@@ -16,6 +16,9 @@ resolver = "2"
 [lints.rust]
 warnings = "deny"
 
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
 [profile.release]
 # Unexpected panics terminate the agent for service-manager recovery.
 # Callback guards still serve unwinding development and test builds.

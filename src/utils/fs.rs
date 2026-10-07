@@ -19,10 +19,9 @@ pub fn ensure_output_directory(directory: &Path) -> io::Result<()> {
         let metadata = fs::metadata(directory)?;
         let entry = fs::symlink_metadata(directory)?;
         use std::os::unix::fs::MetadataExt;
-        if !metadata.is_dir()
-            || metadata.uid() != unsafe { libc::geteuid() }
-            || entry.uid() != unsafe { libc::geteuid() }
-        {
+        // SAFETY: geteuid takes no arguments and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        if !metadata.is_dir() || metadata.uid() != euid || entry.uid() != euid {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!(
@@ -116,6 +115,7 @@ fn open_owned_file(path: &Path, append: bool, exclusive: bool) -> io::Result<fs:
     {
         use std::os::unix::fs::MetadataExt;
         use std::os::unix::fs::PermissionsExt;
+        // SAFETY: geteuid takes no arguments and cannot fail.
         if metadata.uid() != unsafe { libc::geteuid() } {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -148,6 +148,9 @@ pub(crate) fn check_windows_owner(file: &fs::File, path: &Path) -> io::Result<()
 
     let mut owner = PSID::default();
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: the handle comes from `file`, which is borrowed for the whole call,
+    // and `owner` and `descriptor` are valid out-pointers. The descriptor is
+    // freed below, after the last use of `owner`, which points into it.
     let status = unsafe {
         GetSecurityInfo(
             HANDLE(file.as_raw_handle()),
@@ -163,10 +166,14 @@ pub(crate) fn check_windows_owner(file: &fs::File, path: &Path) -> io::Result<()
     if status.0 != 0 {
         return Err(io::Error::from_raw_os_error(status.0 as i32));
     }
+    // SAFETY: GetSecurityInfo succeeded, so `owner` points into `descriptor`,
+    // which is still allocated.
     let allowed = unsafe {
         IsWellKnownSid(owner, WinLocalSystemSid).as_bool()
             || IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool()
     };
+    // SAFETY: `descriptor` was allocated by GetSecurityInfo, which requires
+    // LocalFree. It is freed once, and `owner` is not used afterwards.
     unsafe {
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
     }
@@ -282,6 +289,7 @@ mod tests {
 
     #[test]
     fn refuses_directory_owned_by_another_user() {
+        // SAFETY: geteuid takes no arguments and cannot fail.
         if unsafe { libc::geteuid() } != 0 {
             let error = ensure_output_directory(Path::new("/"))
                 .expect_err("root-owned directory must be refused");

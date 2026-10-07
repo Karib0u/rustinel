@@ -395,6 +395,13 @@ mod native_snapshot {
     }
 
     pub fn query_system_processes() -> Result<Vec<ProcessSnapshot>, Box<dyn std::error::Error>> {
+        // SAFETY: each NtQuerySystemInformation call gets a buffer and length that
+        // match, and the buffer is regrown when the kernel reports a larger size.
+        // On success the buffer holds a chain of SYSTEM_PROCESS_INFORMATION
+        // entries linked by NextEntryOffset; the offsets come from the kernel and
+        // are trusted to stay inside the buffer. The image name pointer of each
+        // entry points into that same buffer, and process handles are closed
+        // before the next entry.
         unsafe {
             let mut buffer_size: u32 = 1024 * 1024;
             let mut buffer: Vec<u8>;

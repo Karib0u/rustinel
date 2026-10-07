@@ -387,6 +387,8 @@ fn open_log_file(
                     "integration logs must not have hard links",
                 ));
             }
+            // SAFETY: the descriptor belongs to `file`, which is borrowed for the
+            // call, and uid `!0` leaves the owner unchanged.
             if metadata.gid() != gid && unsafe { libc::fchown(file.as_raw_fd(), !0, gid) } != 0 {
                 let err = io::Error::last_os_error();
                 return Err(io::Error::new(

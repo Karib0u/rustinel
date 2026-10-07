@@ -166,6 +166,9 @@ fn ensure_administrator_privileges() -> anyhow::Result<()> {
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+    // SAFETY: GetCurrentProcess returns a pseudo-handle that needs no closing, and
+    // `token` and `elevation` are valid out-pointers. The elevation buffer size
+    // passed matches TOKEN_ELEVATION.
     unsafe {
         let mut token = HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_ok() {

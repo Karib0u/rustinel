@@ -176,6 +176,11 @@ fn open_file(path: &Path) -> Option<File> {
 /// Internal implementation of PE metadata parsing
 fn parse_metadata_impl(path: &Path, file: &File) -> Option<PeMetadata> {
     // Memory-map the file (zero-copy)
+    // SAFETY: the mapping is read-only and lives only for this function. Another
+    // process can still modify or truncate the file while it is mapped, which
+    // can only change the bytes the parser sees (or raise SIGBUS on Unix). The
+    // parser works on the mapping as a bounds-checked byte slice, so it never
+    // reads outside it.
     let mmap = match unsafe { Mmap::map(file) } {
         Ok(m) => m,
         Err(e) => {

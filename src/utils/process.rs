@@ -120,6 +120,12 @@ extern "system" {
 /// Returns None if the command line is unavailable or the process exits.
 #[cfg(windows)]
 pub fn query_process_command_line_from_handle(handle: HANDLE) -> Option<String> {
+    // SAFETY: `handle` is a live process handle with query access, owned by the
+    // caller. Each NtQueryInformationProcess call gets a buffer and length that
+    // match, and a null buffer only on the zero-length sizing call. The
+    // UNICODE_STRING is read only after the buffer is known to hold one, and its
+    // character pointer is checked to lie inside that buffer before the slice
+    // is built from it.
     unsafe {
         let mut return_length = 0u32;
         let status = NtQueryInformationProcess(
@@ -183,12 +189,15 @@ pub fn query_process_command_line(pid: u32) -> Option<String> {
         return None;
     }
 
+    // SAFETY: OpenProcess takes a PID and access flags, with no pointer arguments.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
     if handle.is_invalid() {
         return None;
     }
 
     let cmd = query_process_command_line_from_handle(handle);
+    // SAFETY: `handle` was opened above, is closed only here, and is not used
+    // afterwards.
     let _ = unsafe { CloseHandle(handle) };
     cmd
 }
@@ -200,11 +209,14 @@ pub fn query_process_command_line(pid: u32) -> Option<String> {
 pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<String> {
     use windows::Win32::Foundation::FILETIME;
     use windows::Win32::System::Threading::GetProcessTimes;
+    // SAFETY: OpenProcess takes a PID and access flags, with no pointer arguments.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
     let mut created = FILETIME::default();
     let mut exited = FILETIME::default();
     let mut kernel = FILETIME::default();
     let mut user = FILETIME::default();
+    // SAFETY: `handle` was opened above, and the four FILETIME out-pointers refer
+    // to live locals.
     let matches =
         unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }
             .is_ok()
@@ -215,6 +227,8 @@ pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<
     } else {
         None
     };
+    // SAFETY: `handle` was opened above, is closed only here, and is not used
+    // afterwards.
     let _ = unsafe { CloseHandle(handle) };
     command_line
 }
@@ -354,6 +368,7 @@ pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
 pub(crate) fn linux_boot_time_ns_to_start_ticks(start_time_ns: u64) -> Option<u64> {
     static CLOCK_TICKS_PER_SECOND: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
     let hz = *CLOCK_TICKS_PER_SECOND.get_or_init(|| {
+        // SAFETY: sysconf takes an integer name and has no pointer arguments.
         let value = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
         (1..=1_000_000).contains(&value).then_some(value as u64)
     });
@@ -373,12 +388,15 @@ pub fn query_process_identity(pid: u32) -> Option<ProcessIdentity> {
         return None;
     }
 
+    // SAFETY: OpenProcess takes a PID and access flags, with no pointer arguments.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
     if handle.is_invalid() {
         return None;
     }
 
     let identity = query_process_identity_from_handle(pid, handle);
+    // SAFETY: `handle` was opened above, is closed only here, and is not used
+    // afterwards.
     let _ = unsafe { CloseHandle(handle) };
     identity
 }
@@ -396,6 +414,9 @@ pub(crate) fn query_process_identity_from_handle(
 
     let mut buffer = vec![0u16; 32_768];
     let mut len = buffer.len() as u32;
+    // SAFETY: `handle` is a live process handle supplied by the caller, `buffer`
+    // is writable for the `len` UTF-16 units passed, and `len` is a valid
+    // in/out pointer.
     let image = unsafe {
         QueryFullProcessImageNameW(
             handle,
@@ -418,6 +439,8 @@ pub(crate) fn query_process_identity_from_handle(
     let mut exit = FILETIME::default();
     let mut kernel = FILETIME::default();
     let mut user = FILETIME::default();
+    // SAFETY: `handle` is a live process handle supplied by the caller, and the
+    // four FILETIME out-pointers refer to live locals.
     let start_time =
         unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) }
             .ok()
