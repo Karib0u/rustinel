@@ -164,7 +164,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "scanner.yara_memory_include_private",
         default_note: None,
-        description: "Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded. On macOS, the dyld shared cache counts as library memory and is scanned under the image and mapped options instead.",
+        description: "Scan private (anonymous) memory. On Linux, includes unnamed anonymous mappings, `[heap]`, and `[stack]`; other bracket-named mappings such as `[vdso]`, `[vvar]`, and `[vsyscall]` are excluded. On macOS, the dyld shared cache counts as library memory and is scanned under the image and mapped options instead. On Windows, committed `MEM_PRIVATE` regions are scanned.",
     },
     ConfigOption {
         key: "scanner.yara_memory_include_image",
@@ -174,7 +174,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "scanner.yara_memory_include_mapped",
         default_note: None,
-        description: "Scan memory-mapped files.",
+        description: "Scan memory-mapped files. On Windows, a committed region is scanned when its base protection is readable (read-only, read-write, write-copy, execute-read, execute-read-write, or execute-write-copy), whatever modifier bits such as `PAGE_NOCACHE` or `PAGE_WRITECOMBINE` accompany it. `PAGE_GUARD`, `PAGE_NOACCESS`, and execute-only regions are never read, and reserved and free regions are not scanned. At debug level the `scanner` target logs one region summary per process, separating `excluded_protection` and `excluded_kind` (never read) from `read_failed` (eligible but the read failed).",
     },
     // allowlist
     ConfigOption {
