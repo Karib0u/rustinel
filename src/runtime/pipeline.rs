@@ -20,16 +20,20 @@ use crate::runtime::yara as runtime_yara;
 use crate::scanner::{YaraMemoryEventHandler, YaraMemoryJob};
 use crate::sensor::{Platform, SensorEventRouter};
 use crate::state::HostState;
+use crate::telemetry::PipelineProbes;
 use crate::{reload, scanner};
 
 pub(super) struct SharedState {
     pub host: Arc<HostState>,
+    /// What this runtime's telemetry snapshots read; the pipeline attaches
+    /// its own stores to it.
+    pub probes: PipelineProbes,
 }
 impl SharedState {
-    pub fn new(cfg: &AppConfig) -> Self {
-        Self {
-            host: HostState::for_runtime(cfg.process.max_entries),
-        }
+    pub fn new(cfg: &AppConfig, probes: PipelineProbes) -> Self {
+        let host = HostState::for_runtime(cfg.process.max_entries);
+        probes.attach_host(&host);
+        Self { host, probes }
     }
 }
 
@@ -332,6 +336,8 @@ impl LivePipeline {
             },
         );
 
+        state.probes.attach_artifact(&artifact_resolver_handle);
+
         Self {
             router,
             host_state,
@@ -414,7 +420,7 @@ mod tests {
                 &cfg,
                 None,
                 Platform::Linux,
-                SharedState::new(&cfg),
+                SharedState::new(&cfg, PipelineProbes::default()),
                 AlertSink::new(alert_writer),
                 response_config,
                 response.clone(),
@@ -458,7 +464,7 @@ mod tests {
                 &cfg,
                 None,
                 Platform::Linux,
-                SharedState::new(&cfg),
+                SharedState::new(&cfg, PipelineProbes::default()),
                 AlertSink::new(writer),
                 response_config,
                 response.clone(),

@@ -528,11 +528,11 @@ pub struct TelemetrySnapshot {
 }
 
 impl TelemetrySnapshot {
-    /// Read the live counters.
-    pub fn capture() -> Self {
+    /// Read the live counters, and the stores `probes` points at.
+    pub fn capture(probes: &super::PipelineProbes) -> Self {
         Self {
-            host_state: crate::state::active_snapshot(),
-            artifact_resolver: crate::artifact::active_snapshot(),
+            host_state: probes.host_snapshot(),
+            artifact_resolver: probes.artifact_snapshot(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             pid: std::process::id(),
             captured_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -559,8 +559,11 @@ impl TelemetrySnapshot {
         }
     }
 
-    pub(crate) fn capture_with_alert_writer(alert_writer: &AlertWriterMetrics) -> Self {
-        let mut snapshot = Self::capture();
+    pub(crate) fn capture_with_alert_writer(
+        alert_writer: &AlertWriterMetrics,
+        probes: &super::PipelineProbes,
+    ) -> Self {
+        let mut snapshot = Self::capture(probes);
         snapshot.channels.push(ChannelSnapshot {
             channel: "alert_writer".to_string(),
             capacity: tracing_appender::non_blocking::DEFAULT_BUFFERED_LINES_LIMIT,
@@ -675,6 +678,7 @@ pub(crate) fn spawn_reporter(
     path: PathBuf,
     interval: Duration,
     alert_writer: AlertWriterMetrics,
+    probes: super::PipelineProbes,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         // Never busy-loop, however the interval was configured.
@@ -689,7 +693,7 @@ pub(crate) fn spawn_reporter(
         loop {
             tokio::time::sleep(interval).await;
             persist(
-                &TelemetrySnapshot::capture_with_alert_writer(&alert_writer),
+                &TelemetrySnapshot::capture_with_alert_writer(&alert_writer, &probes),
                 &path,
             );
         }
@@ -700,8 +704,12 @@ pub(crate) fn spawn_reporter(
 ///
 /// The summary goes to the log here — and only here — so the totals survive
 /// even if the snapshot cannot be written.
-pub(crate) fn write_final_snapshot(path: &Path, alert_writer: &AlertWriterMetrics) {
-    let snapshot = TelemetrySnapshot::capture_with_alert_writer(alert_writer);
+pub(crate) fn write_final_snapshot(
+    path: &Path,
+    alert_writer: &AlertWriterMetrics,
+    probes: &super::PipelineProbes,
+) {
+    let snapshot = TelemetrySnapshot::capture_with_alert_writer(alert_writer, probes);
     let active_channels = snapshot.active_channels();
 
     if !active_channels.is_empty() {
@@ -791,7 +799,7 @@ mod tests {
 
     #[test]
     fn capture_reports_every_channel() {
-        let snapshot = TelemetrySnapshot::capture();
+        let snapshot = TelemetrySnapshot::capture(&crate::telemetry::PipelineProbes::default());
 
         assert_eq!(snapshot.channels.len(), ChannelId::ALL.len());
         for (channel, expected) in snapshot.channels.iter().zip(ChannelId::ALL) {
@@ -801,9 +809,11 @@ mod tests {
 
     #[test]
     fn capture_includes_field_contract_violations() {
-        let before = TelemetrySnapshot::capture().field_contract_violations;
+        let before = TelemetrySnapshot::capture(&crate::telemetry::PipelineProbes::default())
+            .field_contract_violations;
         crate::telemetry::record_field_contract_violations(2);
-        let after = TelemetrySnapshot::capture().field_contract_violations;
+        let after = TelemetrySnapshot::capture(&crate::telemetry::PipelineProbes::default())
+            .field_contract_violations;
         assert!(after >= before + 2);
     }
 

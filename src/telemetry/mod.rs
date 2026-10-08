@@ -15,11 +15,13 @@
 pub(crate) mod event_log;
 pub(crate) mod macos;
 pub use event_log::EventLogSnapshot;
+mod probes;
 mod process_correlation;
 pub(crate) mod provenance;
 pub use provenance::FieldFidelitySnapshot;
 mod snapshot;
 pub use macos::{BpfInterfaceSnapshot, BpfSnapshot, EsfSnapshot, MacosCollectorSnapshot};
+pub use probes::PipelineProbes;
 pub use process_correlation::{ProcessCorrelationSnapshot, WINDOWS_PROCESS_CORRELATION};
 pub(crate) mod webhook;
 pub use webhook::{WebhookCounters, WebhookSnapshot};
@@ -467,6 +469,10 @@ impl ChannelId {
 ///
 /// A static array rather than a registry map: the set of channels is fixed at
 /// compile time, so lookups need no lock and no allocation on the send path.
+///
+/// Kept static on purpose (#662): `try_send` is called from sensor callbacks
+/// and workers that hold no pipeline handle, and threading one through every
+/// send site would cost more than it buys on the hot path.
 static CHANNELS: [ChannelCounters; 6] = [
     ChannelCounters::new(ChannelId::SensorEvents),
     ChannelCounters::new(ChannelId::ArtifactResolution),

@@ -683,13 +683,22 @@ mod tests {
                 user: None,
             }),
         };
-        let before = crate::telemetry::TelemetrySnapshot::capture().field_contract_violations;
+        let before = crate::telemetry::TelemetrySnapshot::capture(
+            &crate::telemetry::PipelineProbes::default(),
+        )
+        .field_contract_violations;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             build_normalizer().normalize(&event)
         }));
 
         assert!(result.is_err(), "a populated Never field must fail tests");
-        assert!(crate::telemetry::TelemetrySnapshot::capture().field_contract_violations > before);
+        assert!(
+            crate::telemetry::TelemetrySnapshot::capture(
+                &crate::telemetry::PipelineProbes::default()
+            )
+            .field_contract_violations
+                > before
+        );
     }
 
     #[test]

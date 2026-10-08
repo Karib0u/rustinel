@@ -1655,7 +1655,9 @@ level: high
                 }
             }
         }
-        let snapshot = crate::telemetry::TelemetrySnapshot::capture();
+        let snapshot = crate::telemetry::TelemetrySnapshot::capture(
+            &crate::telemetry::PipelineProbes::default(),
+        );
         sensor.shutdown();
         let bpf = snapshot.macos_collectors.unwrap().bpf.unwrap();
         println!("BPF live interfaces: {:?}", bpf.interfaces);

@@ -6,7 +6,7 @@ use crate::sensor::{RawEvent, RawPayload};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 /// Entry ceilings, including auxiliary indexes. Variable-sized metadata is
 /// bounded by the collectors; these ceilings bound retained rows.
@@ -85,14 +85,6 @@ pub struct HostState {
     attribution_loss: AtomicU64,
     pub(crate) ingest_seq: AtomicU64,
 }
-static ACTIVE: LazyLock<Mutex<Weak<HostState>>> = LazyLock::new(|| Mutex::new(Weak::new()));
-pub fn active_snapshot() -> Option<HostStateSnapshot> {
-    ACTIVE
-        .lock()
-        .unwrap()
-        .upgrade()
-        .map(|state| state.snapshot())
-}
 impl HostState {
     pub fn new(mut limits: StateLimits) -> Self {
         limits.users = limits.users.max(3);
@@ -115,7 +107,6 @@ impl HostState {
             processes: max_processes,
             ..Default::default()
         }));
-        *ACTIVE.lock().unwrap() = Arc::downgrade(&state);
         #[cfg(target_os = "macos")]
         state.inventory_macos();
         state

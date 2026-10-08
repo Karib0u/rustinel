@@ -48,6 +48,8 @@ pub(super) struct RuntimeLogging {
     pub alert_sink: AlertSink,
     pub dedup_worker_handle: Option<JoinHandle<()>>,
     pub telemetry_reporter: Option<TelemetryReporter>,
+    /// Where the pipeline attaches the stores the telemetry snapshot reads.
+    pub probes: crate::telemetry::PipelineProbes,
     // Kept in the platform runtime until its final shutdown messages are written.
     pub _guards: (WorkerGuard, WorkerGuard),
 }
@@ -91,12 +93,14 @@ impl RuntimeLogging {
         info!(target: TARGET_CONSOLE, "Alerts: {}", cfg.alerts.directory.display());
 
         // 2c. Pipeline drop counters, published for `rustinel doctor`
-        let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink);
+        let probes = crate::telemetry::PipelineProbes::default();
+        let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink, probes.clone());
 
         Ok(Self {
             alert_sink,
             dedup_worker_handle,
             telemetry_reporter,
+            probes,
             _guards,
         })
     }
