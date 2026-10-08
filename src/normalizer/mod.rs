@@ -15,8 +15,66 @@ use crate::models::*;
 use crate::sensor::{
     Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, SensorAction,
 };
-use crate::state::{HostState, ProcessMetadata};
+use crate::state::container::ContainerResolution;
+use crate::state::{DnsCache, HostState, ProcessCache, ProcessMetadata, SidCache};
 use crate::utils::{convert_nt_to_dos, query_process_command_line};
+
+/// The slice of host state the normalizer reads and writes.
+///
+/// [`HostState`] is the production implementation.
+/// A unit test can implement it over a few caches and skip the rest of the host.
+pub trait NormalizerHost {
+    /// Process attribution index.
+    fn processes(&self) -> &ProcessCache;
+    /// Resolved user names by SID or UID.
+    fn users(&self) -> &SidCache;
+    /// Recent DNS answers.
+    fn dns(&self) -> &DnsCache;
+    /// The next value of the per-host ingest sequence.
+    fn next_ingest_seq(&self) -> u64;
+    /// Count an event whose process could not be attributed.
+    fn record_attribution_loss(&self);
+    /// Resolve the cgroup path and container of a Linux process event.
+    #[cfg(target_os = "linux")]
+    fn resolve_container(
+        &self,
+        pid: u32,
+        parent_pid: Option<u32>,
+        cgroup_id: Option<u64>,
+    ) -> ContainerResolution;
+}
+
+impl NormalizerHost for HostState {
+    fn processes(&self) -> &ProcessCache {
+        &self.processes
+    }
+
+    fn users(&self) -> &SidCache {
+        &self.users
+    }
+
+    fn dns(&self) -> &DnsCache {
+        &self.dns
+    }
+
+    fn next_ingest_seq(&self) -> u64 {
+        self.ingest_seq.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    fn record_attribution_loss(&self) {
+        HostState::record_attribution_loss(self);
+    }
+
+    #[cfg(target_os = "linux")]
+    fn resolve_container(
+        &self,
+        pid: u32,
+        parent_pid: Option<u32>,
+        cgroup_id: Option<u64>,
+    ) -> ContainerResolution {
+        HostState::resolve_container(self, pid, parent_pid, cgroup_id)
+    }
+}
 
 /// Event normalizer that converts shared sensor events to normalized events.
 /// Canonicalization borrows its host state; standalone consumers may share an Arc.
@@ -24,7 +82,11 @@ pub struct Normalizer<S = Arc<HostState>> {
     state: S,
 }
 
-impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
+impl<H, S> Normalizer<S>
+where
+    H: NormalizerHost + ?Sized,
+    S: std::ops::Deref<Target = H>,
+{
     /// Creates a new normalizer instance.
     pub fn new(state: S) -> Self {
         Self { state }
@@ -68,7 +130,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         let normalized = NormalizedEvent {
             timestamp: format_timestamp(event.timestamp),
             source_seq: event.source_seq,
-            ingest_seq: self.state.ingest_seq.fetch_add(1, Ordering::Relaxed) + 1,
+            ingest_seq: self.state.next_ingest_seq(),
             platform: event.platform,
             provider: event.provider.to_string(),
             category: event.category(),
@@ -122,13 +184,13 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             if let Some(key) = event.process_start_key {
                 if self
                     .state
-                    .processes
+                    .processes()
                     .get_metadata_by_key(key.pid, key.start_time)
                     .is_none()
                 {
                     self.state.record_attribution_loss();
                 }
-                self.state.processes.remove(key.pid, key.start_time);
+                self.state.processes().remove(key.pid, key.start_time);
             } else {
                 self.state.record_attribution_loss();
             }
@@ -218,7 +280,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
                 if let Some(parent) = event.parent_process_start_key.and_then(|key| {
                     self.state
-                        .processes
+                        .processes()
                         .get_metadata_by_key(key.pid, key.start_time)
                 }) {
                     if fields.parent_image.is_none() {
@@ -247,7 +309,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
                 }
 
                 if let Some(key) = event.process_start_key.filter(|key| key.pid == pid) {
-                    self.state.processes.add_with_provenance(
+                    self.state.processes().add_with_provenance(
                         pid,
                         key.start_time,
                         image,
@@ -324,7 +386,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
         if fields.destination_hostname.is_none() {
             if let Some(destination_ip) = fields.destination_ip.as_deref() {
                 if let Ok(ip) = destination_ip.parse::<IpAddr>() {
-                    if let Some(hostname) = self.state.dns.lookup(&ip) {
+                    if let Some(hostname) = self.state.dns().lookup(&ip) {
                         fields.destination_hostname = Some(hostname);
                         provenance.mark_derived("DestinationHostname");
                     }
@@ -349,7 +411,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             fields.query_results.as_deref(),
         ) {
             for ip in extract_ips_from_query_results(query_results) {
-                self.state.dns.update(ip, query_name.to_string());
+                self.state.dns().update(ip, query_name.to_string());
             }
         }
 
@@ -456,7 +518,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
     fn metadata_for_event(&self, event: &RawEvent) -> Option<ProcessMetadata> {
         let key = event.process_start_key?;
         self.state
-            .processes
+            .processes()
             .get_metadata_by_key(key.pid, key.start_time)
     }
 
@@ -479,7 +541,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             let uid = effective_uid
                 .or(user.as_deref())
                 .and_then(|value| value.parse::<u32>().ok());
-            if let Some(name) = uid.and_then(|uid| self.state.users.resolve_uid(uid)) {
+            if let Some(name) = uid.and_then(|uid| self.state.users().resolve_uid(uid)) {
                 *user = Some(name);
                 provenance.mark_derived("User");
             }
@@ -494,7 +556,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
             _ => return,
         };
 
-        if let Some(resolved) = self.state.users.resolve(&sid) {
+        if let Some(resolved) = self.state.users().resolve(&sid) {
             *user = Some(resolved);
         }
     }
@@ -534,7 +596,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 
         let meta = self
             .state
-            .processes
+            .processes()
             .get_metadata_by_key(process_start_key.pid, process_start_key.start_time)?;
 
         Some((
@@ -561,10 +623,7 @@ impl<S: std::ops::Deref<Target = HostState>> Normalizer<S> {
 }
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn apply_container_resolution(
-    fields: &mut ProcessCreationFields,
-    resolution: crate::state::container::ContainerResolution,
-) {
+fn apply_container_resolution(fields: &mut ProcessCreationFields, resolution: ContainerResolution) {
     let container = resolution.container;
     *fields.container = LinuxContainerContext {
         cgroup_path: resolution.cgroup_path,
@@ -1736,6 +1795,81 @@ mod tests {
         missing_key.process_start_key = None;
         assert!(normalizer.normalize(&missing_key).is_some());
         assert_eq!(normalizer.state.snapshot().attribution_loss, 2);
+    }
+
+    /// A host with only the caches the normalizer reads, and no `HostState`.
+    struct StubHost {
+        processes: ProcessCache,
+        users: SidCache,
+        dns: DnsCache,
+        ingest_seq: std::sync::atomic::AtomicU64,
+        attribution_loss: std::sync::atomic::AtomicU64,
+    }
+
+    impl StubHost {
+        fn new() -> Self {
+            Self {
+                processes: ProcessCache::with_max_entries(16),
+                users: SidCache::with_max_entries(16),
+                dns: DnsCache::with_limits(16, 60),
+                ingest_seq: Default::default(),
+                attribution_loss: Default::default(),
+            }
+        }
+    }
+
+    impl NormalizerHost for StubHost {
+        fn processes(&self) -> &ProcessCache {
+            &self.processes
+        }
+
+        fn users(&self) -> &SidCache {
+            &self.users
+        }
+
+        fn dns(&self) -> &DnsCache {
+            &self.dns
+        }
+
+        fn next_ingest_seq(&self) -> u64 {
+            self.ingest_seq.fetch_add(1, Ordering::Relaxed) + 1
+        }
+
+        fn record_attribution_loss(&self) {
+            self.attribution_loss.fetch_add(1, Ordering::Relaxed);
+        }
+
+        #[cfg(target_os = "linux")]
+        fn resolve_container(
+            &self,
+            _pid: u32,
+            _parent_pid: Option<u32>,
+            _cgroup_id: Option<u64>,
+        ) -> ContainerResolution {
+            ContainerResolution::default()
+        }
+    }
+
+    #[test]
+    fn normalizer_runs_over_a_host_that_is_not_host_state() {
+        let host = StubHost::new();
+        let normalizer = Normalizer::new(&host);
+        let start = process_start_with_identity(4242, 100, "/usr/bin/service");
+
+        let first = normalizer.normalize(&start).expect("process normalizes");
+        let second = normalizer.normalize(&start).expect("process normalizes");
+
+        assert_eq!(first.ingest_seq, 1);
+        assert_eq!(second.ingest_seq, 2);
+        assert_eq!(host.processes.count(), 1);
+
+        let mut unknown_stop = process_stop_event(Platform::Linux, "ebpf", 9999, true);
+        unknown_stop.process_start_key = Some(ProcessStartKey {
+            pid: 9999,
+            start_time: 1,
+        });
+        assert!(normalizer.normalize(&unknown_stop).is_none());
+        assert_eq!(host.attribution_loss.load(Ordering::Relaxed), 1);
     }
 
     #[test]

@@ -45,7 +45,8 @@ const LAYERS: &[&[&str]] = &[
 /// Upward edges that still exist, as `(from, to)`.
 /// Remove an entry when its edge is cut. Never add one.
 const ALLOWED_UPWARD: &[(&str, &str)] = &[
-    // `HostState` builds a `Normalizer` over itself, and the normalizer needs a `HostState`.
+    // `HostState` builds a `Normalizer` over itself.
+    // The normalizer reads the host through `NormalizerHost`, so it runs without a `HostState`.
     ("state", "normalizer"),
     // `HostState` converts `RawEvent`, which is declared in `sensor`.
     ("state", "sensor"),
