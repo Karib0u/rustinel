@@ -174,7 +174,7 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::models::{EventCategory, EventFields, ProcessCreationFields};
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     const RULE: &str = r#"title: Test image rule
 id: test-image-rule

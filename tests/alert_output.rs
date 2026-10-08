@@ -12,10 +12,8 @@ use rustinel::{
         Alert, AlertSeverity, DetectionEngine, MatchDebugLevel, YaraRuleMatch, YaraScanSource,
         YaraStringMatch,
     },
-    runtime::yara::{
-        build_yara_alert, build_yara_match_details, build_yara_memory_alert,
-        build_yara_memory_match_details,
-    },
+    runtime::yara::{build_yara_memory_alert, build_yara_memory_match_details},
+    scanner::{build_yara_alert, build_yara_match_details},
     sensor::Platform,
 };
 use serde_json::Value;

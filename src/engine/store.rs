@@ -16,7 +16,7 @@ use super::deferred::DeferredRules;
 use super::logsource::logsource_key;
 use super::LogSourceKey;
 use crate::models::{MatchDebugLevel, NormalizedEvent, SigmaRuleMetadata};
-use crate::sensor::ProcessStartKey;
+use crate::vocab::ProcessStartKey;
 
 const MAX_SIGMA_TAGS: usize = 64;
 const MAX_SIGMA_TAG_BYTES: usize = 256;

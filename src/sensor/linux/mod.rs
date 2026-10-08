@@ -9,6 +9,7 @@ pub mod task_btf;
 mod tracepoint_format;
 
 pub use ebpf::EbpfSensor;
+pub(crate) use paths::LinuxHostExtension;
 pub use rustinel_ebpf_common::{file_identity_abi, socket_tuple_abi};
 
 /// Environment variable that overrides the embedded eBPF object at runtime.

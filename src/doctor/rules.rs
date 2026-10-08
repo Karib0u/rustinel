@@ -233,11 +233,11 @@ pub(crate) fn rule_validation_results(
     results
 }
 
-fn sensor_platform(platform: InstallPlatform) -> crate::sensor::Platform {
+fn sensor_platform(platform: InstallPlatform) -> crate::vocab::Platform {
     match platform {
-        InstallPlatform::Windows => crate::sensor::Platform::Windows,
-        InstallPlatform::Linux => crate::sensor::Platform::Linux,
-        InstallPlatform::Macos => crate::sensor::Platform::MacOS,
+        InstallPlatform::Windows => crate::vocab::Platform::Windows,
+        InstallPlatform::Linux => crate::vocab::Platform::Linux,
+        InstallPlatform::Macos => crate::vocab::Platform::MacOS,
     }
 }
 

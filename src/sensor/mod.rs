@@ -6,7 +6,6 @@
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod dns;
-pub mod event_actions;
 #[cfg(any(windows, test))]
 mod integrity_level;
 #[cfg(target_os = "linux")]
@@ -19,6 +18,8 @@ mod process;
 #[cfg(windows)]
 pub mod windows;
 
+pub use crate::models::event_actions::{self, SensorNormalization};
+pub use crate::vocab::{Platform, ProcessStartKey, SensorAction};
 pub use process::{
     RawLinuxProcess, RawLinuxProcessIdentity, RawMacOsExec, RawMacOsProcess, RawProcessEvent,
     RawProcessPlatform, RawUserId, RawWindowsProcess,
@@ -27,7 +28,6 @@ pub use process::{
 use std::time::SystemTime;
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 
 use crate::models::{
@@ -49,58 +49,6 @@ pub trait Sensor: Send + Sync {
 /// Shared event handler trait for the post-host-state pipeline.
 pub trait CanonicalEventHandler: Send + Sync {
     fn handle_event(&self, event: &crate::models::CanonicalEvent);
-}
-
-/// Platform that produced the raw sensor event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Platform {
-    Windows,
-    Linux,
-    MacOS,
-}
-
-impl Platform {
-    /// The lowercase platform name, matching how it is serialized.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Windows => "windows",
-            Self::Linux => "linux",
-            Self::MacOS => "macos",
-        }
-    }
-}
-
-/// High-level action emitted by a sensor event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SensorAction {
-    Start,
-    Stop,
-    /// Internal process lineage update. It is consumed before canonical events.
-    Fork,
-    Create,
-    Delete,
-    Modify,
-    Rename,
-    Connect,
-    Disconnect,
-    Accept,
-    Query,
-    Set,
-    Load,
-    Execute,
-    Register,
-    /// A subject asked for, or exercised, access to a securable object.
-    Access,
-}
-
-/// Stable process identity used to avoid PID reuse collisions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ProcessStartKey {
-    pub pid: u32,
-    /// Platform-native process start timestamp paired with `pid`.
-    pub start_time: u64,
 }
 
 /// Shared raw event emitted by any platform sensor.
@@ -134,32 +82,6 @@ impl RawEvent {
     /// to avoid the field and payload falling out of sync.
     pub fn category(&self) -> EventCategory {
         self.payload.category()
-    }
-}
-
-/// Sensor-supplied compatibility metadata for the normalized event model.
-///
-/// Shared normalization copies this through without understanding any
-/// platform-specific event numbering scheme.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SensorNormalization {
-    pub event_id: u16,
-    pub action_code: u8,
-}
-
-impl SensorNormalization {
-    /// Return the shared file-event numbering for `action`.
-    ///
-    /// `None` for actions that are not file actions, which lets a caller drop
-    /// the event rather than invent a number for it.
-    pub fn for_file_action(action: SensorAction) -> Option<Self> {
-        event_actions::row_for_action(EventCategory::File, action).map(|row| row.normalization())
-    }
-
-    /// Reverse lookup of [`Self::for_file_action`], for sensors that recover
-    /// the action from an already-computed action code.
-    pub fn for_file_action_code(action_code: u8) -> Option<Self> {
-        event_actions::row_for_code(EventCategory::File, action_code).map(|row| row.normalization())
     }
 }
 

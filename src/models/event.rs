@@ -1,5 +1,5 @@
 use super::{CanonicalField, CanonicalValue, EventFields, FieldView, FieldViewName};
-use crate::sensor::Platform;
+use crate::vocab::Platform;
 use serde::{Deserialize, Serialize};
 
 /// Known limitation on the evidentiary fidelity of a populated field.

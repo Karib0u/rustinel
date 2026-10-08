@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::cli::SigmaPlatform;
 use crate::config::AppConfig;
 use crate::engine::compatibility::{self, SigmaCompatibilityReport};
-use crate::sensor::Platform;
+use crate::vocab::Platform;
 
 pub fn run_cli(
     config_path: Option<PathBuf>,

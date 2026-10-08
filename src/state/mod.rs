@@ -2,7 +2,9 @@ pub mod container;
 mod host;
 #[cfg(target_os = "macos")]
 mod inventory_macos;
-pub use host::{active_snapshot, HostState, HostStateSnapshot, InventorySnapshot, StateLimits};
+pub use host::{
+    active_snapshot, HostExtension, HostState, HostStateSnapshot, InventorySnapshot, StateLimits,
+};
 mod dns;
 mod process;
 mod sid;

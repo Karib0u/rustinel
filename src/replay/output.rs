@@ -171,7 +171,7 @@ mod tests {
     use crate::models::{
         AlertSeverity, DetectionEngine, EventCategory, EventFields, ProcessCreationFields,
     };
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     fn provenance() -> ReplayProvenance {
         ReplayProvenance {

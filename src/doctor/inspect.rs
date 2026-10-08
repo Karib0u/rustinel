@@ -318,9 +318,9 @@ pub fn inspect_with_options(options: ConfigLoadOptions) -> DoctorReport {
 
 fn field_availability_result(platform: InstallPlatform) -> DiagnosticResult {
     let platform = match platform {
-        InstallPlatform::Windows => crate::sensor::Platform::Windows,
-        InstallPlatform::Linux => crate::sensor::Platform::Linux,
-        InstallPlatform::Macos => crate::sensor::Platform::MacOS,
+        InstallPlatform::Windows => crate::vocab::Platform::Windows,
+        InstallPlatform::Linux => crate::vocab::Platform::Linux,
+        InstallPlatform::Macos => crate::vocab::Platform::MacOS,
     };
     let mut counts = [0usize; 3];
     let mut permanent = Vec::new();

@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use tracing::debug;
 
-use crate::artifact::PeMetadata;
 use crate::utils::file_identity::{self, FileIdentity};
+use crate::vocab::PeMetadata;
 
 const PE_CACHE_MAX_ENTRIES: usize = 1024;
 

@@ -20,7 +20,7 @@ use serde::Serialize;
 use crate::config::AppConfig;
 use crate::field_availability::{Availability, EventFieldContract, FIELD_AVAILABILITY};
 use crate::models::{Fidelity, FieldViewName};
-use crate::sensor::{Platform, SensorAction};
+use crate::vocab::{Platform, SensorAction};
 
 use super::{Engine, LogSourceKey, LogSourceStatus};
 

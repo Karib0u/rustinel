@@ -377,7 +377,7 @@ mod tests {
         Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
         ProcessCreationFields,
     };
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     fn make_alert(rule: &str, image: &str) -> Alert {
         Alert {

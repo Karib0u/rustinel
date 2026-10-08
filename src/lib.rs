@@ -30,3 +30,4 @@ pub mod state;
 pub mod telemetry;
 pub mod update;
 pub mod utils;
+pub mod vocab;

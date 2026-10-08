@@ -27,11 +27,11 @@ use crate::capture::manifest::{
     manifest_path_for, CaptureEventCounts, CaptureManifest, CaptureStatus,
 };
 use crate::models::CanonicalEvent;
-use crate::sensor::Platform;
 use crate::utils::fs::{
     create_new_output_file, ensure_output_directory, open_output_file, path_is_occupied,
 };
 use crate::utils::{now_timestamp_string, LogRateLimiter};
+use crate::vocab::Platform;
 
 /// Target name for capture operational logs.
 const TARGET_CAPTURE: &str = "capture";

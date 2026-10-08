@@ -17,7 +17,7 @@ fn test_config_loads_defaults() {
     assert!(cfg.scanner.sigma_enabled);
     assert_eq!(
         cfg.scanner.sigma_match_mode,
-        crate::engine::SigmaMatchMode::Best
+        crate::config::SigmaMatchMode::Best
     );
     assert_eq!(cfg.logging.level, "info");
     assert!(cfg.logging.filter.is_none());
@@ -41,7 +41,7 @@ fn sigma_match_mode_accepts_all() {
         .expect("all is a valid Sigma match mode");
     assert_eq!(
         cfg.scanner.sigma_match_mode,
-        crate::engine::SigmaMatchMode::All
+        crate::config::SigmaMatchMode::All
     );
 }
 

@@ -332,6 +332,7 @@ impl EtwState {
     ) -> Self {
         {
             let mut identities = host
+                .extension::<crate::sensor::windows::WindowsHostExtension>()
                 .process_identities
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
@@ -349,6 +350,7 @@ impl EtwState {
 
     pub(super) fn attribute_process_identity(&self, event: &mut RawEvent) {
         self.host
+            .extension::<crate::sensor::windows::WindowsHostExtension>()
             .process_identities
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -362,6 +364,7 @@ impl EtwState {
     /// one callback panicked is a worse failure than a stale cache entry.
     pub(super) fn paths(&self) -> MutexGuard<'_, FilePathCache> {
         self.host
+            .extension::<crate::sensor::windows::WindowsHostExtension>()
             .file_paths
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -371,6 +374,7 @@ impl EtwState {
     /// OS-invoked ETW callback would take the sensor down.
     pub(super) fn registry_paths(&self) -> MutexGuard<'_, RegistryPathCache> {
         self.host
+            .extension::<crate::sensor::windows::WindowsHostExtension>()
             .registry_paths
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())

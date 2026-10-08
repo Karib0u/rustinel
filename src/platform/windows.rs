@@ -5,13 +5,13 @@ use anyhow::{bail, Context};
 use windows_service::service::ServiceAccess;
 
 use crate::cli::ServiceAction;
-use crate::sensor::ProcessStartKey;
 use crate::service::{
     execute_backend_action, run_backend_action, ManagedServicePaths, ServiceBackend,
     ServiceCommandResult, ServiceStatus, SERVICE_DESCRIPTION, WINDOWS_SERVICE_DISPLAY_NAME,
     WINDOWS_SERVICE_NAME,
 };
 use crate::state::{HostState, InventorySnapshot};
+use crate::vocab::ProcessStartKey;
 
 pub const SERVICE_NAME: &str = WINDOWS_SERVICE_NAME;
 

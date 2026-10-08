@@ -4,6 +4,8 @@
 
 pub mod ecs;
 
+pub mod event_actions;
+
 mod alert;
 mod canonical;
 mod event;
@@ -21,7 +23,7 @@ pub use match_details::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
     use std::collections::HashMap;
 
     #[test]

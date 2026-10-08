@@ -9,6 +9,7 @@ For the user-level picture, see [How it works](how-it-works.md).
 src/
 ├── main.rs          CLI entry point
 ├── cli/             clap definitions and the generated CLI reference
+├── vocab.rs         shared leaf vocabulary: Platform, SensorAction, ProcessStartKey, PeMetadata, TARGET_CONSOLE
 ├── config.rs        loading, discovery, defaults; config/reference.rs documents every option
 ├── runtime/         startup, shared pipeline construction, shutdown ordering
 ├── sensor/
@@ -36,6 +37,37 @@ src/
 └── field_availability.rs  per-view and per-platform field contract, source of generated docs
 ebpf/src/            Linux eBPF programs and the event ABI
 ```
+
+## Module dependency direction
+
+Modules depend downward only.
+From the leaf up, the layers are:
+
+1. `vocab` and `signature`, which import nothing from the crate.
+2. The foundation: `field_availability`, `observable`, `models`, `utils`, and `config`.
+3. `telemetry`.
+4. `state`.
+5. `sensor`.
+6. `normalizer`.
+7. Detectors, sinks, and workers: `memory`, `alerts`, `response`, `ioc`, `scanner`, and `capture`.
+8. `engine`.
+9. `artifact`.
+10. Features built on the pipeline: `reload`, `replay`, `platform`, `service`, `rules`, `cli`, and `update`.
+11. `doctor` and `setup`.
+12. `runtime`, which wires everything and is imported by nothing below it.
+
+A module may import its own layer and any earlier layer in this list, never a later one.
+The foundation never imports `sensor`, `engine`, `scanner`, `artifact`, `state`, or `runtime`.
+Vocabulary that several layers need goes in `vocab`, not in the layer that happened to declare it first.
+`config` owns `SigmaMatchMode` and the YARA scan-limit defaults, and `models` owns the file and registry action table.
+
+Per-OS state that the shared `HostState` must carry is defined by the platform sensor and implements `HostExtension`.
+`HostState` stores it without naming the sensor types.
+
+`tests/module_dependencies.rs` enforces the direction on every `cargo test` run.
+It scans the production code under `src/` and fails on any upward `crate::<module>` edge that is not in `ALLOWED_UPWARD`.
+That list holds the edges that still exist, and it fails on an entry whose edge is gone, so it only shrinks.
+Test modules are not part of the graph.
 
 ## Event path
 

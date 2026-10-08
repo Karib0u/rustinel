@@ -17,7 +17,7 @@ use crate::models::{
     Alert, AlertSeverity, CanonicalEvent, DetectionEngine, EventCategory, EventFields,
     NormalizedEvent, ProcessCreationFields, Provenance,
 };
-use crate::sensor::Platform;
+use crate::vocab::Platform;
 use tracing::info;
 
 use crate::utils::path_allowlist::PathAllowlistPolicy;
@@ -290,7 +290,7 @@ mod tests {
     use super::*;
     use crate::ioc::types::IocMeta;
     use crate::models::{EventCategory, EventFields};
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     #[test]
     fn test_domain_suffix_match() {

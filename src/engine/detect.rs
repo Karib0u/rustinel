@@ -17,7 +17,7 @@ use std::sync::Arc;
 use crate::engine::{DetectionPass, DetectorStore};
 use crate::ioc::IocEngine;
 use crate::models::{Alert, CanonicalEvent};
-use crate::sensor::ProcessStartKey;
+use crate::vocab::ProcessStartKey;
 
 pub(crate) struct EventAlert {
     pub(crate) alert: Alert,
