@@ -26,3 +26,10 @@ impl ShutdownSignals {
         }
     }
 }
+
+impl ShutdownSignals {
+    /// Wait for the first shutdown signal, as the runners expect.
+    pub(crate) fn wait(mut self) -> crate::runtime::sensors::ShutdownFuture {
+        Box::pin(async move { self.recv().await.map(str::to_string) })
+    }
+}
