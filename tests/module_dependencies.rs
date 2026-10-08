@@ -54,8 +54,6 @@ const ALLOWED_UPWARD: &[(&str, &str)] = &[
     ("telemetry", "artifact"),
     ("telemetry", "sensor"),
     ("telemetry", "state"),
-    // Detector swaps invalidate the artifact YARA generation.
-    ("engine", "artifact"),
     // Replay initialises runtime logging.
     ("replay", "runtime"),
     // The ETW session reads the process list through `platform::windows`.
