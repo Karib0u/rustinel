@@ -30,6 +30,8 @@ const LAYERS: &[&[&str]] = &[
     // Detectors, sinks, and workers.
     &["memory", "alerts", "response", "ioc", "scanner", "capture"],
     &["engine"],
+    // Pipeline stages between the engine and artifact resolution.
+    &["stages"],
     &["artifact"],
     // Features built on the pipeline.
     &[
