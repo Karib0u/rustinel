@@ -7,16 +7,19 @@
 //! numbers instead of whichever registered last.
 //! Probes hold weak references: the snapshot never keeps a store alive.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use crate::artifact::ArtifactResolverSnapshot;
 use crate::state::HostStateSnapshot;
+use crate::telemetry::{WebhookCounters, WebhookSnapshot};
 
 type Probe<T> = Box<dyn Fn() -> Option<T> + Send + Sync>;
 
 #[derive(Default)]
 struct Slots {
     host: Mutex<Option<Probe<HostStateSnapshot>>>,
+    sensors: Mutex<Option<Probe<super::SensorTelemetry>>>,
+    webhooks: Mutex<Vec<Weak<WebhookCounters>>>,
     artifact: Mutex<Option<Probe<ArtifactResolverSnapshot>>>,
 }
 
@@ -28,16 +31,40 @@ pub struct PipelineProbes {
 
 impl PipelineProbes {
     /// Publish `host`'s state sections in this runtime's snapshots.
-    pub(crate) fn attach_host(&self, host: &Arc<crate::state::HostState>) {
+    pub fn attach_host(&self, host: &Arc<crate::state::HostState>) {
         let weak = Arc::downgrade(host);
-        *lock(&self.slots.host) = Some(Box::new(move || {
-            weak.upgrade().map(|state| state.snapshot())
+        *lock(&self.slots.host) = Some(Box::new({
+            let weak = weak.clone();
+            move || weak.upgrade().map(|state| state.snapshot())
+        }));
+        *lock(&self.slots.sensors) = Some(Box::new(move || {
+            weak.upgrade().map(|state| state.sensor_telemetry())
         }));
     }
 
     /// Publish the artifact resolver's counters in this runtime's snapshots.
     pub(crate) fn attach_artifact(&self, resolver: &crate::artifact::ArtifactResolverHandle) {
         *lock(&self.slots.artifact) = Some(resolver.probe());
+    }
+
+    /// Publish the alert webhook destinations in this runtime's snapshots.
+    pub(crate) fn attach_webhooks(&self, counters: &[Arc<WebhookCounters>]) {
+        *lock(&self.slots.webhooks) = counters.iter().map(Arc::downgrade).collect();
+    }
+
+    pub(super) fn webhook_snapshots(&self) -> Vec<WebhookSnapshot> {
+        lock(&self.slots.webhooks)
+            .iter()
+            .filter_map(Weak::upgrade)
+            .map(|counters| counters.snapshot())
+            .collect()
+    }
+
+    pub(super) fn sensor_telemetry(&self) -> super::SensorTelemetry {
+        lock(&self.slots.sensors)
+            .as_ref()
+            .and_then(|probe| probe())
+            .unwrap_or_default()
     }
 
     pub(super) fn host_snapshot(&self) -> Option<HostStateSnapshot> {

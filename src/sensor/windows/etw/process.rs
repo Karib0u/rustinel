@@ -2,9 +2,10 @@
 
 use super::parser::{filetime_to_system_time, try_get_uint_as_u64};
 use crate::sensor::{RawEvent, RawPayload, RawUserId, SensorAction};
-use crate::telemetry::WINDOWS_PROCESS_CORRELATION as METRICS;
+use crate::telemetry::ProcessCorrelationCounters;
 use ferrisetw::{parser::Parser, schema_locator::SchemaLocator, EventRecord};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const WINDOW: Duration = Duration::from_secs(2);
@@ -33,6 +34,17 @@ pub(super) struct ProcessCorrelation {
     manifest: HashMap<u32, VecDeque<Pending<RawEvent>>>,
     count: usize,
     unavailable: bool,
+    metrics: Arc<ProcessCorrelationCounters>,
+}
+
+impl ProcessCorrelation {
+    /// Count outcomes into `metrics`, which the host reports in its snapshot.
+    pub(super) fn with_metrics(metrics: Arc<ProcessCorrelationCounters>) -> Self {
+        Self {
+            metrics,
+            ..Self::default()
+        }
+    }
 }
 
 impl ProcessCorrelation {
@@ -41,14 +53,14 @@ impl ProcessCorrelation {
         record: &EventRecord,
         locator: &SchemaLocator,
     ) -> Vec<RawEvent> {
-        METRICS
+        self.metrics
             .classic_records
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if !matches!(record.opcode(), 1..=3) {
             return Vec::new();
         }
         let Ok(schema) = locator.event_schema(record) else {
-            METRICS
+            self.metrics
                 .decode_failed
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return Vec::new();
@@ -57,7 +69,7 @@ impl ProcessCorrelation {
         let Some(pid) =
             try_get_uint_as_u64(&parser, "ProcessId").and_then(|pid| u32::try_from(pid).ok())
         else {
-            METRICS
+            self.metrics
                 .decode_failed
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return Vec::new();
@@ -88,7 +100,7 @@ impl ProcessCorrelation {
             return Vec::new();
         }
         if record.opcode() == 3 {
-            METRICS
+            self.metrics
                 .rundown
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
@@ -99,7 +111,7 @@ impl ProcessCorrelation {
             try_get_uint_as_u64(&parser, "ParentId").and_then(|pid| u32::try_from(pid).ok()),
             try_get_uint_as_u64(&parser, "UniqueProcessKey"),
         ) else {
-            METRICS
+            self.metrics
                 .decode_failed
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return Vec::new();
@@ -148,7 +160,7 @@ impl ProcessCorrelation {
             if event.action == SensorAction::Start
                 && matches!(event.payload, RawPayload::Process(_))
             {
-                METRICS
+                self.metrics
                     .unmatched
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
@@ -228,7 +240,7 @@ impl ProcessCorrelation {
                     if let Some(command_line) = facts.command_line {
                         evidence.command_line_source = Some("classic".into());
                         fields.command_line = Some(command_line);
-                        METRICS
+                        self.metrics
                             .classic_command_line
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -264,7 +276,7 @@ impl ProcessCorrelation {
             }) {
                 let event = entries.pop_front().unwrap().value;
                 if event.action == SensorAction::Start {
-                    METRICS
+                    self.metrics
                         .unmatched
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -279,7 +291,7 @@ impl ProcessCorrelation {
                 let entry = entries.pop_front().unwrap();
                 self.count -= 1;
                 if !entry.value.rundown {
-                    METRICS
+                    self.metrics
                         .classic_unmatched
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -555,7 +567,11 @@ mod tests {
                 correlation.manifest(event)
             };
             if let RawPayload::Process(fields) = &mut out[0].payload {
-                crate::state::enrich_windows_command_line(fields, Some(live.clone()));
+                crate::state::enrich_windows_command_line(
+                    fields,
+                    Some(live.clone()),
+                    &correlation.metrics,
+                );
             }
             let normalizer = Normalizer::new(Arc::new(HostState::default()));
             let normalized = normalizer.normalize(&out[0]).unwrap();
@@ -618,7 +634,11 @@ mod tests {
             correlation.manifest(event);
             let mut out = correlation.insert_classic(classic(BASE + 150, &command), Instant::now());
             if let RawPayload::Process(fields) = &mut out[0].payload {
-                crate::state::enrich_windows_command_line(fields, Some("modified PEB".into()));
+                crate::state::enrich_windows_command_line(
+                    fields,
+                    Some("modified PEB".into()),
+                    &correlation.metrics,
+                );
             }
             let RawPayload::Process(fields) = &out[0].payload else {
                 panic!()

@@ -18,28 +18,16 @@ use crate::models::{
 };
 use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::classify_kernel_network_event;
+use crate::sensor::windows::telemetry::{EtwDecodeFailure, EtwDecodeFailureKey};
 use crate::sensor::{
     Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, RawProcessPlatform,
     RawWindowsProcess, SensorAction,
-};
-use crate::telemetry::{
-    EtwDecodeFailure, EtwDecodeFailureKey, RegistryPathSource, ETW_DECODE, WINDOWS_FILE_ATTRIBUTION,
 };
 use crate::utils::convert_nt_to_dos;
 use ferrisetw::parser::Parser;
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::EventRecord;
 use tracing::{debug, trace};
-
-/// Map the sensor's index tier onto the telemetry module's, which is platform
-/// neutral and so cannot name a Windows-only type.
-pub(super) fn registry_path_source(source: PathSource) -> RegistryPathSource {
-    match source {
-        PathSource::Session => RegistryPathSource::Session,
-        PathSource::StartupSnapshot => RegistryPathSource::StartupSnapshot,
-        PathSource::RecentlyClosed => RegistryPathSource::RecentlyClosed,
-    }
-}
 
 /// How many unresolved registry writes are logged individually before the
 /// line becomes a periodic volume report.
@@ -77,12 +65,15 @@ pub(super) struct DecodedEtwEvent {
 /// GUID, so the key space is bounded by what this build enables; see
 /// [`crate::telemetry::EtwDecodeFailureKey`].
 fn record_failure(record: &EventRecord, state: &EtwState, failure: EtwDecodeFailure) {
-    ETW_DECODE.record_failure(EtwDecodeFailureKey {
-        provider: state.routing.provider_name(record.provider_id()),
-        event_id: record.event_id(),
-        version: record.version(),
-        failure,
-    });
+    state
+        .counters()
+        .etw_decode
+        .record_failure(EtwDecodeFailureKey {
+            provider: state.routing.provider_name(record.provider_id()),
+            event_id: record.event_id(),
+            version: record.version(),
+            failure,
+        });
 }
 
 /// Decode one ETW record, accounting for what became of it.
@@ -97,7 +88,7 @@ pub(super) fn decode_record(
     schema_locator: &SchemaLocator,
     state: &EtwState,
 ) -> DecodedEtwEvents {
-    ETW_DECODE.record_received();
+    state.counters().etw_decode.record_received();
 
     let mut decoded = if record.provider_id() == state.routing.kernel_registry_guid {
         decode_kernel_registry_record(record, schema_locator, state)
@@ -115,7 +106,7 @@ pub(super) fn decode_record(
 
     let produced = decoded.replayed.len() + usize::from(decoded.primary.is_some());
     if produced > 0 {
-        ETW_DECODE.record_decoded(produced);
+        state.counters().etw_decode.record_decoded(produced);
     }
     decoded
 }
@@ -132,7 +123,7 @@ pub(super) fn decode_single_record(
     let Some((category, action)) = state.routing.route(record) else {
         // Intentional: the router declined this record. Volume here is the
         // provider allowlist working, not a gap, so it is never a failure.
-        ETW_DECODE.record_filtered();
+        state.counters().etw_decode.record_filtered();
         return None;
     };
     let schema = match schema_locator.event_schema(record) {
@@ -403,7 +394,7 @@ pub(super) fn decode_kernel_file_record(
     // and SetInformation also delivers every read and query on the machine,
     // and decoding those would be pure overhead.
     let Some(route) = kernel_file_route(record.event_id()) else {
-        ETW_DECODE.record_filtered();
+        state.counters().etw_decode.record_filtered();
         return None;
     };
 
@@ -435,26 +426,29 @@ pub(super) fn decode_kernel_file_record(
         paths.learn_at(file_object, file_key, path, record.raw_timestamp());
         // Republished on the naming path only: evictions can only happen on an
         // insert, and this keeps the pathless hot path free of the extra load.
-        WINDOWS_FILE_ATTRIBUTION.set_index_capacity_evictions(paths.capacity_evictions());
+        state
+            .counters()
+            .file_attribution
+            .set_index_capacity_evictions(paths.capacity_evictions());
     }
 
     let action = match route {
         KernelFileRoute::Index => {
-            ETW_DECODE.record_indexed();
+            state.counters().etw_decode.record_indexed();
             return None;
         }
         KernelFileRoute::EvictObject => {
             if let Some(object) = file_object {
                 state.paths().forget_object(object);
             }
-            ETW_DECODE.record_indexed();
+            state.counters().etw_decode.record_indexed();
             return None;
         }
         KernelFileRoute::EvictKey => {
             if let Some(key) = file_key {
                 state.paths().forget_key_at(key, record.raw_timestamp());
             }
-            ETW_DECODE.record_indexed();
+            state.counters().etw_decode.record_indexed();
             return None;
         }
         // Event ID 12 fires for every handle request, including plain opens;
@@ -465,7 +459,7 @@ pub(super) fn decode_kernel_file_record(
             match refine_file_create_action(&parser, SensorAction::Create) {
                 Some(action) => action,
                 None => {
-                    ETW_DECODE.record_filtered();
+                    state.counters().etw_decode.record_filtered();
                     return None;
                 }
             }
@@ -477,7 +471,7 @@ pub(super) fn decode_kernel_file_record(
         KernelFileRoute::SetInformation => match set_information_action(&parser) {
             Some(action) => action,
             None => {
-                ETW_DECODE.record_filtered();
+                state.counters().etw_decode.record_filtered();
                 return None;
             }
         },
@@ -489,7 +483,7 @@ pub(super) fn decode_kernel_file_record(
     let path_derived = named_path.is_none();
     let raw_path = match named_path {
         Some(path) => {
-            WINDOWS_FILE_ATTRIBUTION.record_resolved(false);
+            state.counters().file_attribution.record_resolved(false);
             path
         }
         None => match state
@@ -497,7 +491,7 @@ pub(super) fn decode_kernel_file_record(
             .resolve_at(file_object, file_key, record.raw_timestamp())
         {
             Some(path) => {
-                WINDOWS_FILE_ATTRIBUTION.record_resolved(true);
+                state.counters().file_attribution.record_resolved(true);
                 path.to_string()
             }
             None => {
@@ -505,8 +499,8 @@ pub(super) fn decode_kernel_file_record(
                 // blind spot, and its size is the only way to know whether an
                 // endpoint is quiet or unobserved. The persistent count lives
                 // in `telemetry.json` and also spaces the log.
-                ETW_DECODE.record_unattributed();
-                let unresolved = WINDOWS_FILE_ATTRIBUTION.record_unresolved();
+                state.counters().etw_decode.record_unattributed();
+                let unresolved = state.counters().file_attribution.record_unresolved();
                 if unresolved == 1 || unresolved.is_multiple_of(1000) {
                     debug!(
                         unresolved_file_events = unresolved,
@@ -600,7 +594,7 @@ pub(super) fn decode_kernel_registry_record(
     // Checked before the schema lookup so unrouted events cost only an
     // integer match.
     let Some(route) = kernel_registry_route(record.event_id()) else {
-        ETW_DECODE.record_filtered();
+        state.counters().etw_decode.record_filtered();
         return DecodedEtwEvents::default();
     };
 
@@ -642,9 +636,9 @@ pub(super) fn decode_kernel_registry_record(
             // measured idle desktop are failures carrying `KeyObject = 0`.
             match key_object {
                 Some(object) if object != 0 && path.is_some() => {
-                    crate::telemetry::REGISTRY.record_naming(creates)
+                    state.counters().registry.record_naming(creates)
                 }
-                _ => crate::telemetry::REGISTRY.record_naming_failed(),
+                _ => state.counters().registry.record_naming_failed(),
             }
 
             let (replayed, dropped) = match (key_object, path.as_deref()) {
@@ -653,9 +647,12 @@ pub(super) fn decode_kernel_registry_record(
                     .resolve(object, path, event_at),
                 _ => (Vec::new(), 0),
             };
-            record_unresolved_registry_events(dropped, record.process_id());
+            record_unresolved_registry_events(state, dropped, record.process_id());
             for _ in &replayed {
-                crate::telemetry::REGISTRY.record_resolved(RegistryPathSource::Session);
+                state
+                    .counters()
+                    .registry
+                    .record_resolved(PathSource::Session);
             }
 
             // `NtCreateKey` opens existing keys just as readily as it makes new
@@ -681,7 +678,7 @@ pub(super) fn decode_kernel_registry_record(
             // A naming event that emitted nothing did its real job: it taught
             // the index a path, and possibly replayed writes waiting on it.
             if primary.is_none() && replayed.is_empty() {
-                ETW_DECODE.record_indexed();
+                state.counters().etw_decode.record_indexed();
             }
 
             DecodedEtwEvents { primary, replayed }
@@ -690,14 +687,14 @@ pub(super) fn decode_kernel_registry_record(
             if let Some(object) = key_object {
                 state.registry_paths().forget_at(object, event_at);
             }
-            ETW_DECODE.record_indexed();
+            state.counters().etw_decode.record_indexed();
             DecodedEtwEvents::default()
         }
         KernelRegistryRoute::Emit(action) => {
             let value_name = try_get_string(&parser, "ValueName");
             // `KeyName` is declared on these events but measured empty on
             // Windows 11, so the index is the real source of the path.
-            let mut source = RegistryPathSource::Session;
+            let mut source = PathSource::Session;
             let mut path_derived = false;
             let path = try_get_string(&parser, "KeyName")
                 .filter(|name| !name.is_empty())
@@ -707,7 +704,7 @@ pub(super) fn decode_kernel_registry_record(
                         .resolve_at(key_object, event_at)
                         .map(|resolved| {
                             path_derived = true;
-                            source = registry_path_source(resolved.source);
+                            source = resolved.source;
                             resolved.path.to_string()
                         })
                 });
@@ -719,7 +716,7 @@ pub(super) fn decode_kernel_registry_record(
 
             match path.as_deref() {
                 Some(path) => {
-                    crate::telemetry::REGISTRY.record_resolved(source);
+                    state.counters().registry.record_resolved(source);
                     let mut event = event.into_sensor_event(path);
                     if !path_derived {
                         event.provenance = Default::default();
@@ -732,12 +729,12 @@ pub(super) fn decode_kernel_registry_record(
                         // deferred, not lost. Whatever the queue had to shed to
                         // make room is what the registry counters record.
                         let dropped = state.pending_registry_events().insert(object, event);
-                        record_unresolved_registry_events(dropped, record.process_id());
-                        ETW_DECODE.record_indexed();
+                        record_unresolved_registry_events(state, dropped, record.process_id());
+                        state.counters().etw_decode.record_indexed();
                     } else {
                         // No key object at all, so nothing can ever name it.
-                        record_unresolved_registry_events(1, record.process_id());
-                        ETW_DECODE.record_unattributed();
+                        record_unresolved_registry_events(state, 1, record.process_id());
+                        state.counters().etw_decode.record_unattributed();
                     }
                     DecodedEtwEvents::default()
                 }
@@ -781,9 +778,9 @@ pub(super) fn pending_registry_event(
     })
 }
 
-pub(super) fn record_unresolved_registry_events(count: usize, pid: u32) {
+pub(super) fn record_unresolved_registry_events(state: &EtwState, count: usize, pid: u32) {
     for _ in 0..count {
-        let unresolved = crate::telemetry::REGISTRY.record_unresolved();
+        let unresolved = state.counters().registry.record_unresolved();
         if unresolved <= UNRESOLVED_REGISTRY_SAMPLE || unresolved.is_multiple_of(10_000) {
             debug!(
                 unresolved_registry_events = unresolved,

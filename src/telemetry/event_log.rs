@@ -1,5 +1,6 @@
 //! Event Log loss signals are incidents, never gaps between filtered record IDs.
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,20 +18,34 @@ pub struct EventLogSnapshot {
     pub last_error: Option<String>,
 }
 
-pub static WINDOWS_EVENT_LOG: Mutex<Vec<EventLogSnapshot>> = Mutex::new(Vec::new());
+/// Per-channel Event Log health for one runtime.
+#[cfg(windows)]
+#[derive(Debug, Default)]
+pub struct EventLogHealth {
+    channels: Mutex<Vec<EventLogSnapshot>>,
+}
 
 #[cfg(windows)]
-pub(crate) fn update(channel: &str, change: impl FnOnce(&mut EventLogSnapshot)) {
-    let mut channels = WINDOWS_EVENT_LOG.lock().unwrap_or_else(|e| e.into_inner());
-    let index = channels
-        .iter()
-        .position(|entry| entry.channel == channel)
-        .unwrap_or_else(|| {
-            channels.push(EventLogSnapshot {
-                channel: channel.to_owned(),
-                ..Default::default()
+impl EventLogHealth {
+    pub(crate) fn update(&self, channel: &str, change: impl FnOnce(&mut EventLogSnapshot)) {
+        let mut channels = self.channels.lock().unwrap_or_else(|e| e.into_inner());
+        let index = channels
+            .iter()
+            .position(|entry| entry.channel == channel)
+            .unwrap_or_else(|| {
+                channels.push(EventLogSnapshot {
+                    channel: channel.to_owned(),
+                    ..Default::default()
+                });
+                channels.len() - 1
             });
-            channels.len() - 1
-        });
-    change(&mut channels[index]);
+        change(&mut channels[index]);
+    }
+
+    pub(crate) fn snapshot(&self) -> Vec<EventLogSnapshot> {
+        self.channels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
 }

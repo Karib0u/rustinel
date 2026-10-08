@@ -133,6 +133,13 @@ impl EtwSensor {
                 Arc::clone(&self.shutdown),
                 &self.event_log_directory,
                 self.security_filtering_platform_connections,
+                Arc::clone(
+                    &self
+                        .host
+                        .extension::<crate::sensor::windows::WindowsHostExtension>()
+                        .counters
+                        .event_log,
+                ),
             )?;
 
             // A session left running by a previous process keeps its old buffer

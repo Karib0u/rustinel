@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::LazyLock;
+
+use super::ProcessCommandLineSnapshot;
 
 #[derive(Debug, Default)]
 pub struct ProcessCorrelationCounters {
@@ -16,9 +17,6 @@ pub struct ProcessCorrelationCounters {
     pub classic_command_line: AtomicU64,
     pub session_failures: AtomicU64,
 }
-
-pub static WINDOWS_PROCESS_CORRELATION: LazyLock<ProcessCorrelationCounters> =
-    LazyLock::new(ProcessCorrelationCounters::default);
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -47,5 +45,44 @@ impl ProcessCorrelationCounters {
             classic_command_line: self.classic_command_line.load(Ordering::Relaxed),
             session_failures: self.session_failures.load(Ordering::Relaxed),
         }
+    }
+}
+
+/// Windows process command-line collection after every available fallback.
+#[derive(Debug, Default)]
+pub struct ProcessCommandLineCounters {
+    attempted: AtomicU64,
+    captured: AtomicU64,
+    missed: AtomicU64,
+}
+
+impl ProcessCommandLineCounters {
+    pub(crate) const fn new() -> Self {
+        Self {
+            attempted: AtomicU64::new(0),
+            captured: AtomicU64::new(0),
+            missed: AtomicU64::new(0),
+        }
+    }
+
+    pub fn record(&self, captured: bool) {
+        self.attempted.fetch_add(1, Ordering::Relaxed);
+        if captured {
+            self.captured.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.missed.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn snapshot(&self) -> Option<ProcessCommandLineSnapshot> {
+        let attempted = self.attempted.load(Ordering::Relaxed);
+        if attempted == 0 {
+            return None;
+        }
+        Some(ProcessCommandLineSnapshot {
+            attempted,
+            captured: self.captured.load(Ordering::Relaxed),
+            missed: self.missed.load(Ordering::Relaxed),
+        })
     }
 }

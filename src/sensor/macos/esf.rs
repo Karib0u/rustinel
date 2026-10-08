@@ -61,13 +61,23 @@ const SUBSCRIPTIONS: &[es_event_type_t] = &[
 pub struct EsfSensor {
     shutdown: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
+    collectors: crate::telemetry::MacosCollectors,
 }
 
 impl EsfSensor {
+    /// Report collector health to `host`, so the runtime's telemetry sees it.
+    pub fn with_host_state(host: &crate::state::HostState) -> Self {
+        Self {
+            collectors: Arc::clone(&host.macos_collectors),
+            ..Self::new()
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
             thread: Mutex::new(None),
+            collectors: Default::default(),
         }
     }
 }
@@ -86,9 +96,10 @@ impl Sensor for EsfSensor {
         let shutdown = Arc::clone(&self.shutdown);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
+        let collectors = Arc::clone(&self.collectors);
         let handle = std::thread::Builder::new()
             .name("rustinel-esf".to_string())
-            .spawn(move || run_client(tx, shutdown, ready_tx))
+            .spawn(move || run_client(tx, shutdown, ready_tx, collectors))
             .map_err(|e| anyhow!("failed to spawn Endpoint Security thread: {e}"))?;
 
         *self.thread.lock().expect("esf thread mutex poisoned") = Some(handle);
@@ -178,18 +189,20 @@ fn run_client(
     tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
+    collectors: crate::telemetry::MacosCollectors,
 ) {
     // These derived caches remain valid after unwinding. Recover poisoned
     // locks so a dropped event does not disable every later delivery.
     let identities = Mutex::new(ExecIdentities::default());
     let sequences = Mutex::new(crate::telemetry::macos::EsfSequences::default());
+    let handler_collectors = Arc::clone(&collectors);
     // Development and tests unwind: catch conversion panics before the native
     // callback boundary and drop this event. Release uses panic = "abort", so
     // the process terminates and the service manager must restart it.
     let handler =
         move |_client: &mut Client<'_>, msg: Message| match catch_unwind(AssertUnwindSafe(|| {
             sequences.lock().unwrap_or_else(|e| e.into_inner()).observe(
-                crate::telemetry::macos::MACOS_COLLECTORS
+                handler_collectors
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .esf
@@ -224,16 +237,10 @@ fn run_client(
         }
     };
 
-    crate::telemetry::macos::MACOS_COLLECTORS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .esf = Some(Default::default());
+    collectors.lock().unwrap_or_else(|e| e.into_inner()).esf = Some(Default::default());
 
     if let Err(e) = client.subscribe(SUBSCRIPTIONS) {
-        crate::telemetry::macos::MACOS_COLLECTORS
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .esf = None;
+        collectors.lock().unwrap_or_else(|e| e.into_inner()).esf = None;
         let _ = ready_tx.send(Err(format!("es_subscribe failed: {e:?}")));
         return;
     }

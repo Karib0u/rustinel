@@ -5,7 +5,7 @@
 //! has been torn down.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -79,13 +79,10 @@ pub struct WebhookCounters {
     high_water_mark: AtomicUsize,
 }
 
-static REGISTRY: LazyLock<Mutex<Vec<Weak<WebhookCounters>>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
-
 impl WebhookCounters {
-    /// Create counters for a destination and publish them to the snapshot.
-    pub fn register(name: String, target: String, capacity: usize) -> Arc<Self> {
-        let counters = Arc::new(Self {
+    /// Create counters for a destination.
+    pub fn new(name: String, target: String, capacity: usize) -> Arc<Self> {
+        Arc::new(Self {
             name,
             target,
             capacity,
@@ -97,11 +94,7 @@ impl WebhookCounters {
             dropped_oversized: AtomicU64::new(0),
             abandoned_at_shutdown: AtomicU64::new(0),
             high_water_mark: AtomicUsize::new(0),
-        });
-        let mut registry = REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.retain(|entry| entry.strong_count() > 0);
-        registry.push(Arc::downgrade(&counters));
-        counters
+        })
     }
 
     pub fn name(&self) -> &str {
@@ -174,15 +167,4 @@ impl WebhookCounters {
             high_water_mark: self.high_water_mark.load(Ordering::Relaxed),
         }
     }
-}
-
-/// Every registered destination that is still alive, in registration order.
-pub fn snapshot() -> Vec<WebhookSnapshot> {
-    REGISTRY
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .filter_map(Weak::upgrade)
-        .map(|counters| counters.snapshot())
-        .collect()
 }

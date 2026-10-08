@@ -8,6 +8,7 @@ pub mod mapper;
 pub(crate) mod registry_paths;
 mod registry_rundown;
 mod registry_value_data;
+pub(crate) mod telemetry;
 
 pub use etw::EtwSensor;
 
@@ -16,6 +17,7 @@ pub(crate) struct WindowsHostExtension {
     pub(crate) file_paths: std::sync::Mutex<file_paths::FilePathCache>,
     pub(crate) registry_paths: std::sync::Mutex<registry_paths::RegistryPathCache>,
     pub(crate) process_identities: std::sync::Mutex<etw::state::ProcessIdentityIndex>,
+    pub(crate) counters: telemetry::WindowsCounters,
 }
 
 impl crate::state::HostExtension for WindowsHostExtension {
@@ -30,7 +32,12 @@ impl crate::state::HostExtension for WindowsHostExtension {
             process_identities: std::sync::Mutex::new(
                 etw::state::ProcessIdentityIndex::with_max_entries(limits.processes),
             ),
+            counters: telemetry::WindowsCounters::default(),
         }
+    }
+
+    fn sensor_telemetry(&self, out: &mut crate::telemetry::SensorTelemetry) {
+        self.counters.report(out);
     }
 
     fn retained_paths(&self) -> usize {

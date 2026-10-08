@@ -13,16 +13,16 @@ use tokio::runtime::Builder;
 /// source, so failing to start it is fatal.
 /// A /dev/bpf capture supplies network and DNS events; without it the agent
 /// degrades to Endpoint Security only.
-fn sensors(_config: &AppConfig, _host: &Arc<HostState>, _mode: RunMode) -> SensorSet {
+fn sensors(_config: &AppConfig, host: &Arc<HostState>, _mode: RunMode) -> SensorSet {
     SensorSet::new(vec![
         Member::required(
             "macOS Endpoint Security sensor",
-            Arc::new(Direct(Arc::new(EsfSensor::new()))),
+            Arc::new(Direct(Arc::new(EsfSensor::with_host_state(host)))),
         ),
         Member::best_effort(
             "macOS network/DNS sensor",
             "continuing with Endpoint Security only",
-            Arc::new(Direct(Arc::new(BpfSensor::new()))),
+            Arc::new(Direct(Arc::new(BpfSensor::with_host_state(host)))),
         ),
     ])
 }

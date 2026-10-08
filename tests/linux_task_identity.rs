@@ -61,8 +61,8 @@ impl Drop for Child {
     }
 }
 
-fn assert_verifier_acceptance() {
-    let snapshot = rustinel::telemetry::LINUX_EBPF.snapshot().unwrap();
+fn assert_verifier_acceptance(sensor: &EbpfSensor) {
+    let snapshot = sensor.telemetry().unwrap();
     for feature in snapshot.features {
         for reason in feature.unavailable_hooks {
             assert!(!reason.contains("BPF_PROG_LOAD"), "{reason}");
@@ -86,7 +86,7 @@ async fn live_task_identity_matches_proc() {
     let sensor = EbpfSensor::with_host_state(host);
     let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
     sensor.start(tx).unwrap();
-    assert_verifier_acceptance();
+    assert_verifier_acceptance(&sensor);
     existing.0.stdin.as_mut().unwrap().write_all(b"x").unwrap();
     let mut command = Command::new("/bin/cat");
     command.stdin(Stdio::piped()).stdout(Stdio::null());
@@ -268,7 +268,7 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
     let sensor = EbpfSensor::new();
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(8192);
     sensor.start(event_tx).unwrap();
-    assert_verifier_acceptance();
+    assert_verifier_acceptance(&sensor);
 
     let mut target = Child(
         Command::new(executable)
@@ -388,7 +388,7 @@ async fn live_without_btf_keeps_base_telemetry() {
     let sensor = EbpfSensor::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
     sensor.start(tx).unwrap();
-    assert_verifier_acceptance();
+    assert_verifier_acceptance(&sensor);
     let target = Child(
         Command::new("/bin/cat")
             .stdin(Stdio::piped())

@@ -3,7 +3,11 @@
 use anyhow::{bail, Context, Result};
 use object::{Object, ObjectSection, ObjectSymbol};
 
-use crate::telemetry::LINUX_EBPF_ABI_VERSION;
+/// Version shared by Linux eBPF userspace telemetry and the object loader.
+///
+/// Bump this whenever a ring-buffer event layout or loader-patched global
+/// changes.
+pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 6;
 
 const ABI_SYMBOL: &str = "RUSTINEL_ABI_VERSION";
 

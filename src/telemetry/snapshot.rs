@@ -530,6 +530,7 @@ pub struct TelemetrySnapshot {
 impl TelemetrySnapshot {
     /// Read the live counters, and the stores `probes` points at.
     pub fn capture(probes: &super::PipelineProbes) -> Self {
+        let sensors = probes.sensor_telemetry();
         Self {
             host_state: probes.host_snapshot(),
             artifact_resolver: probes.artifact_snapshot(),
@@ -537,25 +538,22 @@ impl TelemetrySnapshot {
             pid: std::process::id(),
             captured_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             uptime_secs: PROCESS_START.elapsed().as_secs(),
-            field_contract_violations: super::field_contract_violations(),
+            field_contract_violations: sensors.field_contract_violations,
             channels: ChannelId::ALL
                 .iter()
                 .map(|channel| channel.counters().snapshot())
                 .collect(),
-            field_fidelity: super::provenance::snapshot(),
+            field_fidelity: sensors.field_fidelity,
             sensor_events_by_category: super::sensor_event_category_snapshots(),
-            linux_ebpf: super::LINUX_EBPF.snapshot(),
-            macos_collectors: super::macos::snapshot(),
-            windows_event_log: super::event_log::WINDOWS_EVENT_LOG
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone(),
-            windows_process_correlation: crate::telemetry::WINDOWS_PROCESS_CORRELATION.snapshot(),
-            windows_process_command_line: super::WINDOWS_PROCESS_COMMAND_LINE.snapshot(),
-            registry: super::REGISTRY.snapshot(),
-            file_attribution: super::WINDOWS_FILE_ATTRIBUTION.snapshot(),
-            etw_decode: super::ETW_DECODE.snapshot(),
-            alert_webhooks: super::webhook::snapshot(),
+            linux_ebpf: sensors.linux_ebpf,
+            macos_collectors: sensors.macos_collectors,
+            windows_event_log: sensors.windows_event_log,
+            windows_process_correlation: sensors.process_correlation,
+            windows_process_command_line: sensors.process_command_line,
+            registry: sensors.registry,
+            file_attribution: sensors.file_attribution,
+            etw_decode: sensors.etw_decode,
+            alert_webhooks: probes.webhook_snapshots(),
         }
     }
 
@@ -652,6 +650,24 @@ impl TelemetrySnapshot {
             Err(err) => SnapshotRead::Malformed(err.to_string()),
         }
     }
+}
+
+/// The platform-owned sections of a snapshot, filled by the host's extension.
+///
+/// Each field stays `None` until the sensor that owns it has something to
+/// report, which keeps the persisted schema identical on every platform.
+#[derive(Debug, Default)]
+pub struct SensorTelemetry {
+    pub linux_ebpf: Option<LinuxEbpfSnapshot>,
+    pub registry: Option<RegistrySnapshot>,
+    pub file_attribution: Option<FileAttributionSnapshot>,
+    pub etw_decode: Option<EtwDecodeSnapshot>,
+    pub process_correlation: super::ProcessCorrelationSnapshot,
+    pub process_command_line: Option<ProcessCommandLineSnapshot>,
+    pub field_fidelity: Vec<super::FieldFidelitySnapshot>,
+    pub field_contract_violations: u64,
+    pub macos_collectors: Option<super::MacosCollectorSnapshot>,
+    pub windows_event_log: Vec<super::EventLogSnapshot>,
 }
 
 /// Outcome of reading the snapshot file.
@@ -809,12 +825,16 @@ mod tests {
 
     #[test]
     fn capture_includes_field_contract_violations() {
-        let before = TelemetrySnapshot::capture(&crate::telemetry::PipelineProbes::default())
-            .field_contract_violations;
-        crate::telemetry::record_field_contract_violations(2);
-        let after = TelemetrySnapshot::capture(&crate::telemetry::PipelineProbes::default())
-            .field_contract_violations;
-        assert!(after >= before + 2);
+        let host = std::sync::Arc::new(crate::state::HostState::default());
+        let probes = crate::telemetry::PipelineProbes::default();
+        probes.attach_host(&host);
+        host.field_contract_violations
+            .fetch_add(2, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(
+            TelemetrySnapshot::capture(&probes).field_contract_violations,
+            2
+        );
     }
 
     #[test]

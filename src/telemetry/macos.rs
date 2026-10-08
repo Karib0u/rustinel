@@ -1,6 +1,6 @@
 //! Kernel loss accounting, independent of pipeline channel shedding.
 use std::collections::BTreeMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -43,11 +43,11 @@ pub struct BpfInterfaceSnapshot {
     pub stats_errors: u64,
 }
 
-pub(crate) static MACOS_COLLECTORS: LazyLock<Mutex<MacosCollectorSnapshot>> =
-    LazyLock::new(|| Mutex::new(MacosCollectorSnapshot::default()));
+/// Collector health shared by the ESF and BPF sensors of one runtime.
+pub type MacosCollectors = Arc<Mutex<MacosCollectorSnapshot>>;
 
-pub(super) fn snapshot() -> Option<MacosCollectorSnapshot> {
-    let counters = MACOS_COLLECTORS.lock().unwrap_or_else(|e| e.into_inner());
+pub(crate) fn snapshot(collectors: &MacosCollectors) -> Option<MacosCollectorSnapshot> {
+    let counters = collectors.lock().unwrap_or_else(|e| e.into_inner());
     (counters.esf.is_some() || counters.bpf.is_some()).then(|| counters.clone())
 }
 

@@ -36,7 +36,7 @@ async fn live_tuple_and_connection_churn() {
     let sensor = EbpfSensor::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel(32768);
     sensor.start(tx).unwrap();
-    let snapshot = rustinel::telemetry::LINUX_EBPF.snapshot().unwrap();
+    let snapshot = sensor.telemetry().unwrap();
     assert!(
         snapshot
             .features
@@ -143,7 +143,7 @@ async fn live_without_socket_btf_uses_syscall_fallback() {
     let sensor = EbpfSensor::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
     sensor.start(tx).unwrap();
-    let snapshot = rustinel::telemetry::LINUX_EBPF.snapshot().unwrap();
+    let snapshot = sensor.telemetry().unwrap();
     assert!(snapshot
         .features
         .iter()
