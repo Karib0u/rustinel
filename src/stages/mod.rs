@@ -18,8 +18,8 @@
 pub(crate) mod admission;
 pub(crate) mod deferred;
 
-use crate::artifact::PeMetadata;
 use crate::models::{CanonicalEvent, EventFields};
+use crate::vocab::PeMetadata;
 
 /// Copy resolved version-resource metadata onto a process-start or image-load
 /// event and mark each filled field as derived rather than measured.
