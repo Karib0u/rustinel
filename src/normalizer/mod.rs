@@ -34,6 +34,12 @@ pub trait NormalizerHost {
     fn next_ingest_seq(&self) -> u64;
     /// Count an event whose process could not be attributed.
     fn record_attribution_loss(&self);
+    /// Count canonical fields emitted despite a `Never` availability contract.
+    fn record_field_contract_violations(&self, _count: usize) {}
+    /// Count the fields with known fidelity limits that an event carried.
+    fn record_provenance(&self, _provenance: &Provenance) {}
+    /// Count whether a Windows process start ended with a command line.
+    fn record_command_line(&self, _captured: bool) {}
     /// Resolve the cgroup path and container of a Linux process event.
     #[cfg(target_os = "linux")]
     fn resolve_container(
@@ -63,6 +69,19 @@ impl NormalizerHost for HostState {
 
     fn record_attribution_loss(&self) {
         HostState::record_attribution_loss(self);
+    }
+
+    fn record_field_contract_violations(&self, count: usize) {
+        self.field_contract_violations
+            .fetch_add(count as u64, Ordering::Relaxed);
+    }
+
+    fn record_provenance(&self, provenance: &Provenance) {
+        self.provenance.record(provenance);
+    }
+
+    fn record_command_line(&self, captured: bool) {
+        self.command_line.record(captured);
     }
 
     #[cfg(target_os = "linux")]
@@ -149,10 +168,8 @@ where
         // turn contract drift into an immediate, actionable failure.
         let missing_always = crate::field_availability::missing_always_fields(&normalized);
         let populated_never = crate::field_availability::populated_never_fields(&normalized);
-        self.state.field_contract_violations.fetch_add(
-            populated_never.len() as u64,
-            std::sync::atomic::Ordering::Relaxed,
-        );
+        self.state
+            .record_field_contract_violations(populated_never.len());
         debug_assert!(
             missing_always.is_empty(),
             "decoder omitted Always field(s) for {}: {:?}",
@@ -171,7 +188,7 @@ where
             "{:?}",
             normalized.validate_provenance()
         );
-        self.state.provenance.record(&normalized.provenance);
+        self.state.record_provenance(&normalized.provenance);
         Some(normalized)
     }
 
@@ -275,8 +292,7 @@ where
 
         if event.platform == Platform::Windows && event.action == SensorAction::Start {
             self.state
-                .command_line
-                .record(fields.command_line.is_some());
+                .record_command_line(fields.command_line.is_some());
         }
 
         if event.action == SensorAction::Start {
