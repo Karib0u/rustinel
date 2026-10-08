@@ -1,17 +1,18 @@
-use crate::response::ResponseEngine;
-use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
+use crate::config::AppConfig;
+use crate::runtime::capture::{run_capture as capture, CaptureOptions};
+use crate::runtime::live::run_live;
 use crate::runtime::logging::TARGET_CONSOLE;
-use crate::runtime::pipeline::{LivePipeline, SharedState};
-use crate::runtime::shutdown::exit_on_critical_worker_failure;
-use crate::runtime::startup::{load_config, RuntimeLogging};
+use crate::runtime::sensors::{
+    BoxFuture, LiveSensor, Member, PlatformRuntime, RunMode, SensorSet, ShutdownFuture,
+    StartFailure,
+};
 use crate::sensor::windows::EtwSensor;
-use crate::sensor::{Platform, RawEvent, Sensor};
-
-const SENSOR_EVENT_CHANNEL_CAPACITY: usize = 32_768;
-use arc_swap::ArcSwap;
+use crate::sensor::{RawEvent, Sensor};
+use crate::state::HostState;
 use std::sync::Arc;
 use tokio::runtime::Builder;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 enum ShutdownMode {
@@ -130,33 +131,6 @@ fn service_main() -> anyhow::Result<()> {
     result
 }
 
-fn spawn_shutdown_handler(
-    shutdown_mode: ShutdownMode,
-    sensor: Arc<EtwSensor>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        match shutdown_mode {
-            ShutdownMode::Console => match tokio::signal::ctrl_c().await {
-                Ok(()) => {
-                    info!(target: TARGET_CONSOLE, "Received Ctrl+C signal");
-                    sensor.shutdown();
-                }
-                Err(err) => {
-                    error!("Failed to listen for Ctrl+C: {}", err);
-                }
-            },
-            ShutdownMode::Service(mut shutdown_rx) => {
-                if shutdown_rx.changed().await.is_ok() {
-                    info!(target: TARGET_CONSOLE, "Received service stop signal");
-                } else {
-                    warn!("Service shutdown channel dropped");
-                }
-                sensor.shutdown();
-            }
-        }
-    })
-}
-
 /// ETW providers require an elevated token. Shared by `run` and `capture` so
 /// both fail with the same clear preflight error.
 fn ensure_administrator_privileges() -> anyhow::Result<()> {
@@ -200,113 +174,237 @@ fn ensure_administrator_privileges() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The ETW trace thread, supervised from async code.
+///
+/// ETW starts on a blocking thread and reports readiness over a channel, and
+/// the thread ending is how a dead session shows up.
+struct EtwLive {
+    sensor: Arc<EtwSensor>,
+    trace: tokio::sync::Mutex<Trace>,
+}
+
+enum Trace {
+    NotStarted,
+    Running(JoinHandle<anyhow::Result<()>>),
+    Finished,
+}
+
+impl EtwLive {
+    fn new(sensor: EtwSensor) -> Self {
+        Self {
+            sensor: Arc::new(sensor),
+            trace: tokio::sync::Mutex::new(Trace::NotStarted),
+        }
+    }
+}
+
+fn describe_trace_end(result: Result<anyhow::Result<()>, tokio::task::JoinError>) -> String {
+    match result {
+        Ok(Ok(())) => "ETW session closed".to_string(),
+        Ok(Err(err)) => format!("ETW session failed: {err:#}"),
+        Err(err) if err.is_panic() => {
+            let panic = err.into_panic();
+            let message = panic
+                .downcast_ref::<&str>()
+                .map(|message| message.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "<unable to extract>".to_string());
+            format!("ETW trace thread panicked: {message}")
+        }
+        Err(err) => format!("ETW trace thread did not finish cleanly: {err}"),
+    }
+}
+
+impl LiveSensor for EtwLive {
+    fn start(&self, tx: mpsc::Sender<RawEvent>) -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(async move {
+            let sensor = Arc::clone(&self.sensor);
+            let (readiness_tx, readiness_rx) = oneshot::channel();
+            let mut handle =
+                tokio::task::spawn_blocking(move || sensor.start_with_readiness(tx, readiness_tx));
+
+            // Startup runs on the trace thread. Report ready only once both
+            // ETW sessions, their consumers, and the Event Log subscriptions
+            // accept events.
+            let (failure, trace_finished) = tokio::select! {
+                result = &mut handle => (
+                    Some(format!("{} during startup", describe_trace_end(result))),
+                    true,
+                ),
+                readiness = readiness_rx => match readiness {
+                    Ok(Ok(())) => (None, false),
+                    Ok(Err(err)) => (Some(format!("ETW startup failed: {err}")), false),
+                    Err(_) => (
+                        Some("ETW sensor stopped before reporting readiness".to_string()),
+                        false,
+                    ),
+                },
+            };
+
+            if let Some(reason) = failure {
+                if !trace_finished {
+                    let _ = (&mut handle).await;
+                }
+                return Err(anyhow::anyhow!(reason));
+            }
+            *self.trace.lock().await = Trace::Running(handle);
+            Ok(())
+        })
+    }
+
+    fn shutdown(&self) {
+        self.sensor.shutdown();
+    }
+
+    fn ended(&self) -> BoxFuture<'_, String> {
+        Box::pin(async move {
+            let mut trace = self.trace.lock().await;
+            let Trace::Running(handle) = &mut *trace else {
+                return std::future::pending().await;
+            };
+            let result = handle.await;
+            *trace = Trace::Finished;
+            describe_trace_end(result)
+        })
+    }
+
+    fn stopped(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            let mut trace = self.trace.lock().await;
+            if let Trace::Running(handle) = &mut *trace {
+                match handle.await {
+                    Ok(Ok(())) => info!("ETW sensor thread finished"),
+                    Ok(Err(err)) => warn!("ETW sensor exited with error during shutdown: {err:#}"),
+                    Err(err) => error!("Failed to join ETW sensor thread: {}", err),
+                }
+            }
+            *trace = Trace::Finished;
+        })
+    }
+
+    fn events_lost(&self) -> u64 {
+        self.sensor.events_lost()
+    }
+}
+
+fn sensors(config: &AppConfig, host: &Arc<HostState>, mode: RunMode) -> SensorSet {
+    let event_log = match mode {
+        RunMode::Live => "event-log",
+        RunMode::Capture => "event-log-capture",
+    };
+    let etw = EtwSensor::with_flush_intervals(
+        config.windows.etw_flush_interval_ms,
+        config.windows.etw_process_flush_interval_ms,
+    )
+    .with_host_state(Arc::clone(host))
+    .with_event_log_directory(config.logging.directory.join(event_log))
+    .with_security_filtering_platform_connections(
+        config.windows.security_filtering_platform_connections,
+    );
+    SensorSet::new(vec![Member::required(
+        "ETW sensor",
+        Arc::new(EtwLive::new(etw)),
+    )])
+}
+
+/// Cold start: seed the process cache so early events resolve parents.
+fn seed_host_state(host: &Arc<HostState>) {
+    match crate::platform::windows::snapshot_processes(host) {
+        Ok(count) => info!(
+            target: TARGET_CONSOLE,
+            "✓ Process Cache initialized with {} existing processes",
+            count
+        ),
+        Err(e) => warn!(
+            "Failed to snapshot processes: {}. Cache will populate from ETW events.",
+            e
+        ),
+    }
+}
+
+// ETW is the busiest source, so its channel holds more than the other
+// platforms' (#364). Capture uses the same capacity as live.
+const RUNTIME: PlatformRuntime = PlatformRuntime {
+    platform: crate::sensor::Platform::Windows,
+    label: "Windows ETW",
+    channel_capacity: 32_768,
+    // An ETW session reports a failed start by ending, and the recording is
+    // still the evidence of what ran, so it is kept and marked incomplete.
+    start_failure: StartFailure::KeepIncomplete,
+    preflight: ensure_administrator_privileges,
+    seed_host_state,
+    sensors,
+    starting: "ETW sensor",
+};
+
+fn shutdown_future(mode: ShutdownMode) -> ShutdownFuture {
+    match mode {
+        ShutdownMode::Console => {
+            let listener = tokio::spawn(async {
+                match tokio::signal::ctrl_c().await {
+                    Ok(()) => Some("Ctrl+C".to_string()),
+                    Err(err) => {
+                        error!("Failed to listen for Ctrl+C: {}", err);
+                        None
+                    }
+                }
+            });
+            Box::pin(async move { listener.await.ok().flatten() })
+        }
+        ShutdownMode::Service(mut shutdown_rx) => Box::pin(async move {
+            if shutdown_rx.changed().await.is_ok() {
+                Some("service stop".to_string())
+            } else {
+                warn!("Service shutdown channel dropped");
+                None
+            }
+        }),
+    }
+}
+
+/// Windows process groups receive `CTRL_BREAK_EVENT` from automation such as
+/// Python's `subprocess.send_signal`. Capture treats it like interactive
+/// Ctrl+C so it can still drain and finalize its manifest.
+fn capture_shutdown_future() -> ShutdownFuture {
+    Box::pin(async {
+        let mut ctrl_break = match tokio::signal::windows::ctrl_break() {
+            Ok(signal) => signal,
+            Err(err) => {
+                error!("Failed to listen for Ctrl+Break: {}", err);
+                return match tokio::signal::ctrl_c().await {
+                    Ok(()) => Some("Ctrl+C".to_string()),
+                    Err(err) => {
+                        error!("Failed to listen for Ctrl+C: {}", err);
+                        None
+                    }
+                };
+            }
+        };
+
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => match result {
+                Ok(()) => Some("Ctrl+C".to_string()),
+                Err(err) => {
+                    error!("Failed to listen for Ctrl+C: {}", err);
+                    None
+                }
+            },
+            signal = ctrl_break.recv() => match signal {
+                Some(()) => Some("Ctrl+Break".to_string()),
+                None => {
+                    error!("Ctrl+Break listener closed before shutdown");
+                    None
+                }
+            },
+        }
+    })
+}
+
 /// Windows capture runtime: the same ETW session as `run`, recording normalized
 /// events instead of evaluating them.
 pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(async move {
-        let context = CaptureContext::load(&options, "Windows ETW")?;
-        ensure_administrator_privileges()?;
-        let flush_interval_ms = context.config().windows.etw_flush_interval_ms;
-        let process_flush_interval_ms = context.config().windows.etw_process_flush_interval_ms;
-        let security_filtering_platform_connections = context
-            .config()
-            .windows
-            .security_filtering_platform_connections;
-        let event_log_directory = context.config().logging.directory.join("event-log-capture");
-        let session = context.start_recording(&options, Platform::Windows)?;
-
-        // Cold start: seed the process cache so early events resolve parents.
-        match crate::platform::windows::snapshot_processes(session.host_state()) {
-            Ok(count) => info!(
-                target: TARGET_CONSOLE,
-                "✓ Process Cache initialized with {} existing processes",
-                count
-            ),
-            Err(e) => warn!(
-                "Failed to snapshot processes: {}. Cache will populate from ETW events.",
-                e
-            ),
-        }
-
-        let (sensor_tx, sensor_worker) = session.sensor_channel();
-        let sensor = Arc::new(
-            EtwSensor::with_flush_intervals(flush_interval_ms, process_flush_interval_ms)
-                .with_host_state(Arc::clone(session.host_state()))
-                .with_event_log_directory(event_log_directory)
-                .with_security_filtering_platform_connections(
-                    security_filtering_platform_connections,
-                ),
-        );
-        let sensor_for_trace = Arc::clone(&sensor);
-        let (readiness_tx, readiness_rx) = oneshot::channel();
-        let mut trace_handle = tokio::task::spawn_blocking(move || {
-            sensor_for_trace.start_with_readiness(sensor_tx, readiness_tx)
-        });
-
-        // ETW startup runs on its blocking trace thread. Do not announce the
-        // recording until that thread confirms that both ETW sessions, their
-        // consumers, and the Event Log subscriptions are accepting events.
-        let (startup_failure, trace_finished) = tokio::select! {
-            result = &mut trace_handle => {
-                let reason = match result {
-                    Ok(Ok(())) => "ETW session closed during startup".to_string(),
-                    Ok(Err(err)) => format!("ETW session failed during startup: {err:#}"),
-                    Err(err) => format!("ETW sensor thread did not start cleanly: {err}"),
-                };
-                (Some(reason), true)
-            }
-            readiness = readiness_rx => match readiness {
-                Ok(Ok(())) => (None, false),
-                Ok(Err(err)) => (Some(format!("ETW startup failed: {err}")), false),
-                Err(_) => (Some("ETW sensor stopped before reporting readiness".to_string()), false),
-            }
-        };
-
-        if let Some(reason) = startup_failure {
-            error!("🚨 {}", reason);
-            session.mark_incomplete(&reason);
-            sensor.shutdown();
-            if !trace_finished {
-                let _ = (&mut trace_handle).await;
-            }
-            session.finish(sensor_worker, sensor.events_lost()).await?;
-            return Err(anyhow::anyhow!(reason));
-        }
-
-        session.announce_ready();
-
-        // An ETW session that ends on its own takes the recording with it:
-        // everything after that point is missing, which the capture sink cannot
-        // see, so the recording has to be marked incomplete explicitly.
-        let mut sensor_failure = None;
-        tokio::select! {
-            _ = CaptureSession::wait_for_shutdown() => {
-                sensor.shutdown();
-                if let Err(err) = (&mut trace_handle).await {
-                    error!("Failed to join ETW sensor thread: {}", err);
-                }
-            }
-            result = &mut trace_handle => {
-                let reason = match result {
-                    Ok(Ok(())) => "ETW session closed unexpectedly".to_string(),
-                    Ok(Err(err)) => format!("ETW session failed: {err:#}"),
-                    Err(err) => format!("ETW sensor thread did not finish cleanly: {err}"),
-                };
-                error!("🚨 {}", reason);
-                session.mark_incomplete(&reason);
-                sensor.shutdown();
-                sensor_failure = Some(anyhow::anyhow!(reason));
-            }
-        }
-
-        session.finish(sensor_worker, sensor.events_lost()).await?;
-
-        match sensor_failure {
-            Some(err) => Err(err),
-            None => Ok(()),
-        }
-    })
+    runtime.block_on(capture(&RUNTIME, capture_shutdown_future(), &options))
 }
 
 async fn run_edr(
@@ -315,200 +413,12 @@ async fn run_edr(
     log_level_override: Option<String>,
     config_path: Option<std::path::PathBuf>,
 ) -> anyhow::Result<()> {
-    let (cfg, resolved_config_path) =
-        load_config(console_output_override, log_level_override, config_path)?;
-    let RuntimeLogging {
-        alert_sink,
-        dedup_worker_handle,
-        telemetry_reporter,
-        _guards,
-    } = RuntimeLogging::start(&cfg, "Windows ETW", resolved_config_path.as_deref())?;
-
-    // Initialize Active Response Engine (optional)
-    let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
-    let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
-    info!(
-        target: "rustinel",
-        logs_dir = ?cfg.logging.directory,
-        alerts_dir = ?cfg.alerts.directory,
-        "Agent logging initialized"
-    );
-    info!(target: TARGET_CONSOLE, "Agent initializing");
-
-    // Verify running with appropriate privileges
-    ensure_administrator_privileges()?;
-
-    // Initialize modules
-    info!("Initializing modules...");
-
-    // Initialize Process Cache and perform cold start snapshot
-    info!("Initializing Process Cache...");
-    let state = SharedState::new(&cfg);
-
-    // Snapshot existing processes using Windows API (handles cold start problem)
-    {
-        match crate::platform::windows::snapshot_processes(&state.host) {
-            Ok(count) => {
-                info!(
-                    target: TARGET_CONSOLE,
-                    "✓ Process Cache initialized with {} existing processes",
-                    count
-                );
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to snapshot processes: {}. Cache will populate from ETW events.",
-                    e
-                );
-            }
-        }
-    }
-
-    let sensor = Arc::new(
-        EtwSensor::with_flush_intervals(
-            cfg.windows.etw_flush_interval_ms,
-            cfg.windows.etw_process_flush_interval_ms,
-        )
-        .with_host_state(Arc::clone(&state.host))
-        .with_event_log_directory(cfg.logging.directory.join("event-log"))
-        .with_security_filtering_platform_connections(
-            cfg.windows.security_filtering_platform_connections,
-        ),
-    );
-
-    let mut pipeline = LivePipeline::new(
-        &cfg,
-        resolved_config_path,
-        Platform::Windows,
-        state,
-        alert_sink.clone(),
-        response_config,
-        response_engine.clone(),
-    );
-
-    info!("✓ Event Router initialized");
-    info!("✓ Event handlers registered");
-
-    // Setup graceful shutdown handler
-    let shutdown_handler = spawn_shutdown_handler(shutdown_mode, Arc::clone(&sensor));
-
-    info!("✓ Signal handlers configured");
-    info!("");
-    info!("Starting ETW trace session...");
-    info!(target: TARGET_CONSOLE, "Starting ETW sensor");
-    info!("");
-
-    // Start shared sensor event pipeline
-    let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(SENSOR_EVENT_CHANNEL_CAPACITY);
-    let router_clone = Arc::clone(&pipeline.router);
-    let host_state = Arc::clone(&pipeline.host_state);
-    let mut sensor_worker_handle = tokio::task::spawn_blocking(move || {
-        info!(target: "sensor", "Sensor event worker thread started");
-        while let Some(event) = sensor_rx.blocking_recv() {
-            if let Some(event) = host_state.canonicalize(event) {
-                router_clone.route_event(&event);
-            }
-        }
-        info!(target: "sensor", "Sensor event worker thread shutting down");
-    });
-
-    let sensor_clone = Arc::clone(&sensor);
-    let (readiness_tx, readiness_rx) = oneshot::channel();
-
-    // We make trace_handle mutable so we can await it.
-    let mut trace_handle = tokio::task::spawn_blocking(move || {
-        sensor_clone.start_with_readiness(sensor_tx, readiness_tx)
-    });
-
-    match readiness_rx.await {
-        Ok(Ok(())) => info!(
-            target: TARGET_CONSOLE,
-            "Agent ready; press Ctrl+C to stop gracefully"
-        ),
-        Ok(Err(err)) => {
-            let _ = (&mut trace_handle).await;
-            return Err(anyhow::anyhow!("ETW startup failed: {err}"));
-        }
-        Err(_) => {
-            let _ = (&mut trace_handle).await;
-            return Err(anyhow::anyhow!(
-                "ETW sensor stopped before reporting readiness"
-            ));
-        }
-    }
-
-    // Wait for shutdown, trace completion, or a critical pipeline worker.
-    let mut response_worker_handle = response_worker_handle;
-    tokio::select! {
-        biased;
-        _ = shutdown_handler => {
-            info!("Shutdown signal received, waiting for ETW session to close...");
-            match trace_handle.await {
-                Ok(Ok(())) => info!("ETW sensor thread finished"),
-                Ok(Err(err)) => warn!("ETW sensor exited with error during shutdown: {err:#}"),
-                Err(e) => error!("Failed to join ETW sensor thread: {}", e),
-            }
-        }
-        (name, result) = pipeline.critical_worker_exit(&mut sensor_worker_handle, &mut response_worker_handle) => {
-            exit_on_critical_worker_failure(name, result, _guards);
-        }
-        // CRITICAL: If trace finishes unexpectedly, the ETW sensor died.
-        // This means the agent is "blind" - still running but not collecting events.
-        result = &mut trace_handle => {
-            if sensor.is_shutdown() {
-                info!("ETW sensor thread finished after shutdown request");
-            } else {
-                error!("🚨 CRITICAL: ETW sensor thread died unexpectedly!");
-                match result {
-                    Ok(Err(err)) => {
-                        error!("ETW session failed: {err:#}");
-                    }
-                    Ok(Ok(())) => {
-                        error!("Trace stopped without panic (unexpected normal termination)");
-                        error!("This indicates the ETW session closed unexpectedly");
-                    }
-                    Err(join_err) => {
-                        if join_err.is_panic() {
-                            error!("🔥 PANIC: Trace thread PANICKED!");
-                            // Try to extract panic message (into_panic consumes join_err)
-                            let panic_info = join_err.into_panic();
-                            if let Some(panic_msg) = panic_info.downcast_ref::<&str>() {
-                                error!("Panic message: {}", panic_msg);
-                            } else if let Some(panic_msg) = panic_info.downcast_ref::<String>() {
-                                error!("Panic message: {}", panic_msg);
-                            } else {
-                                error!("Panic message: <unable to extract>");
-                            }
-                        } else {
-                            error!("Trace thread cancelled/failed: {}", join_err);
-                        }
-                    }
-                }
-                // Force exit so Service Manager/Watchdog restarts the agent
-                // Without this, the agent appears "Online" but is blind to events
-                error!("Forcing process exit to trigger restart...");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    drop(response_engine);
-    pipeline
-        .shutdown(
-            sensor_worker_handle,
-            response_worker_handle,
-            dedup_worker_handle,
-            &alert_sink,
-            telemetry_reporter,
-        )
-        .await;
-
-    info!("");
-    info!(target: TARGET_CONSOLE, "Shutdown complete");
-    info!("╔═══════════════════════════════════════════════════╗");
-    info!("║           Shutdown Complete                       ║");
-    info!("║        Thank you for using Rustinel!              ║");
-    info!("╚═══════════════════════════════════════════════════╝");
-
-    Ok(())
+    run_live(
+        &RUNTIME,
+        shutdown_future(shutdown_mode),
+        console_output_override,
+        log_level_override,
+        config_path,
+    )
+    .await
 }

@@ -5,8 +5,9 @@
 //! on Ctrl-C. The user launches the sample, script, or Atomic test separately —
 //! Rustinel never runs the activity being observed.
 //!
-//! The platform modules own sensor startup and privileges; everything before
-//! and after that lives here.
+//! The platform modules describe their sensors and privileges with a
+//! `PlatformRuntime`; everything before and after that lives here, including
+//! the run itself.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,14 +22,15 @@ use crate::artifact::{spawn_artifact_resolver, ArtifactRuntime};
 use crate::capture::{CaptureRecorder, CaptureStatus};
 use crate::config::AppConfig;
 use crate::engine::CanonicalEventDispatcher;
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::logging::{init_operational_logging, log_startup_banner};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use crate::runtime::signals::ShutdownSignals;
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+use crate::runtime::sensors::{
+    spawn_sensor_worker, PlatformRuntime, RunMode, ShutdownFuture, StartFailure,
+};
 use crate::sensor::{Platform, RawEvent, SensorEventRouter};
 use crate::state::HostState;
-
-/// Capacity of the sensor-to-router channel, matching the live runtimes.
-const SENSOR_CHANNEL_CAPACITY: usize = 8192;
 
 /// How often the running event count is reported on stderr.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(10);
@@ -77,11 +79,6 @@ impl CaptureContext {
             config,
             _log_guard: log_guard,
         })
-    }
-
-    #[cfg_attr(not(windows), allow(dead_code))]
-    pub(crate) fn config(&self) -> &AppConfig {
-        &self.config
     }
 
     /// Open the recording and build the record-only event pipeline.
@@ -145,30 +142,24 @@ impl CaptureSession {
 
     /// Process metadata cache, so platforms that can enumerate running
     /// processes can seed it during startup.
-    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn host_state(&self) -> &Arc<HostState> {
         &self.host_state
     }
 
     /// Start the router worker and hand back the channel the sensors feed.
-    pub(crate) fn sensor_channel(&self) -> (mpsc::Sender<RawEvent>, JoinHandle<()>) {
-        let (tx, mut rx) = mpsc::channel::<RawEvent>(SENSOR_CHANNEL_CAPACITY);
-        let router = Arc::clone(&self.router);
-        let host_state = Arc::clone(&self.host_state);
-        let worker = tokio::task::spawn_blocking(move || {
-            while let Some(event) = rx.blocking_recv() {
-                if let Some(event) = host_state.canonicalize(event) {
-                    router.route_event(&event);
-                }
-            }
-        });
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    pub(crate) fn sensor_channel(
+        &self,
+        capacity: usize,
+    ) -> (mpsc::Sender<RawEvent>, JoinHandle<()>) {
+        let (tx, rx) = mpsc::channel::<RawEvent>(capacity);
+        let worker =
+            spawn_sensor_worker(rx, Arc::clone(&self.router), Arc::clone(&self.host_state));
         (tx, worker)
     }
 
     /// Mark the recording as incomplete for loss the capture sink cannot see,
-    /// such as a sensor that stopped feeding events mid-session. Only the ETW
-    /// runtime detects that today.
-    #[cfg(windows)]
+    /// such as a sensor that stopped feeding events mid-session.
     pub(crate) fn mark_incomplete(&self, reason: &str) {
         self.recorder.mark_incomplete(reason);
     }
@@ -178,10 +169,8 @@ impl CaptureSession {
     /// Removes the empty recording this session just created rather than
     /// leaving an artifact that looks like a failed capture of something.
     ///
-    /// Only the eBPF and ESF runtimes learn about a failed start synchronously;
-    /// an ETW session reports it by ending, which the Windows runtime handles
-    /// with [`Self::mark_incomplete`] instead.
-    #[cfg(not(windows))]
+    /// Which runtimes abandon and which keep an incomplete recording is
+    /// [`StartFailure`].
     pub(crate) async fn abandon(self, sensor_worker: JoinHandle<()>) {
         drop(self.router);
         let _ = sensor_worker.await;
@@ -195,44 +184,6 @@ impl CaptureSession {
         let _ = self.recorder.finish().await;
         let _ = std::fs::remove_file(&payload_path);
         let _ = std::fs::remove_file(&manifest_path);
-    }
-
-    /// Wait for a clean shutdown request.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub(crate) async fn wait_for_shutdown(signals: &mut ShutdownSignals) {
-        match signals.recv().await {
-            Some(signal) => info!("Received {}, finalizing recording", signal),
-            None => error!("Shutdown signal listener closed unexpectedly"),
-        }
-    }
-
-    /// Windows process groups receive `CTRL_BREAK_EVENT` from automation such
-    /// as Python's `subprocess.send_signal`. Treat it like interactive Ctrl+C
-    /// so capture can still drain and finalize its manifest.
-    #[cfg(windows)]
-    pub(crate) async fn wait_for_shutdown() {
-        let mut ctrl_break = match tokio::signal::windows::ctrl_break() {
-            Ok(signal) => signal,
-            Err(err) => {
-                error!("Failed to listen for Ctrl+Break: {}", err);
-                match tokio::signal::ctrl_c().await {
-                    Ok(()) => info!("Received Ctrl+C, finalizing recording"),
-                    Err(err) => error!("Failed to listen for Ctrl+C: {}", err),
-                }
-                return;
-            }
-        };
-
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => match result {
-                Ok(()) => info!("Received Ctrl+C, finalizing recording"),
-                Err(err) => error!("Failed to listen for Ctrl+C: {}", err),
-            },
-            signal = ctrl_break.recv() => match signal {
-                Some(()) => info!("Received Ctrl+Break, finalizing recording"),
-                None => error!("Ctrl+Break listener closed before shutdown"),
-            },
-        }
     }
 
     /// Drain queued events, finalize the manifest, and report final counts.
@@ -282,6 +233,72 @@ impl CaptureSession {
 
         Ok(())
     }
+}
+
+/// Record one run: start the platform's sensors, wait for `shutdown`, then
+/// drain and finalize the recording.
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+pub(super) async fn run_capture(
+    runtime: &PlatformRuntime,
+    mut shutdown: ShutdownFuture,
+    options: &CaptureOptions,
+) -> anyhow::Result<()> {
+    let context = CaptureContext::load(options, runtime.label)?;
+    (runtime.preflight)()?;
+    let config = context.config.clone();
+    let session = context.start_recording(options, runtime.platform)?;
+    (runtime.seed_host_state)(session.host_state());
+
+    let (sensor_tx, sensor_worker) = session.sensor_channel(runtime.channel_capacity);
+    let sensors = (runtime.sensors)(&config, session.host_state(), RunMode::Capture);
+    info!(target: TARGET_CONSOLE, "Starting {}...", runtime.starting);
+
+    // A reduced sensor set is a narrower recording, not a lossy one, so it
+    // still finalizes as complete.
+    let started = sensors
+        .start(&sensor_tx, |name, consequence, error| {
+            eprintln!("Warning: {name} unavailable ({error:#}); {consequence}");
+        })
+        .await;
+    drop(sensor_tx);
+
+    if let Err(failed) = started {
+        sensors.stop().await;
+        return match runtime.start_failure {
+            StartFailure::Abandon => {
+                session.abandon(sensor_worker).await;
+                Err(failed.error)
+            }
+            StartFailure::KeepIncomplete => {
+                let reason = format!("{} failed during startup: {:#}", failed.name, failed.error);
+                session.mark_incomplete(&reason);
+                session.finish(sensor_worker, sensors.events_lost()).await?;
+                Err(anyhow::anyhow!(reason))
+            }
+        };
+    }
+    session.announce_ready();
+
+    // A sensor that ends on its own takes the recording with it: everything
+    // after that point is missing, which the capture sink cannot see, so the
+    // recording has to be marked incomplete explicitly.
+    let mut sensor_failure = None;
+    tokio::select! {
+        signal = &mut shutdown => match signal {
+            Some(signal) => info!("Received {}, finalizing recording", signal),
+            None => error!("Shutdown signal listener closed unexpectedly"),
+        },
+        (name, reason) = sensors.first_ended() => {
+            let reason = format!("{name}: {reason}");
+            error!("🚨 {}", reason);
+            session.mark_incomplete(&reason);
+            sensor_failure = Some(anyhow::anyhow!(reason));
+        }
+    }
+    sensors.stop().await;
+
+    session.finish(sensor_worker, sensors.events_lost()).await?;
+    sensor_failure.map_or(Ok(()), Err)
 }
 
 /// Report the running event count on stderr. Event payloads are never printed.

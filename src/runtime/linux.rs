@@ -1,17 +1,32 @@
-use crate::response::ResponseEngine;
-use crate::runtime::capture::{CaptureContext, CaptureOptions, CaptureSession};
-use crate::runtime::logging::TARGET_CONSOLE;
-use crate::runtime::pipeline::{LivePipeline, SharedState};
-use crate::runtime::shutdown::exit_on_critical_worker_failure;
+use crate::config::AppConfig;
+use crate::runtime::capture::{run_capture as capture, CaptureOptions};
+use crate::runtime::live::run_live;
+use crate::runtime::sensors::{Direct, Member, PlatformRuntime, RunMode, SensorSet, StartFailure};
 use crate::runtime::signals::ShutdownSignals;
-use crate::runtime::startup::{load_config, RuntimeLogging};
 use crate::sensor::linux::EbpfSensor;
-use crate::sensor::{Platform, RawEvent, Sensor};
-use arc_swap::ArcSwap;
+use crate::sensor::Platform;
+use crate::state::HostState;
 use std::sync::Arc;
 use tokio::runtime::Builder;
-use tokio::sync::mpsc;
-use tracing::{error, info};
+
+fn sensors(_config: &AppConfig, host: &Arc<HostState>, _mode: RunMode) -> SensorSet {
+    let ebpf = EbpfSensor::with_host_state(Arc::clone(host));
+    SensorSet::new(vec![Member::required(
+        "eBPF sensor",
+        Arc::new(Direct(Arc::new(ebpf))),
+    )])
+}
+
+const RUNTIME: PlatformRuntime = PlatformRuntime {
+    platform: Platform::Linux,
+    label: "Linux eBPF",
+    channel_capacity: 8192,
+    start_failure: StartFailure::Abandon,
+    preflight: || Ok(()),
+    seed_host_state: |_| {},
+    sensors,
+    starting: "eBPF sensor",
+};
 
 pub fn run(
     console_output: bool,
@@ -19,126 +34,25 @@ pub fn run(
     config_path: Option<std::path::PathBuf>,
 ) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(run_linux_edr(Some(console_output), log_level, config_path))
+    runtime.block_on(async {
+        let shutdown = ShutdownSignals::new()?.wait();
+        run_live(
+            &RUNTIME,
+            shutdown,
+            Some(console_output),
+            log_level,
+            config_path,
+        )
+        .await
+    })
 }
 
 /// Linux capture runtime: the same eBPF sensor as `run`, recording normalized
 /// events instead of evaluating them.
 pub fn run_capture(options: CaptureOptions) -> anyhow::Result<()> {
     let runtime = Builder::new_multi_thread().enable_all().build()?;
-    runtime.block_on(async move {
-        let context = CaptureContext::load(&options, "Linux eBPF")?;
-        let mut shutdown_signals = ShutdownSignals::new()?;
-        let session = context.start_recording(&options, Platform::Linux)?;
-        let (sensor_tx, sensor_worker) = session.sensor_channel();
-
-        let sensor = Arc::new(EbpfSensor::with_host_state(Arc::clone(
-            session.host_state(),
-        )));
-        info!(target: TARGET_CONSOLE, "Starting eBPF sensor...");
-        if let Err(e) = sensor.start(sensor_tx) {
-            error!("eBPF sensor failed to start: {:#}", e);
-            session.abandon(sensor_worker).await;
-            return Err(e);
-        }
-        session.announce_ready();
-
-        CaptureSession::wait_for_shutdown(&mut shutdown_signals).await;
-        sensor.shutdown();
-        session.finish(sensor_worker, 0).await
+    runtime.block_on(async {
+        let shutdown = ShutdownSignals::new()?.wait();
+        capture(&RUNTIME, shutdown, &options).await
     })
-}
-
-/// Linux eBPF EDR main loop. Mirrors `run_edr` but replaces ETW with the
-/// eBPF sensor and omits Windows-only subsystems.
-async fn run_linux_edr(
-    console_output_override: Option<bool>,
-    log_level_override: Option<String>,
-    config_path: Option<std::path::PathBuf>,
-) -> anyhow::Result<()> {
-    let (cfg, resolved_config_path) =
-        load_config(console_output_override, log_level_override, config_path)?;
-    let RuntimeLogging {
-        alert_sink,
-        dedup_worker_handle,
-        telemetry_reporter,
-        _guards,
-    } = RuntimeLogging::start(&cfg, "Linux eBPF", resolved_config_path.as_deref())?;
-    let mut shutdown_signals = ShutdownSignals::new()?;
-
-    info!(target: TARGET_CONSOLE, "Agent initializing");
-
-    // Shared state
-    let state = SharedState::new(&cfg);
-
-    // Active response engine
-    let response_config = Arc::new(ArcSwap::from(Arc::new(cfg.response.clone())));
-    let (response_engine, response_worker_handle) = ResponseEngine::new(response_config.clone());
-
-    let host = Arc::clone(&state.host);
-    let mut pipeline = LivePipeline::new(
-        &cfg,
-        resolved_config_path,
-        Platform::Linux,
-        state,
-        alert_sink.clone(),
-        response_config,
-        response_engine.clone(),
-    );
-
-    // eBPF sensor
-    let sensor = Arc::new(EbpfSensor::with_host_state(host));
-
-    info!(
-        target: TARGET_CONSOLE,
-        "Starting eBPF sensor"
-    );
-
-    let (sensor_tx, mut sensor_rx) = mpsc::channel::<RawEvent>(8192);
-    let router_for_worker = Arc::clone(&pipeline.router);
-    let host_state = Arc::clone(&pipeline.host_state);
-    let mut sensor_worker_handle = tokio::task::spawn_blocking(move || {
-        while let Some(event) = sensor_rx.blocking_recv() {
-            if let Some(event) = host_state.canonicalize(event) {
-                router_for_worker.route_event(&event);
-            }
-        }
-    });
-
-    let sensor_clone = Arc::clone(&sensor);
-    if let Err(e) = sensor_clone.start(sensor_tx) {
-        error!("eBPF sensor failed to start: {:#}", e);
-        return Err(e);
-    }
-    info!(
-        target: TARGET_CONSOLE,
-        "Agent ready; press Ctrl+C to stop gracefully"
-    );
-
-    let mut response_worker_handle = response_worker_handle;
-    tokio::select! {
-        biased;
-        signal = shutdown_signals.recv() => match signal {
-            Some(signal) => info!(target: TARGET_CONSOLE, "Received {}, shutting down", signal),
-            None => anyhow::bail!("Shutdown signal listener closed unexpectedly"),
-        },
-        (name, result) = pipeline.critical_worker_exit(&mut sensor_worker_handle, &mut response_worker_handle) => {
-            exit_on_critical_worker_failure(name, result, _guards);
-        }
-    }
-    sensor.shutdown();
-
-    drop(response_engine);
-    pipeline
-        .shutdown(
-            sensor_worker_handle,
-            response_worker_handle,
-            dedup_worker_handle,
-            &alert_sink,
-            telemetry_reporter,
-        )
-        .await;
-
-    info!(target: TARGET_CONSOLE, "Shutdown complete");
-    Ok(())
 }
