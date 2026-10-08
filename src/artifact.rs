@@ -37,9 +37,10 @@ use crate::models::{
 };
 use crate::response::ResponseEngine;
 use crate::scanner::{self, ScanError, Scanner};
-use crate::sensor::{CanonicalEventHandler, Platform, SensorAction, SensorEventRouter};
+use crate::sensor::{CanonicalEventHandler, SensorEventRouter};
 use crate::state::HostState;
 use crate::utils::file_identity::{self, FileIdentity};
+use crate::vocab::{PeMetadata, Platform, SensorAction};
 
 /// Images and written files have separate queues and I/O slots so file churn
 /// cannot shed images. Written files need room for a burst's settle window.
@@ -81,22 +82,6 @@ pub(crate) struct ArtifactNeeds {
     pub pe_metadata: bool,
     pub signature: bool,
     pub yara: bool,
-}
-
-/// Windows version-resource metadata. The data shape is platform-neutral so
-/// artifact stores and diagnostics compile on every supported target.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PeMetadata {
-    /// Original filename declared by the version resource.
-    pub original_filename: Option<String>,
-    /// Product name declared by the version resource.
-    pub product: Option<String>,
-    /// File description declared by the version resource.
-    pub description: Option<String>,
-    /// Company name declared by the version resource.
-    pub company: Option<String>,
-    /// File version declared by the version resource.
-    pub file_version: Option<String>,
 }
 
 impl ArtifactNeeds {
@@ -1484,7 +1469,7 @@ struct ArtifactJob {
     /// Hashes published for this job, retained so IOC alerts survive a later
     /// consumer failure.
     resolved_hashes: Option<ComputedHashes>,
-    process_start_key: Option<crate::sensor::ProcessStartKey>,
+    process_start_key: Option<crate::vocab::ProcessStartKey>,
     /// Fidelity limitations on the image and PID the scan alerts report.
     provenance: crate::models::Provenance,
     platform: Platform,
@@ -2370,11 +2355,9 @@ impl ArtifactResolver {
 
         if let Some(matches) = &artifact.yara {
             for rule_match in matches {
-                let details = crate::runtime::yara::build_yara_match_details(
-                    self.runtime.match_debug,
-                    rule_match,
-                );
-                let mut alert = crate::runtime::yara::build_yara_alert(
+                let details =
+                    crate::scanner::build_yara_match_details(self.runtime.match_debug, rule_match);
+                let mut alert = crate::scanner::build_yara_alert(
                     rule_match,
                     &job.target.display_path,
                     job.target.pid,
@@ -3820,7 +3803,7 @@ level: high
         std::fs::write(&image, b"artifact").unwrap();
         let runtime = ArtifactRuntime::capture(Platform::Windows);
         let mut event = image_event(&image);
-        let process_key = crate::sensor::ProcessStartKey {
+        let process_key = crate::vocab::ProcessStartKey {
             pid: 42,
             start_time: 100,
         };
@@ -5213,7 +5196,7 @@ level: high
             events.push(CanonicalEvent::from_normalized(event));
         }
         let mut stale = live_process_event(fixture.child.id(), &image);
-        stale.process_start_key = Some(crate::sensor::ProcessStartKey {
+        stale.process_start_key = Some(crate::vocab::ProcessStartKey {
             pid: fixture.child.id(),
             start_time: u64::MAX,
         });
@@ -5613,7 +5596,7 @@ level: high
         let resolver =
             ArtifactResolver::new(Arc::new(HostState::default()), runtime, Arc::clone(&state));
         let mut recycled_event = event;
-        recycled_event.process_start_key = Some(crate::sensor::ProcessStartKey {
+        recycled_event.process_start_key = Some(crate::vocab::ProcessStartKey {
             pid: fixture.child.id(),
             start_time: u64::MAX,
         });

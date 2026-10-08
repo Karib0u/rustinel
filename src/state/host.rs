@@ -4,6 +4,7 @@ use crate::models::{CanonicalEvent, NormalizedEvent};
 use crate::normalizer::Normalizer;
 use crate::sensor::{RawEvent, RawPayload};
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
@@ -49,22 +50,36 @@ pub struct HostStateSnapshot {
     pub inventory: Option<InventorySnapshot>,
 }
 
+/// Per-OS state a platform sensor keeps on the host.
+///
+/// The sensor defines the type and `HostState` only stores and reports it, so
+/// the state module never names a sensor type.
+pub trait HostExtension: Any + Send + Sync {
+    /// Build the extension, sized from the host limits.
+    fn from_limits(limits: &StateLimits) -> Self
+    where
+        Self: Sized;
+    /// Path-index entries currently retained.
+    fn retained_paths(&self) -> usize {
+        0
+    }
+    /// Process-identity entries currently retained.
+    fn process_identities(&self) -> usize {
+        0
+    }
+    fn as_any(&self) -> &dyn Any;
+}
+
 pub struct HostState {
     pub processes: Arc<ProcessCache>,
     pub users: Arc<SidCache>,
     pub dns: Arc<DnsCache>,
-    #[cfg(target_os = "linux")]
-    pub(crate) dir_fds: Mutex<crate::sensor::linux::paths::DirFdIndex>,
     /// Built on the first Linux process event, so hosts and tests that never
     /// see one never read mountinfo.
     #[cfg(target_os = "linux")]
     pub(crate) containers: std::sync::OnceLock<Mutex<super::container::ContainerResolver>>,
-    #[cfg(windows)]
-    pub(crate) file_paths: Mutex<crate::sensor::windows::file_paths::FilePathCache>,
-    #[cfg(windows)]
-    pub(crate) registry_paths: Mutex<crate::sensor::windows::registry_paths::RegistryPathCache>,
-    #[cfg(windows)]
-    pub(crate) process_identities: Mutex<crate::sensor::windows::etw::state::ProcessIdentityIndex>,
+    /// Per-OS state owned by the platform sensor, built on first use.
+    extension: std::sync::OnceLock<Box<dyn HostExtension>>,
     limits: StateLimits,
     inventory: Mutex<Option<InventorySnapshot>>,
     attribution_loss: AtomicU64,
@@ -87,27 +102,8 @@ impl HostState {
             users: Arc::new(SidCache::with_max_entries(limits.users)),
             dns: Arc::new(DnsCache::with_limits(limits.dns, 15 * 60)),
             #[cfg(target_os = "linux")]
-            dir_fds: Mutex::new(crate::sensor::linux::paths::DirFdIndex::with_capacity(
-                limits.paths,
-            )),
-            #[cfg(target_os = "linux")]
             containers: std::sync::OnceLock::new(),
-            #[cfg(windows)]
-            file_paths: Mutex::new(
-                crate::sensor::windows::file_paths::FilePathCache::with_capacity(limits.paths),
-            ),
-            #[cfg(windows)]
-            registry_paths: Mutex::new(
-                crate::sensor::windows::registry_paths::RegistryPathCache::with_capacity(
-                    limits.paths,
-                ),
-            ),
-            #[cfg(windows)]
-            process_identities: Mutex::new(
-                crate::sensor::windows::etw::state::ProcessIdentityIndex::with_max_entries(
-                    limits.processes,
-                ),
-            ),
+            extension: std::sync::OnceLock::new(),
             limits,
             inventory: Mutex::new(None),
             attribution_loss: AtomicU64::new(0),
@@ -138,6 +134,18 @@ impl HostState {
             .unwrap_or_else(|e| e.into_inner())
             .resolve(pid, parent_pid, cgroup_id)
     }
+    /// The platform extension, built on first use.
+    ///
+    /// A host carries one extension type, the one its own platform sensor
+    /// defines, so asking for a second type is a programming error.
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+    pub(crate) fn extension<T: HostExtension>(&self) -> &T {
+        self.extension
+            .get_or_init(|| Box::new(T::from_limits(&self.limits)))
+            .as_any()
+            .downcast_ref::<T>()
+            .expect("a host carries a single platform extension type")
+    }
     pub fn limits(&self) -> &StateLimits {
         &self.limits
     }
@@ -150,29 +158,9 @@ impl HostState {
         *self.inventory.lock().unwrap() = Some(snapshot);
     }
     pub fn snapshot(&self) -> HostStateSnapshot {
-        let paths = 0;
-        #[cfg(target_os = "linux")]
-        let paths = paths + self.dir_fds.lock().unwrap_or_else(|e| e.into_inner()).len();
-        #[cfg(windows)]
-        let paths = paths
-            + self
-                .file_paths
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .retained_count()
-            + self
-                .registry_paths
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .retained_count();
-        let process_identities = 0;
-        #[cfg(windows)]
-        let process_identities = process_identities
-            + self
-                .process_identities
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .count();
+        let (paths, process_identities) = self.extension.get().map_or((0, 0), |ext| {
+            (ext.retained_paths(), ext.process_identities())
+        });
         HostStateSnapshot {
             process_identities,
             limits: self.limits.clone(),
@@ -265,7 +253,7 @@ mod tests {
             &mut process,
             &mut provenance,
             linux_details(100),
-            Some(crate::sensor::ProcessStartKey {
+            Some(crate::vocab::ProcessStartKey {
                 pid: 42,
                 start_time: 900,
             }),
@@ -293,7 +281,7 @@ mod tests {
             &mut process,
             &mut provenance,
             linux_details(101),
-            Some(crate::sensor::ProcessStartKey {
+            Some(crate::vocab::ProcessStartKey {
                 pid: 42,
                 start_time: 900,
             }),
@@ -332,7 +320,8 @@ mod tests {
         state.record_attribution_loss();
         #[cfg(target_os = "linux")]
         {
-            let mut paths = state.dir_fds.lock().unwrap();
+            let ext = state.extension::<crate::sensor::linux::LinuxHostExtension>();
+            let mut paths = ext.dir_fds.lock().unwrap();
             paths.insert(42, 3, 100, "/tmp/one".into());
             paths.insert(42, 4, 101, "/tmp/two".into());
         }
@@ -348,7 +337,7 @@ mod tests {
 impl HostState {
     /// Enrich one raw event and create the semantic cross-platform boundary.
     pub fn canonicalize(&self, mut event: RawEvent) -> Option<CanonicalEvent> {
-        if event.action == crate::sensor::SensorAction::Fork {
+        if event.action == crate::vocab::SensorAction::Fork {
             let inherited = match &event.payload {
                 RawPayload::Process(process) => event
                     .process_start_key
@@ -389,7 +378,7 @@ impl HostState {
     pub fn enrich_process_context(
         &self,
         event: &mut NormalizedEvent,
-        process_start_key: Option<crate::sensor::ProcessStartKey>,
+        process_start_key: Option<crate::vocab::ProcessStartKey>,
     ) {
         Normalizer::new(self).enrich_process_context(event, process_start_key);
     }
@@ -414,8 +403,8 @@ impl HostState {
 fn enrich_linux_process(event: &mut RawEvent) {
     use crate::utils::query_process_details;
 
-    if event.platform != crate::sensor::Platform::Linux
-        || event.action != crate::sensor::SensorAction::Start
+    if event.platform != crate::vocab::Platform::Linux
+        || event.action != crate::vocab::SensorAction::Start
     {
         return;
     }
@@ -438,7 +427,7 @@ fn enrich_linux_process_from_details(
     process: &mut crate::sensor::RawProcessEvent,
     provenance: &mut crate::models::Provenance,
     details: crate::utils::process::ProcessDetails,
-    process_start_key: Option<crate::sensor::ProcessStartKey>,
+    process_start_key: Option<crate::vocab::ProcessStartKey>,
 ) {
     use crate::sensor::RawProcessPlatform;
     use crate::utils::{hash_command_line, ProcessIdentity};
@@ -513,7 +502,7 @@ fn enrich_linux_process_from_details(
 
 #[cfg(windows)]
 fn enrich_windows_process(event: &mut RawEvent) {
-    if event.platform != crate::sensor::Platform::Windows {
+    if event.platform != crate::vocab::Platform::Windows {
         return;
     }
     let RawPayload::Process(process) = &mut event.payload else {
@@ -525,7 +514,7 @@ fn enrich_windows_process(event: &mut RawEvent) {
     {
         *value = crate::utils::convert_nt_to_dos(value);
     }
-    if event.action != crate::sensor::SensorAction::Start {
+    if event.action != crate::vocab::SensorAction::Start {
         return;
     }
     let live = event.process_start_key.and_then(|key| {

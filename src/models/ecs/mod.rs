@@ -522,7 +522,7 @@ mod tests {
         MatchDetails, NetworkConnectionFields, NormalizedEvent, ProcessContext,
         ProcessCreationFields, RegistryEventFields, SecurityAuditFields, ServiceCreationFields,
     };
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
     use std::collections::HashMap;
 
     /// Every file and registry action must mean the same thing to replay, ECS,
@@ -530,8 +530,8 @@ mod tests {
     #[test]
     fn every_event_action_row_agrees_across_consumers() {
         use crate::engine::Engine;
+        use crate::models::event_actions::EVENT_ACTIONS;
         use crate::models::CanonicalEvent;
-        use crate::sensor::event_actions::EVENT_ACTIONS;
 
         for row in EVENT_ACTIONS {
             let codes = std::iter::once(row.action_code).chain(row.alias_codes.iter().copied());

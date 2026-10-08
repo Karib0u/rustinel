@@ -1,6 +1,7 @@
 use super::Engine;
+use crate::models::event_actions;
 use crate::models::{EventCategory, FieldViewName, NormalizedEvent};
-use crate::sensor::{event_actions, Platform};
+use crate::vocab::Platform;
 use serde::{Deserialize, Serialize};
 
 const SYSMON_VIEW: &str = FieldViewName::SYSMON.as_str();
@@ -769,7 +770,7 @@ impl Engine {
     /// ordinary file activity. Writes are therefore reported under the base
     /// `file_event` family only.
     ///
-    /// Both functions read `sensor::event_actions::EVENT_ACTIONS`, the single
+    /// Both functions read `models::event_actions::EVENT_ACTIONS`, the single
     /// table every platform sensor numbers its file and registry actions from.
     /// A file event's Sysmon-compatible `event_id` wins over its `opcode`.
     pub(crate) fn sigma_file_categories_for_event(event: &NormalizedEvent) -> Vec<&'static str> {
@@ -798,7 +799,7 @@ mod tests {
     use super::platform_product;
     use crate::engine::Engine;
     use crate::models::FieldViewName;
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     #[test]
     fn platform_product_maps_macos() {

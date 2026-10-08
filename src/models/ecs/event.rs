@@ -1,6 +1,7 @@
 use super::EVENT_MODULE;
+use crate::models::event_actions;
 use crate::models::{Alert, AlertSeverity, EventCategory};
-use crate::sensor::{event_actions, Platform};
+use crate::vocab::Platform;
 
 pub(super) fn alert_severity_to_event_severity(severity: AlertSeverity) -> u8 {
     match severity {
@@ -315,7 +316,7 @@ pub(super) fn network_direction_from_initiated(initiated: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::{host_os_family, host_os_type};
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     #[test]
     fn host_os_maps_macos_to_darwin_family() {

@@ -7,8 +7,35 @@
 //! action codes 41 and 72 and about the code 80. Each row here declares one
 //! action once, and every consumer derives its answer from it.
 
-use super::{SensorAction, SensorNormalization};
-use crate::models::EventCategory;
+use super::EventCategory;
+use crate::vocab::SensorAction;
+use serde::{Deserialize, Serialize};
+
+/// Sensor-supplied compatibility metadata for the normalized event model.
+///
+/// Shared normalization copies this through without understanding any
+/// platform-specific event numbering scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SensorNormalization {
+    pub event_id: u16,
+    pub action_code: u8,
+}
+
+impl SensorNormalization {
+    /// Return the shared file-event numbering for `action`.
+    ///
+    /// `None` for actions that are not file actions, which lets a caller drop
+    /// the event rather than invent a number for it.
+    pub fn for_file_action(action: SensorAction) -> Option<Self> {
+        row_for_action(EventCategory::File, action).map(|row| row.normalization())
+    }
+
+    /// Reverse lookup of [`Self::for_file_action`], for sensors that recover
+    /// the action from an already-computed action code.
+    pub fn for_file_action_code(action_code: u8) -> Option<Self> {
+        row_for_code(EventCategory::File, action_code).map(|row| row.normalization())
+    }
+}
 
 /// Everything downstream consumers need to know about one file or registry action.
 #[derive(Debug, Clone, Copy)]

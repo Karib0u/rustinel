@@ -153,11 +153,11 @@ pub enum SigmaPlatform {
 }
 
 impl SigmaPlatform {
-    pub fn sensor_platform(self) -> crate::sensor::Platform {
+    pub fn sensor_platform(self) -> crate::vocab::Platform {
         match self {
-            Self::Windows => crate::sensor::Platform::Windows,
-            Self::Linux => crate::sensor::Platform::Linux,
-            Self::Macos => crate::sensor::Platform::MacOS,
+            Self::Windows => crate::vocab::Platform::Windows,
+            Self::Linux => crate::vocab::Platform::Linux,
+            Self::Macos => crate::vocab::Platform::MacOS,
         }
     }
 }

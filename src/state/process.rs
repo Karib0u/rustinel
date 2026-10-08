@@ -282,7 +282,7 @@ impl ProcessCache {
         &self,
         pid: u32,
         creation_time: u64,
-        metadata: &crate::artifact::PeMetadata,
+        metadata: &crate::vocab::PeMetadata,
     ) {
         if let Some(process) = self
             .cache
@@ -398,7 +398,7 @@ impl ProcessGraveyard {
     }
 }
 
-fn apply_pe_metadata(process: &mut ProcessMetadata, metadata: &crate::artifact::PeMetadata) {
+fn apply_pe_metadata(process: &mut ProcessMetadata, metadata: &crate::vocab::PeMetadata) {
     process.original_filename = metadata.original_filename.clone();
     process.product = metadata.product.clone();
     process.description = metadata.description.clone();

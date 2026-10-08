@@ -6,11 +6,8 @@ use rustinel::{
     memory::{MemoryChunk, MemoryRegion, MemoryRegionKind},
     models::{AlertSeverity, MatchDebugLevel},
     response::{ResponseDecision, ResponseEngine},
-    runtime::yara::{
-        build_yara_alert, build_yara_match_details, build_yara_memory_alert,
-        build_yara_memory_match_details,
-    },
-    scanner::Scanner,
+    runtime::yara::{build_yara_memory_alert, build_yara_memory_match_details},
+    scanner::{build_yara_alert, build_yara_match_details, Scanner},
     sensor::Platform,
 };
 

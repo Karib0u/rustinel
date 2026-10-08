@@ -15,7 +15,7 @@ mod path;
 mod text;
 
 use crate::models::{EventFields, NormalizedEvent};
-use crate::sensor::Platform;
+use crate::vocab::Platform;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::fmt;

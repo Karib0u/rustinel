@@ -18,8 +18,8 @@ use tracing::{debug, info, warn};
 
 use super::{ChannelId, PROCESS_START, TARGET_TELEMETRY};
 use crate::alerts::AlertWriterMetrics;
-use crate::runtime::logging::TARGET_CONSOLE;
 use crate::utils::fs::restrict_file_permissions;
+use crate::vocab::TARGET_CONSOLE;
 
 fn is_zero(value: &u64) -> bool {
     *value == 0

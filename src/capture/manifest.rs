@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::sensor::Platform;
+use crate::vocab::Platform;
 
 /// Version of the recording format: the manifest layout together with the
 /// NDJSON event schema it describes. Consumers reject versions they do not

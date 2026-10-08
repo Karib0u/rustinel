@@ -38,12 +38,11 @@ pub use stats::{EngineStats, UnsupportedRule, UnsupportedRuleKind};
 pub(crate) use store::CORRELATION_REORDER_BUDGET;
 
 use rsigma_eval::EvaluationResult;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use crate::models::{Alert, AlertSeverity, CanonicalEvent, MatchDebugLevel, NormalizedEvent};
-use crate::sensor::{Platform, ProcessStartKey};
+use crate::vocab::{Platform, ProcessStartKey};
 
 pub(crate) struct SigmaAlert {
     pub(crate) alert: Alert,
@@ -52,19 +51,7 @@ pub(crate) struct SigmaAlert {
 
 type CorrelationResult = (EvaluationResult, NormalizedEvent, Option<ProcessStartKey>);
 
-/// Controls which Sigma detection matches become alerts.
-///
-/// Correlation always receives every matching detection, independently of
-/// this presentation setting.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SigmaMatchMode {
-    /// Emit only the deterministic highest-ranked detection from each pass.
-    #[default]
-    Best,
-    /// Emit one alert for every matching detection rule.
-    All,
-}
+pub use crate::config::SigmaMatchMode;
 
 /// Ranking key for the default one-Sigma-alert-per-event policy.
 ///

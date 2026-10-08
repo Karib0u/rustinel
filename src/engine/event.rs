@@ -72,7 +72,7 @@ impl<'a> RsigmaEvent<'a> {
     }
 
     fn visit_dns_alias(&self, visit: &mut dyn FnMut(&str)) {
-        if self.event.platform == crate::sensor::Platform::Windows
+        if self.event.platform == crate::vocab::Platform::Windows
             && self.event.category == crate::models::EventCategory::Dns
             && self.event.event_id != 22
         {
@@ -89,7 +89,7 @@ impl<'a> RsigmaEvent<'a> {
     /// discarding source fidelity.
     fn event_id_value(&self) -> EventValue<'_> {
         let native = EventValue::Str(Cow::Borrowed(self.event.event_id_string.as_str()));
-        if self.event.platform == crate::sensor::Platform::Windows
+        if self.event.platform == crate::vocab::Platform::Windows
             && self.event.category == crate::models::EventCategory::Dns
             && self.event.event_id != 22
         {
@@ -124,7 +124,7 @@ impl Event for RsigmaEvent<'_> {
         if !self.event.event_id_string.is_empty() && pred(&self.event.event_id_string) {
             return true;
         }
-        if self.event.platform == crate::sensor::Platform::Windows
+        if self.event.platform == crate::vocab::Platform::Windows
             && self.event.category == crate::models::EventCategory::Dns
             && self.event.event_id != 22
             && pred("22")
@@ -145,7 +145,7 @@ impl Event for RsigmaEvent<'_> {
         if !self.event.event_id_string.is_empty() {
             values.push(Cow::Borrowed(self.event.event_id_string.as_str()));
         }
-        if self.event.platform == crate::sensor::Platform::Windows
+        if self.event.platform == crate::vocab::Platform::Windows
             && self.event.category == crate::models::EventCategory::Dns
             && self.event.event_id != 22
         {
@@ -222,7 +222,7 @@ mod tests {
         EventCategory, EventFields, ImageLoadFields, NetworkConnectionFields, NormalizedEvent,
         ProcessCreationFields, SecurityAuditFields,
     };
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
     use std::collections::HashMap;
 
     fn generic_event(pairs: &[(&str, &str)]) -> NormalizedEvent {

@@ -239,7 +239,7 @@ mod tests {
     use super::*;
     use crate::capture::{CaptureEventCounts, CaptureRecorder};
     use crate::models::{EventCategory, EventFields, NormalizedEvent, ProcessCreationFields};
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     fn process_event(pid: &str) -> NormalizedEvent {
         NormalizedEvent {

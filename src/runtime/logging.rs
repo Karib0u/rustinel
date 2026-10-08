@@ -10,8 +10,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const STARTUP_BANNER_INNER_WIDTH: usize = 49;
-/// Tracing target for messages intended for an interactive console.
-pub const TARGET_CONSOLE: &str = "console";
+pub use crate::vocab::TARGET_CONSOLE;
 const DEFAULT_CONSOLE_FILTER: &str = "warn,console=info,engine=info,response=info";
 
 struct RestrictedFileAppender {

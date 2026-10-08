@@ -9,7 +9,7 @@ use semver::Version;
 use serde::Serialize;
 
 use crate::models::{EventCategory, FieldViewName, NormalizedEvent};
-use crate::sensor::{Platform, SensorAction};
+use crate::vocab::{Platform, SensorAction};
 
 pub const SCHEMA_VERSION: u16 = 3;
 

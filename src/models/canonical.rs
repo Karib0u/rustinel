@@ -5,7 +5,7 @@
 //! Detectors render its Rustinel-named data through an explicit field view.
 
 use super::{NormalizedEvent, Provenance};
-use crate::sensor::{ProcessStartKey, SensorAction};
+use crate::vocab::{ProcessStartKey, SensorAction};
 
 /// Cross-platform event after host-state enrichment.
 #[derive(Debug, Clone)]
@@ -89,8 +89,8 @@ fn process_id_from_view(event: &NormalizedEvent) -> Option<u32> {
 }
 
 fn action_from_view(event: &NormalizedEvent) -> SensorAction {
+    use crate::models::event_actions;
     use crate::models::EventCategory;
-    use crate::sensor::event_actions;
 
     match event.category {
         EventCategory::Process if event.opcode == 2 || event.event_id == 5 => SensorAction::Stop,
@@ -121,7 +121,7 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
 pub(crate) mod tests {
     use super::*;
     use crate::models::{EventCategory, EventFields, ProcessCreationFields};
-    use crate::sensor::Platform;
+    use crate::vocab::Platform;
 
     /// A recorded process view, which tests re-label to other categories when
     /// only the routing metadata matters.

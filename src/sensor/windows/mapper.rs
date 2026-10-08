@@ -64,7 +64,7 @@ fn action_code_for_record(
 
 /// Maps a routed file action to its action code (64 = create, 65 = modify,
 /// 70 = delete, 71 = rename), read from the shared
-/// [`crate::sensor::event_actions::EVENT_ACTIONS`] table the Linux and macOS
+/// [`crate::models::event_actions::EVENT_ACTIONS`] table the Linux and macOS
 /// sensors use.
 fn file_action_code(action: SensorAction) -> u8 {
     event_actions::row_for_action(EventCategory::File, action).map_or(0, |row| row.action_code)

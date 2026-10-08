@@ -627,9 +627,9 @@ mod tests {
         Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
         ProcessCreationFields,
     };
-    use crate::sensor::Platform;
     #[cfg(any(windows, target_os = "linux"))]
     use crate::utils::validate_process_identity;
+    use crate::vocab::Platform;
     use std::{
         io::{self, Write},
         sync::{Arc, Mutex},

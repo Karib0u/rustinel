@@ -148,6 +148,27 @@ impl Default for DirFdIndex {
     }
 }
 
+/// Linux state the host carries for the eBPF sensor.
+pub(crate) struct LinuxHostExtension {
+    pub(crate) dir_fds: std::sync::Mutex<DirFdIndex>,
+}
+
+impl crate::state::HostExtension for LinuxHostExtension {
+    fn from_limits(limits: &crate::state::StateLimits) -> Self {
+        Self {
+            dir_fds: std::sync::Mutex::new(DirFdIndex::with_capacity(limits.paths)),
+        }
+    }
+
+    fn retained_paths(&self) -> usize {
+        self.dir_fds.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Rebuild the absolute path named by a `*at` pathname argument.
 ///
 /// Returns `None` when the name is relative and its base directory cannot be

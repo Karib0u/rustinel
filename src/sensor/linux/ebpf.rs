@@ -470,7 +470,11 @@ async fn run_ring_poll(
 
             Ok(mut guard) = file_fd.readable_mut() => {
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                let mut dir_fds = host.dir_fds.lock().unwrap_or_else(|e| e.into_inner());
+                let mut dir_fds = host
+                    .extension::<super::LinuxHostExtension>()
+                    .dir_fds
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 drain_file_ring(
                     rb,
                     &tx,

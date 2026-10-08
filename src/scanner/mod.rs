@@ -17,11 +17,12 @@ use crate::models::{
     AlertSeverity, CanonicalEvent, EventFields, MatchDebugLevel, ProcessCreationFields, Provenance,
     YaraRuleMatch, YaraStringMatch,
 };
-use crate::sensor::{CanonicalEventHandler, Platform, SensorAction};
+use crate::sensor::CanonicalEventHandler;
 use crate::utils::cache::trim_to_headroom;
 use crate::utils::file_identity::{self, FileIdentity};
 use crate::utils::rule_dirs::{RuleCollision, RuleDirectoryReport, RuleDirectoryRole};
 use crate::utils::{hash_command_line, query_process_identity, ProcessIdentity};
+use crate::vocab::{Platform, SensorAction};
 
 /// Strip NT namespace prefix and convert to a path the YARA scanner can open.
 /// On Windows raw ETW paths may arrive as `\??\C:\Windows\...`.
@@ -47,30 +48,9 @@ pub fn is_path_allowlisted(path: &str, allowlist_paths: &[String]) -> bool {
         .is_match(path, allowlist_paths)
 }
 
-/// Default timeout per file or across one process's memory reads and scans.
-pub const DEFAULT_SCAN_TIMEOUT_MS: u64 = 10_000;
-/// Default maximum size of a file accepted by [`Scanner::scan_file`].
-pub const DEFAULT_MAX_FILE_MB: u64 = 64;
-
-/// Resource guards applied to every scan.
-///
-/// A zero value disables the corresponding guard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScanLimits {
-    /// Timeout per file or shared across one process's memory regions.
-    pub timeout: Duration,
-    /// Maximum size of a file accepted by [`Scanner::scan_file`].
-    pub max_file_bytes: u64,
-}
-
-impl Default for ScanLimits {
-    fn default() -> Self {
-        Self {
-            timeout: Duration::from_millis(DEFAULT_SCAN_TIMEOUT_MS),
-            max_file_bytes: DEFAULT_MAX_FILE_MB * 1024 * 1024,
-        }
-    }
-}
+mod alert;
+pub use crate::config::{ScanLimits, DEFAULT_MAX_FILE_MB, DEFAULT_SCAN_TIMEOUT_MS};
+pub use alert::{build_yara_alert, build_yara_match_details};
 
 /// Why a scan did not produce a match verdict.
 ///
@@ -1231,7 +1211,7 @@ mod tests {
             timestamp: "2026-09-14T00:00:00Z".to_string(),
             source_seq: None,
             ingest_seq: 1,
-            platform: crate::sensor::Platform::Linux,
+            platform: crate::vocab::Platform::Linux,
             provider: "ebpf".to_string(),
             category: crate::models::EventCategory::Process,
             event_id: 1,

@@ -13,10 +13,48 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use crate::engine::SigmaMatchMode;
 use crate::models::MatchDebugLevel;
-use crate::scanner::{self, ScanLimits};
+
+/// Controls which Sigma detection matches become alerts.
+///
+/// Correlation always receives every matching detection, independently of
+/// this presentation setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SigmaMatchMode {
+    /// Emit only the deterministic highest-ranked detection from each pass.
+    #[default]
+    Best,
+    /// Emit one alert for every matching detection rule.
+    All,
+}
+
+/// Default timeout per file or across one process's memory reads and scans.
+pub const DEFAULT_SCAN_TIMEOUT_MS: u64 = 10_000;
+/// Default maximum size of a file accepted by `Scanner::scan_file`.
+pub const DEFAULT_MAX_FILE_MB: u64 = 64;
+
+/// Resource guards applied to every scan.
+///
+/// A zero value disables the corresponding guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanLimits {
+    /// Timeout per file or shared across one process's memory regions.
+    pub timeout: Duration,
+    /// Maximum size of a file accepted by `Scanner::scan_file`.
+    pub max_file_bytes: u64,
+}
+
+impl Default for ScanLimits {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_millis(DEFAULT_SCAN_TIMEOUT_MS),
+            max_file_bytes: DEFAULT_MAX_FILE_MB * 1024 * 1024,
+        }
+    }
+}
 
 pub mod reference;
 pub mod security;
@@ -549,12 +587,9 @@ impl AppConfig {
             .set_default("scanner.yara_allowlist_paths", Vec::<String>::new())?
             .set_default(
                 "scanner.yara_scan_timeout_ms",
-                scanner::DEFAULT_SCAN_TIMEOUT_MS as i64,
+                DEFAULT_SCAN_TIMEOUT_MS as i64,
             )?
-            .set_default(
-                "scanner.yara_max_file_mb",
-                scanner::DEFAULT_MAX_FILE_MB as i64,
-            )?
+            .set_default("scanner.yara_max_file_mb", DEFAULT_MAX_FILE_MB as i64)?
             .set_default("scanner.yara_memory_enabled", false)?
             .set_default("scanner.yara_memory_queue_capacity", 64i64)?
             .set_default("scanner.yara_memory_delay_ms", 750i64)?
@@ -1022,8 +1057,8 @@ impl Default for AppConfig {
                 yara_rules_path: PathBuf::from("rules/current/yara"),
                 yara_local_rules_paths: Vec::new(),
                 yara_allowlist_paths: Vec::new(),
-                yara_scan_timeout_ms: scanner::DEFAULT_SCAN_TIMEOUT_MS,
-                yara_max_file_mb: scanner::DEFAULT_MAX_FILE_MB,
+                yara_scan_timeout_ms: DEFAULT_SCAN_TIMEOUT_MS,
+                yara_max_file_mb: DEFAULT_MAX_FILE_MB,
                 yara_memory_enabled: false,
                 yara_memory_queue_capacity: 64,
                 yara_memory_delay_ms: 750,
