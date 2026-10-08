@@ -19,7 +19,8 @@ src/
 ├── models/          CanonicalEvent, field-view mappings, the stable recorded view, alert, and ECS models
 ├── normalizer/      builds the stable NormalizedEvent compatibility view
 ├── state/           HostState, bounded attribution indexes and inventory
-├── artifact.rs      single-open executable resolution and bounded result stores
+├── artifact/        single-open executable resolution and bounded result stores
+├── stages/          ordered admission and the deferred Sigma pass, each owning its ordering rule and budget
 ├── engine/          Sigma loading, logsource routing, evaluation (RSigma)
 ├── scanner/         YARA compilation and scanning
 ├── memory/          per-platform process memory reads for YARA
