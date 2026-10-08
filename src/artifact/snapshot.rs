@@ -2,7 +2,7 @@
 //! that lets doctor and rule reload reach the running resolver.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -198,42 +198,31 @@ impl ResolverState {
     }
 }
 
-pub(super) static ACTIVE: LazyLock<Mutex<Weak<ResolverState>>> =
-    LazyLock::new(|| Mutex::new(Weak::new()));
-
-pub fn active_snapshot() -> Option<ArtifactResolverSnapshot> {
-    ACTIVE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .upgrade()
-        .map(|state| state.snapshot())
-}
-
-/// Drop generation-bound YARA entries as soon as a rule reload commits.
-pub(crate) fn invalidate_yara_generation(generation: u64) {
-    let Some(state) = ACTIVE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .upgrade()
-    else {
-        return;
-    };
-    state
-        .stores
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .invalidate_yara(Some(generation));
-}
-
 /// Keeps the resolver stores alive until the caller has written its final
 /// telemetry snapshot, even after the queue worker has drained.
 pub(crate) struct ArtifactResolverHandle {
-    _state: Arc<ResolverState>,
+    state: Arc<ResolverState>,
 }
 
 impl ArtifactResolverHandle {
     pub(super) fn new(state: Arc<ResolverState>) -> Self {
-        Self { _state: state }
+        Self { state }
+    }
+
+    /// A weak reader of the resolver snapshot, for the telemetry reporter.
+    pub(crate) fn probe(&self) -> Box<dyn Fn() -> Option<ArtifactResolverSnapshot> + Send + Sync> {
+        let weak = Arc::downgrade(&self.state);
+        Box::new(move || weak.upgrade().map(|state| state.snapshot()))
+    }
+}
+
+impl ResolverState {
+    /// Drop generation-bound YARA entries as soon as a rule reload commits.
+    pub(super) fn invalidate_yara_generation(&self, generation: u64) {
+        self.stores
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .invalidate_yara(Some(generation));
     }
 }
 
@@ -241,7 +230,7 @@ impl ArtifactResolverHandle {
 impl ArtifactResolverHandle {
     pub(crate) fn empty() -> Self {
         Self {
-            _state: Arc::new(ResolverState::new()),
+            state: Arc::new(ResolverState::new()),
         }
     }
 }

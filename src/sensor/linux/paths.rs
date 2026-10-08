@@ -151,13 +151,19 @@ impl Default for DirFdIndex {
 /// Linux state the host carries for the eBPF sensor.
 pub(crate) struct LinuxHostExtension {
     pub(crate) dir_fds: std::sync::Mutex<DirFdIndex>,
+    pub(crate) ebpf: super::telemetry::LinuxEbpfCounters,
 }
 
 impl crate::state::HostExtension for LinuxHostExtension {
     fn from_limits(limits: &crate::state::StateLimits) -> Self {
         Self {
             dir_fds: std::sync::Mutex::new(DirFdIndex::with_capacity(limits.paths)),
+            ebpf: super::telemetry::LinuxEbpfCounters::new(),
         }
+    }
+
+    fn sensor_telemetry(&self, out: &mut crate::telemetry::SensorTelemetry) {
+        out.linux_ebpf = self.ebpf.snapshot();
     }
 
     fn retained_paths(&self) -> usize {

@@ -145,6 +145,14 @@ impl WebhookDispatcher {
         })
     }
 
+    /// Live counters of every destination, in configuration order.
+    pub fn counters(&self) -> Vec<Arc<WebhookCounters>> {
+        self.destinations
+            .iter()
+            .map(|destination| Arc::clone(&destination.counters))
+            .collect()
+    }
+
     /// Number of configured destinations.
     pub fn len(&self) -> usize {
         self.destinations.len()
@@ -361,7 +369,7 @@ impl Worker {
             max_attempts: config.max_attempts,
             retry_initial: Duration::from_millis(config.retry_initial_ms),
             retry_max: Duration::from_millis(config.retry_max_ms),
-            counters: WebhookCounters::register(
+            counters: WebhookCounters::new(
                 label.to_string(),
                 target.to_string(),
                 config.queue_capacity,

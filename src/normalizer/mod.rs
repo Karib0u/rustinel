@@ -149,7 +149,10 @@ where
         // turn contract drift into an immediate, actionable failure.
         let missing_always = crate::field_availability::missing_always_fields(&normalized);
         let populated_never = crate::field_availability::populated_never_fields(&normalized);
-        crate::telemetry::record_field_contract_violations(populated_never.len());
+        self.state.field_contract_violations.fetch_add(
+            populated_never.len() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         debug_assert!(
             missing_always.is_empty(),
             "decoder omitted Always field(s) for {}: {:?}",
@@ -168,7 +171,7 @@ where
             "{:?}",
             normalized.validate_provenance()
         );
-        crate::telemetry::provenance::record(&normalized.provenance);
+        self.state.provenance.record(&normalized.provenance);
         Some(normalized)
     }
 
@@ -271,7 +274,9 @@ where
         }
 
         if event.platform == Platform::Windows && event.action == SensorAction::Start {
-            crate::telemetry::WINDOWS_PROCESS_COMMAND_LINE.record(fields.command_line.is_some());
+            self.state
+                .command_line
+                .record(fields.command_line.is_some());
         }
 
         if event.action == SensorAction::Start {
@@ -742,13 +747,19 @@ mod tests {
                 user: None,
             }),
         };
-        let before = crate::telemetry::TelemetrySnapshot::capture().field_contract_violations;
+        let host = Arc::new(HostState::default());
+        let probes = crate::telemetry::PipelineProbes::default();
+        probes.attach_host(&host);
+        let normalizer = Normalizer::new(Arc::clone(&host));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            build_normalizer().normalize(&event)
+            normalizer.normalize(&event)
         }));
 
         assert!(result.is_err(), "a populated Never field must fail tests");
-        assert!(crate::telemetry::TelemetrySnapshot::capture().field_contract_violations > before);
+        assert_eq!(
+            crate::telemetry::TelemetrySnapshot::capture(&probes).field_contract_violations,
+            1
+        );
     }
 
     #[test]

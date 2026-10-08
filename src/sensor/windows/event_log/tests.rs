@@ -1,6 +1,6 @@
 use super::*;
 use crate::sensor::RawPayload;
-use crate::telemetry::event_log::WINDOWS_EVENT_LOG;
+use crate::telemetry::EventLogHealth;
 
 #[test]
 fn timestamps_reject_invalid_and_out_of_range_values() {
@@ -71,9 +71,11 @@ fn callback_panic_fails_source_and_ignores_later_deliveries() {
         "*",
         service::source().decoder,
     );
+    let log_health = Arc::new(EventLogHealth::default());
     let context = CallbackContext {
         source,
         tx,
+        health: Arc::clone(&log_health),
         state: Mutex::new(CallbackState {
             // SAFETY: a null XML argument creates an empty bookmark.
             bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
@@ -82,7 +84,7 @@ fn callback_panic_fails_source_and_ignores_later_deliveries() {
             decode_warnings: LogRateLimiter::new(DECODE_WARNING_WINDOW),
         }),
     };
-    update(source.channel, |health| health.active = true);
+    log_health.update(source.channel, |health| health.active = true);
     guard_callback(&context, |_| panic!("injected conversion panic"));
     assert!(context.state.is_poisoned());
     assert_eq!(
@@ -108,13 +110,11 @@ fn callback_panic_fails_source_and_ignores_later_deliveries() {
         );
     }
     assert!(rx.try_recv().is_err());
-    let health = WINDOWS_EVENT_LOG
-        .lock()
-        .unwrap()
-        .iter()
+    let health = log_health
+        .snapshot()
+        .into_iter()
         .find(|health| health.channel == source.channel)
-        .unwrap()
-        .clone();
+        .unwrap();
     assert!(!health.active);
     assert_eq!(health.subscription_errors, 1);
     assert_eq!(health.decode_errors, 0);
@@ -171,22 +171,22 @@ fn invalid_checkpoint_fails_startup_without_resetting_it() {
         "*",
         service::source().decoder,
     );
+    let log_health = Arc::new(EventLogHealth::default());
     assert!(run_subscription_inner(
         source,
         tx,
         Arc::new(AtomicBool::new(false)),
         &startup_tx,
-        &path
+        &path,
+        &log_health,
     )
     .is_err());
     assert_eq!(std::fs::read_to_string(path).unwrap(), "invalid bookmark");
-    let health = WINDOWS_EVENT_LOG
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|h| h.channel == source.channel)
-        .unwrap()
-        .clone();
+    let health = log_health
+        .snapshot()
+        .into_iter()
+        .find(|health| health.channel == source.channel)
+        .unwrap();
     assert_eq!(health.checkpoint_errors, 1);
     assert!(!health.active);
 }
@@ -200,9 +200,11 @@ fn callback_errors_are_categorical_and_named() {
         "*",
         service::source().decoder,
     );
+    let log_health = Arc::new(EventLogHealth::default());
     let context = CallbackContext {
         source,
         tx,
+        health: Arc::clone(&log_health),
         state: Mutex::new(CallbackState {
             // SAFETY: a null XML argument creates an empty bookmark.
             bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
@@ -222,13 +224,11 @@ fn callback_errors_are_categorical_and_named() {
             );
         }
     }
-    let health = WINDOWS_EVENT_LOG
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|h| h.channel == source.channel)
-        .unwrap()
-        .clone();
+    let health = log_health
+        .snapshot()
+        .into_iter()
+        .find(|health| health.channel == source.channel)
+        .unwrap();
     assert_eq!(health.subscription_errors, 2);
     assert_eq!(health.live_stale, 1);
     assert_eq!(health.retention_wraps, 0);
@@ -300,6 +300,7 @@ fn native_powershell_classic_start_subscription() {
         tx,
         Arc::clone(&shutdown),
         path,
+        Default::default(),
     )
     .unwrap();
 
@@ -345,10 +346,17 @@ fn native_filtered_subscription_resume_and_retention() {
         "*[System[EventID=429]]",
         decode_test_record,
     );
+    let log_health = Arc::new(EventLogHealth::default());
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
     let shutdown = Arc::new(AtomicBool::new(false));
-    let worker =
-        EventLogSubscription::start(source, tx.clone(), shutdown.clone(), path.clone()).unwrap();
+    let worker = EventLogSubscription::start(
+        source,
+        tx.clone(),
+        shutdown.clone(),
+        path.clone(),
+        Arc::clone(&log_health),
+    )
+    .unwrap();
     assert_eq!(
         bookmark_record_id(&std::fs::read_to_string(&path).unwrap(), channel).unwrap(),
         0
@@ -358,8 +366,14 @@ fn native_filtered_subscription_resume_and_retention() {
     // Even a previously empty channel must replay its first downtime event.
     powershell("Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message first");
     shutdown.store(false, Ordering::Relaxed);
-    let worker =
-        EventLogSubscription::start(source, tx.clone(), shutdown.clone(), path.clone()).unwrap();
+    let worker = EventLogSubscription::start(
+        source,
+        tx.clone(),
+        shutdown.clone(),
+        path.clone(),
+        Arc::clone(&log_health),
+    )
+    .unwrap();
     powershell("1..200 | ForEach-Object { Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 430 -EntryType Information -Message excluded }; Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message second");
     let first = receive(&mut rx).source_seq.unwrap();
     let second = receive(&mut rx).source_seq.unwrap();
@@ -375,19 +389,23 @@ fn native_filtered_subscription_resume_and_retention() {
     // A new worker reopens the on-disk bookmark and receives downtime events.
     powershell("Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message downtime");
     shutdown.store(false, Ordering::Relaxed);
-    let worker =
-        EventLogSubscription::start(source, tx.clone(), shutdown.clone(), path.clone()).unwrap();
+    let worker = EventLogSubscription::start(
+        source,
+        tx.clone(),
+        shutdown.clone(),
+        path.clone(),
+        Arc::clone(&log_health),
+    )
+    .unwrap();
     let third = receive(&mut rx).source_seq.unwrap();
     assert!(third > second);
     shutdown.store(true, Ordering::Relaxed);
     worker.join().unwrap();
-    let health = WINDOWS_EVENT_LOG
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|h| h.channel == channel)
-        .unwrap()
-        .clone();
+    let health = log_health
+        .snapshot()
+        .into_iter()
+        .find(|health| health.channel == channel)
+        .unwrap();
     assert_eq!(health.delivered, 3);
     assert_eq!(health.subscription_errors, 0);
     assert_eq!(health.live_stale, 0);
@@ -410,17 +428,17 @@ fn native_filtered_subscription_resume_and_retention() {
         thread::sleep(Duration::from_millis(250));
     }
     shutdown.store(false, Ordering::Relaxed);
-    let worker = EventLogSubscription::start(source, tx, shutdown.clone(), path).unwrap();
+    let worker =
+        EventLogSubscription::start(source, tx, shutdown.clone(), path, Arc::clone(&log_health))
+            .unwrap();
     assert!(receive(&mut rx).source_seq.unwrap() > third);
     shutdown.store(true, Ordering::Relaxed);
     worker.join().unwrap();
-    let health = WINDOWS_EVENT_LOG
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|h| h.channel == channel)
-        .unwrap()
-        .clone();
+    let health = log_health
+        .snapshot()
+        .into_iter()
+        .find(|health| health.channel == channel)
+        .unwrap();
     assert_eq!(health.retention_wraps, 1);
     assert_eq!(health.resume_failures, 1);
     assert_eq!(health.live_stale, 0);

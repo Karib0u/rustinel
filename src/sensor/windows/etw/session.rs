@@ -152,7 +152,7 @@ pub(super) fn seed_registry_paths(state: &EtwState) {
     let keys = registry_rundown::snapshot_open_keys();
     let count = keys.len();
     state.registry_paths().seed(keys);
-    crate::telemetry::REGISTRY.set_snapshot_keys(count);
+    state.counters().registry.set_snapshot_keys(count);
 
     if count == 0 {
         // Not fatal, but it means every write through a pre-session handle is

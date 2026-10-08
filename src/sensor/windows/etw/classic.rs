@@ -2,7 +2,6 @@
 
 use super::{session::process_session_properties, state::EtwState};
 use crate::sensor::RawEvent;
-use crate::telemetry::WINDOWS_PROCESS_CORRELATION as METRICS;
 use anyhow::{Context, Result};
 use ferrisetw::provider::{kernel_providers, Provider};
 use ferrisetw::trace::{
@@ -114,7 +113,10 @@ impl ClassicSession {
                     .spawn(move || {
                         let result = KernelTrace::process_from_handle(handle);
                         if !stopped.load(Ordering::Acquire) {
-                            METRICS.session_failures.fetch_add(1, Ordering::Relaxed);
+                            failure_state
+                                .process_correlation_metrics()
+                                .session_failures
+                                .fetch_add(1, Ordering::Relaxed);
                             tracing::warn!(
                                 ?result,
                                 "Classic process collection ended; retaining manifest fallback"
@@ -128,14 +130,20 @@ impl ClassicSession {
                     }) {
                     Ok(worker) => session.worker = Some(worker),
                     Err(error) => {
-                        METRICS.session_failures.fetch_add(1, Ordering::Relaxed);
+                        state
+                            .process_correlation_metrics()
+                            .session_failures
+                            .fetch_add(1, Ordering::Relaxed);
                         tracing::warn!(%error, "Classic process consumer unavailable; retaining manifest fallback");
                         session.trace.take();
                     }
                 }
             }
             Err(error) => {
-                METRICS.session_failures.fetch_add(1, Ordering::Relaxed);
+                state
+                    .process_correlation_metrics()
+                    .session_failures
+                    .fetch_add(1, Ordering::Relaxed);
                 tracing::warn!(
                     ?error,
                     "Classic process session unavailable; retaining manifest fallback"

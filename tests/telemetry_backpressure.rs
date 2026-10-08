@@ -267,8 +267,8 @@ async fn the_runtime_publishes_counters_while_running_and_at_shutdown() {
 
     let (writer, _guard) = tracing_appender::non_blocking(std::io::sink());
     let alert_sink = AlertSink::new(writer);
-    let reporter =
-        TelemetryReporter::start(&cfg, &alert_sink).expect("telemetry is enabled by default");
+    let reporter = TelemetryReporter::start(&cfg, &alert_sink, Default::default())
+        .expect("telemetry is enabled by default");
 
     // The reporter creates the log directory itself, as it must on a fresh
     // portable install whose first run has not written a log yet.
@@ -300,6 +300,6 @@ async fn disabling_telemetry_publishes_nothing() {
     cfg.telemetry.enabled = false;
 
     let (writer, _guard) = tracing_appender::non_blocking(std::io::sink());
-    assert!(TelemetryReporter::start(&cfg, &AlertSink::new(writer)).is_none());
+    assert!(TelemetryReporter::start(&cfg, &AlertSink::new(writer), Default::default()).is_none());
     assert!(!snapshot_path(temp.path()).exists());
 }

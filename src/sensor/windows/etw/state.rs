@@ -342,10 +342,26 @@ impl EtwState {
         }
         Self {
             routing: EtwRouting::new(),
-            process_correlation: Mutex::new(Default::default()),
+            process_correlation: Mutex::new(super::process::ProcessCorrelation::with_metrics(
+                std::sync::Arc::clone(&host.process_correlation),
+            )),
             host,
             pending_registry_events: Mutex::new(PendingRegistryEvents::new()),
         }
+    }
+
+    pub(super) fn process_correlation_metrics(
+        &self,
+    ) -> &crate::telemetry::ProcessCorrelationCounters {
+        &self.host.process_correlation
+    }
+
+    /// Counters for this runtime's registry, file and decoder accounting.
+    pub(super) fn counters(&self) -> &crate::sensor::windows::telemetry::WindowsCounters {
+        &self
+            .host
+            .extension::<crate::sensor::windows::WindowsHostExtension>()
+            .counters
     }
 
     pub(super) fn attribute_process_identity(&self, event: &mut RawEvent) {

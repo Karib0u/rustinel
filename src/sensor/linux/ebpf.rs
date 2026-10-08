@@ -23,12 +23,12 @@ use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, warn};
 
+use super::telemetry::{LinuxEbpfCounters, LinuxEbpfFamily, LinuxEbpfKernelSample};
 use crate::models::{DnsQueryFields, FileEventFields, NetworkConnectionFields};
 use crate::sensor::{
     Platform, ProcessStartKey, RawEvent, RawLinuxProcess, RawPayload, RawProcessEvent,
     RawProcessPlatform, RawUserId, Sensor, SensorAction, SensorNormalization,
 };
-use crate::telemetry::{LinuxEbpfFamily, LinuxEbpfKernelSample, LINUX_EBPF};
 
 use super::abi::validate_object_abi;
 use super::events::{
@@ -76,6 +76,33 @@ unsafe impl aya::Pod for KernelCounterRow {}
 
 /// Linux eBPF sensor. Implements [`Sensor`]; call `start()` from within a
 /// tokio runtime context.
+/// A loaded eBPF object that records each hook it attaches against the host
+/// it runs for.
+struct LoadedEbpf {
+    bpf: Ebpf,
+    host: Arc<crate::state::HostState>,
+}
+
+impl LoadedEbpf {
+    fn counters(&self) -> &LinuxEbpfCounters {
+        &self.host.extension::<super::LinuxHostExtension>().ebpf
+    }
+}
+
+impl std::ops::Deref for LoadedEbpf {
+    type Target = Ebpf;
+
+    fn deref(&self) -> &Ebpf {
+        &self.bpf
+    }
+}
+
+impl std::ops::DerefMut for LoadedEbpf {
+    fn deref_mut(&mut self) -> &mut Ebpf {
+        &mut self.bpf
+    }
+}
+
 pub struct EbpfSensor {
     host: Arc<crate::state::HostState>,
     shutdown: Arc<AtomicBool>,
@@ -87,6 +114,13 @@ impl EbpfSensor {
             host,
             shutdown: Arc::new(AtomicBool::new(false)),
         }
+    }
+    /// The sensor's own accounting, or `None` before a successful `start`.
+    pub fn telemetry(&self) -> Option<crate::telemetry::LinuxEbpfSnapshot> {
+        self.host
+            .extension::<super::LinuxHostExtension>()
+            .ebpf
+            .snapshot()
     }
     pub fn new() -> Self {
         Self {
@@ -140,9 +174,12 @@ impl Sensor for EbpfSensor {
             .override_global("NETWORK_TRACEPOINT_OFFSETS", &layouts.network, true)
             .override_global("FILE_TRACEPOINT_OFFSETS", &layouts.file, true)
             .override_global("DNS_TRACEPOINT_OFFSETS", &layouts.dns, true);
-        let mut bpf = loader
-            .load(bytes)
-            .context("eBPF object load failed; ensure the kernel is 5.8+")?;
+        let mut bpf = LoadedEbpf {
+            bpf: loader
+                .load(bytes)
+                .context("eBPF object load failed; ensure the kernel is 5.8+")?,
+            host: Arc::clone(&self.host),
+        };
 
         let task_plans = super::task_btf::TaskPlans::load();
         for (diagnostic, reason) in &task_plans.warnings {
@@ -168,7 +205,8 @@ impl Sensor for EbpfSensor {
             }
             Err(error) => {
                 let reason = format!("{error:#}");
-                LINUX_EBPF.record_hook("file_identity", "runtime_btf", false, Some(&reason));
+                bpf.counters()
+                    .record_hook("file_identity", "runtime_btf", false, Some(&reason));
                 warn!(%reason, "kernel file identity unavailable; file events remain enabled");
                 None
             }
@@ -372,7 +410,7 @@ impl Sensor for EbpfSensor {
             bpf.take_map("LINUX_EBPF_COUNTERS")
                 .context("LINUX_EBPF_COUNTERS map not found in eBPF object")?,
         )?;
-        LINUX_EBPF.activate();
+        bpf.counters().activate();
 
         // ── Spawn polling task ───────────────────────────────────────────────
 
@@ -424,6 +462,7 @@ async fn run_ring_poll(
     let mut network_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(network_ring)?;
     let mut file_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(file_ring)?;
     let mut dns_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(dns_ring)?;
+    let telemetry = &host.extension::<super::LinuxHostExtension>().ebpf;
     let mut unresolved_file_events: u64 = 0;
     let mut counter_tick = tokio::time::interval(std::time::Duration::from_secs(1));
     counter_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -432,7 +471,7 @@ async fn run_ring_poll(
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
-            let _ = refresh_kernel_counters(&kernel_counters);
+            let _ = refresh_kernel_counters(&kernel_counters, telemetry);
             info!("eBPF sensor shutting down");
             break;
         }
@@ -442,7 +481,7 @@ async fn run_ring_poll(
 
             _ = counter_tick.tick() => {
                 time_converter.refresh();
-                match refresh_kernel_counters(&kernel_counters) {
+                match refresh_kernel_counters(&kernel_counters, telemetry) {
                     Ok(()) => counter_read_failed = false,
                     Err(err) if !counter_read_failed => {
                         warn!(error = %err, "failed to read Linux eBPF kernel counters");
@@ -454,7 +493,7 @@ async fn run_ring_poll(
 
             Ok(mut guard) = process_fd.readable_mut() => {
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_process_ring(rb, &tx, time_converter);
+                drain_process_ring(rb, &tx, telemetry, time_converter);
                 guard.clear_ready();
             }
 
@@ -462,9 +501,9 @@ async fn run_ring_poll(
                 // A DNS answer is submitted before the connection that uses
                 // it, but lives in another ring. Drain DNS first so the answer
                 // reaches the DNS cache before the connection is normalized.
-                drain_dns_ring(dns_fd.get_mut(), &tx, time_converter);
+                drain_dns_ring(dns_fd.get_mut(), &tx, telemetry, time_converter);
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_network_ring(rb, &tx, time_converter);
+                drain_network_ring(rb, &tx, telemetry, time_converter);
                 guard.clear_ready();
             }
 
@@ -478,6 +517,7 @@ async fn run_ring_poll(
                 drain_file_ring(
                     rb,
                     &tx,
+                    telemetry,
                     &mut dir_fds,
                     &mut unresolved_file_events,
                     &host,
@@ -488,7 +528,7 @@ async fn run_ring_poll(
 
             Ok(mut guard) = dns_fd.readable_mut() => {
                 let rb: &mut RingBuf<MapData> = guard.get_inner_mut();
-                drain_dns_ring(rb, &tx, time_converter);
+                drain_dns_ring(rb, &tx, telemetry, time_converter);
                 guard.clear_ready();
             }
 
@@ -501,7 +541,10 @@ async fn run_ring_poll(
     Ok(())
 }
 
-fn refresh_kernel_counters(counters: &PerCpuArray<MapData, KernelCounterRow>) -> Result<()> {
+fn refresh_kernel_counters(
+    counters: &PerCpuArray<MapData, KernelCounterRow>,
+    telemetry: &LinuxEbpfCounters,
+) -> Result<()> {
     for family in LinuxEbpfFamily::ALL {
         let values = counters
             .get(&(family.index() as u32), 0)
@@ -522,7 +565,7 @@ fn refresh_kernel_counters(counters: &PerCpuArray<MapData, KernelCounterRow>) ->
                 total.kernel_map_full = total.kernel_map_full.saturating_add(value.kernel_map_full);
                 total
             });
-        LINUX_EBPF.set_kernel_sample(family, sample);
+        telemetry.set_kernel_sample(family, sample);
     }
     Ok(())
 }
@@ -532,22 +575,23 @@ fn refresh_kernel_counters(counters: &PerCpuArray<MapData, KernelCounterRow>) ->
 fn drain_process_ring(
     rb: &mut RingBuf<MapData>,
     tx: &Sender<RawEvent>,
+    telemetry: &LinuxEbpfCounters,
     time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
-        LINUX_EBPF.record_received(LinuxEbpfFamily::Process);
+        telemetry.record_received(LinuxEbpfFamily::Process);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<ProcessEvent>(bytes) else {
-            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Process);
+            telemetry.record_short_read(LinuxEbpfFamily::Process);
             debug!("process ring: short read ({} bytes)", bytes.len());
             continue;
         };
-        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Process);
+        telemetry.record_decoded(LinuxEbpfFamily::Process);
         if let Some(sensor_event) = build_process_event_with_clock(&ev, time_converter) {
-            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Process);
+            telemetry.record_emitted(LinuxEbpfFamily::Process);
             try_send(tx, sensor_event);
         } else {
-            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Process);
+            telemetry.record_dropped(LinuxEbpfFamily::Process);
         }
     }
 }
@@ -555,22 +599,23 @@ fn drain_process_ring(
 fn drain_network_ring(
     rb: &mut RingBuf<MapData>,
     tx: &Sender<RawEvent>,
+    telemetry: &LinuxEbpfCounters,
     time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
-        LINUX_EBPF.record_received(LinuxEbpfFamily::Network);
+        telemetry.record_received(LinuxEbpfFamily::Network);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<NetworkEvent>(bytes) else {
-            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Network);
+            telemetry.record_short_read(LinuxEbpfFamily::Network);
             debug!("network ring: short read ({} bytes)", bytes.len());
             continue;
         };
-        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Network);
+        telemetry.record_decoded(LinuxEbpfFamily::Network);
         if let Some(sensor_event) = build_network_event_with_clock(&ev, time_converter) {
-            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Network);
+            telemetry.record_emitted(LinuxEbpfFamily::Network);
             try_send(tx, sensor_event);
         } else {
-            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Network);
+            telemetry.record_dropped(LinuxEbpfFamily::Network);
         }
     }
 }
@@ -584,53 +629,54 @@ fn drain_network_ring(
 fn drain_file_ring(
     rb: &mut RingBuf<MapData>,
     tx: &Sender<RawEvent>,
+    telemetry: &LinuxEbpfCounters,
     dir_fds: &mut DirFdIndex,
     unresolved: &mut u64,
     host: &crate::state::HostState,
     time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
-        LINUX_EBPF.record_received(LinuxEbpfFamily::File);
+        telemetry.record_received(LinuxEbpfFamily::File);
         let bytes: &[u8] = &item;
         let Some(header) = parse_event::<FileEventHeader>(bytes) else {
-            LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
+            telemetry.record_short_read(LinuxEbpfFamily::File);
             debug!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
         if header.kind == FILE_EVENT_INDEX_RESET {
             let Some(ev) = parse_event::<FileIndexEvent>(bytes) else {
-                LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
+                telemetry.record_short_read(LinuxEbpfFamily::File);
                 debug!("file index ring: short read ({} bytes)", bytes.len());
                 continue;
             };
-            LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
+            telemetry.record_decoded(LinuxEbpfFamily::File);
             dir_fds.forget_process(ev.pid);
-            LINUX_EBPF.record_internal(LinuxEbpfFamily::File);
+            telemetry.record_internal(LinuxEbpfFamily::File);
             continue;
         }
         let Some(ev) = parse_event::<FileEvent>(bytes) else {
-            LINUX_EBPF.record_short_read(LinuxEbpfFamily::File);
+            telemetry.record_short_read(LinuxEbpfFamily::File);
             debug!("file ring: short read ({} bytes)", bytes.len());
             continue;
         };
-        LINUX_EBPF.record_decoded(LinuxEbpfFamily::File);
+        telemetry.record_decoded(LinuxEbpfFamily::File);
         if ev.kind == FILE_EVENT_DIR_OPEN {
             if !index_dir_open(&ev, dir_fds) {
                 host.record_attribution_loss();
             }
-            LINUX_EBPF.record_internal(LinuxEbpfFamily::File);
+            telemetry.record_internal(LinuxEbpfFamily::File);
             continue;
         }
         let unresolved_before = *unresolved;
         if let Some(sensor_event) =
             build_file_event_with_clock(&ev, dir_fds, unresolved, time_converter)
         {
-            LINUX_EBPF.record_emitted(LinuxEbpfFamily::File);
+            telemetry.record_emitted(LinuxEbpfFamily::File);
             try_send(tx, sensor_event);
         } else if *unresolved > unresolved_before {
-            LINUX_EBPF.record_unresolved_file();
+            telemetry.record_unresolved_file();
         } else {
-            LINUX_EBPF.record_dropped(LinuxEbpfFamily::File);
+            telemetry.record_dropped(LinuxEbpfFamily::File);
         }
     }
 }
@@ -662,22 +708,23 @@ fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) -> bool {
 fn drain_dns_ring(
     rb: &mut RingBuf<MapData>,
     tx: &Sender<RawEvent>,
+    telemetry: &LinuxEbpfCounters,
     time_converter: BootTimeConverter,
 ) {
     while let Some(item) = rb.next() {
-        LINUX_EBPF.record_received(LinuxEbpfFamily::Dns);
+        telemetry.record_received(LinuxEbpfFamily::Dns);
         let bytes: &[u8] = &item;
         let Some(ev) = parse_event::<DnsEvent>(bytes) else {
-            LINUX_EBPF.record_short_read(LinuxEbpfFamily::Dns);
+            telemetry.record_short_read(LinuxEbpfFamily::Dns);
             debug!("dns ring: short read ({} bytes)", bytes.len());
             continue;
         };
-        LINUX_EBPF.record_decoded(LinuxEbpfFamily::Dns);
+        telemetry.record_decoded(LinuxEbpfFamily::Dns);
         if let Some(sensor_event) = build_dns_event_with_clock(&ev, time_converter) {
-            LINUX_EBPF.record_emitted(LinuxEbpfFamily::Dns);
+            telemetry.record_emitted(LinuxEbpfFamily::Dns);
             try_send(tx, sensor_event);
         } else {
-            LINUX_EBPF.record_dropped(LinuxEbpfFamily::Dns);
+            telemetry.record_dropped(LinuxEbpfFamily::Dns);
         }
     }
 }
@@ -1087,7 +1134,7 @@ fn linux_user_id(uid: u32) -> Option<String> {
 
 /// Try the complete tuple tier before enabling the syscall fallback. Failure
 /// detaches every partial attachment so the fallback cannot duplicate events.
-fn attach_socket_tuple(bpf: &mut Ebpf) -> Result<bool> {
+fn attach_socket_tuple(bpf: &mut LoadedEbpf) -> Result<bool> {
     let mut loaded = Vec::new();
     let result = (|| -> Result<()> {
         let layout = super::task_btf::SocketLayout::load()?;
@@ -1129,13 +1176,15 @@ fn attach_socket_tuple(bpf: &mut Ebpf) -> Result<bool> {
                 .context("cannot roll back socket tier; refusing duplicate capture")?;
         }
         let reason = format!("{error:#}");
-        LINUX_EBPF.record_hook("network_tuple", "socket_fexit", false, Some(&reason));
+        bpf.counters()
+            .record_hook("network_tuple", "socket_fexit", false, Some(&reason));
         warn!(%reason, "kernel socket tuple unavailable; using connect syscalls");
         return Ok(false);
     }
     for name in loaded {
-        LINUX_EBPF.record_hook("network_tuple", name, true, None);
-        LINUX_EBPF.record_hook("network", name, true, None);
+        bpf.counters()
+            .record_hook("network_tuple", name, true, None);
+        bpf.counters().record_hook("network", name, true, None);
     }
     Ok(true)
 }
@@ -1147,13 +1196,13 @@ fn attach_socket_tuple(bpf: &mut Ebpf) -> Result<bool> {
 /// call (see `ebpf/src/dns.rs`). Without kernel BTF the hooks are reported
 /// unavailable and DNS over `read`/`write` is not captured; the socket
 /// syscalls are unaffected.
-fn attach_dns_socket_io(bpf: &mut Ebpf) {
+fn attach_dns_socket_io(bpf: &mut LoadedEbpf) {
     let btf = match aya::Btf::from_sys_fs() {
         Ok(btf) => btf,
         Err(error) => {
             let reason = format!("kernel BTF unavailable: {error}");
             for program in ["handle_dns_write", "handle_dns_read"] {
-                record_unavailable_hook(program, &reason);
+                record_unavailable_hook(bpf.counters(), program, &reason);
             }
             warn!(%reason, "DNS over read/write is not captured");
             return;
@@ -1181,10 +1230,10 @@ fn attach_dns_socket_io(bpf: &mut Ebpf) {
     })();
     for (program, result) in [("handle_dns_write", write), ("handle_dns_read", read)] {
         match result {
-            Ok(()) => LINUX_EBPF.record_hook("dns", program, true, None),
+            Ok(()) => bpf.counters().record_hook("dns", program, true, None),
             Err(error) => {
                 let reason = format!("{error:#}");
-                record_unavailable_hook(program, &reason);
+                record_unavailable_hook(bpf.counters(), program, &reason);
                 warn!(program, %reason, "eBPF hook failed to attach");
             }
         }
@@ -1192,7 +1241,7 @@ fn attach_dns_socket_io(bpf: &mut Ebpf) {
 }
 
 fn attach_optional_tracepoint(
-    bpf: &mut Ebpf,
+    bpf: &mut LoadedEbpf,
     program: &str,
     category: &str,
     name: &str,
@@ -1200,32 +1249,42 @@ fn attach_optional_tracepoint(
     attach_tracepoint(bpf, program, category, name)
 }
 
-fn attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &str) -> Result<()> {
+fn attach_tracepoint(
+    bpf: &mut LoadedEbpf,
+    program: &str,
+    category: &str,
+    name: &str,
+) -> Result<()> {
     if let Some(reason) = TracepointLayouts::current_unavailable_reason(program) {
-        record_unavailable_hook(program, reason);
+        record_unavailable_hook(bpf.counters(), program, reason);
         warn!(program, category, name, reason, "eBPF hook is unavailable");
         return Ok(());
     }
     if !tracepoint_exists(category, name) {
         let reason = format!("tracepoint {category}/{name} is unavailable");
-        record_unavailable_hook(program, &reason);
+        record_unavailable_hook(bpf.counters(), program, &reason);
         warn!(program, category, name, "eBPF hook is unavailable");
         return Ok(());
     }
 
     if let Err(err) = try_attach_tracepoint(bpf, program, category, name) {
         let reason = format!("{err:#}");
-        record_unavailable_hook(program, &reason);
+        record_unavailable_hook(bpf.counters(), program, &reason);
         warn!(program, category, name, error = %err, "eBPF hook failed to attach");
         return Ok(());
     }
     for feature in features_for_program(program) {
-        LINUX_EBPF.record_hook(feature, program, true, None);
+        bpf.counters().record_hook(feature, program, true, None);
     }
     Ok(())
 }
 
-fn try_attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &str) -> Result<()> {
+fn try_attach_tracepoint(
+    bpf: &mut LoadedEbpf,
+    program: &str,
+    category: &str,
+    name: &str,
+) -> Result<()> {
     let prog: &mut TracePoint = bpf
         .program_mut(program)
         .with_context(|| format!("program '{}' not found in eBPF object", program))?
@@ -1241,21 +1300,21 @@ fn try_attach_tracepoint(bpf: &mut Ebpf, program: &str, category: &str, name: &s
     Ok(())
 }
 
-fn attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
+fn attach_kprobe(bpf: &mut LoadedEbpf, program: &str, function: &str) -> Result<()> {
     if let Err(err) = try_attach_kprobe(bpf, program, function) {
         let reason = format!("{err:#}");
-        record_unavailable_hook(program, &reason);
+        record_unavailable_hook(bpf.counters(), program, &reason);
         warn!(program, function, error = %err, "eBPF hook failed to attach");
         return Ok(());
     }
     for feature in features_for_program(program) {
-        LINUX_EBPF.record_hook(feature, program, true, None);
+        bpf.counters().record_hook(feature, program, true, None);
     }
     Ok(())
 }
 
 fn attach_file_identity(
-    bpf: &mut Ebpf,
+    bpf: &mut LoadedEbpf,
     layout: &super::task_btf::FileIdentityLayout,
 ) -> Result<()> {
     for (program, function) in [
@@ -1267,11 +1326,12 @@ fn attach_file_identity(
     ] {
         attach_kprobe(bpf, program, function)?;
     }
-    LINUX_EBPF.record_hook("file_identity", "open_fd", true, None);
+    bpf.counters()
+        .record_hook("file_identity", "open_fd", true, None);
     Ok(())
 }
 
-fn try_attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()> {
+fn try_attach_kprobe(bpf: &mut LoadedEbpf, program: &str, function: &str) -> Result<()> {
     let prog: &mut KProbe = bpf
         .program_mut(program)
         .with_context(|| format!("program '{}' not found in eBPF object", program))?
@@ -1287,9 +1347,9 @@ fn try_attach_kprobe(bpf: &mut Ebpf, program: &str, function: &str) -> Result<()
     Ok(())
 }
 
-fn record_unavailable_hook(program: &str, reason: &str) {
+fn record_unavailable_hook(counters: &LinuxEbpfCounters, program: &str, reason: &str) {
     for feature in features_for_program(program) {
-        LINUX_EBPF.record_hook(feature, program, false, Some(reason));
+        counters.record_hook(feature, program, false, Some(reason));
     }
 }
 

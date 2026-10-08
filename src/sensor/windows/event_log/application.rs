@@ -204,6 +204,7 @@ mod tests {
             tx,
             Arc::clone(&shutdown),
             temp.path().join("Application.xml"),
+            Default::default(),
         )
         .expect("Application query must subscribe");
         shutdown.store(true, Ordering::Relaxed);

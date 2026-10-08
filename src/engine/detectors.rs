@@ -1,7 +1,7 @@
 //! Shared live Sigma, YARA, and IOC detector instances.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 
@@ -15,7 +15,11 @@ pub struct DetectorStore {
     yara: ArcSwap<scanner::Scanner>,
     ioc: ArcSwap<IocEngine>,
     yara_generation: AtomicU64,
+    yara_subscribers: Mutex<Vec<YaraSwapSubscriber>>,
 }
+
+/// Called with the new generation once a YARA swap has committed.
+type YaraSwapSubscriber = Box<dyn Fn(u64) + Send + Sync>;
 
 impl DetectorStore {
     pub fn new(sigma: Arc<Engine>, yara: Arc<scanner::Scanner>, ioc: Arc<IocEngine>) -> Arc<Self> {
@@ -24,6 +28,7 @@ impl DetectorStore {
             yara: ArcSwap::from(yara),
             ioc: ArcSwap::from(ioc),
             yara_generation: AtomicU64::new(0),
+            yara_subscribers: Mutex::new(Vec::new()),
         })
     }
 
@@ -63,10 +68,62 @@ impl DetectorStore {
         self.yara_generation.fetch_add(1, Ordering::AcqRel);
         self.yara.store(scanner);
         let generation = self.yara_generation.fetch_add(1, Ordering::Release) + 1;
-        crate::artifact::invalidate_yara_generation(generation);
+        for subscriber in self
+            .yara_subscribers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+        {
+            subscriber(generation);
+        }
+    }
+
+    /// Run `subscriber` after every YARA swap, so caches keyed on the
+    /// generation can drop stale entries.
+    pub(crate) fn subscribe_yara_swap(&self, subscriber: impl Fn(u64) + Send + Sync + 'static) {
+        self.yara_subscribers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(Box::new(subscriber));
     }
 
     pub(crate) fn swap_ioc(&self, ioc: Arc<IocEngine>) {
         self.ioc.store(ioc);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+
+    fn store() -> Arc<DetectorStore> {
+        DetectorStore::new(
+            Arc::new(Engine::new()),
+            Arc::new(scanner::Scanner::empty()),
+            Arc::new(IocEngine::disabled()),
+        )
+    }
+
+    /// Every resolver registered on a store hears about a swap, not only the
+    /// one that started last.
+    #[test]
+    fn every_subscriber_sees_each_yara_generation() {
+        let store = store();
+        let seen = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        for index in 0..2 {
+            let seen = Arc::clone(&seen);
+            store.subscribe_yara_swap(move |generation| {
+                seen[index].store(generation, Ordering::Relaxed)
+            });
+        }
+
+        store.swap_yara(Arc::new(scanner::Scanner::empty()));
+        store.swap_yara(Arc::new(scanner::Scanner::empty()));
+
+        let expected = store.yara_with_generation().0;
+        assert_eq!(seen[0].load(Ordering::Relaxed), expected);
+        assert_eq!(seen[1].load(Ordering::Relaxed), expected);
     }
 }

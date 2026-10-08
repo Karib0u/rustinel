@@ -6,6 +6,7 @@ pub mod events;
 mod inventory;
 pub mod paths;
 pub mod task_btf;
+pub(crate) mod telemetry;
 mod tracepoint_format;
 
 pub use ebpf::EbpfSensor;

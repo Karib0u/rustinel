@@ -16,7 +16,7 @@ use tracing::debug;
 
 use super::job::{ArtifactJob, ResolvePlan};
 use super::resolver::ArtifactResolver;
-use super::snapshot::{ResolverState, ACTIVE};
+use super::snapshot::ResolverState;
 use super::target::{measures_identity_on_arrival, ArtifactKind, ArtifactTarget};
 use super::written_file::WRITTEN_FILE_QUEUE_CAPACITY;
 use super::ARTIFACT_QUEUE_CAPACITY;
@@ -40,9 +40,15 @@ pub(crate) fn spawn_artifact_resolver(
     ArtifactResolverHandle,
 ) {
     let state = Arc::new(ResolverState::new());
-    *ACTIVE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Arc::downgrade(&state);
+    if let Some(detectors) = &runtime.detectors {
+        // Weak, so a store outliving its resolver never keeps it alive.
+        let resolver = Arc::downgrade(&state);
+        detectors.subscribe_yara_swap(move |generation| {
+            if let Some(state) = resolver.upgrade() {
+                state.invalidate_yara_generation(generation);
+            }
+        });
+    }
     let parts = ResolverParts::new(
         downstream,
         host_state,

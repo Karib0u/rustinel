@@ -39,6 +39,7 @@ pub(super) async fn run_live(
         alert_sink,
         dedup_worker_handle,
         telemetry_reporter,
+        probes,
         _guards,
     } = RuntimeLogging::start(&cfg, runtime.label, resolved_config_path.as_deref())?;
 
@@ -50,7 +51,7 @@ pub(super) async fn run_live(
 
     (runtime.preflight)()?;
 
-    let state = SharedState::new(&cfg);
+    let state = SharedState::new(&cfg, probes);
     (runtime.seed_host_state)(&state.host);
     let sensors = (runtime.sensors)(&cfg, &state.host, RunMode::Live);
 

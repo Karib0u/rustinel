@@ -7,7 +7,7 @@ use super::{
     state::EtwState,
 };
 use crate::sensor::windows::file_paths::MAX_RUNDOWN_ENTRIES;
-use crate::telemetry::{FileRundownSnapshot, WINDOWS_FILE_ATTRIBUTION};
+use crate::telemetry::FileRundownSnapshot;
 use anyhow::{bail, Context, Result};
 use ferrisetw::{
     parser::Parser,
@@ -206,17 +206,20 @@ pub(super) fn seed(state: &EtwState) {
     } else {
         0
     };
-    WINDOWS_FILE_ATTRIBUTION.set_rundown(FileRundownSnapshot {
-        seeded,
-        records: snapshot.records,
-        decode_failed: snapshot.decode_failed,
-        events_lost: lost.0,
-        buffers_lost: lost.1,
-        duration_ms,
-        path_bytes: snapshot.path_bytes,
-        index_capacity: snapshot.entries.capacity(),
-        rejected: result.is_err(),
-    });
+    state
+        .counters()
+        .file_attribution
+        .set_rundown(FileRundownSnapshot {
+            seeded,
+            records: snapshot.records,
+            decode_failed: snapshot.decode_failed,
+            events_lost: lost.0,
+            buffers_lost: lost.1,
+            duration_ms,
+            path_bytes: snapshot.path_bytes,
+            index_capacity: snapshot.entries.capacity(),
+            rejected: result.is_err(),
+        });
     match result {
         Ok(()) => {
             state.paths().seed(std::mem::take(&mut snapshot.entries));

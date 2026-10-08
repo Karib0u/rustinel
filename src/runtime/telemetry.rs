@@ -10,18 +10,19 @@ use tokio::task::JoinHandle;
 
 use crate::alerts::{AlertSink, AlertWriterMetrics};
 use crate::config::AppConfig;
-use crate::telemetry::{snapshot_path, spawn_reporter, write_final_snapshot};
+use crate::telemetry::{snapshot_path, spawn_reporter, write_final_snapshot, PipelineProbes};
 
 /// Background task publishing the pipeline counters for `rustinel doctor`.
 pub struct TelemetryReporter {
     path: PathBuf,
     handle: JoinHandle<()>,
     alert_writer: AlertWriterMetrics,
+    probes: PipelineProbes,
 }
 
 impl TelemetryReporter {
     /// Start publishing, unless the operator turned persistence off.
-    pub fn start(cfg: &AppConfig, alert_sink: &AlertSink) -> Option<Self> {
+    pub fn start(cfg: &AppConfig, alert_sink: &AlertSink, probes: PipelineProbes) -> Option<Self> {
         if !cfg.telemetry.enabled {
             return None;
         }
@@ -32,11 +33,13 @@ impl TelemetryReporter {
             path.clone(),
             Duration::from_secs(cfg.telemetry.snapshot_interval_secs),
             alert_writer.clone(),
+            probes.clone(),
         );
         Some(Self {
             path,
             handle,
             alert_writer,
+            probes,
         })
     }
 
@@ -48,6 +51,6 @@ impl TelemetryReporter {
     pub async fn finish(self) {
         self.handle.abort();
         let _ = self.handle.await;
-        write_final_snapshot(&self.path, &self.alert_writer);
+        write_final_snapshot(&self.path, &self.alert_writer, &self.probes);
     }
 }

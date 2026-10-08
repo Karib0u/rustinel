@@ -6,7 +6,7 @@ use crate::sensor::{RawEvent, RawPayload};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 /// Entry ceilings, including auxiliary indexes. Variable-sized metadata is
 /// bounded by the collectors; these ceilings bound retained rows.
@@ -67,6 +67,8 @@ pub trait HostExtension: Any + Send + Sync {
     fn process_identities(&self) -> usize {
         0
     }
+    /// Fill in the sensor counters this platform owns.
+    fn sensor_telemetry(&self, _out: &mut crate::telemetry::SensorTelemetry) {}
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -84,14 +86,18 @@ pub struct HostState {
     inventory: Mutex<Option<InventorySnapshot>>,
     attribution_loss: AtomicU64,
     pub(crate) ingest_seq: AtomicU64,
-}
-static ACTIVE: LazyLock<Mutex<Weak<HostState>>> = LazyLock::new(|| Mutex::new(Weak::new()));
-pub fn active_snapshot() -> Option<HostStateSnapshot> {
-    ACTIVE
-        .lock()
-        .unwrap()
-        .upgrade()
-        .map(|state| state.snapshot())
+    /// Windows classic/manifest process correlation outcomes for this runtime.
+    pub(crate) process_correlation: Arc<crate::telemetry::ProcessCorrelationCounters>,
+    /// Final command-line availability for accepted Windows process starts.
+    pub(crate) command_line: crate::telemetry::ProcessCommandLineCounters,
+    /// Fields with known fidelity limits that normalization has emitted.
+    /// macOS ESF and BPF collector health for this runtime.
+    pub(crate) macos_collectors: crate::telemetry::MacosCollectors,
+    pub(crate) provenance: crate::telemetry::ProvenanceCounters,
+    /// Canonical fields emitted despite being declared unavailable by the
+    /// matching field contract. The detector accessor hides them, but the
+    /// contradiction is still a decoder/contract defect operators must see.
+    pub(crate) field_contract_violations: AtomicU64,
 }
 impl HostState {
     pub fn new(mut limits: StateLimits) -> Self {
@@ -108,6 +114,11 @@ impl HostState {
             inventory: Mutex::new(None),
             attribution_loss: AtomicU64::new(0),
             ingest_seq: AtomicU64::new(0),
+            process_correlation: Arc::default(),
+            command_line: crate::telemetry::ProcessCommandLineCounters::new(),
+            macos_collectors: Default::default(),
+            provenance: Default::default(),
+            field_contract_violations: AtomicU64::new(0),
         }
     }
     pub fn for_runtime(max_processes: usize) -> Arc<Self> {
@@ -115,7 +126,6 @@ impl HostState {
             processes: max_processes,
             ..Default::default()
         }));
-        *ACTIVE.lock().unwrap() = Arc::downgrade(&state);
         #[cfg(target_os = "macos")]
         state.inventory_macos();
         state
@@ -145,6 +155,19 @@ impl HostState {
             .as_any()
             .downcast_ref::<T>()
             .expect("a host carries a single platform extension type")
+    }
+    /// The platform sensor's counters, or empty when no sensor has run here.
+    pub fn sensor_telemetry(&self) -> crate::telemetry::SensorTelemetry {
+        let mut out = crate::telemetry::SensorTelemetry::default();
+        if let Some(extension) = self.extension.get() {
+            extension.sensor_telemetry(&mut out);
+        }
+        out.process_correlation = self.process_correlation.snapshot();
+        out.process_command_line = self.command_line.snapshot();
+        out.macos_collectors = crate::telemetry::macos::snapshot(&self.macos_collectors);
+        out.field_fidelity = self.provenance.snapshot();
+        out.field_contract_violations = self.field_contract_violations.load(Ordering::Relaxed);
+        out
     }
     pub fn limits(&self) -> &StateLimits {
         &self.limits
@@ -391,7 +414,7 @@ impl HostState {
 
         #[cfg(windows)]
         {
-            enrich_windows_process(event);
+            enrich_windows_process(event, &self.process_correlation);
         }
 
         #[cfg(not(any(target_os = "linux", windows)))]
@@ -501,7 +524,10 @@ fn enrich_linux_process_from_details(
 }
 
 #[cfg(windows)]
-fn enrich_windows_process(event: &mut RawEvent) {
+fn enrich_windows_process(
+    event: &mut RawEvent,
+    counters: &crate::telemetry::ProcessCorrelationCounters,
+) {
     if event.platform != crate::vocab::Platform::Windows {
         return;
     }
@@ -520,13 +546,14 @@ fn enrich_windows_process(event: &mut RawEvent) {
     let live = event.process_start_key.and_then(|key| {
         crate::utils::query_process_command_line_at_start(process.process_id, key.start_time)
     });
-    enrich_windows_command_line(process, live);
+    enrich_windows_command_line(process, live, counters);
 }
 
 #[cfg(any(windows, test))]
 pub(crate) fn enrich_windows_command_line(
     process: &mut crate::sensor::RawProcessEvent,
     live: Option<String>,
+    metrics: &crate::telemetry::ProcessCorrelationCounters,
 ) {
     let crate::sensor::RawProcessPlatform::Windows(source) = process.platform.as_mut() else {
         return;
@@ -556,7 +583,6 @@ pub(crate) fn enrich_windows_command_line(
         }
     }
     if correlated {
-        let metrics = &crate::telemetry::WINDOWS_PROCESS_CORRELATION;
         let counter = if conflicting {
             tracing::debug!(
                 pid = process.process_id,
@@ -609,7 +635,7 @@ mod canonicalization_tests {
             source.command_line_source = Some("classic".into());
             source.command_line_may_be_truncated = truncated;
             source.correlation_pending = true;
-            enrich_windows_command_line(&mut process, live.map(String::from));
+            enrich_windows_command_line(&mut process, live.map(String::from), &Default::default());
             assert_eq!(process.command_line.as_deref(), Some(expected));
             let source = process.windows_mut().unwrap();
             assert!(!source.correlation_pending);

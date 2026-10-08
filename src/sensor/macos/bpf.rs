@@ -172,13 +172,23 @@ const BPF_FILTER_EN10MB: [BpfInsn; 37] = [
 pub struct BpfSensor {
     shutdown: Arc<AtomicBool>,
     threads: Mutex<Vec<JoinHandle<()>>>,
+    collectors: crate::telemetry::MacosCollectors,
 }
 
 impl BpfSensor {
+    /// Report collector health to `host`, so the runtime's telemetry sees it.
+    pub fn with_host_state(host: &crate::state::HostState) -> Self {
+        Self {
+            collectors: Arc::clone(&host.macos_collectors),
+            ..Self::new()
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             shutdown: Arc::new(AtomicBool::new(false)),
             threads: Mutex::new(Vec::new()),
+            collectors: Default::default(),
         }
     }
 }
@@ -207,7 +217,7 @@ impl Sensor for BpfSensor {
             .map_err(|e| warn!("failed to spawn bpf attribution worker: {e}"))
             .ok();
 
-        let mut supervisor = Supervisor::new(tx, attribution_tx);
+        let mut supervisor = Supervisor::new(tx, attribution_tx, Arc::clone(&self.collectors));
         supervisor.reconcile(&interfaces, Instant::now());
         let started = supervisor.has_workers();
         let mut result = if started {
@@ -267,11 +277,17 @@ struct Supervisor {
     attribution_tx: SyncSender<AttributionJob>,
     workers: BTreeMap<String, Worker>,
     retries: BTreeMap<String, Retry>,
+    collectors: crate::telemetry::MacosCollectors,
 }
 
 impl Supervisor {
-    fn new(tx: Sender<RawEvent>, attribution_tx: SyncSender<AttributionJob>) -> Self {
+    fn new(
+        tx: Sender<RawEvent>,
+        attribution_tx: SyncSender<AttributionJob>,
+        collectors: crate::telemetry::MacosCollectors,
+    ) -> Self {
         Self {
+            collectors,
             tx,
             attribution_tx,
             workers: BTreeMap::new(),
@@ -324,7 +340,7 @@ impl Supervisor {
         for interface in gone {
             self.retries.remove(&interface);
         }
-        remove_interface_status(|name| !desired.contains(name));
+        remove_interface_status(&self.collectors, |name| !desired.contains(name));
         for interface in start {
             if self
                 .retries
@@ -362,7 +378,7 @@ impl Supervisor {
             Ok(worker) => {
                 if self.retries.contains_key(interface) {
                     info!(interface = %interface, "bpf capture restarted");
-                    note_restart(interface);
+                    note_restart(&self.collectors, interface);
                 }
                 self.workers.insert(interface.to_string(), worker);
             }
@@ -376,16 +392,23 @@ impl Supervisor {
 
     fn spawn_worker(&self, interface: &str) -> Result<Worker> {
         let device = BpfDevice::open(interface)?;
-        set_interface_status(interface, true, Some(device.link_type), None);
+        set_interface_status(
+            &self.collectors,
+            interface,
+            true,
+            Some(device.link_type),
+            None,
+        );
         info!(interface = %interface, link_type = device.link_type,
             buffer_len = device.buffer_len, "bpf capture device ready");
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let tx = self.tx.clone();
         let attribution_tx = self.attribution_tx.clone();
+        let collectors = Arc::clone(&self.collectors);
         let handle = std::thread::Builder::new()
             .name(format!("rustinel-bpf-{interface}"))
-            .spawn(move || run_capture(device, tx, worker_stop, attribution_tx))
+            .spawn(move || run_capture(device, tx, worker_stop, attribution_tx, collectors))
             .map_err(|e| anyhow!("failed to spawn bpf capture thread: {e}"))?;
         Ok(Worker {
             stop,
@@ -419,7 +442,7 @@ impl Supervisor {
         }
         let cause = error
             .map(|e| e.to_string())
-            .or_else(|| recorded_interface_error(interface))
+            .or_else(|| recorded_interface_error(&self.collectors, interface))
             .unwrap_or_else(|| "capture worker exited".to_string());
         let message = format!(
             "{}{cause} (failure {failures}, retry in {}s)",
@@ -430,7 +453,7 @@ impl Supervisor {
             },
             delay.as_secs()
         );
-        set_interface_status(interface, false, None, Some(message));
+        set_interface_status(&self.collectors, interface, false, None, Some(message));
     }
 
     fn stop_all(&mut self) {
@@ -527,12 +550,13 @@ fn active_interfaces() -> Result<BTreeSet<String>> {
 }
 
 fn set_interface_status(
+    collectors: &crate::telemetry::MacosCollectors,
     interface: &str,
     active: bool,
     link_type: Option<u32>,
     error: Option<String>,
 ) {
-    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    let mut collectors = collectors.lock().unwrap();
     let bpf = collectors.bpf.get_or_insert_with(Default::default);
     let entry = bpf.interfaces.entry(interface.to_string()).or_default();
     entry.active = active;
@@ -543,8 +567,11 @@ fn set_interface_status(
 }
 
 /// The error a capture worker recorded just before it exited, if any.
-fn recorded_interface_error(interface: &str) -> Option<String> {
-    let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+fn recorded_interface_error(
+    collectors: &crate::telemetry::MacosCollectors,
+    interface: &str,
+) -> Option<String> {
+    let collectors = collectors.lock().unwrap();
     collectors
         .bpf
         .as_ref()?
@@ -556,15 +583,18 @@ fn recorded_interface_error(interface: &str) -> Option<String> {
 
 /// Drop telemetry entries for interfaces matching `gone`, so a removed
 /// interface does not linger as a stale (or stale-active) entry.
-fn remove_interface_status(gone: impl Fn(&str) -> bool) {
-    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+fn remove_interface_status(
+    collectors: &crate::telemetry::MacosCollectors,
+    gone: impl Fn(&str) -> bool,
+) {
+    let mut collectors = collectors.lock().unwrap();
     if let Some(bpf) = collectors.bpf.as_mut() {
         bpf.interfaces.retain(|name, _| !gone(name));
     }
 }
 
-fn note_restart(interface: &str) {
-    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+fn note_restart(collectors: &crate::telemetry::MacosCollectors, interface: &str) {
+    let mut collectors = collectors.lock().unwrap();
     let bpf = collectors.bpf.get_or_insert_with(Default::default);
     bpf.interfaces
         .entry(interface.to_string())
@@ -579,12 +609,16 @@ struct BpfStats {
     bs_drop: u32,
 }
 
-fn poll_stats(device: &BpfDevice, tracker: &mut crate::telemetry::macos::BpfStatsTracker) {
+fn poll_stats(
+    device: &BpfDevice,
+    tracker: &mut crate::telemetry::macos::BpfStatsTracker,
+    collectors: &crate::telemetry::MacosCollectors,
+) {
     let mut stats = BpfStats::default();
     // SAFETY: the device fd is open, and `stats` is a writable repr(C) struct of
     // the layout BIOCGSTATS fills in.
     let rc = unsafe { libc::ioctl(device.fd, BIOCGSTATS, &mut stats as *mut BpfStats) };
-    let mut counters = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    let mut counters = collectors.lock().unwrap();
     let counters = counters.bpf.get_or_insert_with(Default::default);
     if rc < 0 {
         counters.stats_errors += 1;
@@ -788,14 +822,15 @@ fn run_capture(
     tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     attribution_tx: SyncSender<AttributionJob>,
+    collectors: crate::telemetry::MacosCollectors,
 ) {
     let mut stats = crate::telemetry::macos::BpfStatsTracker::default();
-    poll_stats(&device, &mut stats);
+    poll_stats(&device, &mut stats, &collectors);
     let mut last_poll = Instant::now();
     let mut buf = vec![0u8; device.buffer_len as usize];
     while !shutdown.load(Ordering::Relaxed) {
         if last_poll.elapsed() >= Duration::from_secs(1) {
-            poll_stats(&device, &mut stats);
+            poll_stats(&device, &mut stats, &collectors);
             last_poll = Instant::now();
         }
         // A BPF read timeout may not start until traffic arrives. Poll first
@@ -814,7 +849,13 @@ fn run_capture(
             let err = io::Error::last_os_error();
             if err.raw_os_error() != Some(libc::EINTR) {
                 warn!(interface = %device.interface, "bpf poll error: {err}");
-                set_interface_status(&device.interface, false, None, Some(err.to_string()));
+                set_interface_status(
+                    &collectors,
+                    &device.interface,
+                    false,
+                    None,
+                    Some(err.to_string()),
+                );
                 break;
             }
             continue;
@@ -822,6 +863,7 @@ fn run_capture(
         if ready.revents & libc::POLLIN == 0 {
             warn!(interface = %device.interface, revents = ready.revents, "bpf device stopped being readable");
             set_interface_status(
+                &collectors,
                 &device.interface,
                 false,
                 None,
@@ -840,7 +882,13 @@ fn run_capture(
                 _ => {
                     if !shutdown.load(Ordering::Relaxed) {
                         warn!(interface = %device.interface, "bpf read error: {err}");
-                        set_interface_status(&device.interface, false, None, Some(err.to_string()));
+                        set_interface_status(
+                            &collectors,
+                            &device.interface,
+                            false,
+                            None,
+                            Some(err.to_string()),
+                        );
                     }
                     break;
                 }
@@ -855,9 +903,9 @@ fn run_capture(
         });
     }
 
-    poll_stats(&device, &mut stats);
+    poll_stats(&device, &mut stats, &collectors);
 
-    let mut collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    let mut collectors = collectors.lock().unwrap();
     if let Some(entry) = collectors
         .bpf
         .as_mut()
@@ -1190,7 +1238,7 @@ mod tests {
     fn supervisor() -> Supervisor {
         let (tx, _rx) = tokio::sync::mpsc::channel(1);
         let (attribution_tx, _attribution_rx) = std::sync::mpsc::sync_channel(1);
-        Supervisor::new(tx, attribution_tx)
+        Supervisor::new(tx, attribution_tx, Default::default())
     }
 
     #[test]
@@ -1208,7 +1256,7 @@ mod tests {
             assert_eq!(supervisor.retries[name].failures, failures);
             now += restart_delay(failures);
         }
-        let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+        let collectors = supervisor.collectors.lock().unwrap();
         let entry = &collectors.bpf.as_ref().unwrap().interfaces[name];
         assert!(!entry.active);
         assert!(entry
@@ -1221,7 +1269,7 @@ mod tests {
         // The interface disappearing clears its retry state and telemetry.
         supervisor.reconcile(&BTreeSet::new(), now);
         assert!(supervisor.retries.is_empty());
-        let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+        let collectors = supervisor.collectors.lock().unwrap();
         assert!(!collectors
             .bpf
             .as_ref()
@@ -1589,8 +1637,11 @@ level: high
 
     /// Run alone as root. The override can include a nonexistent interface to
     /// verify that its failure does not stop loopback capture.
-    fn interface_status(name: &str) -> Option<crate::telemetry::BpfInterfaceSnapshot> {
-        let collectors = crate::telemetry::macos::MACOS_COLLECTORS.lock().unwrap();
+    fn interface_status(
+        supervisor: &Supervisor,
+        name: &str,
+    ) -> Option<crate::telemetry::BpfInterfaceSnapshot> {
+        let collectors = supervisor.collectors.lock().unwrap();
         collectors.bpf.as_ref()?.interfaces.get(name).cloned()
     }
 
@@ -1602,8 +1653,12 @@ level: high
 
         // A bogus interface fails without disturbing healthy loopback capture.
         supervisor.reconcile(&names(&["lo0", "nonexistent-bpf-live0"]), now);
-        assert!(interface_status("lo0").unwrap().active);
-        assert!(!interface_status("nonexistent-bpf-live0").unwrap().active);
+        assert!(interface_status(&supervisor, "lo0").unwrap().active);
+        assert!(
+            !interface_status(&supervisor, "nonexistent-bpf-live0")
+                .unwrap()
+                .active
+        );
 
         // Kill the lo0 worker: it is reaped, then restarted after the backoff.
         supervisor.workers["lo0"].stop.store(true, Ordering::SeqCst);
@@ -1613,17 +1668,17 @@ level: high
         now += Duration::from_secs(1);
         supervisor.reconcile(&names(&["lo0"]), now);
         assert!(!supervisor.has_workers());
-        assert!(!interface_status("lo0").unwrap().active);
+        assert!(!interface_status(&supervisor, "lo0").unwrap().active);
         now += restart_delay(1);
         supervisor.reconcile(&names(&["lo0"]), now);
-        let lo0 = interface_status("lo0").unwrap();
+        let lo0 = interface_status(&supervisor, "lo0").unwrap();
         assert!(lo0.active && lo0.error.is_none());
         assert_eq!(lo0.restarts, 1);
 
         // Removing the interface stops the worker and clears its status.
         supervisor.reconcile(&BTreeSet::new(), now);
         assert!(!supervisor.has_workers());
-        assert!(interface_status("lo0").is_none());
+        assert!(interface_status(&supervisor, "lo0").is_none());
     }
 
     #[test]
@@ -1655,9 +1710,9 @@ level: high
                 }
             }
         }
-        let snapshot = crate::telemetry::TelemetrySnapshot::capture();
+        let collectors = crate::telemetry::macos::snapshot(&sensor.collectors);
         sensor.shutdown();
-        let bpf = snapshot.macos_collectors.unwrap().bpf.unwrap();
+        let bpf = collectors.unwrap().bpf.unwrap();
         println!("BPF live interfaces: {:?}", bpf.interfaces);
         assert!(bpf.interfaces["lo0"].active);
         assert_eq!(

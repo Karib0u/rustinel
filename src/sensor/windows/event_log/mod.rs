@@ -17,7 +17,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::telemetry::event_log::update;
+use crate::telemetry::EventLogHealth;
 use crate::utils::LogRateLimiter;
 use anyhow::{anyhow, Context, Result};
 use tokio::sync::mpsc::{error::TrySendError, Sender};
@@ -71,6 +71,7 @@ impl EventLogSubscriptions {
         shutdown: Arc<AtomicBool>,
         directory: &Path,
         security_filtering_platform_connections: bool,
+        health: Arc<EventLogHealth>,
     ) -> Result<Self> {
         let sources = [
             application::source(),
@@ -87,6 +88,7 @@ impl EventLogSubscriptions {
                 tx.clone(),
                 Arc::clone(&shutdown),
                 directory.join(format!("{}.xml", source.channel)),
+                Arc::clone(&health),
             ) {
                 Ok(worker) => workers.push(worker),
                 Err(err) => {
@@ -123,11 +125,12 @@ impl EventLogSubscription {
         tx: Sender<RawEvent>,
         shutdown: Arc<AtomicBool>,
         checkpoint: PathBuf,
+        health: Arc<EventLogHealth>,
     ) -> Result<Self> {
         let (startup_tx, startup_rx) = mpsc::sync_channel(1);
         let worker = thread::Builder::new()
             .name(format!("event-log-{}", source.name))
-            .spawn(move || run_subscription(source, tx, shutdown, startup_tx, checkpoint))
+            .spawn(move || run_subscription(source, tx, shutdown, startup_tx, checkpoint, health))
             .with_context(|| format!("failed to spawn {} event log worker", source.name))?;
 
         match startup_rx.recv() {
@@ -162,10 +165,17 @@ fn run_subscription(
     shutdown: Arc<AtomicBool>,
     startup_tx: mpsc::SyncSender<std::result::Result<(), String>>,
     checkpoint: PathBuf,
+    health: Arc<EventLogHealth>,
 ) -> Result<()> {
-    let result =
-        run_subscription_inner(source, tx, Arc::clone(&shutdown), &startup_tx, &checkpoint);
-    update(source.channel, |health| {
+    let result = run_subscription_inner(
+        source,
+        tx,
+        Arc::clone(&shutdown),
+        &startup_tx,
+        &checkpoint,
+        &health,
+    );
+    health.update(source.channel, |health| {
         health.active = false;
         if let Err(err) = &result {
             health.last_error = Some(err.to_string());
@@ -192,6 +202,7 @@ fn run_subscription(
 struct CallbackContext {
     source: EventLogSource,
     tx: Sender<RawEvent>,
+    health: Arc<EventLogHealth>,
     state: Mutex<CallbackState>,
 }
 
@@ -208,13 +219,14 @@ fn run_subscription_inner(
     shutdown: Arc<AtomicBool>,
     startup_tx: &mpsc::SyncSender<std::result::Result<(), String>>,
     checkpoint: &Path,
+    health: &Arc<EventLogHealth>,
 ) -> Result<()> {
-    update(source.channel, |health| health.active = false);
+    health.update(source.channel, |health| health.active = false);
     let saved = match std::fs::read_to_string(checkpoint) {
         Ok(xml) => Some(xml),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
         Err(err) => {
-            update(source.channel, |health| health.checkpoint_errors += 1);
+            health.update(source.channel, |health| health.checkpoint_errors += 1);
             return Err(err).context("failed to read Event Log checkpoint");
         }
     };
@@ -230,20 +242,20 @@ fn run_subscription_inner(
     }
     .map(OwnedEvtHandle)
     .map_err(|err| {
-        update(source.channel, |health| health.checkpoint_errors += 1);
+        health.update(source.channel, |health| health.checkpoint_errors += 1);
         anyhow!("invalid {} Event Log bookmark: {err}", source.channel)
     })?;
     let mut saved_record_id = None;
     if let Some(xml) = &saved {
         let record_id = bookmark_record_id(xml, source.channel).inspect_err(|_| {
-            update(source.channel, |health| health.checkpoint_errors += 1);
+            health.update(source.channel, |health| health.checkpoint_errors += 1);
         })?;
         saved_record_id = Some(record_id);
         let oldest = oldest_record(source.channel).inspect_err(|_| {
-            update(source.channel, |health| health.subscription_errors += 1);
+            health.update(source.channel, |health| health.subscription_errors += 1);
         })?;
         if retention_wrapped(record_id, oldest) {
-            update(source.channel, |health| health.retention_wraps += 1);
+            health.update(source.channel, |health| health.retention_wraps += 1);
             warn!(
                 channel = source.channel,
                 record_id,
@@ -258,12 +270,13 @@ fn run_subscription_inner(
         record_id != 0
     } else {
         seed_bookmark(source.channel, bookmark.0, checkpoint).inspect_err(|_| {
-            update(source.channel, |health| health.checkpoint_errors += 1);
+            health.update(source.channel, |health| health.checkpoint_errors += 1);
         })?
     };
     let context = Box::new(CallbackContext {
         source,
         tx,
+        health: Arc::clone(health),
         state: Mutex::new(CallbackState {
             bookmark,
             pending: None,
@@ -308,20 +321,20 @@ fn run_subscription_inner(
                 && (err.code() == ERROR_NOT_FOUND.to_hresult()
                     || err.code() == ERROR_EVT_QUERY_RESULT_STALE.to_hresult()) =>
         {
-            update(source.channel, |health| {
+            health.update(source.channel, |health| {
                 health.resume_failures += 1;
                 health.last_error = Some(format!("strict bookmark resume failed: {err}"));
             });
             warn!(channel = source.channel, error = %err, "Event Log bookmark missing; resuming at oldest available record");
             subscribe(EvtSubscribeStartAtOldestRecord.0)
                 .map(OwnedEvtHandle)
-                .map_err(|err| subscription_error(source, err))?
+                .map_err(|err| subscription_error(health, source, err))?
         }
-        Err(err) => return Err(subscription_error(source, err)),
+        Err(err) => return Err(subscription_error(health, source, err)),
     };
     {
         let state = context.state.lock().unwrap_or_else(|e| e.into_inner());
-        update(source.channel, |health| {
+        health.update(source.channel, |health| {
             health.active = state.failure.is_none()
         });
     }
@@ -348,8 +361,12 @@ fn run_subscription_inner(
     result.and(final_write)
 }
 
-fn subscription_error(source: EventLogSource, err: windows::core::Error) -> anyhow::Error {
-    update(source.channel, |health| health.subscription_errors += 1);
+fn subscription_error(
+    health: &EventLogHealth,
+    source: EventLogSource,
+    err: windows::core::Error,
+) -> anyhow::Error {
+    health.update(source.channel, |health| health.subscription_errors += 1);
     anyhow!("{} Event Log subscription failed: {err}", source.channel)
 }
 
@@ -369,7 +386,7 @@ unsafe extern "system" fn subscription_callback(
             } else {
                 format!("Event Log subscription error {code}")
             };
-            update(context.source.channel, |health| {
+            context.health.update(context.source.channel, |health| {
                 health.subscription_errors += 1;
                 if code == ERROR_EVT_QUERY_RESULT_STALE.0 {
                     health.live_stale += 1;
@@ -390,7 +407,7 @@ unsafe extern "system" fn subscription_callback(
         let decoded = render_event_xml(event).and_then(|xml| (context.source.decoder)(&xml));
         match decoded {
             Ok(decoded) => {
-                update(context.source.channel, |health| {
+                context.health.update(context.source.channel, |health| {
                     health.delivered += 1;
                     // XPath excludes records. Differences are never counted as loss.
                     health.last_record_id = decoded.source_seq;
@@ -404,7 +421,7 @@ unsafe extern "system" fn subscription_callback(
             }
             Err(err) => {
                 let mut decode_errors = 0;
-                update(context.source.channel, |health| {
+                context.health.update(context.source.channel, |health| {
                     health.decode_errors += 1;
                     decode_errors = health.decode_errors;
                 });
@@ -434,7 +451,7 @@ unsafe extern "system" fn subscription_callback(
         match checkpoint {
             Ok(xml) => state.pending = Some(xml),
             Err(err) => {
-                update(context.source.channel, |health| {
+                context.health.update(context.source.channel, |health| {
                     health.checkpoint_errors += 1
                 });
                 state.failure = Some(format!("Event Log checkpoint update failed: {err}"));
@@ -454,7 +471,7 @@ fn guard_callback(context: &CallbackContext, callback: impl FnOnce(&mut Callback
         callback(&mut state);
     }));
     if outcome.is_err() {
-        update(context.source.channel, |health| {
+        context.health.update(context.source.channel, |health| {
             health.subscription_errors += 1;
             health.active = false;
             health.last_error = Some("Event Log callback panicked".into());
@@ -476,7 +493,7 @@ fn persist_pending(context: &CallbackContext, path: &Path) -> Result<()> {
         .take();
     if let Some(xml) = pending {
         write_checkpoint(path, &xml).inspect_err(|_| {
-            update(context.source.channel, |health| {
+            context.health.update(context.source.channel, |health| {
                 health.checkpoint_errors += 1
             });
         })?;

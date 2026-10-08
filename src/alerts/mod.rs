@@ -241,7 +241,10 @@ mod tests {
             sink.write_alert(&alert);
         }
 
-        let snapshot = TelemetrySnapshot::capture_with_alert_writer(&sink.writer_metrics());
+        let snapshot = TelemetrySnapshot::capture_with_alert_writer(
+            &sink.writer_metrics(),
+            &crate::telemetry::PipelineProbes::default(),
+        );
         release_tx.send(()).unwrap();
         drop(sink);
         drop(guard);

@@ -20,7 +20,10 @@ fn main() -> anyhow::Result<()> {
             dir.join(format!("held-{index}.txt")),
         )?);
     }
-    let sensor = Arc::new(EtwSensor::with_flush_intervals(20, 5));
+    let host = Arc::new(rustinel::state::HostState::default());
+    let probes = rustinel::telemetry::PipelineProbes::default();
+    probes.attach_host(&host);
+    let sensor = Arc::new(EtwSensor::with_flush_intervals(20, 5).with_host_state(host));
     let (tx, mut rx) = tokio::sync::mpsc::channel(65536);
     let s = sensor.clone();
     let worker = std::thread::spawn(move || s.start(tx));
@@ -39,7 +42,7 @@ fn main() -> anyhow::Result<()> {
         targets
     });
     std::thread::sleep(Duration::from_secs(seconds));
-    let idle = TelemetrySnapshot::capture();
+    let idle = TelemetrySnapshot::capture(&probes);
     for file in &mut files {
         file.write_all(b"pre-existing handle write\n")?;
         file.sync_all()?;
@@ -66,7 +69,7 @@ fn main() -> anyhow::Result<()> {
     }
     println!(
         "{}",
-        serde_json::json!({"directory":dir,"expected_files":100,"peak_working_set_bytes":memory.PeakWorkingSetSize,"idle":idle, "final":TelemetrySnapshot::capture(), "held_targets":targets, "kernel_lost":sensor.events_lost()})
+        serde_json::json!({"directory":dir,"expected_files":100,"peak_working_set_bytes":memory.PeakWorkingSetSize,"idle":idle, "final":TelemetrySnapshot::capture(&probes), "held_targets":targets, "kernel_lost":sensor.events_lost()})
     );
     std::fs::remove_dir_all(dir)?;
     Ok(())

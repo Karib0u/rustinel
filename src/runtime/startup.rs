@@ -48,6 +48,8 @@ pub(super) struct RuntimeLogging {
     pub alert_sink: AlertSink,
     pub dedup_worker_handle: Option<JoinHandle<()>>,
     pub telemetry_reporter: Option<TelemetryReporter>,
+    /// Where the pipeline attaches the stores the telemetry snapshot reads.
+    pub probes: crate::telemetry::PipelineProbes,
     // Kept in the platform runtime until its final shutdown messages are written.
     pub _guards: (WorkerGuard, WorkerGuard),
 }
@@ -58,6 +60,7 @@ impl RuntimeLogging {
         runtime_label: &str,
         config_path: Option<&std::path::Path>,
     ) -> anyhow::Result<Self> {
+        let probes = crate::telemetry::PipelineProbes::default();
         let (app_guard, alert_guard, mut alert_sink) = init_logging(cfg)?;
         let _guards = (app_guard, alert_guard);
 
@@ -65,6 +68,7 @@ impl RuntimeLogging {
         // copy of the sink so rollups are delivered as well.
         if !cfg.alerts.webhook.is_empty() {
             let webhooks = WebhookDispatcher::start(&cfg.alerts.webhook)?;
+            probes.attach_webhooks(&webhooks.counters());
             alert_sink = alert_sink.with_webhooks(Arc::new(webhooks));
         }
 
@@ -91,12 +95,13 @@ impl RuntimeLogging {
         info!(target: TARGET_CONSOLE, "Alerts: {}", cfg.alerts.directory.display());
 
         // 2c. Pipeline drop counters, published for `rustinel doctor`
-        let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink);
+        let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink, probes.clone());
 
         Ok(Self {
             alert_sink,
             dedup_worker_handle,
             telemetry_reporter,
+            probes,
             _guards,
         })
     }

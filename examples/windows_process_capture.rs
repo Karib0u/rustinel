@@ -16,6 +16,8 @@ fn main() -> anyhow::Result<()> {
     let long = args.get(3).is_some_and(|x| x == "long");
     let flush: u64 = args.get(4).map(|x| x.parse()).transpose()?.unwrap_or(5);
     let host = Arc::new(HostState::default());
+    let probes = rustinel::telemetry::PipelineProbes::default();
+    probes.attach_host(&host);
     let sensor =
         Arc::new(EtwSensor::with_flush_intervals(20, flush).with_host_state(Arc::clone(&host)));
     let (tx, mut rx) = tokio::sync::mpsc::channel(65536);
@@ -104,7 +106,7 @@ fn main() -> anyhow::Result<()> {
         "{}",
         json!({"count":count, "interval_ms":interval, "wow64":wow64,
         "workload_seconds":workload_seconds,"expected":expected,"events":events,
-        "kernel_lost":sensor.events_lost(), "cpu_seconds":cpu_seconds, "telemetry":rustinel::telemetry::TelemetrySnapshot::capture()})
+        "kernel_lost":sensor.events_lost(), "cpu_seconds":cpu_seconds, "telemetry":rustinel::telemetry::TelemetrySnapshot::capture(&probes)})
     );
     Ok(())
 }

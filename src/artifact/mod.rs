@@ -47,8 +47,8 @@ use crate::utils::file_identity::FileIdentity;
 pub use crate::vocab::PeMetadata;
 
 pub(crate) use ingress::spawn_artifact_resolver;
-pub use snapshot::{active_snapshot, ArtifactResolverSnapshot};
-pub(crate) use snapshot::{invalidate_yara_generation, ArtifactResolverHandle};
+pub(crate) use snapshot::ArtifactResolverHandle;
+pub use snapshot::ArtifactResolverSnapshot;
 pub(crate) use target::open_artifact;
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use target::{ArtifactTarget, ExpectedIdentity};
