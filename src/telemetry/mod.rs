@@ -545,6 +545,9 @@ mod tests {
             .with_ansi(false)
             .finish();
         tracing::subscriber::with_default(collector, || {
+            // Another test thread can hit this callsite first with no
+            // subscriber installed and cache "disabled" for it.
+            tracing::callsite::rebuild_interest_cache();
             for value in 0..6u8 {
                 let _ = try_send_counted(&counters, &tx, value);
             }
