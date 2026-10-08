@@ -189,11 +189,11 @@ The Linux and Windows checks are required on pull requests; a missing alert or a
 The JSON report contains failed trigger output, and CI uploads it with the engine output and logs even when the suite fails.
 Signed macOS atomics run on pushes to `main` and for release artifacts.
 
-Both [CI](https://github.com/Karib0u/rustinel/blob/main/.github/workflows/ci.yml) and [release](https://github.com/Karib0u/rustinel/blob/main/.github/workflows/release.yml) pin `RUSTINEL_RULES_REF` to one reviewed commit from the rules repository's `main` branch.
+Both [CI](https://github.com/Karib0u/rustinel/blob/main/.github/workflows/ci.yml) and [release](https://github.com/Karib0u/rustinel/blob/main/.github/workflows/release.yml) read one reviewed commit from `.github/atomic-rules-ref`, taken from the rules repository's `main` branch.
 To update it deliberately:
 
 1. Choose a reviewed `rustinel-rules` commit that is reachable from `main`.
-2. Set the full commit SHA in both workflow files and confirm the values match.
+2. Set the full commit SHA in `.github/atomic-rules-ref`.
 3. Run a pull request with the complete Linux and Windows atomic suite, review its reports and logs, and merge only when both required checks pass.
    The next signed macOS `main` run validates the same pin; do not move the pin past a failing macOS run.
 4. Before a release, confirm its artifact atomic matrix also passes with that exact SHA.
