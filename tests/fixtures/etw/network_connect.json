@@ -1,0 +1,34 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "Kernel-Network event 12 (TCP connect, IPv4). Addresses are u32 in network byte order."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "7dd42a49-5329-4832-8dfd-43d979153a88",
+    "event_id": 12,
+    "opcode": 12,
+    "version": 0,
+    "process_id": 4,
+    "timestamp": 134360063011976308
+   },
+   "properties": {
+    "daddr": {
+     "u32": 396344852
+    },
+    "dport": {
+     "u16": 47873
+    },
+    "saddr": {
+     "u32": 469870784
+    },
+    "sport": {
+     "u16": 5059
+    }
+   }
+  }
+ ]
+}

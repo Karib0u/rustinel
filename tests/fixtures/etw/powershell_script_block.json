@@ -1,0 +1,27 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "SYNTHETIC. Microsoft-Windows-PowerShell 4104 (script block) could not be recorded: the provider delivered no 4104 even with ScriptBlockLogging enabled and a suspicious script. Properties follow the 4104 manifest template (ScriptBlockText, ScriptBlockId, MessageNumber, MessageTotal, Path); replace with a recording when one can be captured."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "a0c1853b-5c40-4b15-8766-3cf1c58f985a",
+    "event_id": 4104,
+    "opcode": 15,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063001389616
+   },
+   "properties": {
+    "MessageNumber": {"u32": 1},
+    "MessageTotal": {"u32": 1},
+    "ScriptBlockText": {"string": "Get-Process | Select-Object -First 1"},
+    "ScriptBlockId": {"string": "7d1f6d2c-0f64-4f1e-9b5a-3e2f1c0a9b11"},
+    "Path": {"string": "C:\\Users\\lab\\fixture.ps1"}
+   }
+  }
+ ]
+}

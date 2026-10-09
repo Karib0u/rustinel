@@ -158,6 +158,30 @@ Run them on a disposable machine:
 Linux kernel-dependent changes should be checked on several kernels, for example 5.10, 5.15, 6.1, and 6.8.
 Tests that hide BTF must run in a VM or a private mount namespace, never on a shared host.
 
+### Windows ETW decoder fixtures
+
+The Windows ETW decoders read a record through the `EtwHeader` and `EtwProperties` traits in `src/sensor/windows/etw/props.rs`.
+The sensor implements them for ferrisetw, and the tests implement them for records saved as JSON under `tests/fixtures/etw`.
+`src/sensor/windows/etw/fixture_tests.rs` feeds each fixture through the same routing and `decode_*` functions the live sensor uses, so `cargo test` on Windows covers them without a session.
+The fixtures are plain JSON, but the tests that read them only compile on Windows.
+
+Each fixture file has a `provenance` block (Windows build, date, host, and what the scenario did) and a list of `records` in arrival order.
+Keep related records together and in order: the Kernel-File and Kernel-Registry decoders join pathless events to earlier naming events.
+
+To record a new one on a disposable Windows machine, as Administrator:
+
+1. Set `RUSTINEL_ETW_RECORD` to an output file and start `rustinel capture`.
+   The recorder saves the header and every property the decoders read, one JSON object per line.
+   It writes nothing until a file named `<output>.on` exists, so create that file just before the activity and delete it right after.
+   `RUSTINEL_ETW_RECORD_MAX` (default 5000) caps the record count.
+2. Run the activity, then stop `rustinel capture` and remove any leftover `rustinel-etw-*` session with `logman stop <name> -ets`.
+3. Pick the records the scenario needs.
+   A file or registry write names its target only by kernel object, so keep the earlier `CreateKey`/`OpenKey` or file-create record for the same object.
+4. Wrap them as `{"provenance": {...}, "records": [...]}`, save the file, and add a test in `fixture_tests.rs` that asserts the canonical fields.
+
+Recordings contain command lines, paths, and user names from the machine.
+Read them before committing, and delete or replace anything that identifies a real person.
+
 ### SigmaHQ compatibility gate
 
 CI loads every rule from the SigmaHQ commit pinned in `compatibility/sigmahq-baseline.json` and fails on parser errors or when the per-platform load counts drift from the baseline.

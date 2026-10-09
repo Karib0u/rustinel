@@ -1,0 +1,28 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "PowerShell 4103 module logging. The host is French, so ContextInfo labels are localized."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "a0c1853b-5c40-4b15-8766-3cf1c58f985a",
+    "event_id": 4103,
+    "opcode": 20,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063001389616
+   },
+   "properties": {
+    "ContextInfo": {
+     "string": "        Gravité = Informational\r\n        Nom d’hôte = ConsoleHost\r\n        Version de l’hôte = 5.1.26100.9444\r\n        ID d’hôte = bdafcbf4-7d35-4a1a-84bf-78a016e4eeef\r\n        Application hôte = C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\theo-rdp\\workload.ps1\r\n        Version du moteur = 5.1.26100.9444\r\n        ID d’instance d’exécution = 9be3cacc-2f1f-405e-ba13-f700cb171b97\r\n        ID de pipeline = 1\r\n        Nom de commande = New-Item\r\n        Type de commande = Cmdlet\r\n        Nom du script = C:\\Users\\theo-rdp\\workload.ps1\r\n        Chemin de la commande = \r\n        Numéro de séquence = 24\r\n        Utilisateur = lab-windows\\theo-rdp\r\n        Utilisateur connecté = \r\n        ID d’interpréteur de commandes = Microsoft.PowerShell\r\n"
+    },
+    "Payload": {
+     "string": "CommandInvocation (New-Item) : « New-Item »\r\nLiaison de paramètre (New-Item) : nom = « ItemType » ; valeur = « Directory »\r\nLiaison de paramètre (New-Item) : nom = « Path » ; valeur = « C:\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e »\r\nCommandInvocation (Out-Null) : « Out-Null »\r\nLiaison de paramètre (Out-Null) : nom = « InputObject » ; valeur = « C:\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e »\r\n"
+    }
+   }
+  }
+ ]
+}

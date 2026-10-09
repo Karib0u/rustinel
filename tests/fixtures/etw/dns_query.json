@@ -1,0 +1,82 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "DNS Client 3006 (query) and 3008 (response) for login.live.com; the first response is an error (status 87) with an empty result."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "1c95126e-7eea-49a9-a3fe-a378b03ddb4d",
+    "event_id": 3006,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 1640,
+    "timestamp": 134360063011476630
+   },
+   "properties": {
+    "QueryName": {
+     "string": "login.live.com"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "1c95126e-7eea-49a9-a3fe-a378b03ddb4d",
+    "event_id": 3006,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 1640,
+    "timestamp": 134360063011476664
+   },
+   "properties": {
+    "QueryName": {
+     "string": "login.live.com"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "1c95126e-7eea-49a9-a3fe-a378b03ddb4d",
+    "event_id": 3008,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 1640,
+    "timestamp": 134360063011476682
+   },
+   "properties": {
+    "QueryName": {
+     "string": "login.live.com"
+    },
+    "QueryResults": {
+     "string": ""
+    },
+    "QueryStatus": {
+     "u32": 87
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "1c95126e-7eea-49a9-a3fe-a378b03ddb4d",
+    "event_id": 3008,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 1640,
+    "timestamp": 134360063011690564
+   },
+   "properties": {
+    "QueryName": {
+     "string": "login.live.com"
+    },
+    "QueryResults": {
+     "string": "type: 5 login.msa.msidentity.com;type: 5 www.tm.lg.prod.aadmsa.trafficmanager.net;type: 5 prdv4a.aadg.msidentity.com;type: 5 www.tm.v4.a.prd.aadg.akadns.net;::ffff:20.190.159.23;::ffff:20.190.159.68;::ffff:40.126.31.73;::ffff:20.190.159.73;::ffff:40.126.31.129;::ffff:20.190.159.75;::ffff:20.190.159.0;::ffff:20.190.159.4;"
+    },
+    "QueryStatus": {
+     "u32": 0
+    }
+   }
+  }
+ ]
+}

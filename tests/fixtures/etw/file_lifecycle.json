@@ -1,0 +1,1159 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "PowerShell writes fixture.txt in a fresh temp dir, sets its creation time, renames it, truncates it, and deletes it. Open handles and the System lazy-writer closes are included as recorded."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013601680
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350696432
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013611868
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350710832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013614006
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350704832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013615918
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350706832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013617302
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 54526048
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350702432
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 10,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013619012
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 16,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013620742
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350702432
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013641135
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350716032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013641727
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350716032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013642799
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350692032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013642948
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350692032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013643750
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350703232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013643902
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350703232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013645271
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 54526048
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350712032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 16,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013647086
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350712032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 4,
+    "timestamp": 134360063013659028
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350712032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013662145
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350693232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013662491
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350693232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013662880
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350708832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013663003
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350708832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013723928
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 20971616
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350693632
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 17,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013724679
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350693632
+    },
+    "InfoClass": {
+     "u32": 4
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013725715
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350693632
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013736446
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350694832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013736736
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350694832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013738977
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e"
+    },
+    "FileObject": {
+     "u64": 18446699601350714032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013739105
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e"
+    },
+    "FileObject": {
+     "u64": 18446699601350692432
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013739230
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350702032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013739299
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350702032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013739984
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350710432
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013740087
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350710432
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013740320
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350697232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013740389
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350697232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013740972
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890784
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350695232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013741282
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 16793600
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\"
+    },
+    "FileObject": {
+     "u64": 18446699601350715632
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 27,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013742041
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350695232
+    },
+    "FilePath": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 11,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013743137
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture.txt"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 10,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013743141
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013743826
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350695232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013785736
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 20971616
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350711232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 17,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013804646
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350711232
+    },
+    "InfoClass": {
+     "u32": 20
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 17,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013805500
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350711232
+    },
+    "InfoClass": {
+     "u32": 19
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013818135
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350711232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013827137
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350703632
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013827432
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350703632
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013830032
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e"
+    },
+    "FileObject": {
+     "u64": 18446699601350724432
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013830163
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e"
+    },
+    "FileObject": {
+     "u64": 18446699601350740832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013830290
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350737232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013830366
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350737232
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013831318
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 16793633
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt\\"
+    },
+    "FileObject": {
+     "u64": 18446699601350718032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013831405
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 16793633
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350723632
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013834031
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350718832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013834168
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350718832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013834563
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890752
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350720032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013834647
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350720032
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013834726
+   },
+   "properties": {
+    "CreateOptions": {
+     "u32": 18890816
+    },
+    "FileName": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    },
+    "FileObject": {
+     "u64": 18446699601350724832
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 26,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013834941
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350724832
+    },
+    "FilePath": {
+     "string": "\\Device\\HarddiskVolume3\\Users\\theo-rdp\\AppData\\Local\\Temp\\rustinel-fixture-e78e5e\\fixture-renamed.txt"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "edd08927-9cc4-4e65-b970-c2560fb5c289",
+    "event_id": 14,
+    "opcode": 0,
+    "version": 1,
+    "process_id": 6340,
+    "timestamp": 134360063013835724
+   },
+   "properties": {
+    "FileKey": {
+     "u64": 18446652867791425920
+    },
+    "FileObject": {
+     "u64": 18446699601350724832
+    }
+   }
+  }
+ ]
+}

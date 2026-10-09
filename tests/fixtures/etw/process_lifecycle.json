@@ -1,0 +1,58 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "cmd.exe is started by PowerShell and exits. Start carries a device-path ImageName and MandatoryLabel; Stop carries only the short name."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716",
+    "event_id": 1,
+    "opcode": 1,
+    "version": 4,
+    "process_id": 6340,
+    "timestamp": 134360063001409789
+   },
+   "properties": {
+    "CreateTime": {
+     "u64": 134360063001409291
+    },
+    "ImageName": {
+     "string": "\\Device\\HarddiskVolume3\\Windows\\System32\\cmd.exe"
+    },
+    "MandatoryLabel": {
+     "string": "S-1-16-12288"
+    },
+    "ParentProcessID": {
+     "u32": 6340
+    },
+    "ProcessID": {
+     "u32": 7004
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716",
+    "event_id": 2,
+    "opcode": 2,
+    "version": 2,
+    "process_id": 7004,
+    "timestamp": 134360063001594805
+   },
+   "properties": {
+    "CreateTime": {
+     "u64": 134360063001409291
+    },
+    "ImageName": {
+     "string": "cmd.exe"
+    },
+    "ProcessID": {
+     "u32": 7004
+    }
+   }
+  }
+ ]
+}
