@@ -51,6 +51,9 @@ tests/**/*
 # One recorded event per Windows and Linux event shape, read by the Sigma
 # adapter tests and the sigma_engine benchmark.
 !tests/fixtures/field_views/**
+# ETW records recorded on real Windows hosts, read by the decoder tests in
+# src/sensor/windows/etw/fixture_tests.rs. See docs/development.md.
+!tests/fixtures/etw/**
 
 *.exe
 *.pdb

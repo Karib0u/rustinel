@@ -8,8 +8,11 @@
 mod classic;
 mod decode;
 mod file_rundown;
+#[cfg(test)]
+mod fixture_tests;
 mod parser;
 mod process;
+pub(crate) mod props;
 mod providers;
 mod routing;
 mod session;

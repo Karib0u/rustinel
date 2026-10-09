@@ -1,12 +1,12 @@
 //! ETW event routing and action refinement.
 
 use super::parser::try_get_uint_as_u64;
+use super::props::{EtwHeader, EtwProperties};
 use super::providers::EtwProviders;
 use crate::models::EventCategory;
 use crate::sensor::network_events::classify_kernel_network_event;
 use crate::sensor::SensorAction;
-use ferrisetw::parser::Parser;
-use ferrisetw::{EventRecord, GUID};
+use ferrisetw::GUID;
 use std::collections::HashMap;
 
 /// The event IDs [`kernel_file_route`] accepts, pushed down to the provider as a
@@ -219,7 +219,7 @@ pub(super) fn kernel_file_route(event_id: u16) -> Option<KernelFileRoute> {
 /// at all; both were previously uncollected because the keyword was not
 /// enabled. Returns `None` for the many other information classes, which are
 /// ordinary metadata updates.
-pub(super) fn set_information_action(parser: &Parser) -> Option<SensorAction> {
+pub(super) fn set_information_action(parser: &impl EtwProperties) -> Option<SensorAction> {
     match try_get_uint_as_u64(parser, "InfoClass")? {
         // Timestamps and attributes. This is the closest analogue to Sysmon
         // Event ID 2 (file creation time changed), i.e. timestomping, which is
@@ -260,14 +260,14 @@ pub(super) const FILE_DISPOSITION_OVERWRITE_IF: u32 = 5;
 /// * `Some(action)` - the (possibly adjusted) action for this event.
 /// * `None` - the event should be dropped (pure open / read).
 pub(super) fn refine_file_create_action(
-    parser: &Parser,
+    parser: &impl EtwProperties,
     action: SensorAction,
 ) -> Option<SensorAction> {
     if action != SensorAction::Create {
         return Some(action);
     }
 
-    let create_options = parser.try_parse::<u32>("CreateOptions").ok()?;
+    let create_options = parser.get_u32("CreateOptions")?;
     let disposition = (create_options >> 24) & 0xFF;
 
     match disposition {
@@ -306,13 +306,13 @@ pub(super) const REG_OPENED_EXISTING_KEY: u32 = 2;
 /// fires for one that fires constantly.
 ///
 /// Returns `None` when the event should be dropped.
-pub(super) fn refine_registry_create_action(parser: &Parser) -> Option<()> {
-    match parser.try_parse::<u32>("Disposition") {
-        Ok(REG_CREATED_NEW_KEY) => Some(()),
-        Ok(REG_OPENED_EXISTING_KEY) => None,
+pub(super) fn refine_registry_create_action(parser: &impl EtwProperties) -> Option<()> {
+    match parser.get_u32("Disposition") {
+        Some(REG_CREATED_NEW_KEY) => Some(()),
+        Some(REG_OPENED_EXISTING_KEY) => None,
         // An unreadable or unknown disposition keeps the event: a missed
         // detection is worse than an extra one.
-        Ok(_) | Err(_) => Some(()),
+        Some(_) | None => Some(()),
     }
 }
 
@@ -369,7 +369,7 @@ impl EtwRouting {
             .unwrap_or("unsubscribed")
     }
 
-    pub(super) fn route(&self, record: &EventRecord) -> Option<(EventCategory, SensorAction)> {
+    pub(super) fn route(&self, record: &impl EtwHeader) -> Option<(EventCategory, SensorAction)> {
         let provider_guid = record.provider_id();
 
         if provider_guid == self.kernel_process_guid {

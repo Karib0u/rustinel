@@ -6,6 +6,7 @@ use super::parser::{
     filetime_to_system_time, parse_optional_u32, try_get_ip, try_get_port, try_get_string,
     try_get_string_any, try_get_uint, try_get_uint_as_u64,
 };
+use super::props::{EtwHeader, EtwProperties, LiveProperties};
 use super::routing::{
     kernel_file_route, kernel_registry_route, refine_file_create_action,
     refine_registry_create_action, set_information_action, KernelFileRoute, KernelRegistryRoute,
@@ -64,7 +65,7 @@ pub(super) struct DecodedEtwEvent {
 /// The provider comes from the subscription table rather than the record's
 /// GUID, so the key space is bounded by what this build enables; see
 /// [`crate::telemetry::EtwDecodeFailureKey`].
-fn record_failure(record: &EventRecord, state: &EtwState, failure: EtwDecodeFailure) {
+fn record_failure(record: &impl EtwHeader, state: &EtwState, failure: EtwDecodeFailure) {
     state
         .counters()
         .etw_decode
@@ -140,27 +141,43 @@ pub(super) fn decode_single_record(
         }
     };
     let parser = Parser::create(record, &schema);
+    let props = LiveProperties::new(&parser);
+    let event = decode_routed(&props, record, category, action, state);
+    props.finish(record);
+    event
+}
 
+/// Decode one routed record from its properties.
+///
+/// Everything after the schema lookup, so that fixtures recorded from a real
+/// host can drive it without a live ETW session.
+pub(super) fn decode_routed(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+    category: EventCategory,
+    action: SensorAction,
+    state: &EtwState,
+) -> Option<RawEvent> {
     let decoded = match category {
-        EventCategory::Process => decode_process(&parser, record, action),
-        EventCategory::Network => decode_network(&parser, record),
+        EventCategory::Process => decode_process(parser, record, action),
+        EventCategory::Network => decode_network(parser, record),
         EventCategory::File => unreachable!("kernel-file records are diverted above"),
         EventCategory::Registry => unreachable!("kernel-registry records are diverted above"),
-        EventCategory::Dns => decode_dns(&parser, record),
-        EventCategory::ImageLoad => decode_image_load(&parser, record),
-        EventCategory::Scripting => decode_powershell(&parser, record),
-        EventCategory::PowerShellModule => decode_powershell_module(&parser, record),
+        EventCategory::Dns => decode_dns(parser, record),
+        EventCategory::ImageLoad => decode_image_load(parser, record),
+        EventCategory::Scripting => decode_powershell(parser, record),
+        EventCategory::PowerShellModule => decode_powershell_module(parser, record),
         EventCategory::PowerShellClassicStart => {
             unreachable!("classic PowerShell events use the event log source")
         }
-        EventCategory::Wmi => decode_wmi(&parser, record),
+        EventCategory::Wmi => decode_wmi(parser, record),
         EventCategory::Service
         | EventCategory::Security
         | EventCategory::Defender
         | EventCategory::Application => {
             unreachable!("event log categories use the event log sources")
         }
-        EventCategory::Task => decode_task(&parser, record),
+        EventCategory::Task => decode_task(parser, record),
     };
 
     // A payload the template could not fill is a template this build does not
@@ -203,7 +220,7 @@ pub(super) fn decode_single_record(
 /// never serialized as an actor. A payload-supplied PID always wins over this
 /// fallback, and emitter-versus-actor distinctions stay with the decoders that
 /// read a dedicated client PID (Security 4698, WMI).
-fn header_actor_pid(record: &EventRecord) -> Option<u32> {
+fn header_actor_pid(record: &impl EtwHeader) -> Option<u32> {
     match record.process_id() {
         0 | u32::MAX => None,
         pid => Some(pid),
@@ -211,7 +228,7 @@ fn header_actor_pid(record: &EventRecord) -> Option<u32> {
 }
 
 /// Payload `ProcessId` text, falling back to the validated header actor.
-fn actor_process_id(payload: Option<String>, record: &EventRecord) -> Option<String> {
+fn actor_process_id(payload: Option<String>, record: &impl EtwHeader) -> Option<String> {
     payload.or_else(|| header_actor_pid(record).map(|pid| pid.to_string()))
 }
 
@@ -285,8 +302,8 @@ pub(super) fn has_matchable_fields(payload: &RawPayload) -> bool {
 }
 
 pub(super) fn decode_process(
-    parser: &Parser,
-    record: &EventRecord,
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
     action: SensorAction,
 ) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::process_creation_mappings();
@@ -411,12 +428,25 @@ pub(super) fn decode_kernel_file_record(
         }
     };
     let parser = Parser::create(record, &schema);
+    let props = LiveProperties::new(&parser);
+    let event = decode_kernel_file(&props, record, route, state);
+    props.finish(record);
+    event
+}
 
-    let file_object = try_get_uint_as_u64(&parser, "FileObject");
-    let file_key = try_get_uint_as_u64(&parser, "FileKey");
+/// The state-dependent half of [`decode_kernel_file_record`]: everything after
+/// the routing check and the schema lookup.
+pub(super) fn decode_kernel_file(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+    route: KernelFileRoute,
+    state: &EtwState,
+) -> Option<RawEvent> {
+    let file_object = try_get_uint_as_u64(parser, "FileObject");
+    let file_key = try_get_uint_as_u64(parser, "FileKey");
     // DeletePath, RenamePath, and SetLinkPath carry `FilePath`; Create and the
     // name-cache events carry `FileName`.
-    let named_path = try_get_string_any(&parser, &["FilePath", "FileName"]);
+    let named_path = try_get_string_any(parser, &["FilePath", "FileName"]);
 
     // Any event carrying a name feeds the index, including the ones that also
     // produce telemetry - a Create both reports a creation and teaches us the
@@ -456,7 +486,7 @@ pub(super) fn decode_kernel_file_record(
         KernelFileRoute::Emit(SensorAction::Create) => {
             // A disposition that reports an open rather than a creation is the
             // filter doing its job, not a decode failure.
-            match refine_file_create_action(&parser, SensorAction::Create) {
+            match refine_file_create_action(parser, SensorAction::Create) {
                 Some(action) => action,
                 None => {
                     state.counters().etw_decode.record_filtered();
@@ -468,7 +498,7 @@ pub(super) fn decode_kernel_file_record(
         // An information class this build does not report on is filtered, not
         // an unsupported layout: the property was read, it just said "read" or
         // "rename target" rather than a state change worth an event.
-        KernelFileRoute::SetInformation => match set_information_action(&parser) {
+        KernelFileRoute::SetInformation => match set_information_action(parser) {
             Some(action) => action,
             None => {
                 state.counters().etw_decode.record_filtered();
@@ -512,7 +542,7 @@ pub(super) fn decode_kernel_file_record(
         },
     };
 
-    let Some(fields) = file_event_fields(&parser, record, &raw_path) else {
+    let Some(fields) = file_event_fields(parser, record, &raw_path) else {
         record_failure(record, state, EtwDecodeFailure::UnsupportedLayout);
         return None;
     };
@@ -548,8 +578,8 @@ pub(super) fn decode_kernel_file_record(
 /// as an unsupported layout, rather than a `?` that returns from the middle of
 /// the decode with no record of why.
 fn file_event_fields(
-    parser: &Parser,
-    record: &EventRecord,
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
     raw_path: &str,
 ) -> Option<FileEventFields> {
     let mappings = field_maps::file_event_mappings();
@@ -611,15 +641,28 @@ pub(super) fn decode_kernel_registry_record(
         }
     };
     let parser = Parser::create(record, &schema);
+    let props = LiveProperties::new(&parser);
+    let decoded = decode_kernel_registry(&props, record, route, state);
+    props.finish(record);
+    decoded
+}
 
-    let key_object = try_get_uint_as_u64(&parser, "KeyObject");
+/// The state-dependent half of [`decode_kernel_registry_record`]: everything
+/// after the routing check and the schema lookup.
+pub(super) fn decode_kernel_registry(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+    route: KernelRegistryRoute,
+    state: &EtwState,
+) -> DecodedEtwEvents {
+    let key_object = try_get_uint_as_u64(parser, "KeyObject");
     let event_at = record.raw_timestamp();
 
     match route {
         KernelRegistryRoute::Name { creates } => {
-            let base_object = try_get_uint_as_u64(&parser, "BaseObject");
-            let base_name = try_get_string(&parser, "BaseName").unwrap_or_default();
-            let relative_name = try_get_string(&parser, "RelativeName").unwrap_or_default();
+            let base_object = try_get_uint_as_u64(parser, "BaseObject");
+            let base_name = try_get_string(parser, "BaseName").unwrap_or_default();
+            let relative_name = try_get_string(parser, "RelativeName").unwrap_or_default();
 
             // Indexing happens for both CreateKey and OpenKey, including the
             // creates that also emit: a key that is created is then written
@@ -659,9 +702,9 @@ pub(super) fn decode_kernel_registry_record(
             // ones - the same trap as `IRP_MJ_CREATE` on the file side. Without
             // the disposition check every key open would surface as a
             // `registry_add`.
-            let primary = if creates && refine_registry_create_action(&parser).is_some() {
+            let primary = if creates && refine_registry_create_action(parser).is_some() {
                 path.and_then(|path| {
-                    pending_registry_event(&parser, record, SensorAction::Create, None).map(
+                    pending_registry_event(parser, record, SensorAction::Create, None).map(
                         |event| {
                             let mut event = event.into_sensor_event(&path);
                             if !base_name.is_empty() || relative_name.starts_with('\\') {
@@ -691,12 +734,12 @@ pub(super) fn decode_kernel_registry_record(
             DecodedEtwEvents::default()
         }
         KernelRegistryRoute::Emit(action) => {
-            let value_name = try_get_string(&parser, "ValueName");
+            let value_name = try_get_string(parser, "ValueName");
             // `KeyName` is declared on these events but measured empty on
             // Windows 11, so the index is the real source of the path.
             let mut source = PathSource::Session;
             let mut path_derived = false;
-            let path = try_get_string(&parser, "KeyName")
+            let path = try_get_string(parser, "KeyName")
                 .filter(|name| !name.is_empty())
                 .or_else(|| {
                     state
@@ -709,7 +752,7 @@ pub(super) fn decode_kernel_registry_record(
                         })
                 });
 
-            let Some(event) = pending_registry_event(&parser, record, action, value_name) else {
+            let Some(event) = pending_registry_event(parser, record, action, value_name) else {
                 record_failure(record, state, EtwDecodeFailure::UnsupportedLayout);
                 return DecodedEtwEvents::default();
             };
@@ -744,8 +787,8 @@ pub(super) fn decode_kernel_registry_record(
 }
 
 pub(super) fn pending_registry_event(
-    parser: &Parser,
-    record: &EventRecord,
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
     action: SensorAction,
     value_name: Option<String>,
 ) -> Option<PendingRegistryEvent> {
@@ -794,9 +837,9 @@ pub(super) fn record_unresolved_registry_events(state: &EtwState, count: usize, 
 /// defines it. If captured data is unavailable or cannot be rendered, the
 /// field stays absent rather than carrying the semantically different value
 /// name.
-pub(super) fn registry_details(parser: &Parser) -> Option<String> {
+pub(super) fn registry_details(parser: &impl EtwProperties) -> Option<String> {
     let captured = parser
-        .try_parse::<Vec<u8>>(field_maps::registry_event_mappings().get_etw_field("Details")?)
+        .get_bytes(field_maps::registry_event_mappings().get_etw_field("Details")?)
         .unwrap_or_default();
     let value_type =
         try_get_uint_as_u64(parser, registry_value_data::VALUE_TYPE_PROPERTY).unwrap_or(0);
@@ -804,7 +847,10 @@ pub(super) fn registry_details(parser: &Parser) -> Option<String> {
     registry_value_data::format_value_data(value_type as u32, &captured)
 }
 
-pub(super) fn decode_network(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+pub(super) fn decode_network(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::network_connection_mappings();
     let route = classify_kernel_network_event(record.event_id())?;
 
@@ -849,7 +895,10 @@ pub(super) fn decode_network(parser: &Parser, record: &EventRecord) -> Option<De
     })
 }
 
-pub(super) fn decode_dns(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+pub(super) fn decode_dns(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::dns_query_mappings();
     let fields = DnsQueryFields {
         user: None,
@@ -872,7 +921,10 @@ pub(super) fn decode_dns(parser: &Parser, record: &EventRecord) -> Option<Decode
     })
 }
 
-pub(super) fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+pub(super) fn decode_image_load(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::image_load_mappings();
     let image_loaded = try_get_string(parser, mappings.get_etw_field("ImageLoaded")?)
         .map(|path| convert_nt_to_dos(&path));
@@ -904,7 +956,10 @@ pub(super) fn decode_image_load(parser: &Parser, record: &EventRecord) -> Option
     })
 }
 
-pub(super) fn decode_powershell(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+pub(super) fn decode_powershell(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::powershell_script_mappings();
     let fields = PowerShellScriptFields {
         script_block_text: try_get_string(parser, mappings.get_etw_field("ScriptBlockText")?),
@@ -930,8 +985,8 @@ pub(super) fn decode_powershell(parser: &Parser, record: &EventRecord) -> Option
 }
 
 pub(super) fn decode_powershell_module(
-    parser: &Parser,
-    record: &EventRecord,
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
 ) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::powershell_module_mappings();
     let fields = PowerShellModuleFields {
@@ -953,7 +1008,10 @@ pub(super) fn decode_powershell_module(
     })
 }
 
-pub(super) fn decode_wmi(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+pub(super) fn decode_wmi(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::wmi_event_mappings();
     let possible_cause = try_get_string(parser, "PossibleCause");
     let consumer = try_get_string(parser, "CONSUMER");
@@ -1019,7 +1077,10 @@ pub(super) fn decode_wmi(parser: &Parser, record: &EventRecord) -> Option<Decode
     })
 }
 
-pub(super) fn decode_task(parser: &Parser, record: &EventRecord) -> Option<DecodedEtwEvent> {
+pub(super) fn decode_task(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::task_creation_mappings();
     let fields = TaskCreationFields {
         task_name: try_get_string(parser, mappings.get_etw_field("TaskName")?),

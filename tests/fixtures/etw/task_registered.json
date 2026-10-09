@@ -1,0 +1,28 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "Task Scheduler event 106 (task registered) from schtasks /create."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "de7b24ea-73c8-4a09-985d-5bdadcfa9017",
+    "event_id": 106,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 1860,
+    "timestamp": 134360063569548133
+   },
+   "properties": {
+    "TaskName": {
+     "string": "\\RustinelFixtureTask"
+    },
+    "UserContext": {
+     "string": "lab-windows\\theo-rdp"
+    }
+   }
+  }
+ ]
+}

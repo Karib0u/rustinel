@@ -1,0 +1,130 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "WMI-Activity: Connect/ExecQuery (11), provider load (5857), provider query (12), MI session (17)."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "1418ef04-b0b4-4623-bf7e-d74ab47bbdaa",
+    "event_id": 11,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 3392,
+    "timestamp": 134360063567697994
+   },
+   "properties": {
+    "ClientMachine": {
+     "string": "LAB-WINDOWS"
+    },
+    "ClientProcessId": {
+     "u32": 3868
+    },
+    "NamespaceName": {
+     "string": "\\\\localhost\\root\\cimv2"
+    },
+    "Operation": {
+     "string": "IWbemServices::Connect"
+    },
+    "User": {
+     "string": "lab-windows\\theo-rdp"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "1418ef04-b0b4-4623-bf7e-d74ab47bbdaa",
+    "event_id": 11,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 3392,
+    "timestamp": 134360063567731378
+   },
+   "properties": {
+    "ClientMachine": {
+     "string": "LAB-WINDOWS"
+    },
+    "ClientProcessId": {
+     "u32": 3868
+    },
+    "NamespaceName": {
+     "string": "\\\\.\\root\\cimv2"
+    },
+    "Operation": {
+     "string": "Start IWbemServices::ExecQuery - root\\cimv2 : select * from Win32_Process where Name='explorer.exe'"
+    },
+    "User": {
+     "string": "lab-windows\\theo-rdp"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "1418ef04-b0b4-4623-bf7e-d74ab47bbdaa",
+    "event_id": 5857,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 5480,
+    "timestamp": 134360063567809245
+   },
+   "properties": {
+    "Code": {
+     "u32": 0
+    },
+    "HostProcess": {
+     "string": "wmiprvse.exe"
+    },
+    "ProcessID": {
+     "u32": 5480
+    },
+    "ProviderName": {
+     "string": "CIMWin32"
+    },
+    "ProviderPath": {
+     "string": "%systemroot%\\system32\\wbem\\cimwin32.dll"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "1418ef04-b0b4-4623-bf7e-d74ab47bbdaa",
+    "event_id": 12,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 3392,
+    "timestamp": 134360063567828520
+   },
+   "properties": {
+    "Operation": {
+     "string": "Provider::ExecQuery - CIMWin32 : select * from Win32_Process where Name = \"explorer.exe\""
+    },
+    "ProviderName": {
+     "string": "CIMWin32"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "1418ef04-b0b4-4623-bf7e-d74ab47bbdaa",
+    "event_id": 17,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 3868,
+    "timestamp": 134360063568501539
+   },
+   "properties": {
+    "Namespace": {
+     "string": "root\\cimv2"
+    },
+    "Operation": {
+     "string": "MI_Session::EnumerateInstance"
+    },
+    "User": {
+     "string": "NULL"
+    }
+   }
+  }
+ ]
+}

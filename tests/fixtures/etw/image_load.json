@@ -1,0 +1,28 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "Kernel-Process event 5 (opcode 0): the image-load shape Windows 11 emits instead of opcode 10."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716",
+    "event_id": 5,
+    "opcode": 0,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360062997574530
+   },
+   "properties": {
+    "ImageName": {
+     "string": "\\Device\\HarddiskVolume3\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    },
+    "ProcessID": {
+     "u32": 6340
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,250 @@
+{
+ "provenance": {
+  "windows_build": "Windows 11 25H2 (10.0.26200)",
+  "recorded": "2026-10-09",
+  "host": "lab-windows",
+  "scenario": "PowerShell creates HKCU\\Software\\RustinelFixture, sets Run (REG_SZ) and Flag (REG_DWORD), deletes Run, deletes the key. Includes a failed OpenKey (KeyObject 0)."
+ },
+ "records": [
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 2,
+    "opcode": 33,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013845021
+   },
+   "properties": {
+    "BaseName": {
+     "string": ""
+    },
+    "BaseObject": {
+     "u64": 18446652867923358432
+    },
+    "KeyObject": {
+     "u64": 0
+    },
+    "RelativeName": {
+     "string": "Software\\RustinelFixture"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 1,
+    "opcode": 32,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013860376
+   },
+   "properties": {
+    "BaseName": {
+     "string": ""
+    },
+    "BaseObject": {
+     "u64": 18446652867923358432
+    },
+    "Disposition": {
+     "u32": 1
+    },
+    "KeyObject": {
+     "u64": 18446652868032009840
+    },
+    "RelativeName": {
+     "string": "Software\\RustinelFixture"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 2,
+    "opcode": 33,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013901287
+   },
+   "properties": {
+    "BaseName": {
+     "string": ""
+    },
+    "BaseObject": {
+     "u64": 18446652867923358432
+    },
+    "KeyObject": {
+     "u64": 18446652867925507808
+    },
+    "RelativeName": {
+     "string": "Software\\RustinelFixture"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 5,
+    "opcode": 36,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013909091
+   },
+   "properties": {
+    "CapturedData": {
+     "bytes": "43003a005c00570069006e0064006f00770073005c00530079007300740065006d00330032005c0063006d0064002e0065007800650020002f006300200066006900780074007500720065000000"
+    },
+    "KeyName": {
+     "string": ""
+    },
+    "KeyObject": {
+     "u64": 18446652867925507808
+    },
+    "Type": {
+     "u32": 1
+    },
+    "ValueName": {
+     "string": "Run"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 2,
+    "opcode": 33,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013923325
+   },
+   "properties": {
+    "BaseName": {
+     "string": ""
+    },
+    "BaseObject": {
+     "u64": 18446652867923358432
+    },
+    "KeyObject": {
+     "u64": 18446652867925543168
+    },
+    "RelativeName": {
+     "string": "Software\\RustinelFixture"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 5,
+    "opcode": 36,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013924885
+   },
+   "properties": {
+    "CapturedData": {
+     "bytes": "01000000"
+    },
+    "KeyName": {
+     "string": ""
+    },
+    "KeyObject": {
+     "u64": 18446652867925543168
+    },
+    "Type": {
+     "u32": 4
+    },
+    "ValueName": {
+     "string": "Flag"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 2,
+    "opcode": 33,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013943663
+   },
+   "properties": {
+    "BaseName": {
+     "string": ""
+    },
+    "BaseObject": {
+     "u64": 18446652867923358432
+    },
+    "KeyObject": {
+     "u64": 18446652867925558400
+    },
+    "RelativeName": {
+     "string": "Software\\RustinelFixture"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 6,
+    "opcode": 37,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013945161
+   },
+   "properties": {
+    "KeyName": {
+     "string": ""
+    },
+    "KeyObject": {
+     "u64": 18446652867925558400
+    },
+    "ValueName": {
+     "string": "Run"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 2,
+    "opcode": 33,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013964084
+   },
+   "properties": {
+    "BaseName": {
+     "string": ""
+    },
+    "BaseObject": {
+     "u64": 18446652867925572544
+    },
+    "KeyObject": {
+     "u64": 18446652867925570096
+    },
+    "RelativeName": {
+     "string": "RustinelFixture"
+    }
+   }
+  },
+  {
+   "header": {
+    "provider": "70eb4f03-c1de-4f73-a051-33d13d5413bd",
+    "event_id": 3,
+    "opcode": 34,
+    "version": 0,
+    "process_id": 6340,
+    "timestamp": 134360063013964900
+   },
+   "properties": {
+    "KeyName": {
+     "string": ""
+    },
+    "KeyObject": {
+     "u64": 18446652867925570096
+    }
+   }
+  }
+ ]
+}

@@ -3,16 +3,16 @@
 //! Keeps the ETW-to-Sysmon compatibility layer on the Windows side of the
 //! sensor boundary so shared normalization stays platform-agnostic.
 
-use ferrisetw::EventRecord;
+use super::etw::props::EtwHeader;
 
 use crate::models::EventCategory;
 use crate::sensor::event_actions;
 use crate::sensor::{SensorAction, SensorNormalization};
 
-pub fn normalization_for_record(
+pub(crate) fn normalization_for_record(
     category: EventCategory,
     action: SensorAction,
-    record: &EventRecord,
+    record: &impl EtwHeader,
 ) -> SensorNormalization {
     let action_code = action_code_for_record(category, action, record);
     let raw_event_id = raw_event_id_for_record(category, action_code, record);
@@ -26,7 +26,7 @@ pub fn normalization_for_record(
 fn action_code_for_record(
     category: EventCategory,
     action: SensorAction,
-    record: &EventRecord,
+    record: &impl EtwHeader,
 ) -> u8 {
     match category {
         EventCategory::Process => record.opcode(),
@@ -77,7 +77,11 @@ fn registry_action_code(action: SensorAction) -> u8 {
     event_actions::row_for_action(EventCategory::Registry, action).map_or(0, |row| row.action_code)
 }
 
-fn raw_event_id_for_record(category: EventCategory, action_code: u8, record: &EventRecord) -> u16 {
+fn raw_event_id_for_record(
+    category: EventCategory,
+    action_code: u8,
+    record: &impl EtwHeader,
+) -> u16 {
     match category {
         EventCategory::Process | EventCategory::ImageLoad => record.event_id(),
         EventCategory::Network => record.event_id(),
