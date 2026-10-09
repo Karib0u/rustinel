@@ -294,68 +294,81 @@ impl Engine {
                 selected.extend(self.select_detections(&deferred));
             }
 
-            let key = correlation_event_key(event);
-            match pass {
-                DetectionPass::All => state.pending.push_back(store::PendingCorrelation {
-                    key,
-                    event: event.clone(),
-                    process_start_key,
-                    passes: vec![admission, deferred],
-                    complete: true,
-                    evaluate_by: Instant::now(),
-                }),
-                DetectionPass::Admission => {
-                    let early = state.early_deferred.remove(&key).and_then(|entry| {
-                        if entry.received_at.elapsed() >= store::CORRELATION_REORDER_BUDGET {
-                            state.early_deferred_evictions += 1;
-                            None
-                        } else {
-                            Some(entry)
-                        }
-                    });
-                    let complete = early.is_some();
-                    let mut passes = vec![admission];
-                    if let Some(early) = early {
-                        passes.push(early.detections);
-                    }
-                    state.pending.push_back(store::PendingCorrelation {
+            // Correlation only advances on detections, so with no correlation
+            // rules there is nothing to buffer, and an event without
+            // detections can skip the buffer when nothing is queued ahead.
+            let correlating = state.engine.correlation_rule_count() > 0;
+            let skip_buffer = !correlating
+                || (pass == DetectionPass::All
+                    && admission.is_empty()
+                    && deferred.is_empty()
+                    && state.pending.is_empty());
+            if !skip_buffer {
+                let key = correlation_event_key(event);
+                match pass {
+                    DetectionPass::All => state.pending.push_back(store::PendingCorrelation {
                         key,
                         event: event.clone(),
                         process_start_key,
-                        passes,
-                        complete,
-                        evaluate_by: Instant::now()
-                            .checked_add(store::CORRELATION_REORDER_BUDGET)
-                            .unwrap_or_else(Instant::now),
-                    });
-                }
-                DetectionPass::Deferred => {
-                    if !state.expired.remove(&key) {
-                        if let Some(entry) = state.pending.iter_mut().find(|entry| entry.key == key)
-                        {
-                            if !entry.complete {
-                                entry.passes.push(deferred);
-                                entry.complete = true;
-                            }
-                        } else {
-                            if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY {
-                                Self::evict_early_deferred(&mut state, Instant::now());
-                            }
-                            if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY {
-                                tracing::warn!(
-                                    target: "engine",
-                                    ingest_seq = event.ingest_seq,
-                                    "Deferred Sigma correlation result arrived without admission and the bounded reorder buffer is full"
-                                );
-                                state.remember_expired(key);
+                        passes: vec![admission, deferred],
+                        complete: true,
+                        evaluate_by: Instant::now(),
+                    }),
+                    DetectionPass::Admission => {
+                        let early = state.early_deferred.remove(&key).and_then(|entry| {
+                            if entry.received_at.elapsed() >= store::CORRELATION_REORDER_BUDGET {
+                                state.early_deferred_evictions += 1;
+                                None
                             } else {
-                                state
-                                    .early_deferred
-                                    .entry(key)
-                                    .or_insert(store::EarlyDeferred {
-                                        detections: deferred,
-                                        received_at: Instant::now(),
-                                    });
+                                Some(entry)
+                            }
+                        });
+                        let complete = early.is_some();
+                        let mut passes = vec![admission];
+                        if let Some(early) = early {
+                            passes.push(early.detections);
+                        }
+                        state.pending.push_back(store::PendingCorrelation {
+                            key,
+                            event: event.clone(),
+                            process_start_key,
+                            passes,
+                            complete,
+                            evaluate_by: Instant::now()
+                                .checked_add(store::CORRELATION_REORDER_BUDGET)
+                                .unwrap_or_else(Instant::now),
+                        });
+                    }
+                    DetectionPass::Deferred => {
+                        if !state.expired.remove(&key) {
+                            if let Some(entry) =
+                                state.pending.iter_mut().find(|entry| entry.key == key)
+                            {
+                                if !entry.complete {
+                                    entry.passes.push(deferred);
+                                    entry.complete = true;
+                                }
+                            } else {
+                                if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY
+                                {
+                                    Self::evict_early_deferred(&mut state, Instant::now());
+                                }
+                                if state.early_deferred.len() >= store::CORRELATION_REORDER_CAPACITY
+                                {
+                                    tracing::warn!(
+                                        target: "engine",
+                                        ingest_seq = event.ingest_seq,
+                                        "Deferred Sigma correlation result arrived without admission and the bounded reorder buffer is full"
+                                    );
+                                    state.remember_expired(key);
+                                } else {
+                                    state.early_deferred.entry(key).or_insert(
+                                        store::EarlyDeferred {
+                                            detections: deferred,
+                                            received_at: Instant::now(),
+                                        },
+                                    );
+                                }
                             }
                         }
                     }
@@ -1200,8 +1213,69 @@ correlation:
     }
 
     #[test]
+    fn events_skip_the_correlation_buffer_unless_something_can_correlate() {
+        let whoami = process_event(
+            Platform::Windows,
+            r"C:\Windows\System32\whoami.exe",
+            "whoami",
+        );
+        let other = process_event(Platform::Windows, r"C:\Windows\notepad.exe", "notepad");
+
+        // No correlation rules: nothing is buffered, whatever the pass.
+        let plain = engine_with_rule(Platform::Windows, IMAGE_RULE);
+        assert_eq!(
+            plain.evaluate_event_pass(&whoami, DetectionPass::All).len(),
+            1
+        );
+        plain.evaluate_event_pass(&whoami, DetectionPass::Admission);
+        plain.evaluate_event_pass(&whoami, DetectionPass::Deferred);
+        {
+            let state = plain.store.lock();
+            assert!(state.pending.is_empty());
+            assert!(state.early_deferred.is_empty());
+        }
+
+        // With correlation rules, only an event that matched is buffered.
+        let correlating = engine_with_rules(
+            Platform::Windows,
+            &[
+                IMAGE_RULE,
+                r#"title: One Whoami
+id: one-whoami
+correlation:
+  type: event_count
+  rules:
+    - 44444444-4444-4444-8444-444444444444
+  timespan: 1m
+  condition:
+    gte: 1
+"#,
+            ],
+        );
+        correlating.evaluate_event_pass(&other, DetectionPass::All);
+        assert!(correlating.store.lock().pending.is_empty());
+        let alerts = correlating.evaluate_event_pass(&whoami, DetectionPass::All);
+        assert!(alerts.iter().any(|alert| alert.rule_name == "One Whoami"));
+    }
+
+    #[test]
     fn early_deferred_results_expire_and_are_counted() {
-        let engine = engine_with_rule(Platform::Windows, HASH_RULE);
+        let engine = engine_with_rules(
+            Platform::Windows,
+            &[
+                HASH_RULE,
+                r#"title: Hash Count
+id: hash-count
+correlation:
+  type: event_count
+  rules:
+    - 55555555-5555-4555-8555-555555555555
+  timespan: 1m
+  condition:
+    gte: 1
+"#,
+            ],
+        );
         let event = process_event(
             Platform::Windows,
             r"C:\Windows\System32\whoami.exe",

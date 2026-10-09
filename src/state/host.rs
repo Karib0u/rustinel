@@ -424,7 +424,7 @@ impl HostState {
 
 #[cfg(target_os = "linux")]
 fn enrich_linux_process(event: &mut RawEvent) {
-    use crate::utils::query_process_details;
+    use crate::utils::process::{query_process_details_with, ProcessReads};
 
     if event.platform != crate::vocab::Platform::Linux
         || event.action != crate::vocab::SensorAction::Start
@@ -434,7 +434,16 @@ fn enrich_linux_process(event: &mut RawEvent) {
     let RawPayload::Process(process) = &mut event.payload else {
         return;
     };
-    let Some(details) = query_process_details(process.process_id) else {
+    // Enrichment never uses the parent, and an absolute image from the sensor
+    // needs no `exe` read to be resolved.
+    let reads = ProcessReads {
+        image: process
+            .image
+            .as_deref()
+            .is_some_and(|image| !std::path::Path::new(image).is_absolute()),
+        parent: false,
+    };
+    let Some(details) = query_process_details_with(process.process_id, reads) else {
         return;
     };
     enrich_linux_process_from_details(
@@ -462,8 +471,12 @@ fn enrich_linux_process_from_details(
     let Some(raw_image) = process.image.as_deref() else {
         return;
     };
-    let Some(current_image) = details.image.as_deref() else {
-        return;
+    // A lean query skips `exe` for an absolute raw image, which then stands in
+    // for it: start time and command line still guard the identity.
+    let current_image = match details.image.as_deref() {
+        Some(image) => image,
+        None if Path::new(raw_image).is_absolute() => raw_image,
+        None => return,
     };
     let Some(expected_start) = source
         .identity
