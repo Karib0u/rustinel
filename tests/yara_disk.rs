@@ -189,6 +189,7 @@ fn yara_disk_scan_reports_unreadable_file_as_failure() {
 
     // SAFETY: geteuid takes no arguments and cannot fail.
     if unsafe { libc::geteuid() } == 0 {
+        common::skip_test("root ignores file permissions, so the file stays readable");
         return;
     }
 

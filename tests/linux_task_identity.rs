@@ -259,10 +259,11 @@ async fn live_ebpf_process_reaches_yara_memory_scan() {
     let plans = rustinel::sensor::linux::task_btf::TaskPlans::load();
     assert!(plans.warnings.is_empty(), "{:?}", plans.warnings);
 
-    let executable = "target/debug/examples/memory_target";
+    let executable = common::memory_target_exe();
     assert!(
-        std::path::Path::new(executable).exists(),
-        "binary not found at {executable}; run cargo build --example memory_target"
+        executable.exists(),
+        "binary not found at {}; run cargo build --example memory_target",
+        executable.display()
     );
 
     let sensor = EbpfSensor::new();

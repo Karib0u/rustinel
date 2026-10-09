@@ -62,8 +62,8 @@ fn is_windows_cache_flush(event: &CanonicalEvent) -> bool {
 /// A bounded debounce table with one deadline entry per path and object.
 /// Replacing a write removes its old deadline, so repeated writes cannot
 /// grow the deadline queue beyond the table's capacity.
-#[derive(Default)]
 pub(super) struct WrittenFileSettler {
+    settle_delay: Duration,
     by_target: HashMap<(PathBuf, Option<ExpectedIdentity>), (Instant, u64)>,
     by_deadline: BTreeMap<(Instant, u64), ArtifactJob>,
     /// The latest object measured on arrival for each pending path, so writes
@@ -75,7 +75,24 @@ pub(super) struct WrittenFileSettler {
     reclaim_cursor: Option<(Instant, u64)>,
 }
 
+impl Default for WrittenFileSettler {
+    fn default() -> Self {
+        Self::new(WRITTEN_FILE_SETTLE_DELAY)
+    }
+}
+
 impl WrittenFileSettler {
+    pub(super) fn new(settle_delay: Duration) -> Self {
+        Self {
+            settle_delay,
+            by_target: HashMap::new(),
+            by_deadline: BTreeMap::new(),
+            measured: HashMap::new(),
+            sequence: 0,
+            reclaim_cursor: None,
+        }
+    }
+
     pub(super) fn is_full_for(&self, target: &ArtifactTarget) -> bool {
         self.by_target.len() >= WRITTEN_FILE_QUEUE_CAPACITY
             && !self
@@ -130,7 +147,7 @@ impl WrittenFileSettler {
         if let Some(deadline) = previous {
             self.by_deadline.remove(&deadline);
         }
-        let ready_at = job.enqueued_at + WRITTEN_FILE_SETTLE_DELAY;
+        let ready_at = job.enqueued_at + self.settle_delay;
         let deadline = (ready_at, self.sequence);
         self.sequence = self.sequence.wrapping_add(1);
         self.by_target.insert(key, deadline);

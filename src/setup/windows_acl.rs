@@ -312,7 +312,7 @@ mod tests {
     fn replaces_inherited_users_write_across_the_tree() {
         let dir = ProgramDataDir::new("rustinel-acl-test");
         if !running_elevated(&dir.0) {
-            eprintln!("skipping: test directory is not owned by Administrators");
+            crate::utils::test_skip::skip("test directory is not owned by Administrators");
             return;
         }
         let child_dir = dir.0.join("rules").join("current");
@@ -341,7 +341,7 @@ mod tests {
     fn replaces_explicit_users_write_on_a_protected_child() {
         let dir = ProgramDataDir::new("rustinel-acl-explicit-test");
         if !running_elevated(&dir.0) {
-            eprintln!("skipping: test directory is not owned by Administrators");
+            crate::utils::test_skip::skip("test directory is not owned by Administrators");
             return;
         }
         let child_dir = dir.0.join("rules");
@@ -384,7 +384,7 @@ mod tests {
     fn admin_only_removes_users_entirely() {
         let dir = ProgramDataDir::new("rustinel-acl-logs-test");
         if !running_elevated(&dir.0) {
-            eprintln!("skipping: test directory is not owned by Administrators");
+            crate::utils::test_skip::skip("test directory is not owned by Administrators");
             return;
         }
         fs::write(dir.0.join("alerts.json"), "{}\n").expect("write log file");
@@ -401,7 +401,7 @@ mod tests {
     fn parent_repair_keeps_logs_admin_only() {
         let dir = ProgramDataDir::new("rustinel-acl-log-parent-test");
         if !running_elevated(&dir.0) {
-            eprintln!("skipping: test directory is not owned by Administrators");
+            crate::utils::test_skip::skip("test directory is not owned by Administrators");
             return;
         }
         let logs = dir.0.join("logs");
@@ -427,7 +427,7 @@ mod tests {
     fn refuses_a_junction_inside_the_tree() {
         let dir = ProgramDataDir::new("rustinel-acl-junction-test");
         if !running_elevated(&dir.0) {
-            eprintln!("skipping: test directory is not owned by Administrators");
+            crate::utils::test_skip::skip("test directory is not owned by Administrators");
             return;
         }
         let target = dir.0.join("elsewhere");

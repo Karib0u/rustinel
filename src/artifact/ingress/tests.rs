@@ -793,12 +793,15 @@ fn written_file_settle_delay_does_not_consume_scan_timeout() {
     let path = temp.path().join("dropped.exe");
     std::fs::write(&path, bytes).unwrap();
     let mut runtime = runtime_with_consumers(temp.path(), bytes);
+    // The settle delay exceeds the scan timeout by a full second. If the
+    // timeout were counted from enqueue instead of from when the file becomes
+    // eligible, the job would always exceed it. Correct code has the whole
+    // timeout left after the delay, however slow the runner is.
+    let settle_delay = Duration::from_secs(3);
     let scanner = crate::scanner::Scanner::new(temp.path().join("yara"))
         .unwrap()
         .with_limits(crate::scanner::ScanLimits {
-            // Stay below the 250 ms settle delay while leaving enough
-            // headroom for thread scheduling on loaded CI runners.
-            timeout: Duration::from_millis(200),
+            timeout: Duration::from_secs(2),
             max_file_bytes: 1024,
         });
     runtime
@@ -807,12 +810,16 @@ fn written_file_settle_delay_does_not_consume_scan_timeout() {
         .unwrap()
         .swap_yara(Arc::new(scanner));
     runtime.written_files = Some(select_all());
-    let harness = Harness::start(
+    let mut parts = ResolverParts::new(
         Arc::new(SensorEventRouter::new()),
+        Arc::new(HostState::default()),
         runtime,
-        Arc::new(open_artifact),
+        Arc::new(ResolverState::new()),
         ARTIFACT_QUEUE_CAPACITY,
+        WRITTEN_FILE_QUEUE_CAPACITY,
     );
+    parts.resolver.settle_delay = settle_delay;
+    let harness = Harness::from_parts(parts, Arc::new(open_artifact));
 
     harness.ingress.handle_event(&file_event(
         &path,

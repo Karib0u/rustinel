@@ -849,3 +849,45 @@ fn platform_product(platform: Platform) -> &'static str {
         Platform::MacOS => "macos",
     }
 }
+
+/// Polls `condition` every 10 ms until it holds, panicking once `timeout` passes.
+///
+/// Use this instead of a fixed sleep followed by an assertion: it returns as
+/// soon as the state is reached and tolerates a slow runner up to `timeout`.
+pub async fn wait_until(timeout: Duration, condition: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + timeout;
+    while !condition() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "condition not reached within {timeout:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// Path of the `memory_target` example built by `cargo build --example memory_target`.
+///
+/// Resolved from the running test binary (`<target>/<profile>/deps/<test>`), so
+/// it follows `CARGO_TARGET_DIR`, `cargo llvm-cov`, and release test runs
+/// instead of assuming `target/debug`.
+pub fn memory_target_exe() -> PathBuf {
+    let test_exe = std::env::current_exe().expect("locate the test binary");
+    let profile_dir = test_exe
+        .parent()
+        .and_then(Path::parent)
+        .expect("test binary lives in <target>/<profile>/deps");
+    let name = format!("memory_target{}", std::env::consts::EXE_SUFFIX);
+    profile_dir.join("examples").join(name)
+}
+
+/// Records that a test could not check anything on this host.
+///
+/// Prints a marker CI greps for after re-running with `--nocapture`, and fails
+/// when `RUSTINEL_FAIL_ON_SKIP` is set.
+pub fn skip_test(reason: &str) {
+    eprintln!("RUSTINEL_TEST_SKIPPED: {reason}");
+    assert!(
+        std::env::var_os("RUSTINEL_FAIL_ON_SKIP").is_none(),
+        "{reason} (RUSTINEL_FAIL_ON_SKIP is set)"
+    );
+}
