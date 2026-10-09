@@ -7,7 +7,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 use tracing::{debug, info};
@@ -37,6 +37,10 @@ pub(super) struct ArtifactResolver {
     pub(super) host_state: Arc<HostState>,
     pub(super) runtime: ArtifactRuntime,
     pub(super) state: Arc<ResolverState>,
+    /// How long a written file waits before it is opened. A field, not the
+    /// constant, so a test can pick a delay that makes the scan timeout's
+    /// ordering observable without racing the real clock.
+    pub(super) settle_delay: Duration,
     #[cfg(target_os = "linux")]
     pub(super) process_path_opener: ArtifactOpener,
 }
@@ -51,6 +55,7 @@ impl ArtifactResolver {
             host_state,
             runtime,
             state,
+            settle_delay: WRITTEN_FILE_SETTLE_DELAY,
             #[cfg(target_os = "linux")]
             process_path_opener: Arc::new(|path| open_linux_process_path(path, libc::O_PATH)),
         }
@@ -79,7 +84,7 @@ impl ArtifactResolver {
             .enable_time()
             .build()
             .expect("artifact resolver timer runtime");
-        let mut settling = WrittenFileSettler::default();
+        let mut settling = WrittenFileSettler::new(self.settle_delay);
         let mut channel_closed = false;
         loop {
             let now = Instant::now();
@@ -231,7 +236,7 @@ impl ArtifactResolver {
     ) {
         let eligible_at = if job.target.kind == ArtifactKind::WrittenFile {
             job.enqueued_at
-                .checked_add(WRITTEN_FILE_SETTLE_DELAY)
+                .checked_add(self.settle_delay)
                 .unwrap_or(job.enqueued_at)
         } else {
             job.enqueued_at
@@ -761,7 +766,7 @@ mod tests {
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     use tokio::sync::mpsc;
 
