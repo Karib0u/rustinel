@@ -75,6 +75,10 @@ pub const CONFIG_SECTIONS: &[ConfigSection] = &[
         summary: "Recordings written by `rustinel capture`.",
     },
     ConfigSection {
+        name: "agent",
+        summary: "Where the persistent `agent.id` is stored.",
+    },
+    ConfigSection {
         name: "telemetry",
         summary: "The `telemetry.json` loss counters that `rustinel doctor` reads.",
     },
@@ -359,6 +363,12 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         key: "capture.directory",
         default_note: None,
         description: "Where `rustinel capture` writes recordings when `--output` is not given.",
+    },
+    // agent
+    ConfigOption {
+        key: "agent.directory",
+        default_note: None,
+        description: "Directory holding the `agent-id` file that persists `agent.id` across restarts and upgrades. Delete the file to issue a new `agent.id`. See [alert identity](output.md#host-and-agent-identity).",
     },
     // telemetry
     ConfigOption {

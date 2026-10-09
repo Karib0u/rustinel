@@ -101,6 +101,7 @@ pub struct InstallLayout {
     pub logs_dir: PathBuf,
     pub alerts_dir: PathBuf,
     pub captures_dir: PathBuf,
+    pub state_dir: PathBuf,
 }
 
 impl InstallLayout {
@@ -116,6 +117,7 @@ impl InstallLayout {
                 logs_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
                 alerts_dir: PathBuf::from(r"C:\ProgramData\Rustinel\logs"),
                 captures_dir: PathBuf::from(r"C:\ProgramData\Rustinel\captures"),
+                state_dir: PathBuf::from(r"C:\ProgramData\Rustinel\state"),
             },
             InstallPlatform::Linux => Self::from_roots(
                 platform,
@@ -123,6 +125,7 @@ impl InstallLayout {
                 PathBuf::from("/var/lib/rustinel/rules"),
                 PathBuf::from("/var/log/rustinel"),
                 PathBuf::from("/var/lib/rustinel/captures"),
+                PathBuf::from("/var/lib/rustinel/state"),
             ),
             InstallPlatform::Macos => Self::from_roots(
                 platform,
@@ -130,6 +133,7 @@ impl InstallLayout {
                 PathBuf::from("/Library/Application Support/Rustinel/rules"),
                 PathBuf::from("/Library/Logs/Rustinel"),
                 PathBuf::from("/Library/Application Support/Rustinel/captures"),
+                PathBuf::from("/Library/Application Support/Rustinel/state"),
             ),
         }
     }
@@ -149,6 +153,7 @@ impl InstallLayout {
             alerts_dir: logs_dir.clone(),
             logs_dir,
             captures_dir: root.join("captures"),
+            state_dir: root.join("state"),
         }
     }
 
@@ -163,6 +168,7 @@ impl InstallLayout {
         cfg.logging.directory = self.logs_dir.clone();
         cfg.alerts.directory = self.alerts_dir.clone();
         cfg.capture.directory = self.captures_dir.clone();
+        cfg.agent.directory = self.state_dir.clone();
         cfg.ioc.hashes_path = layout_join(self.platform, &self.ioc_dir, "hashes.txt");
         cfg.ioc.ips_path = layout_join(self.platform, &self.ioc_dir, "ips.txt");
         cfg.ioc.domains_path = layout_join(self.platform, &self.ioc_dir, "domains.txt");
@@ -176,6 +182,7 @@ impl InstallLayout {
         rules_dir: PathBuf,
         logs_dir: PathBuf,
         captures_dir: PathBuf,
+        state_dir: PathBuf,
     ) -> Self {
         let current_dir = layout_join(platform, &rules_dir, "current");
         let ioc_dir = layout_join(platform, &current_dir, "ioc");
@@ -189,6 +196,7 @@ impl InstallLayout {
             alerts_dir: logs_dir.clone(),
             logs_dir,
             captures_dir,
+            state_dir,
         }
     }
 }
@@ -365,6 +373,8 @@ pub struct AppConfig {
     pub reload: ReloadConfig,
     pub dedup: DedupConfig,
     pub capture: CaptureConfig,
+    #[serde(default)]
+    pub agent: AgentConfig,
     pub telemetry: TelemetryConfig,
     pub windows: WindowsConfig,
 }
@@ -485,6 +495,22 @@ pub struct DedupConfig {
     pub window_secs: u64,
     /// Maximum number of distinct alert keys to track simultaneously
     pub max_entries: usize,
+}
+
+/// Agent identity configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentConfig {
+    /// Directory holding the persistent `agent-id` file. Kept apart from logs
+    /// so log rotation or cleanup never changes the installation identity.
+    pub directory: PathBuf,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            directory: PathBuf::from("state"),
+        }
+    }
 }
 
 /// Behavioral recording configuration
@@ -643,6 +669,8 @@ impl AppConfig {
             .set_default("dedup.max_entries", 10000i64)?
             // Behavioral recording
             .set_default("capture.directory", "captures")?
+            // Agent identity
+            .set_default("agent.directory", "state")?
             // Telemetry
             .set_default("telemetry.enabled", true)?
             .set_default("telemetry.snapshot_interval_secs", 30i64)?
@@ -754,6 +782,12 @@ impl AppConfig {
             &mut self.capture.directory,
             base_dir,
             "CAPTURE__DIRECTORY",
+            environment,
+        );
+        resolve_path_from_config(
+            &mut self.agent.directory,
+            base_dir,
+            "AGENT__DIRECTORY",
             environment,
         );
         resolve_path_from_config(
@@ -1119,6 +1153,7 @@ impl Default for AppConfig {
             capture: CaptureConfig {
                 directory: PathBuf::from("captures"),
             },
+            agent: AgentConfig::default(),
             telemetry: TelemetryConfig {
                 enabled: true,
                 snapshot_interval_secs: 30,

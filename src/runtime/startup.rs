@@ -64,6 +64,11 @@ impl RuntimeLogging {
         let (app_guard, alert_guard, mut alert_sink) = init_logging(cfg)?;
         let _guards = (app_guard, alert_guard);
 
+        // 2.0 Host and agent identity, resolved once for every alert.
+        alert_sink = alert_sink.with_identity(Arc::new(crate::identity::Identity::resolve(
+            &cfg.agent.directory,
+        )));
+
         // 2a. Webhook destinations, attached before the dedup worker takes its
         // copy of the sink so rollups are delivered as well.
         if !cfg.alerts.webhook.is_empty() {

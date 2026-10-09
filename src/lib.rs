@@ -10,6 +10,7 @@ pub mod config;
 pub mod doctor;
 pub mod engine;
 pub mod field_availability;
+pub mod identity;
 pub mod ioc;
 pub mod memory;
 pub mod models;
