@@ -565,6 +565,10 @@ fn parse_sha256(value: &str) -> Result<Vec<u8>> {
 }
 
 fn extract_zip_safely(archive_path: &Path, destination: &Path) -> Result<()> {
+    extract_zip_with_limit(archive_path, destination, MAX_EXTRACTED_BYTES)
+}
+
+fn extract_zip_with_limit(archive_path: &Path, destination: &Path, max_bytes: u64) -> Result<()> {
     let file = fs::File::open(archive_path)
         .with_context(|| format!("open artifact {}", archive_path.display()))?;
     let mut archive = ZipArchive::new(file).context("read artifact zip")?;
@@ -579,7 +583,7 @@ fn extract_zip_safely(archive_path: &Path, destination: &Path) -> Result<()> {
         total_size = total_size
             .checked_add(file.size())
             .context("zip extracted size overflow")?;
-        if total_size > MAX_EXTRACTED_BYTES {
+        if total_size > max_bytes {
             bail!("zip exceeds maximum extracted size");
         }
 
@@ -592,8 +596,17 @@ fn extract_zip_safely(archive_path: &Path, destination: &Path) -> Result<()> {
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent)?;
         }
+        // The header size can understate the content, so bound the copy by what is written.
+        let declared = file.size();
         let mut output = fs::File::create(&output_path)?;
-        std::io::copy(&mut file, &mut output)?;
+        let copied = std::io::copy(
+            &mut (&mut file).take(max_bytes.saturating_sub(total_size - declared) + 1),
+            &mut output,
+        )?;
+        total_size = total_size - declared + copied;
+        if total_size > max_bytes {
+            bail!("zip exceeds maximum extracted size");
+        }
     }
     Ok(())
 }

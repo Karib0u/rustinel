@@ -86,7 +86,25 @@ fn verify(archive: &mut File, checksums: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
+const MAX_BINARY_BYTES: u64 = 512 * 1024 * 1024;
+
 fn extract(archive: &mut File, name: &str, binary: &str, output: &mut File) -> Result<()> {
+    extract_with_limit(archive, name, binary, output, MAX_BINARY_BYTES)
+}
+
+fn copy_bounded(entry: &mut impl Read, output: &mut File, max_bytes: u64) -> Result<()> {
+    let copied = std::io::copy(&mut entry.take(max_bytes + 1), output)?;
+    anyhow::ensure!(copied <= max_bytes, "Release binary is too large");
+    Ok(())
+}
+
+fn extract_with_limit(
+    archive: &mut File,
+    name: &str,
+    binary: &str,
+    output: &mut File,
+    max_bytes: u64,
+) -> Result<()> {
     if name.ends_with(".zip") {
         let mut zip = zip::ZipArchive::new(archive)?;
         let mut entry = zip
@@ -96,7 +114,7 @@ fn extract(archive: &mut File, name: &str, binary: &str, output: &mut File) -> R
             entry.is_file() && !entry.is_symlink(),
             "Release binary is not a regular file"
         );
-        std::io::copy(&mut entry, output)?;
+        copy_bounded(&mut entry, output, max_bytes)?;
     } else {
         let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive));
         let mut found = false;
@@ -107,7 +125,7 @@ fn extract(archive: &mut File, name: &str, binary: &str, output: &mut File) -> R
                     !found && entry.header().entry_type().is_file(),
                     "Invalid release binary entry"
                 );
-                std::io::copy(&mut entry, output)?;
+                copy_bounded(&mut entry, output, max_bytes)?;
                 found = true;
             }
         }
@@ -480,6 +498,72 @@ mod tests {
         let mut output = tempfile::tempfile().unwrap();
         assert!(extract(&mut archive, "package.zip", "rustinel.exe", &mut output).is_err());
         assert_eq!(output.metadata().unwrap().len(), 0);
+    }
+
+    const SYMLINK: u32 = 0o120777;
+
+    fn zip_with(name: &str, mode: u32, content: &[u8]) -> File {
+        let mut zip = zip::ZipWriter::new(tempfile::tempfile().unwrap());
+        let options = zip::write::SimpleFileOptions::default().unix_permissions(0o755);
+        if mode == SYMLINK {
+            zip.add_symlink(name, "/bin/sh", options).unwrap();
+        } else {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(content).unwrap();
+        }
+        let mut archive = zip.finish().unwrap();
+        archive.rewind().unwrap();
+        archive
+    }
+
+    fn tar_gz_with(entry_type: tar::EntryType, content: &[u8]) -> File {
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            tempfile::tempfile().unwrap(),
+            flate2::Compression::default(),
+        ));
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(entry_type);
+        header.set_size(content.len() as u64);
+        header.set_mode(0o755);
+        if entry_type.is_symlink() {
+            header.set_link_name("/bin/sh").unwrap();
+        }
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "rustinel", content)
+            .unwrap();
+        let mut archive = builder.into_inner().unwrap().finish().unwrap();
+        archive.rewind().unwrap();
+        archive
+    }
+
+    #[test]
+    fn extract_enforces_binary_size_cap_for_zip_and_tar() {
+        for name in ["package.zip", "package.tar.gz"] {
+            let build = || {
+                if name.ends_with(".zip") {
+                    zip_with("rustinel", 0o100755, &[1u8; 100])
+                } else {
+                    tar_gz_with(tar::EntryType::Regular, &[1u8; 100])
+                }
+            };
+            let mut output = tempfile::tempfile().unwrap();
+            extract_with_limit(&mut build(), name, "rustinel", &mut output, 100).unwrap();
+            assert_eq!(output.metadata().unwrap().len(), 100);
+            let mut output = tempfile::tempfile().unwrap();
+            let err = extract_with_limit(&mut build(), name, "rustinel", &mut output, 99)
+                .expect_err("over the cap");
+            assert!(err.to_string().contains("too large"));
+        }
+    }
+
+    #[test]
+    fn extract_rejects_symlink_binary_entries() {
+        let mut output = tempfile::tempfile().unwrap();
+        let mut zip = zip_with("rustinel", SYMLINK, b"");
+        assert!(extract(&mut zip, "package.zip", "rustinel", &mut output).is_err());
+        let mut tar = tar_gz_with(tar::EntryType::Symlink, b"");
+        assert!(extract(&mut tar, "package.tar.gz", "rustinel", &mut output).is_err());
     }
 
     #[cfg(target_os = "macos")]
