@@ -4,10 +4,11 @@
 //! `crate::artifact`; this module queues process-memory scans.
 
 use anyhow::{Context, Result};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, info, warn};
@@ -206,9 +207,40 @@ pub(crate) fn scan_subject_provenance(provenance: &Provenance) -> Provenance {
     subject
 }
 
+/// A reusable `yara_x::Scanner` together with the rules it borrows.
+///
+/// Building a scanner costs hundreds of microseconds on a large rule set, so
+/// each thread keeps one and reuses it while the rule set is unchanged. A
+/// reload swaps in a new `Arc<Rules>`, which makes the next scan on each
+/// thread rebuild its scanner; until then an idle thread keeps the old rules
+/// alive.
+struct PooledScanner {
+    // Field order matters: the scanner must drop before the rules it borrows.
+    scanner: XScanner<'static>,
+    _rules: Arc<Rules>,
+}
+
+thread_local! {
+    static THREAD_SCANNER: RefCell<Option<PooledScanner>> = const { RefCell::new(None) };
+}
+
+impl PooledScanner {
+    fn new(rules: &Arc<Rules>) -> Self {
+        // SAFETY: the reference points into the `Arc` allocation, which this
+        // struct keeps alive for as long as the scanner exists (`scanner` is
+        // declared before `_rules`, so it drops first), and `Rules` is never
+        // moved out of the `Arc` or mutated.
+        let rules_ref: &'static Rules = unsafe { &*Arc::as_ptr(rules) };
+        Self {
+            scanner: XScanner::new(rules_ref),
+            _rules: Arc::clone(rules),
+        }
+    }
+}
+
 /// Main Scanner struct holding compiled rules
 pub struct Scanner {
-    rules: Rules,
+    rules: Arc<Rules>,
     compiled_files: usize,
     files_found: usize,
     failed_files: usize,
@@ -385,7 +417,7 @@ impl Scanner {
             );
         }
         Ok(Self {
-            rules,
+            rules: Arc::new(rules),
             compiled_files: files_compiled,
             files_found,
             failed_files: files_failed,
@@ -403,7 +435,7 @@ impl Scanner {
     /// fallback never walks a directory tree.
     pub fn empty() -> Self {
         Self {
-            rules: Compiler::new().build(),
+            rules: Arc::new(Compiler::new().build()),
             compiled_files: 0,
             files_found: 0,
             failed_files: 0,
@@ -459,16 +491,16 @@ impl Scanner {
         let path = normalize_yara_path(path);
         self.check_file_size(&path)?;
         self.scan_file_cached(&path, match_debug, |path| {
-            let mut scanner = XScanner::new(&self.rules);
-            self.apply_timeout(&mut scanner);
-            let scan_results = scanner.scan_file(path).map_err(|err| {
-                self.map_scan_error(err, || format!("YARA scan failed for {path}"))
-            })?;
-            Ok(collect_yara_matches(
-                scan_results,
-                match_debug,
-                &self.shadowed,
-            ))
+            self.with_scanner(self.limits.timeout, |scanner| {
+                let scan_results = scanner.scan_file(path).map_err(|err| {
+                    self.map_scan_error(err, || format!("YARA scan failed for {path}"))
+                })?;
+                Ok(collect_yara_matches(
+                    scan_results,
+                    match_debug,
+                    &self.shadowed,
+                ))
+            })
         })
     }
 
@@ -494,10 +526,36 @@ impl Scanner {
         Ok(())
     }
 
-    fn apply_timeout(&self, scanner: &mut XScanner<'_>) {
-        if !self.limits.timeout.is_zero() {
-            scanner.set_timeout(self.limits.timeout);
+    /// Run `scan` on this thread's scanner with `timeout` applied. Zero disables it.
+    ///
+    /// yara-x cannot clear a timeout once set, so a scan without one always
+    /// uses a throwaway scanner. A scanner whose scan failed is dropped
+    /// rather than trusted after an abort.
+    fn with_scanner<T>(
+        &self,
+        timeout: Duration,
+        scan: impl FnOnce(&mut XScanner<'static>) -> std::result::Result<T, ScanError>,
+    ) -> std::result::Result<T, ScanError> {
+        if timeout.is_zero() {
+            let mut fresh = PooledScanner::new(&self.rules);
+            return scan(&mut fresh.scanner);
         }
+
+        THREAD_SCANNER.with(|slot| {
+            // Taking the scanner out also covers a re-entrant call: it just
+            // builds its own instead of aliasing the borrowed one.
+            let reusable = slot
+                .borrow_mut()
+                .take()
+                .filter(|pooled| Arc::ptr_eq(&pooled._rules, &self.rules));
+            let mut pooled = reusable.unwrap_or_else(|| PooledScanner::new(&self.rules));
+            pooled.scanner.set_timeout(timeout);
+            let result = scan(&mut pooled.scanner);
+            if result.is_ok() {
+                *slot.borrow_mut() = Some(pooled);
+            }
+            result
+        })
     }
 
     fn map_scan_error<F: FnOnce() -> String>(
@@ -574,22 +632,20 @@ impl Scanner {
             return Ok(Vec::new());
         }
 
-        let mut scanner = XScanner::new(&self.rules);
-        if !timeout.is_zero() {
-            scanner.set_timeout(timeout);
-        }
-        let scan_results = scanner.scan(data).map_err(|err| {
-            if matches!(err, yara_x::ScanError::Timeout) {
-                ScanError::TimedOut { timeout }
-            } else {
-                ScanError::Failed(anyhow::Error::new(err).context("YARA memory scan failed"))
-            }
-        })?;
-        Ok(collect_yara_matches(
-            scan_results,
-            match_debug,
-            &self.shadowed,
-        ))
+        self.with_scanner(timeout, |scanner| {
+            let scan_results = scanner.scan(data).map_err(|err| {
+                if matches!(err, yara_x::ScanError::Timeout) {
+                    ScanError::TimedOut { timeout }
+                } else {
+                    ScanError::Failed(anyhow::Error::new(err).context("YARA memory scan failed"))
+                }
+            })?;
+            Ok(collect_yara_matches(
+                scan_results,
+                match_debug,
+                &self.shadowed,
+            ))
+        })
     }
 }
 
@@ -954,6 +1010,30 @@ mod tests {
             other => panic!("expected a timeout outcome, got {other:?}"),
         }
         assert_eq!(mapped.kind(), "timeout");
+    }
+
+    #[test]
+    fn test_scanner_reuse_keeps_results_and_varying_timeouts() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let scanner = scanner_with_marker_rule(tempdir.path());
+        let timeout = Duration::from_secs(5);
+
+        for _ in 0..3 {
+            let hit = scanner
+                .scan_bytes_with_timeout(b"xx evil!! xx", MatchDebugLevel::Off, timeout)
+                .expect("scan");
+            assert_eq!(hit.len(), 1);
+            let miss = scanner
+                .scan_bytes_with_timeout(b"benign", MatchDebugLevel::Off, Duration::from_secs(9))
+                .expect("scan");
+            assert!(miss.is_empty());
+        }
+
+        // A disabled timeout must not inherit the one set on a pooled scanner.
+        let hit = scanner
+            .scan_bytes_with_timeout(b"evil!!", MatchDebugLevel::Off, Duration::ZERO)
+            .expect("scan");
+        assert_eq!(hit.len(), 1);
     }
 
     #[test]
