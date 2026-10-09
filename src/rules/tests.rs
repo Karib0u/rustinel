@@ -88,6 +88,159 @@ fn unsafe_zip_entry_is_rejected_before_current_is_replaced() {
     );
 }
 
+fn single_entry_zip(name: &str, options: SimpleFileOptions, content: &[u8]) -> Vec<u8> {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = ZipWriter::new(&mut cursor);
+        zip.start_file(name, options).unwrap();
+        zip.write_all(content).unwrap();
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
+
+fn assert_install_rejects(archive: &[u8], expected: &str) {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::create_dir_all(temp.path().join("current").join("sigma")).unwrap();
+    fs::write(
+        temp.path().join("current").join("pack.yml"),
+        b"previous: true\n",
+    )
+    .unwrap();
+    let catalog = catalog_for("demo-pack", current_os(), archive);
+
+    let err = install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), archive)
+        .expect_err("archive should be rejected");
+
+    assert!(
+        format!("{err:#}").contains(expected),
+        "unexpected error: {err:#}"
+    );
+    assert_eq!(
+        fs::read(temp.path().join("current").join("pack.yml")).unwrap(),
+        b"previous: true\n"
+    );
+}
+
+#[test]
+fn symlink_zip_entry_is_rejected_and_previous_pack_stays() {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = ZipWriter::new(&mut cursor);
+        zip.add_symlink("link", "/etc/passwd", SimpleFileOptions::default())
+            .unwrap();
+        zip.finish().unwrap();
+    }
+    let archive = cursor.into_inner();
+    assert_install_rejects(&archive, "is a symlink");
+}
+
+#[test]
+fn absolute_zip_entry_is_rejected_and_previous_pack_stays() {
+    let archive = single_entry_zip("/pack.yml", SimpleFileOptions::default(), b"x");
+    assert_install_rejects(&archive, "unsafe zip entry");
+}
+
+#[test]
+fn backslash_zip_entry_is_rejected_and_previous_pack_stays() {
+    let archive = single_entry_zip("sigma\\..\\pack.yml", SimpleFileOptions::default(), b"x");
+    assert_install_rejects(&archive, "unsafe zip entry");
+}
+
+#[test]
+fn empty_zip_entry_name_is_rejected() {
+    assert!(safe_zip_path("").is_err());
+    assert!(safe_zip_path("./").is_err());
+    assert!(safe_zip_path("a/../b").is_err());
+    assert_eq!(safe_zip_path("a/b.yml").unwrap(), PathBuf::from("a/b.yml"));
+}
+
+#[test]
+fn symlink_mode_detection_matches_only_symlinks() {
+    assert!(is_symlink_entry(Some(0o120777)));
+    assert!(!is_symlink_entry(Some(0o100644)));
+    assert!(!is_symlink_entry(Some(0o040755)));
+    assert!(!is_symlink_entry(None));
+}
+
+#[test]
+fn size_caps_keep_their_documented_values() {
+    assert_eq!(MAX_CATALOG_BYTES, 2 * 1024 * 1024);
+    assert_eq!(MAX_ARTIFACT_BYTES, 50 * 1024 * 1024);
+    assert_eq!(MAX_EXTRACTED_BYTES, 250 * 1024 * 1024);
+}
+
+#[test]
+fn oversized_artifact_is_rejected_before_verification() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let archive = vec![0u8; MAX_ARTIFACT_BYTES as usize + 1];
+    let catalog = catalog_for("demo-pack", current_os(), &archive);
+
+    let err = install_pack_archive_bytes(&catalog, "demo-pack", temp.path(), &archive)
+        .expect_err("oversized artifact should fail");
+
+    assert!(err.to_string().contains("maximum download size"));
+}
+
+fn write_zip(dir: &Path, bytes: &[u8]) -> PathBuf {
+    let path = dir.join("pack.zip");
+    fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn extraction_cap_allows_exact_limit_and_rejects_one_byte_over() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let archive = single_entry_zip("a.txt", SimpleFileOptions::default(), &[7u8; 100]);
+    let zip_path = write_zip(temp.path(), &archive);
+
+    extract_zip_with_limit(&zip_path, &temp.path().join("ok"), 100).expect("at the limit");
+    let err = extract_zip_with_limit(&zip_path, &temp.path().join("over"), 99)
+        .expect_err("over the limit");
+    assert!(err.to_string().contains("maximum extracted size"));
+}
+
+#[test]
+fn extraction_cap_sums_across_entries() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = ZipWriter::new(&mut cursor);
+        for name in ["a", "b"] {
+            zip.start_file(name, SimpleFileOptions::default()).unwrap();
+            zip.write_all(&[1u8; 60]).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+    let zip_path = write_zip(temp.path(), cursor.get_ref());
+
+    assert!(extract_zip_with_limit(&zip_path, &temp.path().join("o"), 119).is_err());
+    extract_zip_with_limit(&zip_path, &temp.path().join("p"), 120).expect("sum fits");
+}
+
+#[test]
+fn extraction_cap_counts_bytes_copied_when_header_understates_size() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut archive = single_entry_zip("big.bin", options, &vec![0u8; 1 << 20]);
+    // Central directory header: signature PK\x01\x02, uncompressed size at offset 24.
+    let central = archive
+        .windows(4)
+        .position(|w| w == b"PK\x01\x02")
+        .expect("central directory");
+    archive[central + 24..central + 28].copy_from_slice(&10u32.to_le_bytes());
+    let zip_path = write_zip(temp.path(), &archive);
+    let out = temp.path().join("out");
+
+    let result = extract_zip_with_limit(&zip_path, &out, 1000);
+
+    assert!(result.is_err(), "understated header bypassed the cap");
+    let written = fs::metadata(out.join("big.bin"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert!(written <= 1001, "wrote {written} bytes past the cap");
+}
+
 #[test]
 fn catalog_filters_compatible_packs() {
     let archive = pack_zip(current_os(), "demo-pack");
