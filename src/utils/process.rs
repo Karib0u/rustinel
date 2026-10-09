@@ -287,6 +287,29 @@ fn macos_process_start_time(pid: i32) -> Option<u64> {
 
 #[cfg(target_os = "linux")]
 pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
+    query_process_details_with(pid, ProcessReads::FULL)
+}
+
+/// Which `/proc` files a process query reads.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessReads {
+    /// The process's own `exe` link, read before and after to detect an exec.
+    pub image: bool,
+    /// The parent's `exe` and `cmdline`.
+    pub parent: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl ProcessReads {
+    pub const FULL: Self = Self {
+        image: true,
+        parent: true,
+    };
+}
+
+#[cfg(target_os = "linux")]
+pub fn query_process_details_with(pid: u32, reads: ProcessReads) -> Option<ProcessDetails> {
     if pid == 0 {
         return None;
     }
@@ -296,18 +319,21 @@ pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
     // Returning a mixed snapshot would defeat downstream identity checks.
     let proc_stat = read_proc_stat(pid)?;
     let parent_process_id = proc_stat.parent_process_id;
+    let parent =
+        |read: fn(u32) -> Option<String>| parent_process_id.filter(|_| reads.parent).and_then(read);
     let details = ProcessDetails {
-        image: read_proc_link(pid, "exe"),
+        image: reads.image.then(|| read_proc_link(pid, "exe")).flatten(),
         command_line: read_proc_cmdline(pid),
         parent_process_id,
-        parent_image: parent_process_id.and_then(|ppid| read_proc_link(ppid, "exe")),
-        parent_command_line: parent_process_id.and_then(read_proc_cmdline),
+        parent_image: parent(|ppid| read_proc_link(ppid, "exe")),
+        parent_command_line: parent(read_proc_cmdline),
         current_directory: read_proc_link(pid, "cwd"),
         start_time: proc_stat.start_time,
     };
 
     let current_stat = read_proc_stat(pid)?;
-    if current_stat.start_time != details.start_time || read_proc_link(pid, "exe") != details.image
+    if current_stat.start_time != details.start_time
+        || (reads.image && read_proc_link(pid, "exe") != details.image)
     {
         return None;
     }
@@ -555,6 +581,36 @@ mod tests {
         assert!(details.parent_process_id.is_some());
         assert!(details.current_directory.is_some());
         assert!(details.start_time.is_some());
+    }
+
+    #[test]
+    fn lean_query_skips_parent_and_optionally_image_reads() {
+        let pid = std::process::id();
+        let full = query_process_details(pid).unwrap();
+        let lean = query_process_details_with(
+            pid,
+            ProcessReads {
+                image: false,
+                parent: false,
+            },
+        )
+        .unwrap();
+        assert!(lean.image.is_none());
+        assert!(lean.parent_image.is_none() && lean.parent_command_line.is_none());
+        assert_eq!(lean.current_directory, full.current_directory);
+        assert_eq!(lean.command_line, full.command_line);
+        assert_eq!(lean.start_time, full.start_time);
+
+        let with_image = query_process_details_with(
+            pid,
+            ProcessReads {
+                image: true,
+                parent: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(with_image.image, full.image);
+        assert!(with_image.parent_image.is_none());
     }
 
     #[test]

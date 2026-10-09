@@ -22,6 +22,7 @@
 
 mod alerts;
 mod ingress;
+mod io_pool;
 mod job;
 mod resolver;
 mod snapshot;

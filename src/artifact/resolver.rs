@@ -5,13 +5,14 @@
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
+use super::io_pool::IoPool;
 use super::job::{ArtifactJob, ResolveError, ResolvePlan, PE_MAX_READ_BYTES};
 use super::snapshot::ResolverState;
 use super::stores::StoredParts;
@@ -77,8 +78,7 @@ impl ArtifactResolver {
         info!(target: "artifact", written_files, "Artifact resolver worker started");
         // Each queue owns its slots. A blocked written-file open or scan
         // cannot delay images, even when every written-file slot is occupied.
-        let active = Arc::new(AtomicUsize::new(0));
-        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let mut pool = IoPool::new("artifact-io", ARTIFACT_IO_ISOLATION_LIMIT);
         let mut latest_deadline = Instant::now();
         let timer = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -89,14 +89,7 @@ impl ArtifactResolver {
         loop {
             let now = Instant::now();
             if let Some(job) = settling.pop_ready(now) {
-                self.dispatch_job(
-                    job,
-                    &open,
-                    &active,
-                    &done_tx,
-                    &done_rx,
-                    &mut latest_deadline,
-                );
+                self.dispatch_job(job, &open, &mut pool, &mut latest_deadline);
                 continue;
             }
             let wait = settling
@@ -155,25 +148,12 @@ impl ArtifactResolver {
                     }
                 }
             } else {
-                self.dispatch_job(
-                    job,
-                    &open,
-                    &active,
-                    &done_tx,
-                    &done_rx,
-                    &mut latest_deadline,
-                );
+                self.dispatch_job(job, &open, &mut pool, &mut latest_deadline);
             }
         }
         // In-flight work gets until its own deadline. A thread still blocked
         // in the OS after that is detached: a deadline cannot cancel it.
-        while active.load(Ordering::Acquire) > 0 {
-            let remaining = latest_deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            let _ = done_rx.recv_timeout(remaining);
-        }
+        pool.wait_idle(latest_deadline);
         info!(target: "artifact", "Artifact resolver worker stopped");
     }
 
@@ -227,11 +207,9 @@ impl ArtifactResolver {
 
     fn dispatch_job(
         &self,
-        job: ArtifactJob,
+        mut job: ArtifactJob,
         open: &ArtifactOpener,
-        active: &Arc<AtomicUsize>,
-        done_tx: &std::sync::mpsc::Sender<()>,
-        done_rx: &std::sync::mpsc::Receiver<()>,
+        pool: &mut IoPool,
         latest_deadline: &mut Instant,
     ) {
         let eligible_at = if job.target.kind == ArtifactKind::WrittenFile {
@@ -244,40 +222,30 @@ impl ArtifactResolver {
         let deadline_at = eligible_at
             .checked_add(job.plan.deadline)
             .unwrap_or_else(Instant::now);
-        while active.load(Ordering::Acquire) >= ARTIFACT_IO_ISOLATION_LIMIT {
-            let remaining = deadline_at.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            let _ = done_rx.recv_timeout(remaining);
+        // A cached identity needs no open and no I/O thread.
+        if self.resolve_from_store(&mut job) {
+            return;
         }
+        let Some(slot) = pool.acquire(deadline_at) else {
+            self.drop_late(job.target.kind);
+            return;
+        };
         if Instant::now() >= deadline_at {
-            self.state.record_drop(job.target.kind);
-            self.state
-                .counters
-                .deadline_exceeded
-                .fetch_add(1, Ordering::Relaxed);
+            pool.release(slot);
+            self.drop_late(job.target.kind);
             return;
         }
 
         let kind = job.target.kind;
         let resolver = self.clone();
         let open = Arc::clone(open);
-        let slot = Arc::clone(active);
-        let done = done_tx.clone();
-        slot.fetch_add(1, Ordering::AcqRel);
-        let spawned = std::thread::Builder::new()
-            .name("artifact-io".to_string())
-            .spawn(move || {
-                resolver.resolve_job(job, deadline_at, |path| open(path));
-                slot.fetch_sub(1, Ordering::AcqRel);
-                let _ = done.send(());
-            });
-        match spawned {
-            Ok(_detached) => *latest_deadline = (*latest_deadline).max(deadline_at),
+        let submitted = pool.submit(slot, move || {
+            resolver.resolve_job(job, deadline_at, |path| open(path));
+        });
+        match submitted {
+            Ok(()) => *latest_deadline = (*latest_deadline).max(deadline_at),
             Err(error) => {
                 self.state.record_drop(kind);
-                active.fetch_sub(1, Ordering::AcqRel);
                 self.state
                     .counters
                     .worker_saturated
@@ -285,6 +253,64 @@ impl ArtifactResolver {
                 debug!(target: "artifact", %error, "Could not isolate artifact I/O");
             }
         }
+    }
+
+    fn drop_late(&self, kind: ArtifactKind) {
+        self.state.record_drop(kind);
+        self.state
+            .counters
+            .deadline_exceeded
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Serve a job whose event carries the file's exact identity from the
+    /// stores, without an open. Returns false when anything is missing, the
+    /// file needs a live process check, or a consumer would alert, so the
+    /// worker path handles it.
+    fn resolve_from_store(&self, job: &mut ArtifactJob) -> bool {
+        let Some(ExpectedIdentity::Exact(identity)) = job.target.expected.clone() else {
+            return false;
+        };
+        if job.target.kind == ArtifactKind::WrittenFile
+            || job.target.process_identity.is_some()
+            || job.plan.max_read_bytes == 0
+            || identity.size() > job.plan.max_read_bytes
+        {
+            return false;
+        }
+        let mut artifact = Artifact {
+            identity: Some(identity.clone()),
+            ..Artifact::default()
+        };
+        let mut missing = job.plan.needs;
+        self.state
+            .stores
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .load(&identity, &job.plan, &mut artifact, &mut missing);
+        if !missing.is_empty()
+            || artifact
+                .yara
+                .as_ref()
+                .is_some_and(|matches| !matches.is_empty())
+        {
+            return false;
+        }
+        if let (Some(ioc), Some(hashes)) = (&job.plan.ioc, &artifact.hashes) {
+            if !ioc.match_hashes(hashes).is_empty() {
+                return false;
+            }
+        }
+        if job.plan.needs.pe_metadata {
+            self.publish_pe(job, artifact.pe_metadata.clone());
+        }
+        job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+        self.state
+            .counters
+            .cache_hits
+            .fetch_add(1, Ordering::Relaxed);
+        self.state.counters.resolved.fetch_add(1, Ordering::Relaxed);
+        true
     }
 
     fn resolve_job<F>(&self, mut job: ArtifactJob, deadline_at: Instant, open: F)

@@ -17,6 +17,10 @@ pub(crate) struct FileIdentity {
 }
 
 impl FileIdentity {
+    pub(crate) fn size(&self) -> u64 {
+        self.size
+    }
+
     /// The filesystem object alone, without size or timestamps.
     #[cfg(any(unix, windows))]
     pub(crate) fn object(&self) -> crate::models::FileObjectIdentity {
