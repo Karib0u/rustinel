@@ -190,11 +190,12 @@ fn image_load_event_5_with_opcode_zero_is_routed() {
     let RawPayload::ImageLoad(f) = &events[0].payload else {
         panic!("not an image load");
     };
-    assert_eq!(
-        f.image_loaded.as_deref(),
-        Some(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"),
-        "device path converted to a DOS path"
-    );
+    // The device path becomes a DOS path only where the recording machine's
+    // volume exists, so assert the part that does not depend on the host.
+    assert!(f
+        .image_loaded
+        .as_deref()
+        .is_some_and(|p| p.ends_with(r"\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")));
     assert_eq!(f.process_id.as_deref(), Some("6340"));
 }
 
@@ -204,16 +205,15 @@ fn file_lifecycle_resolves_pathless_events_and_classifies_actions() {
     let files = files(&events);
     assert_eq!(files.len(), events.len());
 
-    let dir = r"C:\Users\theo-rdp\AppData\Local\Temp\rustinel-fixture-e78e5e\";
+    // Whether the NT volume resolves to a drive letter depends on the host
+    // running the test, so check the host-independent part of the path.
+    let dir = r"\Temp\rustinel-fixture-e78e5e\";
     for (_, f, _) in &files {
         let target = f
             .target_filename
             .as_deref()
             .expect("every event has a path");
-        assert!(
-            target.starts_with(dir),
-            "{target} is a DOS path in the temp dir"
-        );
+        assert!(target.contains(dir), "{target} is in the fixture temp dir");
     }
 
     let actions: Vec<_> = files.iter().map(|(a, ..)| *a).collect();
