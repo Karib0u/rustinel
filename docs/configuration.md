@@ -191,6 +191,14 @@ Recordings written by `rustinel capture`.
 | --- | --- | --- |
 | `directory` | `"captures"` | Where `rustinel capture` writes recordings when `--output` is not given. |
 
+### `[agent]`
+
+Where the persistent `agent.id` is stored.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `directory` | `"state"` | Directory holding the `agent-id` file that persists `agent.id` across restarts and upgrades. Delete the file to issue a new `agent.id`. See [alert identity](output.md#host-and-agent-identity). |
+
 ### `[telemetry]`
 
 The `telemetry.json` loss counters that `rustinel doctor` reads.

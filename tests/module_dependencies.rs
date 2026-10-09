@@ -17,6 +17,7 @@ const LAYERS: &[&[&str]] = &[
     // Foundation: data models, configuration, and helpers.
     &[
         "field_availability",
+        "identity",
         "observable",
         "models",
         "utils",

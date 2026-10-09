@@ -284,6 +284,36 @@ async fn delivers_the_ecs_document_with_signature_and_custom_headers() {
 }
 
 #[tokio::test]
+async fn webhook_and_file_carry_identical_identity_fields() {
+    let server = TestServer::start(|_| Reply::status(200)).await;
+    let (sink, dispatcher, output, _guard) = sink_with(&[webhook("identity", &server.url)]);
+    let sink = sink.with_identity(Arc::new(rustinel::identity::Identity {
+        host_id: Some("0123456789abcdef0123456789abcdef".to_string()),
+        host_name: Some("lab-01".to_string()),
+        agent_id: Some("6f1c2f4e-7a58-4b52-9f55-0d1c7e3a9b10".to_string()),
+        agent_type: "rustinel",
+        agent_version: "9.9.9",
+    }));
+
+    sink.write_alert(&alert("Identity"));
+    wait_for("delivery", || counters(&dispatcher, 0).delivered == 1).await;
+
+    let hook: Value = serde_json::from_slice(&server.received()[0].body).unwrap();
+    let file: Value = serde_json::from_str(&file_lines(&output, 1).await[0]).unwrap();
+    for key in [
+        "host.id",
+        "host.name",
+        "agent.id",
+        "agent.type",
+        "agent.version",
+    ] {
+        assert!(file.get(key).is_some(), "{key} missing from the file");
+        assert_eq!(hook[key], file[key], "{key} differs between outputs");
+    }
+    dispatcher.shutdown(Duration::from_secs(2)).await;
+}
+
+#[tokio::test]
 async fn transient_failures_retry_with_the_same_delivery_id() {
     let server = TestServer::start(|index| match index {
         0 => Reply::status(503),

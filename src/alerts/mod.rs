@@ -11,6 +11,7 @@
 pub mod dedup;
 pub mod webhook;
 
+use crate::identity::Identity;
 use crate::models::ecs::EcsAlert;
 use crate::models::{Alert, YaraScanSource};
 use std::io::Write;
@@ -46,6 +47,17 @@ pub struct AlertSink {
     writer_metrics: AlertWriterMetrics,
     dedup: Option<Arc<Deduplicator>>,
     webhooks: Option<Arc<WebhookDispatcher>>,
+    identity: Option<Arc<Identity>>,
+}
+
+/// An alert with the sink's host and agent identity merged in. Both outputs
+/// serialize this one value, so NDJSON and webhooks carry identical fields.
+#[derive(serde::Serialize)]
+struct IdentifiedAlert<'a> {
+    #[serde(flatten)]
+    ecs: &'a EcsAlert,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    identity: Option<&'a Identity>,
 }
 
 impl AlertSink {
@@ -59,11 +71,19 @@ impl AlertSink {
             writer_metrics,
             dedup: None,
             webhooks: None,
+            identity: None,
         }
     }
 
     pub(crate) fn writer_metrics(&self) -> AlertWriterMetrics {
         self.writer_metrics.clone()
+    }
+
+    /// Stamp every live alert, rollups included, with this host and agent
+    /// identity. Replay never calls this, so replayed detections carry none.
+    pub fn with_identity(mut self, identity: Arc<Identity>) -> Self {
+        self.identity = Some(identity);
+        self
     }
 
     /// Attach webhook destinations.  Call before handing the sink to any
@@ -91,7 +111,11 @@ impl AlertSink {
 
     /// Write a raw ECS alert directly (bypasses dedup — used by the flush path).
     pub fn write_ecs(&self, ecs: &EcsAlert) {
-        match serde_json::to_string(ecs) {
+        let identified = IdentifiedAlert {
+            ecs,
+            identity: self.identity.as_deref(),
+        };
+        match serde_json::to_string(&identified) {
             Ok(mut line) => {
                 // NonBlocking queues every write() as its own message, so the
                 // newline must travel in the same write as the object: with

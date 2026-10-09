@@ -736,3 +736,35 @@ fn test_rule_id_mapping_and_omit_behavior() {
     let json_ioc = ecs_json(&alert_ioc);
     assert_ecs_field_eq(&json_ioc, "rule.id", "ioc::domain::example.com");
 }
+
+#[test]
+fn replay_style_mapping_never_invents_identity() {
+    let harness = TestNormalizer::new();
+    let event = harness
+        .normalizer
+        .normalize(&process_start_event(Platform::Linux))
+        .expect("process start should normalize");
+    let alert = Alert {
+        severity: AlertSeverity::High,
+        rule_name: "Identity".to_string(),
+        rule_description: None,
+        rule_id: None,
+        sigma_metadata: None,
+        engine: DetectionEngine::Sigma,
+        event,
+        match_details: None,
+    };
+    let json = serde_json::to_value(rustinel::models::ecs::EcsAlert::from(&alert)).unwrap();
+    for key in [
+        "host.id",
+        "host.name",
+        "agent.id",
+        "agent.type",
+        "agent.version",
+    ] {
+        assert!(
+            json.get(key).is_none(),
+            "{key} must come from the sink only"
+        );
+    }
+}

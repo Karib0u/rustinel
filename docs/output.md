@@ -30,7 +30,12 @@ One JSON object per line, following ECS 9.5.0.
   "rule.id": "sigma::d3b073c6-e265-4f40-a1c1-42e8f17a9c67",
   "edr.rule.severity": "Low",
   "edr.rule.engine": "Sigma",
+  "host.id": "9f2c7a41b3d84e6a8c0d5e1f7b2a4c93",
+  "host.name": "lab-01",
   "host.os.type": "linux",
+  "agent.id": "6f1c2f4e-7a58-4b52-9f55-0d1c7e3a9b10",
+  "agent.type": "rustinel",
+  "agent.version": "1.9.2",
   "process.executable": "/usr/bin/whoami",
   "process.name": "whoami",
   "user.name": "root"
@@ -58,6 +63,38 @@ One JSON object per line, following ECS 9.5.0.
 | `edr.match` | Why the rule matched, when `alerts.match_debug` is on |
 
 Sigma alerts can also carry bounded rule metadata and ECS ATT&CK fields; see [Sigma metadata in alerts](detection.md#sigma-metadata-in-alerts).
+
+### Host and agent identity
+
+Every live alert, rollups included, carries five identity fields, in the file and in every webhook body.
+They are resolved once at startup, never per event.
+A field that cannot be determined reliably is omitted, never invented.
+
+| Field | Meaning |
+| --- | --- |
+| `host.id` | 32 hex characters: a keyed one-way digest of the OS machine identity, so the raw identifier is never exposed. Stable across restarts, upgrades, and Rustinel reinstalls while the OS identity is unchanged. |
+| `host.name` | The hostname, trimmed, lowercased, without a trailing dot. It follows a rename at the next start; `host.id` does not change. |
+| `agent.id` | A random UUID identifying this Rustinel installation. |
+| `agent.type` | Always `rustinel`. |
+| `agent.version` | The running Rustinel version. |
+
+The machine identity comes from `/etc/machine-id` (falling back to `/var/lib/dbus/machine-id`) on Linux, the IOPlatformUUID on macOS, and `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` on Windows.
+An empty, all-zero, or `uninitialized` machine id yields no `host.id`.
+
+`agent.id` is generated on first start and stored in `<agent.directory>/agent-id`, owner-only (`0600`).
+It survives restarts and upgrades.
+Deleting the file, as a clean reinstall does, issues a new `agent.id`.
+If the file cannot be read or created, Rustinel logs a warning and omits `agent.id` rather than emitting one that would change on the next start.
+
+**Cloning and machine images.**
+A cloned VM or disk image copies both identities.
+Clones share `host.id` until the OS regenerates its machine id, and share `agent.id` because the `agent-id` file is copied with the disk.
+Before capturing a golden image, stop Rustinel, delete `agent-id`, and reset the OS machine id (`/etc/machine-id` truncated on Linux, sysprep on Windows).
+Each clone then generates its own `agent.id` on first start.
+
+**Replay.**
+`rustinel replay` runs on whatever machine you analyse on, so replayed alerts carry none of these fields.
+Recordings do not store an identity, so there is no recorded identity to preserve.
 
 ### Field provenance
 
