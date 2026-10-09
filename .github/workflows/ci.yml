@@ -259,6 +259,19 @@ jobs:
           name: rustinel-ebpf-object
           path: ebpf/
       - run: cargo test --locked --verbose
+      - name: Report conditional test outcomes
+        shell: bash
+        run: |
+          # Passing tests hide their output, so a test that skips for a missing
+          # precondition shows as ok. Re-run them uncaptured and list the skips.
+          {
+            cargo test --locked --lib -- --nocapture trust:: windows_acl::
+            cargo test --locked --test yara_disk -- --nocapture unreadable
+          } 2>&1 | tee conditional-tests.log
+          {
+            echo "### Conditional tests"
+            grep RUSTINEL_TEST_SKIPPED conditional-tests.log || echo "No conditional test was skipped."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Test integration group permissions as root
         shell: bash
         run: |
@@ -279,6 +292,22 @@ jobs:
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked --verbose
+      - name: Test process-memory scanning (elevated runner)
+        run: |
+          cargo build --locked --example memory_target
+          cargo test --locked --test yara_memory -- --ignored
+      - name: Report conditional test outcomes
+        shell: bash
+        run: |
+          # Passing tests hide their output, so a test that skips for a missing
+          # precondition shows as ok. Re-run them uncaptured and list the skips.
+          {
+            cargo test --locked --lib -- --nocapture trust:: windows_acl::
+          } 2>&1 | tee conditional-tests.log
+          {
+            echo "### Conditional tests"
+            grep RUSTINEL_TEST_SKIPPED conditional-tests.log || echo "No conditional test was skipped."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   test-macos:
     name: Tests (macOS)
@@ -293,6 +322,19 @@ jobs:
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked --verbose
+      - name: Report conditional test outcomes
+        shell: bash
+        run: |
+          # Passing tests hide their output, so a test that skips for a missing
+          # precondition shows as ok. Re-run them uncaptured and list the skips.
+          {
+            cargo test --locked --lib -- --nocapture trust:: windows_acl::
+            cargo test --locked --test yara_disk -- --nocapture unreadable
+          } 2>&1 | tee conditional-tests.log
+          {
+            echo "### Conditional tests"
+            grep RUSTINEL_TEST_SKIPPED conditional-tests.log || echo "No conditional test was skipped."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Test integration group permissions as root
         shell: bash
         run: |

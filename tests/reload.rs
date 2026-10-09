@@ -62,6 +62,74 @@ fn scanner_cfg(sigma: &SigmaFixture, yara: &YaraFixture) -> ScannerConfig {
     }
 }
 
+/// Waits for the reload worker to finish everything sent before it.
+///
+/// The worker handles a batch in a fixed order (Sigma, YARA, IOC, config), so
+/// a config reload that has taken effect proves every earlier target in its
+/// batch, and every earlier batch, has been processed. Asserting on state
+/// after this barrier replaces a fixed sleep: it holds for a slow compile on
+/// a loaded runner and also for reloads the worker is expected to reject.
+async fn wait_for_response(
+    response: &Arc<arc_swap::ArcSwap<ResponseConfig>>,
+    condition: impl Fn(&ResponseConfig) -> bool + Send + 'static,
+) {
+    let response = Arc::clone(response);
+    common::wait_until(Duration::from_secs(30), move || condition(&response.load())).await;
+}
+
+struct ReloadBarrier {
+    _dir: tempfile::TempDir,
+    config_path: std::path::PathBuf,
+    response: Arc<arc_swap::ArcSwap<ResponseConfig>>,
+    round: std::cell::Cell<usize>,
+}
+
+impl ReloadBarrier {
+    const SEVERITIES: [&'static str; 4] = ["low", "medium", "high", "critical"];
+
+    fn new() -> Self {
+        let dir = tempfile::tempdir().expect("barrier tempdir");
+        let config_path = dir.path().join("barrier.toml");
+        std::fs::write(&config_path, "[response]\nenabled = false\n").expect("write barrier");
+        let response = dummy_response_config();
+        response.store(Arc::new(ResponseConfig {
+            min_severity: "none".to_string(),
+            ..(**response.load()).clone()
+        }));
+        Self {
+            _dir: dir,
+            config_path,
+            response,
+            round: std::cell::Cell::new(0),
+        }
+    }
+
+    fn config_path(&self) -> Option<std::path::PathBuf> {
+        Some(self.config_path.clone())
+    }
+
+    fn response(&self) -> Arc<arc_swap::ArcSwap<ResponseConfig>> {
+        Arc::clone(&self.response)
+    }
+
+    async fn wait(&self, tx: &mpsc::UnboundedSender<ReloadTarget>) {
+        let round = self.round.get();
+        self.round.set(round + 1);
+        let severity = Self::SEVERITIES[round % Self::SEVERITIES.len()];
+        std::fs::write(
+            &self.config_path,
+            format!("[response]\nenabled = false\nmin_severity = \"{severity}\"\n"),
+        )
+        .expect("write barrier");
+        tx.send(ReloadTarget::Config).expect("send barrier");
+        let response = Arc::clone(&self.response);
+        common::wait_until(Duration::from_secs(30), move || {
+            response.load().min_severity == severity
+        })
+        .await;
+    }
+}
+
 #[tokio::test]
 async fn sigma_reload_swaps_valid_rules_and_allows_empty_rules() {
     let sigma = SigmaFixture::new();
@@ -105,6 +173,7 @@ level: high
         ),
     );
 
+    let barrier = ReloadBarrier::new();
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_reload_worker(
         Arc::clone(&store),
@@ -117,13 +186,13 @@ level: high
         },
         MatchDebugLevel::Off,
         None,
-        None,
-        dummy_response_config(),
+        barrier.config_path(),
+        barrier.response(),
         None,
         rx,
     );
     tx.send(ReloadTarget::Sigma).expect("send reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
 
     let harness = TestNormalizer::new();
     let process = harness
@@ -141,7 +210,7 @@ level: high
 
     std::fs::remove_file(sigma.rules_dir().join("network.yml")).expect("remove rule B");
     tx.send(ReloadTarget::Sigma).expect("send empty reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
     assert!(store.sigma().check_event(&network).is_empty());
     drop(tx);
     handle.abort();
@@ -262,6 +331,7 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
 
     std::fs::remove_file(yara.rules_dir().join("a.yar")).expect("remove rule A");
     yara.write_rule("b.yar", "RuleB", "BBB_RELOAD_MARKER");
+    let barrier = ReloadBarrier::new();
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_reload_worker(
         Arc::clone(&store),
@@ -274,13 +344,13 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
         },
         MatchDebugLevel::Off,
         None,
-        None,
-        dummy_response_config(),
+        barrier.config_path(),
+        barrier.response(),
         None,
         rx,
     );
     tx.send(ReloadTarget::Yara).expect("send yara reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
     assert!(
         store
             .yara()
@@ -304,7 +374,7 @@ async fn yara_reload_swaps_valid_rules_and_allows_empty_rules() {
 
     std::fs::remove_file(yara.rules_dir().join("b.yar")).expect("remove rule B");
     tx.send(ReloadTarget::Yara).expect("send empty reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
     assert!(store
         .yara()
         .scan_bytes(b"BBB_RELOAD_MARKER", MatchDebugLevel::Off)
@@ -335,6 +405,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
     let previous_ioc = store.ioc();
 
     ioc.write_domains("example.test");
+    let barrier = ReloadBarrier::new();
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_reload_worker(
         Arc::clone(&store),
@@ -347,13 +418,13 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
         },
         MatchDebugLevel::Off,
         None,
-        None,
-        dummy_response_config(),
+        barrier.config_path(),
+        barrier.response(),
         None,
         rx,
     );
     tx.send(ReloadTarget::Ioc).expect("send ioc reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
     let event = CanonicalEvent::from_normalized(
         TestNormalizer::new()
             .normalizer
@@ -365,7 +436,7 @@ async fn ioc_reload_swaps_valid_indicators_and_rejects_empty_set() {
 
     ioc.write_domains("");
     tx.send(ReloadTarget::Ioc).expect("send empty reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
     assert_eq!(store.ioc().check_event(&event).len(), 1);
     drop(tx);
     handle.abort();
@@ -593,6 +664,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
         Arc::new(IocEngine::load(&ioc.config())),
     );
 
+    let barrier = ReloadBarrier::new();
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_reload_worker(
         Arc::clone(&store),
@@ -605,8 +677,8 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
         },
         MatchDebugLevel::Off,
         None,
-        None,
-        dummy_response_config(),
+        barrier.config_path(),
+        barrier.response(),
         None,
         rx,
     );
@@ -616,7 +688,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
     sigma.write_rule("invalid_rule.yml", "invalid: yaml: syntax: [error");
 
     tx.send(ReloadTarget::Sigma).expect("send reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
 
     // The reload should have been rejected (keeping the previous rules active in memory).
     // Let's verify that the original process rules (no longer on disk) are still working.
@@ -634,7 +706,7 @@ async fn test_reload_rejects_invalid_rules_but_keeps_previous_rules() {
     )
     .unwrap();
     tx.send(ReloadTarget::Yara).expect("send reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
 
     // YARA reload should also be rejected, keeping the default YARA rule (no longer on disk) active
     assert_eq!(
@@ -665,6 +737,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
         Arc::new(IocEngine::load(&ioc.config())),
     );
 
+    let barrier = ReloadBarrier::new();
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_reload_worker(
         Arc::clone(&store),
@@ -677,8 +750,8 @@ async fn test_reload_accepts_partially_invalid_rules() {
         },
         MatchDebugLevel::Off,
         None,
-        None,
-        dummy_response_config(),
+        barrier.config_path(),
+        barrier.response(),
         None,
         rx,
     );
@@ -688,7 +761,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
     sigma.write_rule("invalid_rule.yml", "invalid: yaml: syntax: [error");
 
     tx.send(ReloadTarget::Sigma).expect("send reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
 
     // The reload should have succeeded (loading the valid rule)
     let proc_event = TestNormalizer::new()
@@ -705,7 +778,7 @@ async fn test_reload_accepts_partially_invalid_rules() {
     )
     .unwrap();
     tx.send(ReloadTarget::Yara).expect("send reload");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
 
     // The reload should have succeeded (loading the valid rule)
     assert_eq!(
@@ -788,7 +861,7 @@ min_severity = "low"
     .unwrap();
 
     tx.send(ReloadTarget::Config).expect("send reload config");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    wait_for_response(&response_config, |config| config.enabled).await;
 
     // Check that response config is swapped atomically with the new values!
     let updated = response_config.load();
@@ -937,7 +1010,7 @@ min_severity = "critical"
     .unwrap();
 
     tx.send(ReloadTarget::Config).expect("send reload config");
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    wait_for_response(&response_config, |config| config.prevention_enabled).await;
 
     // After reload: decision should be Terminate
     let decision_after = response_engine.decision_for_alert(&alert);
@@ -992,6 +1065,7 @@ async fn reload_rejects_inputs_writable_by_other_accounts() {
     world_writable(yara.write_rule("b.yar", "RuleB", "BBB_RELOAD_MARKER"));
     world_writable(ioc.write_domains("new.example.test"));
 
+    let barrier = ReloadBarrier::new();
     let (tx, rx) = mpsc::unbounded_channel();
     let handle = spawn_reload_worker(
         Arc::clone(&store),
@@ -1004,15 +1078,15 @@ async fn reload_rejects_inputs_writable_by_other_accounts() {
         },
         MatchDebugLevel::Off,
         None,
-        None,
-        dummy_response_config(),
+        barrier.config_path(),
+        barrier.response(),
         None,
         rx,
     );
     for target in [ReloadTarget::Sigma, ReloadTarget::Yara, ReloadTarget::Ioc] {
         tx.send(target).expect("send reload");
     }
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    barrier.wait(&tx).await;
 
     assert!(Arc::ptr_eq(&store.sigma(), &previous_sigma));
     assert!(Arc::ptr_eq(&store.yara(), &previous_yara));

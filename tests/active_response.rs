@@ -11,6 +11,9 @@
 //! cargo test --test active_response -- --include-ignored
 //! ```
 
+#[cfg(test)]
+mod common;
+
 use rustinel::{
     config::ResponseConfig,
     models::{
@@ -23,14 +26,6 @@ use rustinel::{
 use std::{process::Stdio, time::Duration};
 
 const TEST_PID: u32 = u32::MAX;
-
-fn memory_target_exe() -> &'static str {
-    if cfg!(windows) {
-        "target\\debug\\examples\\memory_target.exe"
-    } else {
-        "target/debug/examples/memory_target"
-    }
-}
 
 fn build_yara_alert(pid: u32, image: &str) -> Alert {
     Alert {
@@ -362,12 +357,15 @@ fn response_decision_uses_detector_pipeline_severity_rules() {
 #[test]
 #[ignore = "needs memory_target: cargo build --example memory_target"]
 fn response_dry_run_does_not_kill_child() {
-    let exe = memory_target_exe();
-    if !std::path::Path::new(exe).exists() {
-        panic!("binary not found at {exe}. Run: cargo build --example memory_target");
+    let exe = common::memory_target_exe();
+    if !exe.exists() {
+        panic!(
+            "binary not found at {}. Run: cargo build --example memory_target",
+            exe.display()
+        );
     }
 
-    let mut child = std::process::Command::new(exe)
+    let mut child = std::process::Command::new(&exe)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -392,7 +390,7 @@ fn response_dry_run_does_not_kill_child() {
 
     rt.block_on(async {
         let (engine, worker) = ResponseEngine::new(shared_response_config(cfg.clone()));
-        let alert = build_yara_alert(pid, exe);
+        let alert = build_yara_alert(pid, &exe.to_string_lossy());
         engine.handle_alert(&alert);
 
         tokio::time::sleep(Duration::from_millis(400)).await;
@@ -414,12 +412,15 @@ fn response_dry_run_does_not_kill_child() {
 #[test]
 #[ignore = "spawns memory_target and kills it; build first: cargo build --example memory_target"]
 fn response_reaction_terminates_child_process() {
-    let exe = memory_target_exe();
-    if !std::path::Path::new(exe).exists() {
-        panic!("binary not found at {exe}. Run: cargo build --example memory_target");
+    let exe = common::memory_target_exe();
+    if !exe.exists() {
+        panic!(
+            "binary not found at {}. Run: cargo build --example memory_target",
+            exe.display()
+        );
     }
 
-    let mut child = std::process::Command::new(exe)
+    let mut child = std::process::Command::new(&exe)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -444,7 +445,7 @@ fn response_reaction_terminates_child_process() {
 
     rt.block_on(async {
         let (engine, worker) = ResponseEngine::new(shared_response_config(cfg.clone()));
-        let alert = build_yara_alert(pid, exe);
+        let alert = build_yara_alert(pid, &exe.to_string_lossy());
         engine.handle_alert(&alert);
 
         tokio::time::sleep(Duration::from_millis(600)).await;

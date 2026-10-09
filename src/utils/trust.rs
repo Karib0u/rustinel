@@ -871,7 +871,7 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
         let metadata = fs::metadata(&sigma).expect("stat");
         if metadata.gid() == 0 || imp::is_private_group(metadata.gid(), metadata.uid()) {
-            eprintln!("skipping: the test directory's group is not shared");
+            crate::utils::test_skip::skip("the test directory's group is not shared");
             return;
         }
 
@@ -888,7 +888,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let metadata = fs::metadata(dir.path()).expect("stat");
         if !imp::is_private_group(metadata.gid(), metadata.uid()) {
-            eprintln!("skipping: this account has no user-private group");
+            crate::utils::test_skip::skip("this account has no user-private group");
             return;
         }
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o775)).expect("chmod");

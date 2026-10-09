@@ -30,14 +30,6 @@ fn load_scanner(fixture: &YaraFixture) -> Scanner {
     scanner
 }
 
-fn memory_target_exe() -> &'static str {
-    if cfg!(windows) {
-        "target\\debug\\examples\\memory_target.exe"
-    } else {
-        "target/debug/examples/memory_target"
-    }
-}
-
 fn default_mem_cfg() -> MemoryScanConfig {
     MemoryScanConfig {
         max_process_bytes: 64 * 1024 * 1024,
@@ -176,12 +168,15 @@ fn memory_scan_finds_marker_in_own_process() {
 #[test]
 #[ignore = "requires admin on Windows; build memory_target first: cargo build --example memory_target"]
 fn memory_scan_finds_marker_in_child_process() {
-    let exe = memory_target_exe();
-    if !std::path::Path::new(exe).exists() {
-        panic!("binary not found at {exe}. Run: cargo build --example memory_target");
+    let exe = common::memory_target_exe();
+    if !exe.exists() {
+        panic!(
+            "binary not found at {}. Run: cargo build --example memory_target",
+            exe.display()
+        );
     }
 
-    let mut child = std::process::Command::new(exe)
+    let mut child = std::process::Command::new(&exe)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

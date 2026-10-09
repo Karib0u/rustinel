@@ -15,6 +15,8 @@ pub(crate) mod path_allowlist;
 pub mod pe;
 pub mod process;
 pub mod rule_dirs;
+#[cfg(test)]
+pub(crate) mod test_skip;
 pub mod time;
 pub mod trust;
 pub mod user;
