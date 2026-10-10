@@ -7,7 +7,7 @@
 //! shutdown is detached because a deadline cannot cancel an OS call.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -23,7 +23,7 @@ struct Slot {
 pub(super) struct IoPool {
     name: &'static str,
     slots: Vec<Slot>,
-    done_tx: Sender<()>,
+    done_tx: SyncSender<()>,
     done_rx: Receiver<()>,
 }
 
@@ -31,7 +31,7 @@ pub(super) struct IoPool {
 struct Release {
     busy: Arc<AtomicBool>,
     dead: Arc<AtomicBool>,
-    done: Sender<()>,
+    done: SyncSender<()>,
 }
 
 impl Drop for Release {
@@ -40,13 +40,15 @@ impl Drop for Release {
             self.dead.store(true, Ordering::Release);
         }
         self.busy.store(false, Ordering::Release);
-        let _ = self.done.send(());
+        // One pending wake-up is enough: waiters re-check every slot. A queue
+        // that kept one message per job would grow until the next saturation.
+        let _ = self.done.try_send(());
     }
 }
 
 impl IoPool {
     pub(super) fn new(name: &'static str, size: usize) -> Self {
-        let (done_tx, done_rx) = channel();
+        let (done_tx, done_rx) = sync_channel(1);
         Self {
             name,
             slots: (0..size)
@@ -213,5 +215,27 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         pool.submit(slot, move || tx.send(()).unwrap()).unwrap();
         rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn completed_jobs_do_not_accumulate_wakeups() {
+        let mut pool = IoPool::new("test-io", 4);
+        for _ in 0..1_000 {
+            let slot = pool
+                .acquire(Instant::now() + Duration::from_secs(5))
+                .unwrap();
+            pool.submit(slot, || {}).unwrap();
+            // Poll the flag rather than wait_idle, which would drain the channel.
+            while pool.slots[slot].busy.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+        }
+        assert!(pool.done_rx.try_iter().count() <= 1);
     }
 }
