@@ -130,13 +130,33 @@ pub fn normalize_path_for_comparison(value: &str) -> String {
 
 fn lookup_dos_path(drive_map: &DriveMapCache, nt_path: &str) -> Option<String> {
     let map = drive_map.map.read().ok()?;
-    for (device_path, dos_drive) in map.iter() {
-        if nt_path.starts_with(device_path) {
-            let remainder = &nt_path[device_path.len()..];
-            return Some(format!("{}{}", dos_drive, remainder));
-        }
+    dos_path_from_map(&map, nt_path).or_else(|| unc_path(nt_path))
+}
+
+/// Replace a device prefix with its drive letter, but only at a path
+/// component boundary: `\Device\HarddiskVolume1` must not claim
+/// `\Device\HarddiskVolume12\...`.
+fn dos_path_from_map(map: &HashMap<String, String>, nt_path: &str) -> Option<String> {
+    map.iter().find_map(|(device_path, dos_drive)| {
+        let remainder = nt_path.strip_prefix(device_path.as_str())?;
+        (remainder.is_empty() || remainder.starts_with('\\'))
+            .then(|| format!("{dos_drive}{remainder}"))
+    })
+}
+
+/// Network shares open through the MUP or the SMB redirector, for example
+/// `\Device\Mup\;LanmanRedirector\;Z:0000000000000001\server\share\a.exe`.
+/// Rules and path allowlists see them as `\\server\share\a.exe`.
+fn unc_path(nt_path: &str) -> Option<String> {
+    let rest = ["\\Device\\Mup\\", "\\Device\\LanmanRedirector\\"]
+        .iter()
+        .find_map(|prefix| nt_path.strip_prefix(prefix))?;
+    let mut rest = rest;
+    // Redirector and drive-mapping segments start with ';'.
+    while rest.starts_with(';') {
+        rest = rest.split_once('\\')?.1;
     }
-    None
+    (!rest.is_empty()).then(|| format!("\\\\{rest}"))
 }
 
 fn now_secs() -> u64 {
@@ -213,6 +233,54 @@ mod tests {
             has_volume,
             "Drive map should contain at least one HarddiskVolume"
         );
+    }
+
+    fn volumes() -> HashMap<String, String> {
+        HashMap::from([
+            (r"\Device\HarddiskVolume1".to_string(), "C:".to_string()),
+            (r"\Device\HarddiskVolume12".to_string(), "D:".to_string()),
+        ])
+    }
+
+    #[test]
+    fn device_prefix_matches_only_at_a_component_boundary() {
+        let map = volumes();
+        assert_eq!(
+            dos_path_from_map(&map, r"\Device\HarddiskVolume1\a.exe").as_deref(),
+            Some(r"C:\a.exe")
+        );
+        assert_eq!(
+            dos_path_from_map(&map, r"\Device\HarddiskVolume12\a.exe").as_deref(),
+            Some(r"D:\a.exe")
+        );
+        assert_eq!(
+            dos_path_from_map(&map, r"\Device\HarddiskVolume1").as_deref(),
+            Some("C:")
+        );
+        let only_one = HashMap::from([(r"\Device\HarddiskVolume1".to_string(), "C:".to_string())]);
+        assert_eq!(
+            dos_path_from_map(&only_one, r"\Device\HarddiskVolume12\a.exe"),
+            None
+        );
+    }
+
+    #[test]
+    fn network_share_paths_become_unc_paths() {
+        assert_eq!(
+            unc_path(r"\Device\Mup\server\share\a.exe").as_deref(),
+            Some(r"\\server\share\a.exe")
+        );
+        assert_eq!(
+            unc_path(r"\Device\Mup\;LanmanRedirector\;Z:0000000000000001\server\share\a.exe")
+                .as_deref(),
+            Some(r"\\server\share\a.exe")
+        );
+        assert_eq!(
+            unc_path(r"\Device\LanmanRedirector\;Z:0000000000000001\server\share").as_deref(),
+            Some(r"\\server\share")
+        );
+        assert_eq!(unc_path(r"\Device\Mup\"), None);
+        assert_eq!(unc_path(r"\Device\NamedPipe\x"), None);
     }
 
     #[test]
