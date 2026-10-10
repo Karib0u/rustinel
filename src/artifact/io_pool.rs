@@ -13,6 +13,10 @@ use std::time::Instant;
 
 type Task = Box<dyn FnOnce() + Send>;
 
+/// An idle worker returns thread-held memory, such as a pooled YARA scanner
+/// that still references a replaced rule set, after this long.
+const IDLE_RELEASE: std::time::Duration = std::time::Duration::from_secs(30);
+
 struct Slot {
     busy: Arc<AtomicBool>,
     /// Set by the worker, before it frees the slot, when a job unwinds out of it.
@@ -119,15 +123,23 @@ impl IoPool {
         );
         std::thread::Builder::new()
             .name(self.name.to_string())
-            .spawn(move || {
-                while let Ok(task) = rx.recv() {
-                    let _release = Release {
-                        busy: Arc::clone(&busy),
-                        dead: Arc::clone(&worker_dead),
-                        done: done.clone(),
-                    };
-                    task();
-                }
+            .spawn(move || loop {
+                let task = match rx.recv_timeout(IDLE_RELEASE) {
+                    Ok(task) => task,
+                    Err(RecvTimeoutError::Timeout) => {
+                        crate::scanner::release_stale_scanner();
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                };
+                let release = Release {
+                    busy: Arc::clone(&busy),
+                    dead: Arc::clone(&worker_dead),
+                    done: done.clone(),
+                };
+                task();
+                crate::scanner::release_stale_scanner();
+                drop(release);
             })?;
         tx.send(task).map_err(|_| std::io::ErrorKind::BrokenPipe)?;
         slot.tasks = Some(tx);

@@ -238,6 +238,24 @@ impl PooledScanner {
     }
 }
 
+/// Drop this thread's pooled scanner when no `Scanner` uses its rules any more.
+///
+/// A reload replaces the `Scanner`, but a thread that does not scan again keeps
+/// the old compiled rules alive through its pooled scanner. Long-lived worker
+/// threads call this between jobs and when idle so that memory is returned.
+pub(crate) fn release_stale_scanner() {
+    THREAD_SCANNER.with(|slot| {
+        if let Ok(mut slot) = slot.try_borrow_mut() {
+            if slot
+                .as_ref()
+                .is_some_and(|pooled| Arc::strong_count(&pooled._rules) == 1)
+            {
+                *slot = None;
+            }
+        }
+    });
+}
+
 /// Main Scanner struct holding compiled rules
 pub struct Scanner {
     rules: Arc<Rules>,
@@ -1010,6 +1028,24 @@ mod tests {
             other => panic!("expected a timeout outcome, got {other:?}"),
         }
         assert_eq!(mapped.kind(), "timeout");
+    }
+
+    #[test]
+    fn a_reloaded_rule_set_is_not_kept_alive_by_a_pooled_scanner() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let scanner = scanner_with_marker_rule(tempdir.path());
+        let rules = Arc::downgrade(&scanner.rules);
+        scanner
+            .scan_bytes_with_timeout(b"evil!!", MatchDebugLevel::Off, Duration::from_secs(5))
+            .expect("scan");
+
+        release_stale_scanner();
+        assert!(rules.upgrade().is_some(), "rules are still in use");
+
+        drop(scanner);
+        assert!(rules.upgrade().is_some(), "the pooled scanner holds them");
+        release_stale_scanner();
+        assert!(rules.upgrade().is_none());
     }
 
     #[test]
