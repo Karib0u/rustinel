@@ -1,0 +1,57 @@
+name: SignPath Dry Run
+
+# Builds the Windows binary and runs it through SignPath without publishing a
+# release, to check the signing setup before tagging.
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  sign-windows:
+    name: Sign Windows x86_64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo build --locked --release
+
+      - name: Upload unsigned binary for SignPath
+        id: upload-unsigned
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rustinel-windows-x86_64-unsigned
+          path: target/release/rustinel.exe
+          retention-days: 1
+
+      - name: Sign with SignPath
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed
+
+      - name: Show Authenticode signature
+        run: |
+          $sig = Get-AuthenticodeSignature signed/rustinel.exe
+          $sig | Format-List Status, StatusMessage, SignerCertificate, TimeStamperCertificate
+          if (!$sig.SignerCertificate) {
+            Write-Error "rustinel.exe has no signature"
+            exit 1
+          }
