@@ -146,10 +146,54 @@ jobs:
             exit 1
           }
 
+      # SignPath fetches this exact upload to prove which workflow built it.
+      - name: Upload unsigned binary for SignPath
+        id: upload-unsigned
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rustinel-windows-x86_64-unsigned
+          path: target/release/rustinel.exe
+          retention-days: 1
+
+      - name: Sign with SignPath
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed
+
+      - name: Verify Authenticode signature
+        env:
+          SIGNING_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+        run: |
+          $sig = Get-AuthenticodeSignature signed/rustinel.exe
+          Write-Output "Status: $($sig.Status)"
+          Write-Output "Signer: $($sig.SignerCertificate.Subject)"
+          # The SignPath test certificate chains to no trusted root, so only
+          # the release policy can produce a signature Windows reports as Valid.
+          if ($env:SIGNING_POLICY -eq 'test-signing') {
+            if (!$sig.SignerCertificate -or $sig.Status -in 'NotSigned', 'HashMismatch') {
+              Write-Error "rustinel.exe test signature is missing or broken: $($sig.StatusMessage)"
+              exit 1
+            }
+          } elseif ($sig.Status -ne 'Valid') {
+            Write-Error "rustinel.exe is not validly signed: $($sig.StatusMessage)"
+            exit 1
+          }
+          if (!$sig.TimeStamperCertificate) {
+            Write-Error "rustinel.exe signature has no timestamp"
+            exit 1
+          }
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustinel-windows-x86_64
-          path: target/release/rustinel.exe
+          path: signed/rustinel.exe
           retention-days: 1
 
   build-macos:
