@@ -5,6 +5,7 @@ pub mod ebpf;
 pub mod events;
 mod inventory;
 pub mod paths;
+mod syscall_cpus;
 pub mod task_btf;
 pub(crate) mod telemetry;
 mod tracepoint_format;
