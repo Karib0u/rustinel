@@ -81,6 +81,9 @@ unsafe impl aya::Pod for KernelCounterRow {}
 struct LoadedEbpf {
     bpf: Ebpf,
     host: Arc<crate::state::HostState>,
+    /// Per-CPU events that keep syscall tracepoints firing on every CPU; see
+    /// [`super::syscall_cpus`]. Dropped with the programs.
+    syscall_cpus: super::syscall_cpus::SyscallCpuEvents,
 }
 
 impl LoadedEbpf {
@@ -179,7 +182,9 @@ impl Sensor for EbpfSensor {
                 .load(bytes)
                 .context("eBPF object load failed; ensure the kernel is 5.8+")?,
             host: Arc::clone(&self.host),
+            syscall_cpus: Default::default(),
         };
+        super::syscall_cpus::raise_open_file_limit();
 
         let task_plans = super::task_btf::TaskPlans::load();
         for (diagnostic, reason) in &task_plans.warnings {
@@ -370,6 +375,18 @@ impl Sensor for EbpfSensor {
         ] {
             attach_tracepoint(&mut bpf, exit, "syscalls", &format!("sys_exit_{syscall}"))?;
             attach_tracepoint(&mut bpf, entry, "syscalls", &format!("sys_enter_{syscall}"))?;
+        }
+
+        for (program, error) in bpf.syscall_cpus.cover_pending() {
+            // The hook stays attached; on an affected kernel it only misses
+            // syscalls made on the uncovered CPUs, so the feature is degraded.
+            let reason = format!("{error:#}");
+            let hook = format!("{program} (per-CPU)");
+            for feature in features_for_program(&program) {
+                bpf.counters()
+                    .record_hook(feature, &hook, false, Some(&reason));
+            }
+            warn!(program, %reason, "eBPF hook may miss syscalls on some CPUs");
         }
 
         info!("eBPF tracepoints attached");
@@ -1276,6 +1293,7 @@ fn attach_tracepoint(
     for feature in features_for_program(program) {
         bpf.counters().record_hook(feature, program, true, None);
     }
+    bpf.syscall_cpus.queue(program, category, name);
     Ok(())
 }
 

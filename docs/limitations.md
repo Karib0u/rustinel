@@ -89,6 +89,11 @@ Fields each platform never fills are listed in [Field availability](field-availa
 
 - **Kernel 5.8 or later.**
   Many restricted containers cannot load eBPF.
+- **Some stable kernels run syscall hooks on CPU 0 only.**
+  Ubuntu `7.0.0-38` and 7.1.y kernels from 7.1.6 carry a backport that skips eBPF programs on syscall tracepoints that copy user memory, such as `openat` and `unlink`, on any CPU without a perf event.
+  Rustinel opens a counting perf event on every online CPU for those tracepoints, so file events are seen on all CPUs.
+  If it cannot, for example at the open-file limit, `doctor` reports the hook as `(per-CPU)` under `linux_ebpf_file_capability` and file events made on the uncovered CPUs are missed.
+  CPUs brought online after startup are not covered until Rustinel restarts.
 - **Long values are cut.**
   `Image` at 255 bytes, `CommandLine` at 512 bytes, 32 arguments, or 127 bytes per argument, and file paths at 511 bytes.
   Cutting removes the end, which is what `|endswith` and extension indicators match, see [Fields](sigma.md#fields).

@@ -606,6 +606,38 @@ pub(super) fn tracepoint_exists(category: &str, name: &str) -> bool {
     find_file(category, name, "id").is_some()
 }
 
+/// The tracefs id of a tracepoint, as `perf_event_open` takes it.
+pub(super) fn tracepoint_id(category: &str, name: &str) -> Result<u64> {
+    let path = find_file(category, name, "id").context("tracepoint is unavailable")?;
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read tracepoint id from {}", path.display()))?;
+    text.trim()
+        .parse()
+        .with_context(|| format!("invalid tracepoint id in {}", path.display()))
+}
+
+/// Whether the kernel copies user memory into this tracepoint's record.
+///
+/// Such syscall events expose the copy as a `__<arg>_val` dynamic field, and
+/// they are the only ones that take the kernel's user-memory read path.
+pub(super) fn reads_user_memory(category: &str, name: &str) -> bool {
+    read_format(category, name).is_ok_and(|format| format_reads_user_memory(&format))
+}
+
+fn format_reads_user_memory(format: &str) -> bool {
+    format.lines().any(|line| {
+        let Some(declaration) = line.trim().strip_prefix("field:") else {
+            return false;
+        };
+        let declaration = declaration.split(';').next().unwrap_or_default();
+        declaration.contains("__data_loc")
+            && declaration
+                .split_whitespace()
+                .last()
+                .is_some_and(|name| name.starts_with("__") && name.ends_with("_val"))
+    })
+}
+
 fn find_file(category: &str, name: &str, file: &str) -> Option<PathBuf> {
     TRACEFS_ROOTS
         .iter()
@@ -732,6 +764,25 @@ field:pid_t child_pid; offset:32; size:4; signed:1;
             required_one_of(&fields, &["clone_flags", "flags"], 8).unwrap(),
             16
         );
+    }
+
+    #[test]
+    fn detects_syscall_events_that_copy_user_memory() {
+        // sys_enter_openat on a kernel that copies the filename.
+        let copying = r#"
+field:int __syscall_nr; offset:8; size:4; signed:1;
+field:int dfd; offset:16; size:8; signed:0;
+field:const char * filename; offset:24; size:8; signed:0;
+field:__data_loc char[] __filename_val; offset:48; size:4; signed:0;
+"#;
+        assert!(format_reads_user_memory(copying));
+        // The same event without the copy, and an ordinary dynamic string.
+        assert!(!format_reads_user_memory(
+            "field:const char * filename; offset:24; size:8; signed:0;"
+        ));
+        assert!(!format_reads_user_memory(
+            "field:__data_loc char[] child_comm; offset:28; size:4; signed:0;"
+        ));
     }
 
     #[test]
