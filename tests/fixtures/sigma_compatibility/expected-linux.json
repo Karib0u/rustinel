@@ -119,6 +119,11 @@
       "title": "Compatible process filter",
       "id": "compatible-process-filter",
       "verdict": "can-fire",
+      "logsource": {
+        "product": "linux",
+        "category": "process_creation",
+        "collector_active": true
+      },
       "fields": [
         {
           "field": "ProcessId",
