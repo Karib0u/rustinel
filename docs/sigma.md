@@ -48,8 +48,9 @@ Every detection, correlation, and filter document receives one verdict:
 
 A field measured as reliably populated downgrades its reasons to caveats.
 A caveat keeps the reason in the report with `severity: "caveat"` but does not degrade the document.
-Today that covers `process_creation` on two platforms: `CommandLine`, `Image`, `ParentImage`, and `ParentProcessId` on Windows, and `CommandLine`, `Image`, `ParentImage`, and `ParentCommandLine` on Linux.
-macOS and every other field stay strict until they have been measured.
+Today that covers `process_creation` on three platforms: `CommandLine`, `Image`, `ParentImage`, and `ParentProcessId` on Windows, `CommandLine`, `Image`, `ParentImage`, and `ParentCommandLine` on Linux, and `CommandLine` and `Image` on macOS.
+macOS `ParentImage` stays a limitation, because it is only present when the parent's exec was observed.
+Every other field stays strict until it has been measured.
 `summary.can_fire_with_caveats` counts the `can-fire` documents that carry at least one caveat.
 
 Field availability comes from the same [field availability](field-availability.md) contract the sensors follow.

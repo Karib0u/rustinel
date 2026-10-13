@@ -1518,6 +1518,12 @@ fn field_reports(
 /// 6000-exec four-way fork storm): `CommandLine`, `Image`, `ParentImage`, and
 /// `ParentCommandLine` were populated for 100% with no loss, and `Image` was
 /// absolute for 100% including relative and 150-byte paths.
+/// macOS process start (Endpoint Security, rustinel 1.9.1, 7.5k starts with a
+/// 6000-exec four-way fork storm): `CommandLine` and `Image` were populated
+/// and absolute for 100% with no loss.
+/// macOS `ParentImage` was present only when the parent's exec had been
+/// observed (301 of 301) and never for a parent that predates the sensor or
+/// never execs (0 of 7220), so it stays strict.
 /// Other platforms and fields stay strict until they are measured too.
 fn measured_reliable(platform: Platform, logsource: &LogSourceKey, field: &str) -> bool {
     if logsource.category.as_deref() != Some("process_creation") {
@@ -1532,7 +1538,7 @@ fn measured_reliable(platform: Platform, logsource: &LogSourceKey, field: &str) 
             field,
             "CommandLine" | "Image" | "ParentImage" | "ParentCommandLine"
         ),
-        _ => false,
+        Platform::MacOS => matches!(field, "CommandLine" | "Image"),
     }
 }
 
@@ -1963,6 +1969,22 @@ detection:
                 && reason.severity == ReasonSeverity::Caveat
                 && reason.field.as_deref() == Some("ParentImage")
         }));
+    }
+
+    #[test]
+    fn macos_command_line_is_a_caveat_but_parent_image_degrades() {
+        let yaml = |field: &str| {
+            format!(
+                "title: macOS fidelity\nlogsource:\n  product: macos\n  category: process_creation\ndetection:\n  selection:\n    {field}|contains: x\n  condition: selection\n"
+            )
+        };
+        let command_line = report(&yaml("CommandLine"), Platform::MacOS);
+        assert_eq!(
+            command_line.documents[0].verdict,
+            CompatibilityVerdict::CanFire
+        );
+        let parent = report(&yaml("ParentImage"), Platform::MacOS);
+        assert_eq!(parent.documents[0].verdict, CompatibilityVerdict::Degraded);
     }
 
     #[test]
