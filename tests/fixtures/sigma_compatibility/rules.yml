@@ -44,6 +44,9 @@ correlation:
 ---
 title: Compatible process filter
 id: compatible-process-filter
+logsource:
+  category: process_creation
+  product: linux
 filter:
   rules:
     - compatible-process
