@@ -216,6 +216,9 @@ correlation:
 ---
 title: Windows Filter
 id: windows-filter
+logsource:
+  product: windows
+  category: process_creation
 filter:
   rules:
     - windows-process-rule
@@ -488,6 +491,9 @@ detection:
   condition: selection
 ---
 title: Suppress Alice By Name
+logsource:
+  product: linux
+  category: process_creation
 filter:
   rules:
     - named-curl-rule
