@@ -442,12 +442,26 @@ impl FileProcessFixture {
         }
         std::fs::write(&image, &bytes).unwrap();
         std::fs::set_permissions(&image, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let child = Command::new("./sleep")
-            .args(["-c", "read ignored"])
-            .current_dir(root.path())
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
+        // A parallel test's fork can briefly inherit our write fd, so exec sees the
+        // file open for writing (ETXTBSY) until that child execs and closes it.
+        let spawn_deadline = Instant::now() + Duration::from_secs(5);
+        let child = loop {
+            match Command::new("./sleep")
+                .args(["-c", "read ignored"])
+                .current_dir(root.path())
+                .stdin(Stdio::piped())
+                .spawn()
+            {
+                Ok(child) => break child,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::ExecutableFileBusy
+                        && Instant::now() < spawn_deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("failed to spawn the fixture: {error}"),
+            }
+        };
         let fixture = Self { child, root, bytes };
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
