@@ -140,7 +140,7 @@ pub fn visit_process_memory_chunks(
                     // `buf` is a writable buffer of exactly `buf.len()` bytes, and
                     // `bytes_read` outlives the call. A foreign address that cannot
                     // be read is reported as an error, never dereferenced here.
-                    let result = unsafe {
+                    let _ = unsafe {
                         ReadProcessMemory(
                             handle,
                             region_base as *const _,
@@ -149,7 +149,10 @@ pub fn visit_process_memory_chunks(
                             Some(&mut bytes_read),
                         )
                     };
-                    if result.is_err() || bytes_read == 0 {
+                    // A live process can decommit a page between the region query
+                    // and the read: the call then fails with ERROR_PARTIAL_COPY but
+                    // still reports the bytes it copied, which are worth scanning.
+                    if bytes_read == 0 {
                         stats.read_failed += 1;
                         tracing::trace!(
                             target: "scanner",
