@@ -42,9 +42,15 @@ Every detection, correlation, and filter document receives one verdict:
 
 | Verdict | Meaning |
 | --- | --- |
-| `can-fire` | The document parses, compiles, routes to an active collector, and has a condition that an emitted event shape can satisfy. |
-| `degraded` | The document can evaluate, but at least one referenced field is conditional, unavailable on some branch, derived, best-effort, truncated, or stale. |
+| `can-fire` | The document parses, compiles, routes to an active collector, and has a condition that an emitted event shape can satisfy. It can carry caveats, see below. |
+| `degraded` | The document can evaluate, but at least one referenced field is conditional, unavailable on some branch, derived, best-effort, truncated, or stale, and that field has not been measured as reliable. |
 | `can-never-fire` | Parsing, compilation, routing, collector configuration, field availability, or a missing dependency prevents the document from evaluating successfully. |
+
+A field measured as reliably populated downgrades its reasons to caveats.
+A caveat keeps the reason in the report with `severity: "caveat"` but does not degrade the document.
+Today that covers `process_creation` on two platforms: `CommandLine`, `Image`, `ParentImage`, and `ParentProcessId` on Windows, and `CommandLine`, `Image`, `ParentImage`, and `ParentCommandLine` on Linux.
+macOS and every other field stay strict until they have been measured.
+`summary.can_fire_with_caveats` counts the `can-fire` documents that carry at least one caveat.
 
 Field availability comes from the same [field availability](field-availability.md) contract the sensors follow.
 The analysis follows the condition structure.
@@ -62,6 +68,7 @@ A filter with several explicit targets remains usable when at least one target i
 
 `--json` emits `schema_version: 1`, the selected `platform` and `field_view`, aggregate verdict and reason counts, and a deterministic `documents` array.
 Each document includes source path, kind, identity, verdict, logsource, referenced fields, dependencies, and stable reason codes.
+A reason carries `severity: "caveat"` when it does not weigh on the verdict, and omits `severity` otherwise.
 Source paths are relative to the inspected rules directory.
 
 The schema version changes only for an incompatible rename, removal, type change, or semantic change.
@@ -77,7 +84,7 @@ Stable reason codes in schema version 1 are:
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Every document is `can-fire`. |
+| `0` | Every document is `can-fire`, with or without caveats. |
 | `1` | At least one document is `degraded` or `can-never-fire` for a coverage reason. |
 | `2` | Configuration, parsing, or compilation prevented a reliable report. |
 

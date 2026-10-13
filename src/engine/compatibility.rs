@@ -110,9 +110,30 @@ impl ReasonCode {
     }
 }
 
+/// How much a reason weighs on the verdict.
+///
+/// A `Caveat` records a known imperfection that has been measured as rare on
+/// the platform, so the document still counts as `can-fire`.
+/// A `Limitation` is a real gap and degrades the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasonSeverity {
+    #[default]
+    Limitation,
+    Caveat,
+}
+
+impl ReasonSeverity {
+    fn is_limitation(&self) -> bool {
+        *self == Self::Limitation
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CompatibilityReason {
     pub code: ReasonCode,
+    #[serde(skip_serializing_if = "ReasonSeverity::is_limitation")]
+    pub severity: ReasonSeverity,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
@@ -124,15 +145,22 @@ impl CompatibilityReason {
     fn new(code: ReasonCode, message: impl Into<String>) -> Self {
         Self {
             code,
+            severity: ReasonSeverity::Limitation,
             message: message.into(),
             field: None,
             reference: None,
         }
     }
 
+    fn with_severity(mut self, severity: ReasonSeverity) -> Self {
+        self.severity = severity;
+        self
+    }
+
     fn field(code: ReasonCode, field: &str, message: impl Into<String>) -> Self {
         Self {
             code,
+            severity: ReasonSeverity::Limitation,
             message: message.into(),
             field: Some(field.to_string()),
             reference: None,
@@ -142,6 +170,7 @@ impl CompatibilityReason {
     fn reference(code: ReasonCode, reference: &str, message: impl Into<String>) -> Self {
         Self {
             code,
+            severity: ReasonSeverity::Limitation,
             message: message.into(),
             field: None,
             reference: Some(reference.to_string()),
@@ -165,6 +194,10 @@ pub struct FieldCompatibility {
     pub reasons: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fidelity: Vec<Fidelity>,
+    /// Measured to be populated reliably enough that conditional or derived
+    /// availability is reported as a caveat instead of degrading the document.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub reliable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -206,6 +239,8 @@ pub struct VerdictCounts {
 pub struct CompatibilitySummary {
     pub documents: usize,
     pub verdicts: VerdictCounts,
+    /// Documents that can fire but carry at least one caveat.
+    pub can_fire_with_caveats: usize,
     pub reasons: BTreeMap<String, usize>,
 }
 
@@ -242,7 +277,12 @@ impl SigmaCompatibilityReport {
         let mut hard_error = false;
         for document in &documents {
             match document.verdict {
-                CompatibilityVerdict::CanFire => summary.verdicts.can_fire += 1,
+                CompatibilityVerdict::CanFire => {
+                    summary.verdicts.can_fire += 1;
+                    if !document.reasons.is_empty() {
+                        summary.can_fire_with_caveats += 1;
+                    }
+                }
                 CompatibilityVerdict::Degraded => summary.verdicts.degraded += 1,
                 CompatibilityVerdict::CanNeverFire => summary.verdicts.can_never_fire += 1,
             }
@@ -670,10 +710,10 @@ fn analyze_detection(
 
     if enabled_viable {
         report.reasons = limitation_reasons(&report.fields);
-        report.verdict = if report.reasons.is_empty() {
-            CompatibilityVerdict::CanFire
-        } else {
+        report.verdict = if has_limitation(&report.reasons) {
             CompatibilityVerdict::Degraded
+        } else {
+            CompatibilityVerdict::CanFire
         };
     } else if disabled_viable {
         report.reasons.push(CompatibilityReason::new(
@@ -723,7 +763,9 @@ fn analyze_correlation(
     fields.sort_by(|left, right| left.field.cmp(&right.field));
     let field_reasons = limitation_reasons(&fields);
     if verdict != CompatibilityVerdict::CanNeverFire && !field_reasons.is_empty() {
-        verdict = CompatibilityVerdict::Degraded;
+        if has_limitation(&field_reasons) {
+            verdict = CompatibilityVerdict::Degraded;
+        }
         reasons.extend(field_reasons);
     }
     DocumentCompatibility {
@@ -848,10 +890,10 @@ fn analyze_filter(
             }
         } else {
             let limitations = limitation_reasons(&fields);
-            if !limitations.is_empty() || verdict == CompatibilityVerdict::Degraded {
+            if has_limitation(&limitations) {
                 verdict = CompatibilityVerdict::Degraded;
-                reasons.extend(limitations);
             }
+            reasons.extend(limitations);
         }
     }
     let logsource = key.map(|key| {
@@ -1455,14 +1497,43 @@ fn field_reports(
             } else {
                 FieldCompatibilityStatus::Never
             };
+            let reliable = measured_reliable(platform, logsource, &field);
             FieldCompatibility {
                 field,
                 availability,
                 reasons: usage.reasons.into_iter().collect(),
                 fidelity: usage.fidelity.into_iter().collect(),
+                reliable,
             }
         })
         .collect()
+}
+
+/// Fields whose conditional or derived availability has been measured as rare
+/// loss on ordinary workloads.
+///
+/// Windows process start: `CommandLine` is back-filled for 99.9% of starts
+/// and `ParentImage` is populated, absolute, and correct for 100%.
+/// Linux process start (eBPF, kernel 7.0, rustinel 1.9.1, 9.2k starts with a
+/// 6000-exec four-way fork storm): `CommandLine`, `Image`, `ParentImage`, and
+/// `ParentCommandLine` were populated for 100% with no loss, and `Image` was
+/// absolute for 100% including relative and 150-byte paths.
+/// Other platforms and fields stay strict until they are measured too.
+fn measured_reliable(platform: Platform, logsource: &LogSourceKey, field: &str) -> bool {
+    if logsource.category.as_deref() != Some("process_creation") {
+        return false;
+    }
+    match platform {
+        Platform::Windows => matches!(
+            field,
+            "CommandLine" | "Image" | "ParentImage" | "ParentProcessId"
+        ),
+        Platform::Linux => matches!(
+            field,
+            "CommandLine" | "Image" | "ParentImage" | "ParentCommandLine"
+        ),
+        _ => false,
+    }
 }
 
 fn potential_fidelity(platform: Platform, logsource: &LogSourceKey, field: &str) -> Vec<Fidelity> {
@@ -1515,16 +1586,30 @@ fn merge_field_uses(target: &mut BTreeMap<String, FieldUse>, source: BTreeMap<St
     }
 }
 
+fn has_limitation(reasons: &[CompatibilityReason]) -> bool {
+    reasons
+        .iter()
+        .any(|reason| reason.severity == ReasonSeverity::Limitation)
+}
+
 fn limitation_reasons(fields: &[FieldCompatibility]) -> Vec<CompatibilityReason> {
     let mut reasons = Vec::new();
     for field in fields {
+        let severity = if field.reliable {
+            ReasonSeverity::Caveat
+        } else {
+            ReasonSeverity::Limitation
+        };
         match field.availability {
             FieldCompatibilityStatus::Always => {}
-            FieldCompatibilityStatus::Conditional => reasons.push(CompatibilityReason::field(
-                ReasonCode::ConditionalField,
-                &field.field,
-                field.reasons.join("; "),
-            )),
+            FieldCompatibilityStatus::Conditional => reasons.push(
+                CompatibilityReason::field(
+                    ReasonCode::ConditionalField,
+                    &field.field,
+                    field.reasons.join("; "),
+                )
+                .with_severity(severity),
+            ),
             FieldCompatibilityStatus::Never => reasons.push(CompatibilityReason::field(
                 ReasonCode::UnavailableField,
                 &field.field,
@@ -1538,15 +1623,23 @@ fn limitation_reasons(fields: &[FieldCompatibility]) -> Vec<CompatibilityReason>
                 Fidelity::Truncated => ReasonCode::TruncatedField,
                 Fidelity::Stale => ReasonCode::StaleField,
             };
-            reasons.push(CompatibilityReason::field(
-                code,
-                &field.field,
-                format!(
-                    "{} may be {} on this platform",
-                    field.field,
-                    fidelity_label(*fidelity)
-                ),
-            ));
+            let severity = if *fidelity == Fidelity::Derived {
+                severity
+            } else {
+                ReasonSeverity::Limitation
+            };
+            reasons.push(
+                CompatibilityReason::field(
+                    code,
+                    &field.field,
+                    format!(
+                        "{} may be {} on this platform",
+                        field.field,
+                        fidelity_label(*fidelity)
+                    ),
+                )
+                .with_severity(severity),
+            );
         }
     }
     deduplicate_reasons(reasons)
@@ -1633,6 +1726,7 @@ fn field_across_dependencies(
         availability,
         reasons: use_entry.reasons.into_iter().collect(),
         fidelity: Vec::new(),
+        reliable: false,
     }
 }
 
@@ -1682,11 +1776,12 @@ fn deduplicate_reasons(reasons: Vec<CompatibilityReason>) -> Vec<CompatibilityRe
 
 pub fn format_human(report: &SigmaCompatibilityReport) -> String {
     let mut output = format!(
-        "Sigma compatibility\nPlatform: {}\nField view: {}\nRules: {}\nSummary: {} can fire, {} degraded, {} can never fire\n",
+        "Sigma compatibility\nPlatform: {}\nField view: {}\nRules: {}\nSummary: {} can fire ({} with caveats), {} degraded, {} can never fire\n",
         report.platform,
         report.field_view,
         report.rules_path.display(),
         report.summary.verdicts.can_fire,
+        report.summary.can_fire_with_caveats,
         report.summary.verdicts.degraded,
         report.summary.verdicts.can_never_fire,
     );
@@ -1735,7 +1830,15 @@ pub fn format_human(report: &SigmaCompatibilityReport) -> String {
             ));
         }
         for reason in &document.reasons {
-            output.push_str(&format!("  {}: {}\n", reason.code.as_str(), reason.message));
+            let label = match reason.severity {
+                ReasonSeverity::Limitation => "",
+                ReasonSeverity::Caveat => "caveat ",
+            };
+            output.push_str(&format!(
+                "  {label}{}: {}\n",
+                reason.code.as_str(),
+                reason.message
+            ));
         }
     }
     output
@@ -1839,7 +1942,7 @@ detection:
     }
 
     #[test]
-    fn derived_parent_image_is_degraded_on_linux() {
+    fn measured_linux_process_fields_are_caveats() {
         let report = report(
             r#"title: Parent image fidelity
 logsource:
@@ -1848,6 +1951,30 @@ logsource:
 detection:
   selection:
     ParentImage|endswith: /bash
+    CommandLine|contains: /dev/tcp/
+  condition: selection
+"#,
+            Platform::Linux,
+        );
+        let document = &report.documents[0];
+        assert_eq!(document.verdict, CompatibilityVerdict::CanFire);
+        assert!(document.reasons.iter().any(|reason| {
+            reason.code == ReasonCode::DerivedField
+                && reason.severity == ReasonSeverity::Caveat
+                && reason.field.as_deref() == Some("ParentImage")
+        }));
+    }
+
+    #[test]
+    fn unmeasured_linux_process_field_is_degraded() {
+        let report = report(
+            r#"title: User fidelity
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    User: root
   condition: selection
 "#,
             Platform::Linux,
@@ -1855,8 +1982,60 @@ detection:
         assert_eq!(report.documents[0].verdict, CompatibilityVerdict::Degraded);
         assert!(report.documents[0].reasons.iter().any(|reason| {
             reason.code == ReasonCode::DerivedField
-                && reason.field.as_deref() == Some("ParentImage")
+                && reason.severity == ReasonSeverity::Limitation
+                && reason.field.as_deref() == Some("User")
         }));
+    }
+
+    #[test]
+    fn measured_windows_process_fields_are_caveats() {
+        let report = report(
+            r#"title: Windows command line
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: \\cmd.exe
+    CommandLine|contains: /c
+    ParentImage|endswith: \\winword.exe
+  condition: selection
+"#,
+            Platform::Windows,
+        );
+        let document = &report.documents[0];
+        assert_eq!(document.verdict, CompatibilityVerdict::CanFire);
+        assert!(!document.reasons.is_empty());
+        assert!(document
+            .reasons
+            .iter()
+            .all(|reason| reason.severity == ReasonSeverity::Caveat));
+        assert_eq!(report.summary.can_fire_with_caveats, 1);
+        assert_eq!(report.exit_code, 0);
+    }
+
+    #[test]
+    fn unmeasured_windows_field_still_degrades() {
+        let report = report(
+            r#"title: Windows original file name
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    CommandLine|contains: /c
+    OriginalFileName: Cmd.Exe
+  condition: selection
+"#,
+            Platform::Windows,
+        );
+        let document = &report.documents[0];
+        assert_eq!(document.verdict, CompatibilityVerdict::Degraded);
+        assert!(document.reasons.iter().any(|reason| {
+            reason.severity == ReasonSeverity::Limitation
+                && reason.field.as_deref() == Some("OriginalFileName")
+        }));
+        assert_eq!(report.exit_code, 1);
     }
 
     #[test]

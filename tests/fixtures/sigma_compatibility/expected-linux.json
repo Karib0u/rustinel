@@ -10,6 +10,7 @@
       "degraded": 1,
       "can_never_fire": 1
     },
+    "can_fire_with_caveats": 0,
     "reasons": {
       "unavailable_field": 2
     }
