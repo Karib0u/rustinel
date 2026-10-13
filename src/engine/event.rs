@@ -589,14 +589,14 @@ mod tests {
                 };
                 let index = rules.len();
                 rules.push(format!(
-                    "title: field {index}\ndetection:\n  selection:\n    {name}|contains: '{token}'\n  condition: selection\n"
+                    "title: field {index}\nlogsource:\n  category: test\ndetection:\n  selection:\n    {name}|contains: '{token}'\n  condition: selection\n"
                 ));
                 rules.push(format!(
-                    "title: keyword {index}\ndetection:\n  keywords:\n    - '{token}'\n  condition: keywords\n"
+                    "title: keyword {index}\nlogsource:\n  category: test\ndetection:\n  keywords:\n    - '{token}'\n  condition: keywords\n"
                 ));
             }
             rules.push(format!(
-                "title: event id {}\ndetection:\n  selection:\n    EventID: {}\n  condition: selection\n",
+                "title: event id {}\nlogsource:\n  category: test\ndetection:\n  selection:\n    EventID: {}\n  condition: selection\n",
                 event.event_id, event.event_id
             ));
         }

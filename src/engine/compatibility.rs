@@ -1930,6 +1930,8 @@ correlation:
     fn untargeted_filter_can_never_fire() {
         let report = report(
             r#"title: Suppress everything
+logsource:
+  category: process_creation
 filter:
   rules: any
   selection:
