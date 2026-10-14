@@ -207,6 +207,7 @@ The `telemetry.json` loss counters that `rustinel doctor` reads.
 | --- | --- | --- |
 | `enabled` | `true` | Write `telemetry.json` to the log directory. |
 | `snapshot_interval_secs` | `30` | How often `telemetry.json` is rewritten. It is also written at shutdown. |
+| `loss_alert_interval_secs` | `60` | Window over which dropped sensor events are aggregated into one `agent::loss::sensor_events` alert per category. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts). |
 
 ### `[windows]`
 

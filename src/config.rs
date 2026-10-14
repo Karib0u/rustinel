@@ -532,6 +532,10 @@ pub struct TelemetryConfig {
     /// How often the snapshot is refreshed, in seconds. A shutdown snapshot is
     /// always written regardless of where the interval fell.
     pub snapshot_interval_secs: u64,
+    /// Length in seconds of the window over which sensor event drops are
+    /// aggregated into one loss alert per category. Zero turns the alert off;
+    /// the counters and `rustinel doctor` are unaffected.
+    pub loss_alert_interval_secs: u64,
 }
 
 /// Windows telemetry configuration. It is present on every platform so one
@@ -674,6 +678,7 @@ impl AppConfig {
             // Telemetry
             .set_default("telemetry.enabled", true)?
             .set_default("telemetry.snapshot_interval_secs", 30i64)?
+            .set_default("telemetry.loss_alert_interval_secs", 60i64)?
             // Windows ETW delivery latency
             .set_default("windows.etw_flush_interval_ms", 20i64)?
             .set_default("windows.etw_process_flush_interval_ms", 5i64)?
@@ -1157,6 +1162,7 @@ impl Default for AppConfig {
             telemetry: TelemetryConfig {
                 enabled: true,
                 snapshot_interval_secs: 30,
+                loss_alert_interval_secs: 60,
             },
             windows: WindowsConfig {
                 etw_flush_interval_ms: 20,
