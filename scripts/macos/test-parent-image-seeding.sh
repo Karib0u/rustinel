@@ -75,13 +75,13 @@ echo "== start agent (sudo)"
 sudo "$app/Contents/MacOS/rustinel" run --config "$work/config.toml" >"$work/agent.out" 2>&1 &
 agent_pid=$!
 for _ in $(seq 1 60); do
-  grep -qi "subscribed\|Endpoint Security" "$work/agent.out" 2>/dev/null && break
+  grep -q "Agent ready" "$work/agent.out" 2>/dev/null && break
   if ! sudo kill -0 "$agent_pid" 2>/dev/null; then
     echo "agent exited early:"; cat "$work/agent.out"; exit 1
   fi
   sleep 1
 done
-grep -qi "subscribed\|Endpoint Security" "$work/agent.out" || { echo "agent never subscribed:"; cat "$work/agent.out"; exit 1; }
+grep -q "Agent ready" "$work/agent.out" || { echo "agent never subscribed:"; cat "$work/agent.out"; exit 1; }
 sleep 2
 
 echo "== child of the pre-existing parent"
