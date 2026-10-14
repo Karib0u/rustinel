@@ -382,6 +382,7 @@ mod tests {
                 None,
                 &AlertSink::new(writer),
                 None,
+                None,
             ),
         )
         .await

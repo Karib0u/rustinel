@@ -11,7 +11,7 @@ use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
 use crate::alerts::{AlertSink, WebhookDispatcher};
 use crate::config;
 use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
-use crate::runtime::telemetry::TelemetryReporter;
+use crate::runtime::telemetry::{SensorLossAlerter, TelemetryReporter};
 
 pub(super) fn load_config(
     console_output_override: Option<bool>,
@@ -48,6 +48,7 @@ pub(super) struct RuntimeLogging {
     pub alert_sink: AlertSink,
     pub dedup_worker_handle: Option<JoinHandle<()>>,
     pub telemetry_reporter: Option<TelemetryReporter>,
+    pub loss_alerter: Option<SensorLossAlerter>,
     /// Where the pipeline attaches the stores the telemetry snapshot reads.
     pub probes: crate::telemetry::PipelineProbes,
     // Kept in the platform runtime until its final shutdown messages are written.
@@ -102,10 +103,14 @@ impl RuntimeLogging {
         // 2c. Pipeline drop counters, published for `rustinel doctor`
         let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink, probes.clone());
 
+        // 2d. Operational alert when sensor events were dropped
+        let loss_alerter = SensorLossAlerter::start(cfg, &alert_sink);
+
         Ok(Self {
             alert_sink,
             dedup_worker_handle,
             telemetry_reporter,
+            loss_alerter,
             probes,
             _guards,
         })

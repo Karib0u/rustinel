@@ -39,6 +39,7 @@ pub(super) async fn run_live(
         alert_sink,
         dedup_worker_handle,
         telemetry_reporter,
+        loss_alerter,
         probes,
         _guards,
     } = RuntimeLogging::start(&cfg, runtime.label, resolved_config_path.as_deref())?;
@@ -113,6 +114,7 @@ pub(super) async fn run_live(
             dedup_worker_handle,
             &alert_sink,
             telemetry_reporter,
+            loss_alerter,
         )
         .await;
 

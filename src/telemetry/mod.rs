@@ -239,6 +239,41 @@ fn sensor_event_category_snapshots() -> Vec<SensorEventCategorySnapshot> {
     .collect()
 }
 
+/// Cumulative `sensor_events` drops per category, for loss alerting.
+///
+/// `windefend` and `application` share one counter, so they are reported as one
+/// entry. Categories that never dropped are omitted.
+pub(crate) fn sensor_event_drop_totals() -> Vec<(&'static str, u64)> {
+    (0..SENSOR_EVENT_CATEGORIES.len())
+        .filter_map(|index| {
+            let dropped = SENSOR_EVENT_CATEGORIES[index]
+                .dropped
+                .load(Ordering::Relaxed);
+            (dropped > 0).then(|| (sensor_event_category_label(index), dropped))
+        })
+        .collect()
+}
+
+fn sensor_event_category_label(index: usize) -> &'static str {
+    const LABELS: [&str; 14] = [
+        "process",
+        "network",
+        "file",
+        "registry",
+        "dns",
+        "image_load",
+        "scripting",
+        "powershell_module",
+        "wmi",
+        "service",
+        "task",
+        "security",
+        "powershell_classic_start",
+        "windefend_application",
+    ];
+    LABELS[index]
+}
+
 /// Atomic accounting for one bounded channel.
 ///
 /// All counters are `Relaxed`: they are independent totals read for reporting,

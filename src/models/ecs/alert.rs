@@ -681,6 +681,29 @@ pub struct EcsAlert {
     /// pipeline.
     #[serde(rename = "edr.replay", skip_serializing_if = "Option::is_none")]
     pub edr_replay: Option<ReplayProvenance>,
+
+    /// Present only on `agent::loss::*` alerts, which describe the agent
+    /// rather than a detection.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub edr_agent_loss: Option<AgentLoss>,
+}
+
+/// What a sensor loss alert measured.
+#[derive(Serialize)]
+pub struct AgentLoss {
+    /// The bounded pipeline queue that shed events.
+    #[serde(rename = "edr.agent.loss.channel")]
+    pub channel: &'static str,
+    /// Sensor event category, as named in `telemetry.json`.
+    #[serde(rename = "edr.agent.loss.category")]
+    pub category: &'static str,
+    /// Events of that category dropped inside the window.
+    #[serde(rename = "edr.agent.loss.dropped")]
+    pub dropped: u64,
+    /// Seconds the count covers. It is the configured window, except on the
+    /// final alert at shutdown, which covers the remainder.
+    #[serde(rename = "edr.agent.loss.window_secs")]
+    pub window_secs: u64,
 }
 
 /// Where a replayed alert came from.
