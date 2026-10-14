@@ -1,5 +1,6 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 
@@ -18,6 +19,7 @@ pub enum ServiceStatus {
     NotInstalled,
     Stopped,
     Starting,
+    Stopping,
     Running,
     Failed,
     Unknown,
@@ -29,6 +31,7 @@ impl fmt::Display for ServiceStatus {
             Self::NotInstalled => "not-installed",
             Self::Stopped => "stopped",
             Self::Starting => "starting",
+            Self::Stopping => "stopping",
             Self::Running => "running",
             Self::Failed => "failed",
             Self::Unknown => "unknown",
@@ -260,6 +263,32 @@ pub enum ServiceCommandResult {
     Status(ServiceStatus),
 }
 
+const RESTART_STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+const RESTART_STOP_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+fn wait_until_stopped<B: ServiceBackend>(
+    backend: &B,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> anyhow::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let status = backend
+            .status()
+            .with_context(|| format!("failed to query status of {}", backend.name()))?;
+        if status != ServiceStatus::Stopping {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            bail!(
+                "timed out after {timeout:?} waiting for {} to finish stopping",
+                backend.name()
+            );
+        }
+        std::thread::sleep(poll_interval.min(deadline.saturating_duration_since(Instant::now())));
+    }
+}
+
 pub fn run_backend_action<B: ServiceBackend>(
     backend: &B,
     action: ServiceAction,
@@ -285,6 +314,16 @@ pub fn run_backend_action<B: ServiceBackend>(
             match backend.status().unwrap_or(ServiceStatus::Unknown) {
                 ServiceStatus::NotInstalled => backend.start()?,
                 ServiceStatus::Stopped => backend.start()?,
+                ServiceStatus::Stopping => {
+                    // A stop started elsewhere is still in flight; starting now would fail
+                    // with ERROR_SERVICE_ALREADY_RUNNING and leave the service down.
+                    wait_until_stopped(
+                        backend,
+                        RESTART_STOP_WAIT_TIMEOUT,
+                        RESTART_STOP_WAIT_POLL_INTERVAL,
+                    )?;
+                    backend.start()?;
+                }
                 ServiceStatus::Starting | ServiceStatus::Running | ServiceStatus::Failed => {
                     backend.stop()?;
                     backend.start()?;
@@ -405,6 +444,34 @@ mod tests {
     }
 
     #[test]
+    fn restart_waits_for_pending_stop_before_starting() {
+        let backend = MockBackend::sequence(&[
+            ServiceStatus::Stopping,
+            ServiceStatus::Stopping,
+            ServiceStatus::Stopped,
+        ]);
+
+        run_backend_action(&backend, ServiceAction::Restart).expect("restart");
+
+        assert_eq!(backend.calls(), ["status", "status", "status", "start"]);
+    }
+
+    #[test]
+    fn wait_until_stopped_times_out_while_still_stopping() {
+        let backend = MockBackend::new(ServiceStatus::Stopping);
+
+        let err = wait_until_stopped(
+            &backend,
+            Duration::from_millis(20),
+            Duration::from_millis(5),
+        )
+        .expect_err("timeout");
+
+        assert!(err.to_string().contains("finish stopping"));
+        assert!(!backend.calls().contains(&"start"));
+    }
+
+    #[test]
     fn mock_backend_surfaces_failures() {
         let backend = MockBackend::new(ServiceStatus::Running).fail_on("stop");
 
@@ -468,6 +535,7 @@ mod tests {
 
     struct MockBackend {
         status: ServiceStatus,
+        queue: RefCell<Vec<ServiceStatus>>,
         calls: RefCell<Vec<&'static str>>,
         fail_on: Option<&'static str>,
     }
@@ -476,9 +544,17 @@ mod tests {
         fn new(status: ServiceStatus) -> Self {
             Self {
                 status,
+                queue: RefCell::new(Vec::new()),
                 calls: RefCell::new(Vec::new()),
                 fail_on: None,
             }
+        }
+
+        /// Successive `status` calls return each entry in order, then repeat the last.
+        fn sequence(statuses: &[ServiceStatus]) -> Self {
+            let mut backend = Self::new(*statuses.last().expect("non-empty sequence"));
+            backend.queue = RefCell::new(statuses.iter().rev().copied().collect());
+            backend
         }
 
         fn fail_on(mut self, action: &'static str) -> Self {
@@ -522,7 +598,7 @@ mod tests {
 
         fn status(&self) -> anyhow::Result<ServiceStatus> {
             self.record("status")?;
-            Ok(self.status)
+            Ok(self.queue.borrow_mut().pop().unwrap_or(self.status))
         }
     }
 }

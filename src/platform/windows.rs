@@ -236,7 +236,8 @@ fn windows_status(state: windows_service::service::ServiceState) -> ServiceStatu
         Stopped | Paused => ServiceStatus::Stopped,
         StartPending | ContinuePending => ServiceStatus::Starting,
         Running => ServiceStatus::Running,
-        StopPending | PausePending => ServiceStatus::Stopped,
+        StopPending => ServiceStatus::Stopping,
+        PausePending => ServiceStatus::Stopped,
     }
 }
 
