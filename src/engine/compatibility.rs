@@ -1523,7 +1523,8 @@ fn field_reports(
 /// and absolute for 100% with no loss.
 /// macOS `ParentImage` was present only when the parent's exec had been
 /// observed (301 of 301) and never for a parent that predates the sensor or
-/// never execs (0 of 7220), so it stays strict.
+/// never execs (0 of 7220), so it stays strict. Since then, parents already
+/// running at startup are seeded, but that is not re-measured.
 /// Other platforms and fields stay strict until they are measured too.
 fn measured_reliable(platform: Platform, logsource: &LogSourceKey, field: &str) -> bool {
     if logsource.category.as_deref() != Some("process_creation") {

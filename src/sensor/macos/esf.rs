@@ -14,7 +14,7 @@
 //! entitlement, and user approval (TCC). Dev builds can run with SIP/AMFI
 //! relaxed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::io::IsTerminal;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -62,6 +62,7 @@ pub struct EsfSensor {
     shutdown: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
     collectors: crate::telemetry::MacosCollectors,
+    processes: Option<Arc<crate::state::ProcessCache>>,
 }
 
 impl EsfSensor {
@@ -69,6 +70,7 @@ impl EsfSensor {
     pub fn with_host_state(host: &crate::state::HostState) -> Self {
         Self {
             collectors: Arc::clone(&host.macos_collectors),
+            processes: Some(Arc::clone(&host.processes)),
             ..Self::new()
         }
     }
@@ -78,6 +80,7 @@ impl EsfSensor {
             shutdown: Arc::new(AtomicBool::new(false)),
             thread: Mutex::new(None),
             collectors: Default::default(),
+            processes: None,
         }
     }
 }
@@ -97,9 +100,10 @@ impl Sensor for EsfSensor {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
         let collectors = Arc::clone(&self.collectors);
+        let processes = self.processes.clone();
         let handle = std::thread::Builder::new()
             .name("rustinel-esf".to_string())
-            .spawn(move || run_client(tx, shutdown, ready_tx, collectors))
+            .spawn(move || run_client(tx, shutdown, ready_tx, collectors, processes))
             .map_err(|e| anyhow!("failed to spawn Endpoint Security thread: {e}"))?;
 
         *self.thread.lock().expect("esf thread mutex poisoned") = Some(handle);
@@ -190,10 +194,17 @@ fn run_client(
     shutdown: Arc<AtomicBool>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
     collectors: crate::telemetry::MacosCollectors,
+    processes: Option<Arc<crate::state::ProcessCache>>,
 ) {
     // These derived caches remain valid after unwinding. Recover poisoned
     // locks so a dropped event does not disable every later delivery.
     let identities = Mutex::new(ExecIdentities::default());
+    if let Some(processes) = &processes {
+        seed_exec_identities(
+            &mut identities.lock().unwrap_or_else(|e| e.into_inner()),
+            processes,
+        );
+    }
     let sequences = Mutex::new(crate::telemetry::macos::EsfSequences::default());
     let handler_collectors = Arc::clone(&collectors);
     // Development and tests unwind: catch conversion panics before the native
@@ -254,6 +265,24 @@ fn run_client(
     info!("Endpoint Security sensor shutting down");
 }
 
+/// Record the startup inventory's processes so a child of a process that
+/// predates the sensor can still find its parent. Only processes the inventory
+/// put in the shared cache are seeded, so a seeded key always resolves.
+fn seed_exec_identities(identities: &mut ExecIdentities, processes: &crate::state::ProcessCache) {
+    let Ok(pids) = libproc::processes::pids_by_type(libproc::processes::ProcFilter::All) else {
+        return;
+    };
+    for pid in pids.into_iter().filter(|pid| *pid != 0) {
+        let Some(start_time) = crate::utils::query_process_identity(pid).and_then(|i| i.start_time)
+        else {
+            continue;
+        };
+        if processes.get_metadata_by_key(pid, start_time).is_some() {
+            identities.seed(ProcessStartKey { pid, start_time });
+        }
+    }
+}
+
 /// Translate an Endpoint Security message into a shared [`RawEvent`].
 ///
 /// Returns `None` for messages that carry no detection signal or are not yet
@@ -261,7 +290,7 @@ fn run_client(
 fn build_sensor_event(msg: &Message, identities: &mut ExecIdentities) -> Option<RawEvent> {
     match msg.event()? {
         Event::NotifyExec(exec) => build_exec_event(msg, &exec, identities),
-        Event::NotifyExit(_) => build_exit_event(msg),
+        Event::NotifyExit(_) => build_exit_event(msg, identities),
         Event::NotifyCreate(create) => build_create_event(msg, &create),
         Event::NotifyUnlink(unlink) => build_unlink_event(msg, &unlink),
         Event::NotifyRename(rename) => build_rename_event(msg, &rename),
@@ -270,11 +299,24 @@ fn build_sensor_event(msg: &Message, identities: &mut ExecIdentities) -> Option<
     }
 }
 
+/// Most audit generations kept before the oldest is evicted.
+const EXEC_IDENTITY_CAP: usize = 65_536;
+
 /// Bounded bridge from ES audit generations to the shared cache's start keys.
 /// Retain old generations so a reused PID cannot satisfy an older parent token.
+/// An exit retires its entry, and a full map evicts the oldest insertion, so a
+/// long-lived daemon with a low PID keeps its children's parent link.
 #[derive(Default)]
 struct ExecIdentities {
-    keys: BTreeMap<(u32, i32), ProcessStartKey>,
+    keys: BTreeMap<(u32, i32), (u64, ProcessStartKey)>,
+    /// Insertion order, oldest first, for eviction.
+    order: BTreeMap<u64, (u32, i32)>,
+    next_seq: u64,
+    /// Processes already running when the sensor started, by PID. Their audit
+    /// generation is unknown, so they answer only a parent token that missed
+    /// `keys`. An exec or exit of the PID retires the entry, so a reused PID
+    /// never resolves to the process it replaced.
+    seeded: HashMap<u32, ProcessStartKey>,
 }
 
 impl ExecIdentities {
@@ -284,27 +326,64 @@ impl ExecIdentities {
         let replaced: Vec<_> = self
             .keys
             .range((key.pid, i32::MIN)..=(key.pid, i32::MAX))
-            .filter(|(_, existing)| **existing == key)
+            .filter(|(_, (_, existing))| *existing == key)
             .map(|(token, _)| *token)
             .collect();
         for token in replaced {
+            self.remove(token);
+        }
+        // The PID is now an observed lifetime, not the one seen at startup.
+        self.seeded.remove(&key.pid);
+        self.remove((key.pid, generation));
+        self.next_seq += 1;
+        self.keys
+            .insert((key.pid, generation), (self.next_seq, key));
+        self.order.insert(self.next_seq, (key.pid, generation));
+        while self.keys.len() > EXEC_IDENTITY_CAP {
+            let Some((_, token)) = self.order.pop_first() else {
+                break;
+            };
             self.keys.remove(&token);
         }
-        self.keys.insert((key.pid, generation), key);
-        if self.keys.len() > 65_536 {
-            self.keys.pop_first();
+    }
+
+    /// Forget a process that exited.
+    fn retire(&mut self, pid: u32, generation: i32) {
+        self.remove((pid, generation));
+        // The PID is free to be reused, so its startup entry is stale too.
+        self.seeded.remove(&pid);
+    }
+
+    fn remove(&mut self, token: (u32, i32)) {
+        if let Some((seq, _)) = self.keys.remove(&token) {
+            self.order.remove(&seq);
         }
+    }
+
+    /// Record a process that predates the sensor.
+    fn seed(&mut self, key: ProcessStartKey) {
+        self.seeded.insert(key.pid, key);
     }
 
     fn parent(&self, pid: u32, generation: Option<i32>) -> Option<ProcessStartKey> {
         if let Some(generation) = generation {
-            // Never fall back to a bare PID when an authoritative token misses.
-            return self.keys.get(&(pid, generation)).copied();
+            // Never fall back to a bare PID when an authoritative token misses,
+            // except to a process seen at startup, which no exec or exit has
+            // touched since.
+            return self
+                .keys
+                .get(&(pid, generation))
+                .map(|(_, key)| *key)
+                .or_else(|| self.seeded.get(&pid).copied());
         }
         let mut candidates = self.keys.range((pid, i32::MIN)..=(pid, i32::MAX));
-        let key = *candidates.next()?.1;
+        let Some((_, (_, key))) = candidates.next() else {
+            return self.seeded.get(&pid).copied();
+        };
         // PID-only fallback is conservative when more than one lifetime was seen.
-        candidates.all(|(_, other)| *other == key).then_some(key)
+        candidates
+            .all(|(_, (_, other))| other == key)
+            .then_some(*key)
     }
 }
 
@@ -395,8 +474,9 @@ fn build_exec_event(
         parent_identity(target.ppid(), target.original_ppid(), parent_token);
     let parent_process_start_key = identities
         .parent(parent_pid as u32, parent_generation)
-        // A PID-only parent must have existed when the child was forked.
-        .filter(|key| parent_generation.is_some() || key.start_time <= start_time);
+        // A PID-only or startup-seeded parent must have existed when the child
+        // was forked.
+        .filter(|key| key.start_time <= start_time);
     if let Some(start_time) = target.start_time().map(system_time_nanos) {
         identities.observe(
             token.pidversion(),
@@ -495,9 +575,10 @@ fn process_start_event(raw: RawExec) -> RawEvent {
 ///
 /// ESF reports the exiting process as the message's acting process; the exit
 /// status is not carried in the shared payload (matching the Linux sensor).
-fn build_exit_event(msg: &Message) -> Option<RawEvent> {
+fn build_exit_event(msg: &Message, identities: &mut ExecIdentities) -> Option<RawEvent> {
     let process = msg.process();
     let token = process.audit_token();
+    identities.retire(token.pid() as u32, token.pidversion());
     Some(process_stop_event(
         token.pid() as u32,
         token.euid(),
@@ -843,6 +924,62 @@ mod tests {
             .parent_audit_token()
             .unwrap();
         assert_eq!((token.pid(), token.pidversion()), (42, 9));
+    }
+
+    fn key(pid: u32, start_time: u64) -> ProcessStartKey {
+        ProcessStartKey { pid, start_time }
+    }
+
+    #[test]
+    fn long_lived_low_pid_survives_churn_past_the_cap() {
+        let mut identities = ExecIdentities::default();
+        identities.observe(1, key(1, 10));
+        for pid in 100..(100 + 2 * EXEC_IDENTITY_CAP as u32) {
+            identities.observe(1, key(pid, 20));
+            identities.retire(pid, 1);
+        }
+        assert_eq!(identities.parent(1, Some(1)), Some(key(1, 10)));
+        assert_eq!(identities.keys.len(), 1);
+        assert_eq!(identities.order.len(), 1);
+    }
+
+    #[test]
+    fn full_map_evicts_the_oldest_insertion_not_the_lowest_pid() {
+        let mut identities = ExecIdentities::default();
+        for pid in 100..(100 + EXEC_IDENTITY_CAP as u32 - 1) {
+            identities.observe(1, key(pid, 20));
+        }
+        identities.observe(1, key(1, 10));
+        for pid in 0..10 {
+            identities.observe(1, key(1_000_000 + pid, 30));
+        }
+        assert_eq!(identities.parent(1, Some(1)), Some(key(1, 10)));
+        assert_eq!(identities.parent(100, Some(1)), None);
+        assert_eq!(identities.keys.len(), EXEC_IDENTITY_CAP);
+        assert_eq!(identities.order.len(), EXEC_IDENTITY_CAP);
+    }
+
+    #[test]
+    fn exit_retires_the_identity() {
+        let mut identities = ExecIdentities::default();
+        identities.observe(5, key(42, 100));
+        identities.seed(key(43, 100));
+        identities.retire(42, 5);
+        identities.retire(43, 9);
+        assert_eq!(identities.parent(42, Some(5)), None);
+        assert_eq!(identities.parent(43, Some(9)), None);
+        assert!(identities.keys.is_empty() && identities.order.is_empty());
+    }
+
+    #[test]
+    fn seeded_parent_answers_only_until_the_pid_is_observed() {
+        let mut identities = ExecIdentities::default();
+        identities.seed(key(7, 50));
+        assert_eq!(identities.parent(7, Some(3)), Some(key(7, 50)));
+        assert_eq!(identities.parent(7, None), Some(key(7, 50)));
+        identities.observe(4, key(7, 90));
+        assert_eq!(identities.parent(7, Some(3)), None);
+        assert_eq!(identities.parent(7, Some(4)), Some(key(7, 90)));
     }
 
     #[test]
