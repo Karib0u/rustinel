@@ -1,0 +1,3 @@
+# Hooks the Linux 5.10 leg of ebpf-load is expected to degrade, one
+# "message|program" per line (see tests/ebpf_load_smoke.py). Any degradation
+# not listed here fails the run, so a new one on 5.10 is caught.
