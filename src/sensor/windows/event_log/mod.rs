@@ -7,6 +7,7 @@
 mod application;
 mod defender;
 mod powershell_classic;
+mod recovery;
 mod security;
 mod service;
 
@@ -15,13 +16,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::telemetry::EventLogHealth;
 use crate::utils::LogRateLimiter;
 use anyhow::{anyhow, Context, Result};
 use tokio::sync::mpsc::{error::TrySendError, Sender};
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
     ERROR_EVT_QUERY_RESULT_STALE, ERROR_NOT_FOUND, ERROR_NO_MORE_ITEMS,
@@ -167,21 +168,61 @@ fn run_subscription(
     checkpoint: PathBuf,
     health: Arc<EventLogHealth>,
 ) -> Result<()> {
-    let result = run_subscription_inner(
-        source,
-        tx,
-        Arc::clone(&shutdown),
-        &startup_tx,
-        &checkpoint,
-        &health,
-    );
+    let mut startup = Some(startup_tx);
+    let mut retry = recovery::RetryState::default();
+    let result = loop {
+        let started = Instant::now();
+        let outcome = run_subscription_inner(
+            source,
+            tx.clone(),
+            Arc::clone(&shutdown),
+            &mut startup,
+            &checkpoint,
+            &health,
+        );
+        let failure = match outcome {
+            Ok(SessionEnd::Shutdown) => break Ok(()),
+            Ok(SessionEnd::Failed(failure)) => failure,
+            Err(err) => break Err(err),
+        };
+        health.update(source.channel, |health| {
+            health.active = false;
+            health.last_error = Some(failure.message.clone());
+        });
+        // A failure before the subscription ever started keeps the startup
+        // contract: the sensor refuses to start instead of running blind.
+        if startup.is_some() {
+            break Err(anyhow!(failure.message));
+        }
+        match retry.on_failure(failure.code, started.elapsed()) {
+            recovery::Decision::Retry(delay) => {
+                warn!(
+                    channel = source.channel,
+                    error = %failure.message,
+                    retry_in_ms = delay.as_millis() as u64,
+                    "Event Log subscription lost; re-subscribing from the saved bookmark"
+                );
+                if !sleep_unless_shutdown(&shutdown, delay) {
+                    break Ok(());
+                }
+            }
+            recovery::Decision::Escalate => {
+                error!(
+                    channel = source.channel,
+                    error = %failure.message,
+                    "Event Log subscription failed permanently or retries are exhausted"
+                );
+                break Err(anyhow!(failure.message));
+            }
+        }
+    };
     health.update(source.channel, |health| {
         health.active = false;
         if let Err(err) = &result {
             health.last_error = Some(err.to_string());
         }
     });
-    if let Err(err) = &result {
+    if let (Err(err), Some(startup_tx)) = (&result, &startup) {
         let _ = startup_tx.try_send(Err(err.to_string()));
     }
 
@@ -198,6 +239,31 @@ fn run_subscription(
     result
 }
 
+/// Sleeps in short slices; returns false when shutdown arrived first.
+fn sleep_unless_shutdown(shutdown: &AtomicBool, total: Duration) -> bool {
+    let deadline = Instant::now() + total;
+    while !shutdown.load(Ordering::Relaxed) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return true;
+        }
+        thread::sleep(remaining.min(EVENT_LOG_WAIT));
+    }
+    false
+}
+
+/// How one subscription session ended.
+enum SessionEnd {
+    Shutdown,
+    Failed(SessionFailure),
+}
+
+struct SessionFailure {
+    /// Win32 error code when the failure has one; absence means permanent.
+    code: Option<u32>,
+    message: String,
+}
+
 // The box remains alive until EvtClose has waited for outstanding callbacks.
 struct CallbackContext {
     source: EventLogSource,
@@ -210,6 +276,7 @@ struct CallbackState {
     bookmark: OwnedEvtHandle,
     pending: Option<String>,
     failure: Option<String>,
+    failure_code: Option<u32>,
     decode_warnings: LogRateLimiter,
 }
 
@@ -217,10 +284,10 @@ fn run_subscription_inner(
     source: EventLogSource,
     tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
-    startup_tx: &mpsc::SyncSender<std::result::Result<(), String>>,
+    startup: &mut Option<mpsc::SyncSender<std::result::Result<(), String>>>,
     checkpoint: &Path,
     health: &Arc<EventLogHealth>,
-) -> Result<()> {
+) -> Result<SessionEnd> {
     health.update(source.channel, |health| health.active = false);
     let saved = match std::fs::read_to_string(checkpoint) {
         Ok(xml) => Some(xml),
@@ -251,9 +318,13 @@ fn run_subscription_inner(
             health.update(source.channel, |health| health.checkpoint_errors += 1);
         })?;
         saved_record_id = Some(record_id);
-        let oldest = oldest_record(source.channel).inspect_err(|_| {
-            health.update(source.channel, |health| health.subscription_errors += 1);
-        })?;
+        let oldest = match oldest_record(source.channel) {
+            Ok(oldest) => oldest,
+            Err(err) => {
+                health.update(source.channel, |health| health.subscription_errors += 1);
+                return Ok(SessionEnd::Failed(failure_from_error(source, &err)));
+            }
+        };
         if retention_wrapped(record_id, oldest) {
             health.update(source.channel, |health| health.retention_wraps += 1);
             warn!(
@@ -281,6 +352,7 @@ fn run_subscription_inner(
             bookmark,
             pending: None,
             failure: None,
+            failure_code: None,
             decode_warnings: LogRateLimiter::new(DECODE_WARNING_WINDOW),
         }),
     });
@@ -326,11 +398,12 @@ fn run_subscription_inner(
                 health.last_error = Some(format!("strict bookmark resume failed: {err}"));
             });
             warn!(channel = source.channel, error = %err, "Event Log bookmark missing; resuming at oldest available record");
-            subscribe(EvtSubscribeStartAtOldestRecord.0)
-                .map(OwnedEvtHandle)
-                .map_err(|err| subscription_error(health, source, err))?
+            match subscribe(EvtSubscribeStartAtOldestRecord.0).map(OwnedEvtHandle) {
+                Ok(handle) => handle,
+                Err(err) => return Ok(subscription_error(health, source, err)),
+            }
         }
-        Err(err) => return Err(subscription_error(health, source, err)),
+        Err(err) => return Ok(subscription_error(health, source, err)),
     };
     {
         let state = context.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -338,36 +411,55 @@ fn run_subscription_inner(
             health.active = state.failure.is_none()
         });
     }
-    let _ = startup_tx.send(Ok(()));
+    if let Some(startup_tx) = startup.take() {
+        let _ = startup_tx.send(Ok(()));
+    }
     info!(channel = source.channel, "Event log subscription started");
     let result = (|| {
         while !shutdown.load(Ordering::Relaxed) {
             persist_pending(&context, checkpoint)?;
-            if let Some(error) = &context
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .failure
-            {
-                return Err(anyhow!(error.clone()));
+            let state = context.state.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(message) = &state.failure {
+                return Ok(SessionEnd::Failed(SessionFailure {
+                    code: state.failure_code,
+                    message: message.clone(),
+                }));
             }
+            drop(state);
             thread::sleep(EVENT_LOG_WAIT);
         }
-        Ok(())
+        Ok(SessionEnd::Shutdown)
     })();
     // Close before the final checkpoint: no callback may change it afterward.
+    // The bookmark stays on disk so the next session resumes after it.
     drop(subscription);
     let final_write = persist_pending(&context, checkpoint);
-    result.and(final_write)
+    match result {
+        Ok(end) => final_write.map(|()| end),
+        Err(err) => Err(err),
+    }
 }
 
 fn subscription_error(
     health: &EventLogHealth,
     source: EventLogSource,
     err: windows::core::Error,
-) -> anyhow::Error {
+) -> SessionEnd {
     health.update(source.channel, |health| health.subscription_errors += 1);
-    anyhow!("{} Event Log subscription failed: {err}", source.channel)
+    SessionEnd::Failed(SessionFailure {
+        code: recovery::win32_code(err.code().0),
+        message: format!("{} Event Log subscription failed: {err}", source.channel),
+    })
+}
+
+fn failure_from_error(source: EventLogSource, err: &anyhow::Error) -> SessionFailure {
+    SessionFailure {
+        code: err
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<windows::core::Error>())
+            .and_then(|err| recovery::win32_code(err.code().0)),
+        message: format!("{} Event Log subscription failed: {err}", source.channel),
+    }
 }
 
 unsafe extern "system" fn subscription_callback(
@@ -399,6 +491,7 @@ unsafe extern "system" fn subscription_callback(
                 code, "Event Log subscription error"
             );
             state.failure = Some(message);
+            state.failure_code = Some(code);
             return;
         }
         if action != EvtSubscribeActionDeliver || state.failure.is_some() {
