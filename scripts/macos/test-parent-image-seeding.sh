@@ -10,7 +10,7 @@
 #   2. The agent starts with the example whoami Sigma rule.
 #   3. That old shell runs /usr/bin/whoami (child of a seeded parent).
 #   4. A shell started AFTER the agent runs whoami (control: exec observed).
-#   Both alerts must carry process.parent.executable = /bin/sh.
+#   Both alerts must carry the same non-empty process.parent.executable (macOS runs /bin/sh as /bin/bash).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -113,7 +113,7 @@ for r in who:
     if p is None: p = r.get("process.parent.executable")
     parents.append(p)
     print("  parent executable:", p)
-ok = len(who) >= 2 and all(p == "/bin/sh" for p in parents)
+ok = len(who) >= 2 and None not in parents and len(set(parents)) == 1
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
 '
