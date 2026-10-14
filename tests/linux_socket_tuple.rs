@@ -7,8 +7,15 @@ use std::{
 };
 
 #[test]
-#[ignore = "requires runtime kernel BTF"]
 fn running_kernel_socket_layout() {
+    if std::fs::File::open("/sys/kernel/btf/vmlinux").is_err() {
+        eprintln!("RUSTINEL_TEST_SKIPPED: /sys/kernel/btf/vmlinux is not readable");
+        assert!(
+            std::env::var_os("RUSTINEL_FAIL_ON_SKIP").is_none(),
+            "kernel BTF is required (RUSTINEL_FAIL_ON_SKIP is set)"
+        );
+        return;
+    }
     let layout = rustinel::sensor::linux::task_btf::SocketLayout::load().unwrap();
     println!(
         "sk_protocol offset={}, width={}, accept={}",

@@ -968,8 +968,11 @@ mod file_identity_tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    #[ignore = "requires readable BTF from the running Linux kernel"]
     fn running_kernel_file_identity_layout_is_supported() {
+        if std::fs::File::open("/sys/kernel/btf/vmlinux").is_err() {
+            crate::utils::test_skip::skip("/sys/kernel/btf/vmlinux is not readable");
+            return;
+        }
         let layout = FileIdentityLayout::load().expect("running kernel file identity layout");
         assert_eq!(layout.offsets.enabled, 1);
     }

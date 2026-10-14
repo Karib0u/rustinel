@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import stat
@@ -17,6 +18,19 @@ STARTUP_TIMEOUT = 30
 SHUTDOWN_TIMEOUT = 30
 EVENT_TIMEOUT = 15
 WHOAMI_RULE = "Example - Whoami Execution (Linux)"
+# Warnings after which the agent keeps running with a feature or hook missing.
+# Each one is a regression on a kernel where the feature is expected to work.
+DEGRADATION_MESSAGES = (
+    "eBPF hook failed to attach",
+    "eBPF hook is unavailable",
+    "eBPF hook may miss syscalls on some CPUs",
+    "kernel socket tuple unavailable",
+    "kernel file identity unavailable",
+    "DNS over read/write is not captured",
+    "kernel process identity field disabled",
+)
+PROGRAM_FIELD = re.compile(r'\bprogram="?([A-Za-z0-9_]+)')
+DIAGNOSTIC_FIELD = re.compile(r'\bdiagnostic="?([A-Za-z0-9_.:\-]+)')
 
 
 def toml_string(path):
@@ -146,7 +160,41 @@ def wait_for_event_families(logs_dir):
     )
 
 
-def assert_results(logs_dir):
+def find_degradations(logs):
+    """Return the set of "message|subject" signatures for degraded features."""
+    found = set()
+    for line in logs.splitlines():
+        for message in DEGRADATION_MESSAGES:
+            if message not in line:
+                continue
+            match = PROGRAM_FIELD.search(line) or DIAGNOSTIC_FIELD.search(line)
+            found.add(f"{message}|{match.group(1) if match else ''}")
+    return found
+
+
+def read_expected_degradations(path):
+    if path is None:
+        return set()
+    return {
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
+def assert_degradations(logs, expected, run_dir):
+    found = find_degradations(logs)
+    (run_dir / "degradations.txt").write_text(
+        "".join(f"{entry}\n" for entry in sorted(found)), encoding="utf-8"
+    )
+    unexpected = sorted(found - expected)
+    assert not unexpected, f"unexpected degraded eBPF hooks: {unexpected}"
+    missing = sorted(expected - found)
+    if missing:
+        print(f"note: expected degradations no longer reported: {missing}")
+
+
+def assert_results(logs_dir, expected_degradations, run_dir):
     telemetry_path = logs_dir / "telemetry.json"
     telemetry = json.loads(telemetry_path.read_text(encoding="utf-8"))
     families = {
@@ -167,6 +215,7 @@ def assert_results(logs_dir):
     assert "eBPF tracepoints attached" in logs
     forbidden = ("eBPF sensor failed to start", "eBPF object load failed")
     assert not any(message in logs for message in forbidden), logs
+    assert_degradations(logs, expected_degradations, run_dir)
     print(f"eBPF load smoke passed: {families}")
 
 
@@ -201,6 +250,12 @@ def main():
     parser.add_argument("--ebpf-object", type=Path, required=True)
     parser.add_argument("--rules-dir", type=Path, required=True)
     parser.add_argument("--artifacts-dir", type=Path, required=True)
+    parser.add_argument(
+        "--expected-degradations",
+        type=Path,
+        help="file of 'message|program' lines for hooks this kernel may degrade; "
+        "any other degradation fails the run (default: none allowed)",
+    )
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("the eBPF load smoke test only supports Linux")
@@ -218,6 +273,7 @@ def main():
     process = None
 
     try:
+        expected_degradations = read_expected_degradations(args.expected_degradations)
         write_config(config, rules_dir, logs_dir)
         verify_embedded_object(binary, ebpf_object, run_dir)
         with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open(
@@ -234,7 +290,7 @@ def main():
             generate_events(run_dir)
             wait_for_event_families(logs_dir)
             stop_agent(process)
-        assert_results(logs_dir)
+        assert_results(logs_dir, expected_degradations, run_dir)
     except BaseException:
         if process is not None and process.poll() is None:
             process.kill()
