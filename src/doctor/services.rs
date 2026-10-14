@@ -270,6 +270,8 @@ fn read_windows_service_status() -> ServiceDiagnostic {
                 ServiceStatus::Running
             } else if stdout.contains("START_PENDING") {
                 ServiceStatus::Starting
+            } else if stdout.contains("STOP_PENDING") {
+                ServiceStatus::Stopping
             } else if stdout.contains("STOPPED") {
                 ServiceStatus::Stopped
             } else {
