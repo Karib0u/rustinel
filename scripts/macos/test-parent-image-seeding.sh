@@ -57,7 +57,7 @@ exec 3>"$work/old.fifo"
 sleep 1
 echo "old parent pid $old_pid"
 
-mkdir -p "$logs"
+sudo mkdir -p "$logs"
 cat > "$work/config.toml" <<CFG
 [scanner]
 sigma_enabled = true
