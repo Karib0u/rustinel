@@ -41,6 +41,7 @@ tests/**/*
 !tests/**/*.rs
 !tests/native_capture_contract.py
 !tests/ebpf_load_smoke.py
+!tests/test_ebpf_load_smoke.py
 !tests/ebpf_live_tests.sh
 !tests/ebpf_expected_degradations_5.10.txt
 !tests/ebpf_process_cache_soak.py

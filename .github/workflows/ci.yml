@@ -263,6 +263,8 @@ jobs:
           name: rustinel-ebpf-object
           path: ebpf/
       - run: cargo test --locked --verbose
+      - name: Test the eBPF smoke test's degradation detection
+        run: python3 tests/test_ebpf_load_smoke.py
       - name: Report conditional test outcomes
         shell: bash
         run: |
