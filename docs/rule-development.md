@@ -5,7 +5,7 @@ Rustinel loads three kinds of rules from the folders set in `config.toml`:
 | Kind | Default folder in a release | Checked against |
 | --- | --- | --- |
 | Sigma | `rules/sigma` | Every event |
-| YARA | `rules/yara` | Executables when they start, Linux memfd memory, and optionally other process memory |
+| YARA | `rules/yara` | Executables when they start, qualifying written files, Linux memfd memory, and optionally other process memory |
 | IOC | `rules/ioc/*.txt` | Hashes of started executables, IPs, domains, paths |
 
 After `rustinel setup`, the folders are under `rules/current` in the [managed rules folder](operations.md#managed-paths).
@@ -77,7 +77,8 @@ rustinel doctor
 
 `sigma_rules_parse`, `yara_rules_parse`, and `ioc_parse` report files that failed to load.
 `sigma_rules_inert` counts rules that loaded but have no collector on this platform.
-A reload that fails keeps the previous rules active and logs the error.
+A rule file that fails to compile is left out and the rest load, so a broken edit removes that rule until you fix it.
+The log names the file, see [Rule edits are ignored](troubleshooting.md#rule-edits-are-ignored).
 
 ## Keep custom rules safe from pack updates
 

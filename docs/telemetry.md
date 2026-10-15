@@ -11,11 +11,12 @@ All counters start at zero when the agent starts.
 | --- | --- |
 | `version`, `pid`, `captured_at`, `uptime_secs` | Which agent wrote the snapshot, and when |
 | `channels` | One entry per queue, see below |
+| `host_state` | Attribution state occupancy and startup inventory, see below |
 | `sensor_events_by_category` | Accepted and dropped sensor events by category (process, network, file, ...) |
 | `artifact_resolver` | Single-open executable resolution outcomes and store occupancy |
 | `linux_ebpf` | Linux kernel and userspace counters |
 | `macos_collectors` | macOS Endpoint Security and packet capture loss |
-| `windows_event_log` | Windows System, Security, and classic PowerShell subscription health |
+| `windows_event_log` | Windows Event Log subscription health, one entry per channel |
 | `field_fidelity` | Counts by populated field and [fidelity limitation](output.md#field-provenance) at normalization |
 | `field_contract_violations` | Count of populated canonical fields declared `Never` by the matching field-availability contract |
 | `windows_process_command_line` | Windows process starts with and without a command line |
@@ -25,7 +26,7 @@ All counters start at zero when the agent starts.
 | `etw_decode` | Windows ETW decoding outcomes |
 | `alert_webhooks` | Delivery outcomes per [webhook](output.md#webhooks), present when one is configured |
 
-Platform sections appear only on their platform.
+Platform sections appear only on their platform, except `windows_process_correlation`, which is always present and stays at zero elsewhere.
 
 ## `host_state`
 
@@ -55,7 +56,7 @@ Each consumer keeps its results in its own store, keyed by file identity, under 
 
 | Field | Meaning |
 | --- | --- |
-| `queue_capacity`, `deadline_ms` | Pending-work bound for each image and written-file queue and maximum resolver time budget; a smaller configured YARA timeout can shorten a job |
+| `queue_capacity`, `written_file_queue_capacity`, `deadline_ms` | Pending-work bound for the image queue and the written-file queue, and maximum resolver time budget; a smaller configured YARA timeout can shorten a job |
 | `admission_budget_ms` | Longest PE metadata may hold an event before it is admitted without it |
 | `admission_budget_exceeded` | Events admitted without PE metadata because resolution missed the budget |
 | `admission_backpressure` | Events that waited for room in the ordered admission queue; each wait is bounded by the budget |
@@ -143,19 +144,25 @@ Its `high_water_mark` is zero because the writer does not expose queue depth.
 
 ## `windows_event_log`
 
-One entry per channel (`System`, `Security`, `Windows PowerShell`):
+One entry per channel (`System`, `Security`, `Application`, `Windows PowerShell`, and `Microsoft-Windows-Windows Defender/Operational`):
 
 | Field | Meaning |
 | --- | --- |
 | `active` | The subscription is running |
 | `delivered` | Records decoded |
 | `last_record_id` | Last record read. Rustinel resumes from it after a restart |
-| `subscription_errors` | Subscription failures. The sensor stops on the first one |
+| `subscription_errors` | Subscription failures, see below |
 | `live_stale` | Times Windows reported that records were missed |
 | `resume_failures` | Times the saved position could not be resumed |
 | `retention_wraps` | Times records were overwritten before being read |
 | `checkpoint_errors`, `decode_errors` | Failures saving the position or decoding a record |
 | `last_error` | The most recent error |
+
+A channel that fails, for example because it disappears while Defender updates, is retried on its own from its saved position while the other channels and ETW keep running.
+Retries start after 1 second and double up to 30 seconds; `active` is `false` until one succeeds.
+A subscription that stays up for 60 seconds resets the count.
+When 10 retries in a row fail, or on an error that cannot clear (access denied, an invalid query), the Windows sensor stops and Rustinel exits for the service manager to restart it.
+At startup, a missing channel is retried the same way instead of stopping startup.
 
 The read position is saved under `event-log/` in the log directory.
 Keep it when rotating logs, or Rustinel restarts from the oldest record.

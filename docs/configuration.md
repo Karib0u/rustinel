@@ -53,7 +53,8 @@ Priority, highest first: CLI flags, `EDR__` variables, the config file, defaults
 - Sigma, YARA, and IOC files reload when they change.
 - In the config file, only `[response]` reloads, except `channel_capacity`.
   Every other change needs a restart.
-- A reload with a rule that fails to compile, or an empty IOC set, is rejected and the previous rules stay active.
+- A rule file that fails to compile is left out of the reload, and the other rules load.
+  A reload where every rule file fails, or with an empty IOC set, is rejected and the previous rules stay active.
 - A reload whose files another account can change is rejected as a whole and the previous rules stay active, see [Input trust](security.md#input-trust).
 
 ## Options

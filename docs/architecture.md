@@ -8,8 +8,12 @@ For the user-level picture, see [How it works](how-it-works.md).
 ```text
 src/
 ├── main.rs          CLI entry point
+├── bin/             generate-docs, which rewrites the generated docs regions
 ├── cli/             clap definitions and the generated CLI reference
 ├── vocab.rs         shared leaf vocabulary: Platform, SensorAction, ProcessStartKey, PeMetadata, TARGET_CONSOLE
+├── signature.rs     release signature verification for update and rule packs
+├── identity.rs      host and agent identity for alerts
+├── observable/      IPs, domains, and paths extracted from event fields for IOC matching
 ├── config.rs        loading, discovery, defaults; config/reference.rs documents every option
 ├── runtime/         startup, shared pipeline construction, shutdown ordering
 ├── sensor/
@@ -32,11 +36,12 @@ src/
 ├── doctor/          `rustinel doctor` checks
 ├── capture/, replay/  recordings
 ├── rules.rs, rules/ rule pack catalog and installation
-├── setup.rs, service.rs, platform/  managed install and native services
+├── setup.rs, setup/, service.rs, platform/  managed install, command path, Windows ACLs, and native services
 ├── update.rs        `rustinel update`
 ├── utils/           path allowlists, file identity, PE parsing, helpers
 └── field_availability.rs  per-view and per-platform field contract, source of generated docs
-ebpf/src/            Linux eBPF programs and the event ABI
+ebpf/src/            Linux eBPF programs
+ebpf-common/         the kernel and userspace event ABI, shared by ebpf/ and the agent
 ```
 
 ## Module dependency direction
@@ -162,8 +167,9 @@ Signature revocation freshness can invalidate the signature store independently 
   Inspect them with `Get-EtwTraceSession -Name rustinel-etw-trace` (or `rustinel-etw-process`).
 - A classic kernel logger supplies creation-time command lines and SIDs, joined to Kernel-Process events by PID, parent PID, and time.
 - At startup, key and file name snapshots let registry and file writes through pre-existing handles be named.
-- Event Log subscriptions read System event 7045 and the Security audit events in [Sigma rules](sigma.md#windows-security-events), filtered by a structured query with one `Select` per family: an event is only reachable if it is in both the query and the [`FIELD_AVAILABILITY`](field-availability.md) table.
+- Event Log subscriptions read System event 7045, the Security audit events in [Sigma rules](sigma.md#windows-security-events), and selected Application, Windows PowerShell, and Defender events, filtered by a structured query with one `Select` per family: an event is only reachable if it is in both the query and the [`FIELD_AVAILABILITY`](field-availability.md) table.
   Read positions are saved under `logging.directory/event-log`.
+  Each channel subscription recovers on its own with bounded backoff (`event_log/recovery.rs`) and escalates to a sensor failure only when retries run out or the error is permanent.
 
 ## Linux sensor
 

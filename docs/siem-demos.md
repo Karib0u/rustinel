@@ -1,6 +1,6 @@
 # Forward alerts
 
-Rustinel writes one JSON alert per line to `alerts.json.<date>` in the alert directory.
+Rustinel writes one JSON alert per line to `alerts.json.<date>` in the alert directory, where `<date>` is the UTC date and the file rotates at midnight UTC.
 Forward them with any shipper that tails NDJSON files, or have Rustinel POST each alert to a [webhook](#webhooks).
 The fields are described in [Alert format](output.md).
 
@@ -39,7 +39,7 @@ filebeat.inputs:
 ```bash
 cd examples/siem/splunk
 docker compose up -d
-python3 send-alerts.py /path/to/rustinel/logs/alerts.json.$(date +%Y-%m-%d)
+sudo python3 send-alerts.py /path/to/rustinel/logs/alerts.json.$(date -u +%Y-%m-%d)
 ```
 
 Open <http://localhost:8000> (user `admin`, password `ChangeMe123!`) and search:

@@ -12,6 +12,7 @@ on:
       - zensical.toml
       - README.md
       - CONTRIBUTING.md
+      - SECURITY.md
       - scripts/docs/**
       - .github/workflows/docs.yml
 
@@ -36,7 +37,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: 3.x
-      - run: python3 scripts/docs/reflow.py --check docs/*.md README.md CONTRIBUTING.md
+      - run: python3 scripts/docs/reflow.py --check docs/*.md README.md CONTRIBUTING.md SECURITY.md
       - run: python3 scripts/docs/lint.py docs/*.md
       - run: pip install zensical
       - run: zensical build --clean --strict

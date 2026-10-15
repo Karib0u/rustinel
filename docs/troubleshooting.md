@@ -103,8 +103,11 @@ Hashes are checked only when at least one hash is loaded, for new process execut
 ## Rule edits are ignored
 
 - `reload.enabled` must be `true`, and the file must be under the configured rule folder.
-- A rule that fails to compile rejects the whole reload.
-  The log says `Rejected Sigma reload` or `Rejected YARA reload`, and the previous rules stay active.
+- A rule file that fails to compile is left out, and the other rules load without it.
+  The log says `Some Sigma rules failed to compile` or `Some YARA rules failed to compile` and names the files.
+  Until you fix it, the broken rule is not active, not even in its previous version.
+- When every rule file fails, or an input fails the [trust check](security.md#input-trust), the reload is rejected and the previous rules stay active.
+  The log says `Rejected Sigma reload`, `Rejected YARA reload`, or why the reload failed.
 - An empty IOC set is rejected on purpose.
 - Replacing a whole pack needs a restart, see [Manage rule packs](rule-packs.md#why-a-restart-is-needed).
 
@@ -125,14 +128,17 @@ Pipeline channel full; shedding telemetry channel="sensor_events" capacity=32768
 
 See [Telemetry loss](telemetry-loss.md) for what each queue costs and how to reduce load.
 
-## The Windows agent exited after an ETW error
+## The agent exited after a sensor error
 
 This is on purpose.
-If the ETW sensor thread dies, Rustinel exits so the service manager restarts it, instead of running without telemetry:
+If a required sensor, such as the ETW trace on Windows, stops on its own, Rustinel exits with status 1 so the service manager restarts it, instead of running without telemetry:
 
 ```text
-CRITICAL: ETW sensor thread died unexpectedly
+Sensor ended before shutdown; restarting agent sensor=... reason=...
 ```
+
+`reason` says why, for example `ETW session failed: ...`.
+A Windows Event Log channel that disappears is retried first, see [`windows_event_log`](telemetry.md#windows_event_log).
 
 ## No operational log, or alerts fail to write
 

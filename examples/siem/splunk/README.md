@@ -23,18 +23,24 @@ HEC listens on <http://localhost:8088> with token `rustinel-demo-token`.
 
 ## Send Rustinel Alerts
 
-Trigger the bundled demo rule in one terminal:
+Start Rustinel in one terminal:
 
 ```bash
 cd /path/to/rustinel
 sudo ./rustinel run
+```
+
+Trigger the bundled demo rule in a second terminal:
+
+```bash
 whoami
 ```
 
-Send the generated alert file in another terminal:
+Send the generated alert file. The log folder is readable by root only, and
+the file name carries the UTC date:
 
 ```bash
-python3 send-alerts.py /path/to/rustinel/logs/alerts.json.$(date +%Y-%m-%d)
+sudo python3 send-alerts.py /path/to/rustinel/logs/alerts.json.$(date -u +%Y-%m-%d)
 ```
 
 Search in Splunk:
