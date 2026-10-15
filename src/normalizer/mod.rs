@@ -501,7 +501,8 @@ where
         provenance: &mut Provenance,
     ) -> Option<EventFields> {
         self.resolve_actor_user(event.platform, &mut fields.user, None, provenance);
-        self.enrich_image(event, &mut fields.image, provenance);
+        // Task Scheduler 106 is emitted by the service, so the header PID is
+        // not the registering actor. Image stays absent (`Never`), as in #668.
 
         Some(EventFields::TaskCreation(fields))
     }
@@ -1101,6 +1102,28 @@ mod tests {
             .entries()
             .iter()
             .any(|entry| entry.field == "CommandLine"));
+    }
+
+    #[test]
+    fn task_creation_does_not_borrow_emitter_image() {
+        let normalizer = build_normalizer();
+        let start = process_start_event(Platform::Windows, "etw", 4242);
+        normalizer.normalize(&start).unwrap();
+        let mut task = process_start_event(Platform::Windows, "etw", 4242);
+        task.action = SensorAction::Register;
+        task.payload = RawPayload::Task(TaskCreationFields {
+            task_name: Some(r"\RustinelFixtureTask".into()),
+            task_content: None,
+            user_name: Some(r"lab\theo".into()),
+            user: None,
+            process_id: None,
+            image: None,
+        });
+        let normalized = normalizer.normalize(&task).unwrap();
+        let EventFields::TaskCreation(fields) = &normalized.fields else {
+            panic!("not a task event");
+        };
+        assert_eq!(fields.image, None);
     }
 
     #[test]
