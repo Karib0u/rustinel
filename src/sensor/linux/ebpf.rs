@@ -1241,7 +1241,7 @@ fn attach_dns_socket_io(bpf: &mut LoadedEbpf) {
             .program_mut("handle_dns_read")
             .context("missing DNS read program")?
             .try_into()?;
-        program.load("ksys_read", &btf).context("load ksys_read")?;
+        program.load("ksys_read_no_such_fn", &btf).context("load ksys_read")?;
         program.attach().context("attach ksys_read")?;
         Ok(())
     })();
