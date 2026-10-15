@@ -148,6 +148,13 @@ mod tests {
     }
 
     #[test]
+    fn the_startup_hresult_from_ci_is_retryable() {
+        let code = win32_code(0x8007_3A9F_u32 as i32);
+        assert_eq!(code, Some(CHANNEL_NOT_FOUND));
+        assert_eq!(classify(code), Retryability::Retryable);
+    }
+
+    #[test]
     fn win32_codes_come_from_win32_hresults_only() {
         assert_eq!(win32_code(0x8007_3A9F_u32 as i32), Some(15007));
         assert_eq!(win32_code(0x8000_4005_u32 as i32), None);
