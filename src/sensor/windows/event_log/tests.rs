@@ -81,6 +81,7 @@ fn callback_panic_fails_source_and_ignores_later_deliveries() {
             bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
             pending: None,
             failure: None,
+            failure_code: None,
             decode_warnings: LogRateLimiter::new(DECODE_WARNING_WINDOW),
         }),
     };
@@ -176,7 +177,7 @@ fn invalid_checkpoint_fails_startup_without_resetting_it() {
         source,
         tx,
         Arc::new(AtomicBool::new(false)),
-        &startup_tx,
+        &mut Some(startup_tx),
         &path,
         &log_health,
     )
@@ -210,6 +211,7 @@ fn callback_errors_are_categorical_and_named() {
             bookmark: OwnedEvtHandle(unsafe { EvtCreateBookmark(PCWSTR::null()) }.unwrap()),
             pending: None,
             failure: None,
+            failure_code: None,
             decode_warnings: LogRateLimiter::new(DECODE_WARNING_WINDOW),
         }),
     };
@@ -224,6 +226,7 @@ fn callback_errors_are_categorical_and_named() {
             );
         }
     }
+    assert_eq!(context.state.lock().unwrap().failure_code, Some(5));
     let health = log_health
         .snapshot()
         .into_iter()
@@ -269,7 +272,7 @@ fn decode_test_record(xml: &str) -> Result<RawEvent> {
         .context("missing ID")?;
     // Reuse the production decoder to provide a canonical payload for this transport test.
     (service::source().decoder)(&format!(
-        r#"<Event><System><Provider Name="Service Control Manager"/><EventID>7045</EventID><EventRecordID>{id}</EventRecordID><TimeCreated SystemTime="2026-09-10T00:00:00Z"/></System><EventData><Data Name="ServiceName">test</Data><Data Name="ImagePath">test.exe</Data></EventData></Event>"#
+        r#"<Event><System><Provider Name="Service Control Manager"/><EventID>7045</EventID><EventRecordID>{id}</EventRecordID><Channel>System</Channel><TimeCreated SystemTime="2026-09-10T00:00:00Z"/></System><EventData><Data Name="ServiceName">test</Data><Data Name="ImagePath">test.exe</Data></EventData></Event>"#
     ))
 }
 
@@ -442,4 +445,65 @@ fn native_filtered_subscription_resume_and_retention() {
     assert_eq!(health.retention_wraps, 1);
     assert_eq!(health.resume_failures, 1);
     assert_eq!(health.live_stale, 0);
+}
+
+/// Unregisters and re-registers a dedicated channel under a live subscription.
+/// Windows raises no 15007 for a classic log here, so this only guards that the
+/// source keeps delivering and never raises the shutdown flag.
+#[test]
+#[ignore = "requires an elevated Windows lab and creates a temporary Event Log channel"]
+fn native_channel_removal_does_not_shut_the_sensor_down() {
+    let channel = native_channel();
+    let create = "New-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429";
+    let write = "Write-EventLog -LogName RustinelEventLog429 -Source RustinelEventLog429 -EventId 429 -EntryType Information -Message x";
+    powershell(create);
+    struct Cleanup;
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!("Remove-EventLog -LogName {}", native_channel()),
+                ])
+                .status();
+        }
+    }
+    let _cleanup = Cleanup;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("checkpoint.xml");
+    let source = EventLogSource::new(
+        "native-test",
+        channel,
+        "*[System[EventID=429]]",
+        decode_test_record,
+    );
+    let log_health = Arc::new(EventLogHealth::default());
+    let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let worker =
+        EventLogSubscription::start(source, tx, shutdown.clone(), path, Arc::clone(&log_health))
+            .unwrap();
+    let snapshot = || {
+        log_health
+            .snapshot()
+            .into_iter()
+            .find(|health| health.channel == channel)
+            .unwrap()
+    };
+    powershell(write);
+    let first = receive(&mut rx).source_seq.unwrap();
+
+    powershell("Remove-EventLog -LogName RustinelEventLog429");
+    thread::sleep(Duration::from_secs(3));
+    assert!(!shutdown.load(Ordering::Relaxed));
+
+    powershell(create);
+    powershell(write);
+    let second = receive(&mut rx).source_seq.unwrap();
+    assert!(second > first || second != 0);
+    assert!(snapshot().active);
+    assert!(!shutdown.load(Ordering::Relaxed));
+    shutdown.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
 }
