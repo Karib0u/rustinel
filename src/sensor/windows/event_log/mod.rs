@@ -138,7 +138,10 @@ impl EventLogSubscription {
             Ok(Ok(())) => Ok(Self { worker }),
             Ok(Err(err)) => {
                 let _ = worker.join();
-                Err(anyhow!(err))
+                Err(anyhow!(err).context(format!(
+                    "{} event log source (channel {}) failed during startup",
+                    source.name, source.channel
+                )))
             }
             Err(_) => {
                 let result = worker.join().map_err(|_| {
@@ -189,10 +192,25 @@ fn run_subscription(
             health.active = false;
             health.last_error = Some(failure.message.clone());
         });
-        // A failure before the subscription ever started keeps the startup
-        // contract: the sensor refuses to start instead of running blind.
+        // A permanent failure before the subscription ever started keeps the
+        // startup contract: the sensor refuses to start instead of running
+        // blind. A transient one (a channel being re-registered right after
+        // boot) lets startup proceed and this source recovers in the
+        // background under the same bounded budget, visible as inactive in
+        // the health snapshot until it does.
         if startup.is_some() {
-            break Err(anyhow!(failure.message));
+            if recovery::classify(failure.code) == recovery::Retryability::Permanent {
+                break Err(anyhow!(failure.message));
+            }
+            warn!(
+                source = source.name,
+                channel = source.channel,
+                error = %failure.message,
+                "Event Log source unavailable at startup; retrying in the background"
+            );
+            if let Some(startup_tx) = startup.take() {
+                let _ = startup_tx.send(Ok(()));
+            }
         }
         match retry.on_failure(failure.code, started.elapsed()) {
             recovery::Decision::Retry(delay) => {
@@ -340,9 +358,20 @@ fn run_subscription_inner(
     let resume = if let Some(record_id) = saved_record_id {
         record_id != 0
     } else {
-        seed_bookmark(source.channel, bookmark.0, checkpoint).inspect_err(|_| {
-            health.update(source.channel, |health| health.checkpoint_errors += 1);
-        })?
+        match seed_bookmark(source.channel, bookmark.0, checkpoint) {
+            Ok(resume) => resume,
+            Err(err) => {
+                // A channel that is missing right now (15007) is a subscription
+                // problem the retry policy handles, not a checkpoint fault.
+                let failure = failure_from_error(source, &err);
+                if recovery::classify(failure.code) == recovery::Retryability::Retryable {
+                    health.update(source.channel, |health| health.subscription_errors += 1);
+                    return Ok(SessionEnd::Failed(failure));
+                }
+                health.update(source.channel, |health| health.checkpoint_errors += 1);
+                return Err(err);
+            }
+        }
     };
     let context = Box::new(CallbackContext {
         source,

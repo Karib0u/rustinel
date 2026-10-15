@@ -507,3 +507,69 @@ fn native_channel_removal_does_not_shut_the_sensor_down() {
     shutdown.store(true, Ordering::Relaxed);
     worker.join().unwrap();
 }
+
+const MISSING_CHANNEL: &str = "Rustinel-Test-Missing-Channel/Operational";
+
+fn missing_channel_source(query: &'static str) -> EventLogSource {
+    EventLogSource::new("missing-test", MISSING_CHANNEL, query, decode_test_record)
+}
+
+fn channel_health(health: &EventLogHealth, channel: &str) -> crate::telemetry::EventLogSnapshot {
+    health
+        .snapshot()
+        .into_iter()
+        .find(|health| health.channel == channel)
+        .unwrap()
+}
+
+/// 0x80073A9F at startup (CI run 38750169989) must not take the sensor down.
+#[test]
+fn missing_channel_at_startup_is_degraded_not_fatal() {
+    let temp = tempfile::tempdir().unwrap();
+    let log_health = Arc::new(EventLogHealth::default());
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let worker = EventLogSubscription::start(
+        missing_channel_source("*"),
+        tx,
+        shutdown.clone(),
+        temp.path().join("checkpoint.xml"),
+        Arc::clone(&log_health),
+    )
+    .expect("a missing channel is retried, not fatal");
+    let health = channel_health(&log_health, MISSING_CHANNEL);
+    assert!(!health.active);
+    assert!(health.subscription_errors >= 1);
+    assert!(health.last_error.is_some());
+    assert!(!shutdown.load(Ordering::Relaxed));
+    shutdown.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+}
+
+/// A query the channel rejects will never recover and still fails startup,
+/// naming the source and channel.
+#[test]
+fn invalid_query_at_startup_stays_fatal_and_names_the_source() {
+    let temp = tempfile::tempdir().unwrap();
+    let log_health = Arc::new(EventLogHealth::default());
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let result = EventLogSubscription::start(
+        EventLogSource::new(
+            "invalid-query-test",
+            "Application",
+            "*[[",
+            decode_test_record,
+        ),
+        tx,
+        shutdown,
+        temp.path().join("checkpoint.xml"),
+        log_health,
+    );
+    let message = format!(
+        "{:#}",
+        result.err().expect("invalid query must fail startup")
+    );
+    assert!(message.contains("invalid-query-test"), "{message}");
+    assert!(message.contains("Application"), "{message}");
+}
