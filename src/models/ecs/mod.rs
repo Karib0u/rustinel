@@ -12,9 +12,12 @@ mod registry;
 mod threat;
 mod user;
 
-pub use alert::{DnsAnswer, EcsAlert, ReplayProvenance};
+pub use alert::{AgentLoss, DnsAnswer, EcsAlert, ReplayProvenance};
 
-use crate::models::{Alert, EventFields};
+use crate::models::{
+    Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
+};
+use crate::vocab::Platform;
 use event::{
     alert_severity_to_event_severity, ecs_event_action, ecs_event_category, ecs_event_type,
     ecs_object_access_category, event_dataset, event_provider, host_os_family, host_os_type,
@@ -30,6 +33,53 @@ use user::apply_user_fields;
 
 const ECS_VERSION: &str = "9.5.0";
 const EVENT_MODULE: &str = "edr";
+
+impl EcsAlert {
+    /// An operational alert about the agent itself rather than a detection:
+    /// `edr.rule.engine` is `Agent` and `event.dataset` is `edr.agent`.
+    ///
+    /// It is written straight to the sink, so it never passes through
+    /// deduplication or active response.
+    pub fn agent_loss(platform: Platform, timestamp: String, loss: AgentLoss) -> Self {
+        let alert = Alert {
+            severity: AlertSeverity::Medium,
+            rule_name: format!("agent::loss::{}", loss.channel),
+            rule_description: Some(format!(
+                "{} {} events were dropped in {} seconds because the {} queue was full; \
+                 detections that depend on them did not run",
+                loss.dropped, loss.category, loss.window_secs, loss.channel
+            )),
+            rule_id: None,
+            sigma_metadata: None,
+            engine: DetectionEngine::Sigma,
+            event: NormalizedEvent {
+                timestamp,
+                source_seq: None,
+                ingest_seq: 0,
+                platform,
+                provider: "rustinel".to_string(),
+                category: EventCategory::Process,
+                event_id: 0,
+                event_id_string: String::new(),
+                opcode: 0,
+                fields: EventFields::Generic(Default::default()),
+                provenance: Default::default(),
+                process_name: None,
+                process_context: None,
+            },
+            match_details: None,
+        };
+        let mut ecs = EcsAlert::from(&alert);
+        ecs.edr_rule_engine = "Agent".to_string();
+        ecs.event_dataset = format!("{EVENT_MODULE}.agent");
+        ecs.event_category = vec!["host".to_string()];
+        ecs.event_type = vec!["info".to_string()];
+        ecs.event_action = Some("sensor-events-dropped".to_string());
+        ecs.event_code = None;
+        ecs.edr_agent_loss = Some(loss);
+        ecs
+    }
+}
 
 impl From<&Alert> for EcsAlert {
     fn from(alert: &Alert) -> Self {
@@ -202,6 +252,7 @@ impl From<&Alert> for EcsAlert {
             related_user: None,
             edr_match: alert.match_details.clone(),
             edr_replay: None,
+            edr_agent_loss: None,
         };
 
         // Map internal fields to ECS based on event type

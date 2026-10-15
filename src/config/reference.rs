@@ -381,6 +381,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         default_note: None,
         description: "How often `telemetry.json` is rewritten. It is also written at shutdown.",
     },
+    ConfigOption {
+        key: "telemetry.loss_alert_interval_secs",
+        default_note: None,
+        description: "Window over which dropped sensor events are aggregated into one `agent::loss::sensor_events` alert per category. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts).",
+    },
     // windows
     ConfigOption {
         key: "windows.etw_flush_interval_ms",

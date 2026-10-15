@@ -134,6 +134,31 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | `edr.service` | Service installs (Windows) |
 | `edr.task` | Scheduled tasks (Windows) |
 | `edr.security` | Security audit events (Windows) |
+| `edr.agent` | Operational alerts about the agent itself, such as [sensor loss](#sensor-loss-alerts) |
+
+### Sensor loss alerts
+
+Every queue between a sensor and the detectors is bounded and sheds events rather than blocking the sensor.
+When events were dropped, Rustinel writes one alert per affected category at the end of each `telemetry.loss_alert_interval_secs` window (60 by default, `0` disables), to the alert file and to every webhook.
+It writes one more at shutdown for any drops since the last window.
+
+| Field | Value |
+| --- | --- |
+| `rule.name` | `agent::loss::sensor_events` |
+| `edr.rule.engine` | `Agent`, not a detection engine |
+| `event.dataset` | `edr.agent` |
+| `edr.agent.loss.channel` | The queue that shed events: `sensor_events` |
+| `edr.agent.loss.category` | The sensor event category, named as in `telemetry.json`. `windefend_application` is one count for both Windows Event Log sources |
+| `edr.agent.loss.dropped` | Events of that category dropped inside this window. It is a delta, not a running total, so sum it across alerts to size a gap |
+| `edr.agent.loss.window_secs` | The window the count covers. The shutdown alert reports the configured value but covers at most that long |
+
+Read an alert as: detections that needed events of that category in that window did not all run, and the host may have had matching activity that was never evaluated.
+The count says how many events were lost, not how many would have matched.
+`edr.rule.severity` is `Medium` and is not tuned per category.
+
+Loss alerts are written directly to the sink, so they bypass [deduplication](#deduplication) and active response never sees them.
+They use a path that does not touch the sensor queue, so a stalled alert file cannot cause more loss alerts.
+If the alert file's own queue is full, the loss alert is dropped like any other alert and counted in the `alert_writer` entry of [`telemetry.json`](telemetry.md), which is the only record in that case.
 
 ### Platform-specific fields
 

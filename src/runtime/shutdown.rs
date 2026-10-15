@@ -5,7 +5,7 @@ use tracing::{error, info};
 
 use crate::alerts::AlertSink;
 use crate::runtime::pipeline::LivePipeline;
-use crate::runtime::telemetry::TelemetryReporter;
+use crate::runtime::telemetry::{SensorLossAlerter, TelemetryReporter};
 
 impl LivePipeline {
     /// Any of these workers ending while the agent is running leaves detection incomplete.
@@ -56,6 +56,7 @@ impl LivePipeline {
         dedup_worker: Option<JoinHandle<()>>,
         alert_sink: &AlertSink,
         telemetry_reporter: Option<TelemetryReporter>,
+        loss_alerter: Option<SensorLossAlerter>,
     ) {
         let artifact_resolver_handle = self.artifact_resolver_handle;
         drop(self.router);
@@ -74,6 +75,12 @@ impl LivePipeline {
             join_worker("hot-reload", handle).await;
         }
         join_worker("response", response_worker).await;
+
+        // Sensors are stopped, so no further drops can be counted. Report the
+        // last partial window before the webhooks close.
+        if let Some(alerter) = loss_alerter {
+            alerter.finish().await;
+        }
 
         // The response worker can still emit alerts, so flush only after it exits.
         if let Some(handle) = dedup_worker {
@@ -216,7 +223,14 @@ mod tests {
         let (writer, _guard) = tracing_appender::non_blocking(std::io::sink());
         tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            pipeline.shutdown(sensor, response, Some(dedup), &AlertSink::new(writer), None),
+            pipeline.shutdown(
+                sensor,
+                response,
+                Some(dedup),
+                &AlertSink::new(writer),
+                None,
+                None,
+            ),
         )
         .await
         .expect("queued work must drain without retaining senders");
