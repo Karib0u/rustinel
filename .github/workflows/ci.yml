@@ -265,6 +265,11 @@ jobs:
       - run: cargo test --locked --verbose
       - name: Test the eBPF smoke test's degradation detection
         run: python3 tests/test_ebpf_load_smoke.py
+
+      - name: Test process termination against a spawned child
+        run: |
+          cargo build --locked --example memory_target
+          cargo test --locked --test active_response -- --ignored
       - name: Report conditional test outcomes
         shell: bash
         run: |
@@ -304,6 +309,7 @@ jobs:
         run: |
           cargo build --locked --example memory_target
           cargo test --locked --test yara_memory -- --ignored
+          cargo test --locked --test active_response -- --ignored
       - name: Report conditional test outcomes
         shell: bash
         run: |
@@ -330,6 +336,10 @@ jobs:
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked --verbose
+      - name: Test process termination against a spawned child
+        run: |
+          cargo build --locked --example memory_target
+          cargo test --locked --test active_response -- --ignored
       - name: Report conditional test outcomes
         shell: bash
         run: |
