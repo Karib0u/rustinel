@@ -24,9 +24,14 @@ jobs:
         with:
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build --locked --release
 
