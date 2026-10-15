@@ -989,6 +989,107 @@ mod tests {
     }
 
     #[test]
+    fn test_allowlist_full_path_entry_matches_exact_image_only() {
+        let (critical, other_dir, sibling) = if cfg!(windows) {
+            (
+                r"C:\Windows\System32\lsass.exe",
+                r"C:\Temp\lsass.exe",
+                r"C:\Windows\System32\lsass.exe.bak",
+            )
+        } else {
+            ("/usr/sbin/sshd", "/tmp/sshd", "/usr/sbin/sshd.bak")
+        };
+        let images = normalize_allowlist_images(&[critical.to_string()]);
+        let paths = normalize_allowlist_paths(&[]);
+
+        assert!(is_allowlisted(critical, &images, &paths));
+        // A full-path entry must not degrade into a basename match.
+        assert!(!is_allowlisted(other_dir, &images, &paths));
+        assert!(!is_allowlisted(sibling, &images, &paths));
+    }
+
+    #[test]
+    fn test_allowlist_basename_entry_does_not_match_full_path_entry_rules() {
+        let (entry, image) = if cfg!(windows) {
+            ("lsass.exe", r"C:\Temp\lsass.exe")
+        } else {
+            ("sshd", "/tmp/sshd")
+        };
+        let images = normalize_allowlist_images(&[entry.to_string()]);
+        assert!(is_allowlisted(image, &images, &[]));
+        assert!(!is_allowlisted(&format!("{image}.bak"), &images, &[]));
+    }
+
+    fn config(prevention_enabled: bool, allowlist_images: Vec<String>) -> Arc<ResponseConfig> {
+        Arc::new(ResponseConfig {
+            enabled: true,
+            prevention_enabled,
+            min_severity: "critical".to_string(),
+            channel_capacity: 16,
+            allowlist_images,
+            allowlist_paths: vec![],
+        })
+    }
+
+    // Drives the worker's cached `PreparedConfig` through hot reloads. Each
+    // task is fully handled before the next config swap, so a survivor proves
+    // the worker used the reloaded config rather than its startup snapshot.
+    #[test]
+    fn worker_applies_hot_reloaded_config_to_kills() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+
+        let mut before_reload = ResponseChild::spawn();
+        let mut prevention_off = ResponseChild::spawn();
+        let mut prevention_back_on = ResponseChild::spawn();
+        let mut allowlisted = ResponseChild::spawn();
+        let mut allowlist_removed = ResponseChild::spawn();
+        let full_path = allowlisted.task().image.expect("child image");
+
+        rt.block_on(async {
+            let cfg = Arc::new(ArcSwap::from(config(true, vec![])));
+            let (engine, worker) = ResponseEngine::new(cfg.clone());
+
+            // Waits until the worker has taken the task off the queue and had
+            // time to act on it.
+            async fn settle(engine: &ResponseEngine, child: &ResponseChild) {
+                engine
+                    .tx
+                    .try_send(child.task())
+                    .expect("queue response task");
+                while engine.tx.capacity() != engine.tx.max_capacity() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+
+            settle(&engine, &before_reload).await;
+            before_reload.wait_for_exit();
+
+            cfg.store(config(false, vec![]));
+            settle(&engine, &prevention_off).await;
+            prevention_off.assert_running();
+
+            cfg.store(config(true, vec![]));
+            settle(&engine, &prevention_back_on).await;
+            prevention_back_on.wait_for_exit();
+
+            cfg.store(config(true, vec![full_path]));
+            settle(&engine, &allowlisted).await;
+            allowlisted.assert_running();
+
+            cfg.store(config(true, vec![]));
+            settle(&engine, &allowlist_removed).await;
+            allowlist_removed.wait_for_exit();
+
+            drop(engine);
+            let _ = worker.await;
+        });
+    }
+
+    #[test]
     fn handle_alert_logs_allowlisted_decision() {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
