@@ -479,3 +479,44 @@ fn task_registration_keeps_name_and_user() {
         "header pid, the payload names none"
     );
 }
+
+/// Debug builds assert the `Never` field contract at the normalizer, so a
+/// task event that gains an `Image` from the emitting service's PID panics.
+#[test]
+fn task_registration_normalizes_without_image() {
+    use crate::models::EventFields;
+    use crate::normalizer::Normalizer;
+    use crate::sensor::ProcessStartKey;
+    use crate::state::HostState;
+
+    let mut event = run(&fixture!("task_registered")).remove(0);
+    event.process_start_key = Some(ProcessStartKey {
+        pid: 1860,
+        start_time: 1,
+    });
+    let host = Arc::new(HostState::default());
+    host.processes.add(
+        1860,
+        1,
+        r"\Device\HarddiskVolume3\Windows\System32\svchost.exe".into(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    let normalized = Normalizer::new(host)
+        .normalize(&event)
+        .expect("task event normalizes");
+    let EventFields::TaskCreation(fields) = &normalized.fields else {
+        panic!("not a task event");
+    };
+    assert_eq!(fields.image, None, "the emitter is not the actor");
+}
