@@ -21,6 +21,7 @@
 //!   stages.
 
 mod alerts;
+mod arrival;
 mod ingress;
 mod io_pool;
 mod job;

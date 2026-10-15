@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
+use super::arrival::{ArrivalMeasure, ArrivalMeasurer, Measured, Submit};
 use super::io_pool::IoPool;
 use super::job::{ArtifactJob, ResolveError, ResolvePlan, PE_MAX_READ_BYTES};
 use super::snapshot::ResolverState;
@@ -33,6 +34,12 @@ use crate::utils::file_identity;
 
 pub(super) const ARTIFACT_IO_ISOLATION_LIMIT: usize = 4;
 
+enum LoopEvent {
+    Job(Option<ArtifactJob>),
+    Measured(Option<(u64, Measured)>),
+    Wake,
+}
+
 #[derive(Clone)]
 pub(super) struct ArtifactResolver {
     pub(super) host_state: Arc<HostState>,
@@ -42,6 +49,8 @@ pub(super) struct ArtifactResolver {
     /// constant, so a test can pick a delay that makes the scan timeout's
     /// ordering observable without racing the real clock.
     pub(super) settle_delay: Duration,
+    /// Reads a written file's object identity. A field so a test can block it.
+    pub(super) arrival_measure: ArrivalMeasure,
     #[cfg(target_os = "linux")]
     pub(super) process_path_opener: ArtifactOpener,
 }
@@ -57,6 +66,7 @@ impl ArtifactResolver {
             runtime,
             state,
             settle_delay: WRITTEN_FILE_SETTLE_DELAY,
+            arrival_measure: Arc::new(arrival_identity),
             #[cfg(target_os = "linux")]
             process_path_opener: Arc::new(|path| open_linux_process_path(path, libc::O_PATH)),
         }
@@ -85,68 +95,76 @@ impl ArtifactResolver {
             .build()
             .expect("artifact resolver timer runtime");
         let mut settling = WrittenFileSettler::new(self.settle_delay);
+        // The receive loop makes no file system call: arrival opens run on
+        // their own threads and report back here.
+        let mut arrivals =
+            written_files.then(|| ArrivalMeasurer::new(Arc::clone(&self.arrival_measure)));
         let mut channel_closed = false;
         loop {
             let now = Instant::now();
+            if let Some(arrivals) = arrivals.as_mut() {
+                let expired = arrivals.expire(now);
+                self.state
+                    .counters
+                    .open_failed
+                    .fetch_add(expired as u64, Ordering::Relaxed);
+                while let Some((id, measured)) = arrivals.try_recv() {
+                    if let Some(measured) = arrivals.accept(id, measured) {
+                        self.settle_measured(measured, &mut settling);
+                    }
+                }
+            }
             if let Some(job) = settling.pop_ready(now) {
                 self.dispatch_job(job, &open, &mut pool, &mut latest_deadline);
                 continue;
             }
-            let wait = settling
-                .next_deadline()
-                .map(|deadline| deadline.saturating_duration_since(now));
-            if channel_closed {
-                let Some(wait) = wait else {
-                    break;
-                };
-                std::thread::sleep(wait);
-                continue;
+            let wake_at = [
+                settling.next_deadline(),
+                arrivals.as_ref().and_then(ArrivalMeasurer::next_deadline),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            let wait = wake_at.map(|at| at.saturating_duration_since(now));
+            let arrivals_idle = arrivals.as_ref().is_none_or(ArrivalMeasurer::is_idle);
+            if channel_closed && wait.is_none() && arrivals_idle {
+                break;
             }
-            // Keep receiving at capacity: duplicate writes still refresh the
-            // debounce deadline, and vanished targets can free their slots.
-            let received = match wait {
-                Some(wait) => timer
-                    .block_on(async { tokio::time::timeout(wait, rx.recv()).await })
-                    .ok(),
-                None => Some(timer.block_on(rx.recv())),
-            };
-            let job = match received {
-                Some(Some(job)) => job,
-                Some(None) => {
+            let event = timer.block_on(async {
+                tokio::select! {
+                    job = rx.recv(), if !channel_closed => LoopEvent::Job(job),
+                    measured = async {
+                        match arrivals.as_mut() {
+                            Some(arrivals) => arrivals.recv().await,
+                            None => std::future::pending().await,
+                        }
+                    } => LoopEvent::Measured(measured),
+                    () = async {
+                        match wait {
+                            Some(wait) => tokio::time::sleep(wait).await,
+                            None => std::future::pending().await,
+                        }
+                    } => LoopEvent::Wake,
+                }
+            });
+            let job = match event {
+                LoopEvent::Job(Some(job)) => job,
+                LoopEvent::Job(None) => {
                     channel_closed = true;
                     continue;
                 }
-                None => continue,
-            };
-            if written_files {
-                let Some(job) = self.measure_arrival_identity(job, &settling) else {
+                LoopEvent::Measured(Some((id, measured))) => {
+                    if let Some(measured) = arrivals.as_mut().and_then(|a| a.accept(id, measured)) {
+                        self.settle_measured(measured, &mut settling);
+                    }
                     continue;
-                };
-                if settling.is_full_for(&job.target) {
-                    let missing = settling.reclaim_missing(Path::try_exists);
-                    // These files would fail to open after settling anyway.
-                    // Count them as absent, not as scans shed under pressure.
-                    self.state
-                        .counters
-                        .open_failed
-                        .fetch_add(missing as u64, Ordering::Relaxed);
                 }
-                match settling.insert(job) {
-                    Ok(true) => {
-                        self.state
-                            .counters
-                            .written_file_coalesced
-                            .fetch_add(1, Ordering::Relaxed);
-                    }
-                    Ok(false) => {}
-                    Err(job) => {
-                        self.state.record_drop(job.target.kind);
-                        self.state
-                            .counters
-                            .queue_saturated
-                            .fetch_add(1, Ordering::Relaxed);
-                    }
-                }
+                LoopEvent::Measured(None) | LoopEvent::Wake => continue,
+            };
+            if let Some(arrivals) = arrivals.as_mut() {
+                // Keep receiving at capacity: duplicate writes still refresh the
+                // debounce deadline, and vanished targets can free their slots.
+                self.submit_arrival(job, arrivals, &mut settling);
             } else {
                 self.dispatch_job(job, &open, &mut pool, &mut latest_deadline);
             }
@@ -157,42 +175,59 @@ impl ArtifactResolver {
         info!(target: "artifact", "Artifact resolver worker stopped");
     }
 
-    /// Bind a written-file job whose sensor reports no object identity to the
-    /// object at its path now, before the settle delay. See
-    /// [`super::target::measures_identity_on_arrival`]. Returns `None` for a job that cannot
-    /// be bound, which is counted and skipped.
-    fn measure_arrival_identity(
+    /// Queue a written-file job for the settle table, first binding it to the
+    /// object at its path when the sensor reports no object identity. See
+    /// [`super::target::measures_identity_on_arrival`]. The open runs off this
+    /// thread; a job that cannot be bound is counted and skipped.
+    fn submit_arrival(
         &self,
         mut job: ArtifactJob,
-        settling: &WrittenFileSettler,
-    ) -> Option<ArtifactJob> {
-        if job.target.expected.is_some() {
-            return Some(job);
+        arrivals: &mut ArrivalMeasurer,
+        settling: &mut WrittenFileSettler,
+    ) {
+        if job.target.expected.is_none() {
+            // Only a create or rename can put another object at the path, so a
+            // write to a pending path keeps its object. This spares one open per
+            // write, which a large file makes in the thousands.
+            let known = job
+                .target
+                .content_write
+                .then(|| settling.measured_object(&job.target.path))
+                .flatten();
+            let Some(object) = known else {
+                let deadline_at = job
+                    .enqueued_at
+                    .checked_add(self.settle_delay)
+                    .and_then(|at| at.checked_add(job.plan.deadline))
+                    .unwrap_or_else(Instant::now);
+                if let Submit::Saturated(job) = arrivals.submit(job, deadline_at) {
+                    self.state.record_drop(job.target.kind);
+                    self.state
+                        .counters
+                        .queue_saturated
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                return;
+            };
+            job.target.expected = Some(ExpectedIdentity::Object(object));
+            job.target.measured_on_arrival = true;
         }
-        // Only a create or rename can put another object at the path, so a
-        // write to a pending path keeps its object. This spares one open per
-        // write, which a large file makes in the thousands.
-        let measured = if job.target.content_write {
-            settling.measured_object(&job.target.path)
-        } else {
-            None
-        };
-        let measured = match measured {
-            Some(object) => ArrivalIdentity::Measured(object),
-            None => arrival_identity(&job.target.path),
-        };
-        match measured {
+        self.settle_job(job, settling);
+    }
+
+    fn settle_measured(&self, measured: Measured, settling: &mut WrittenFileSettler) {
+        let Measured { mut job, identity } = measured;
+        match identity {
             ArrivalIdentity::Measured(object) => {
                 job.target.expected = Some(ExpectedIdentity::Object(object));
                 job.target.measured_on_arrival = true;
-                Some(job)
+                self.settle_job(job, settling);
             }
             ArrivalIdentity::Unsupported => {
                 self.state
                     .counters
                     .identity_unavailable
                     .fetch_add(1, Ordering::Relaxed);
-                None
             }
             ArrivalIdentity::OpenFailed => {
                 // Usually a temporary file already removed by its writer.
@@ -200,7 +235,34 @@ impl ArtifactResolver {
                     .counters
                     .open_failed
                     .fetch_add(1, Ordering::Relaxed);
-                None
+            }
+        }
+    }
+
+    fn settle_job(&self, job: ArtifactJob, settling: &mut WrittenFileSettler) {
+        if settling.is_full_for(&job.target) {
+            let missing = settling.reclaim_missing(Path::try_exists);
+            // These files would fail to open after settling anyway.
+            // Count them as absent, not as scans shed under pressure.
+            self.state
+                .counters
+                .open_failed
+                .fetch_add(missing as u64, Ordering::Relaxed);
+        }
+        match settling.insert(job) {
+            Ok(true) => {
+                self.state
+                    .counters
+                    .written_file_coalesced
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(false) => {}
+            Err(job) => {
+                self.state.record_drop(job.target.kind);
+                self.state
+                    .counters
+                    .queue_saturated
+                    .fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -981,6 +1043,75 @@ mod tests {
             ),
             "a skipped job must release admission immediately"
         );
+    }
+
+    #[test]
+    fn a_blocked_arrival_open_does_not_stall_the_receive_loop() {
+        let temp = tempfile::tempdir().unwrap();
+        let blocked_path = temp.path().join("blocked.exe");
+        let free_path = temp.path().join("free.exe");
+        std::fs::write(&blocked_path, b"artifact").unwrap();
+        std::fs::write(&free_path, b"artifact").unwrap();
+
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let blocked_for_measure = blocked_path.clone();
+        let (opened_tx, opened_rx) = std::sync::mpsc::channel::<std::path::PathBuf>();
+        let opened_tx = std::sync::Mutex::new(opened_tx);
+        let open: ArtifactOpener = Arc::new(move |path| {
+            let _ = opened_tx.lock().unwrap().send(path.to_path_buf());
+            File::open(path)
+        });
+
+        let state = Arc::new(ResolverState::new());
+        let mut resolver = ArtifactResolver::new(
+            Arc::new(HostState::default()),
+            ArtifactRuntime::capture(Platform::Windows),
+            Arc::clone(&state),
+        );
+        resolver.settle_delay = Duration::from_millis(20);
+        resolver.arrival_measure = Arc::new(move |path| {
+            if path == blocked_for_measure {
+                let _ = release_rx.lock().unwrap().recv();
+            }
+            ArrivalIdentity::Measured(crate::models::FileObjectIdentity {
+                device: 1,
+                inode: 1,
+            })
+        });
+
+        let job = |path: &Path| {
+            let mut job = settling_job(&path.to_string_lossy(), 1, Instant::now());
+            job.target.expected = None;
+            job.plan.deadline = Duration::from_millis(100);
+            job
+        };
+        let (tx, mut rx) = mpsc::channel(4);
+        tx.blocking_send(job(&blocked_path)).unwrap();
+        tx.blocking_send(job(&free_path)).unwrap();
+
+        let worker = std::thread::spawn({
+            let resolver = resolver.clone();
+            move || resolver.run_queue(&mut rx, open, true)
+        });
+        // The second job settles and reaches the opener while the first
+        // arrival open is still blocked.
+        assert_eq!(
+            opened_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            free_path
+        );
+        // The blocked open is counted as failed at its deadline.
+        let started = Instant::now();
+        while state.snapshot().open_failed == 0 {
+            assert!(started.elapsed() < Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(tx);
+        worker.join().unwrap();
+        assert_eq!(state.snapshot().open_failed, 1);
+        // A late result is ignored: the blocked file is never opened.
+        release_tx.send(()).unwrap();
+        assert!(opened_rx.recv_timeout(Duration::from_millis(200)).is_err());
     }
 
     #[test]
