@@ -24,9 +24,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# rust-cache: keys hash rust-toolchain.toml (part of the lockfile key), not
-# every toolchain preinstalled on the runner image, so image rollouts do not
-# split each job's cache in two. Only main saves; PRs restore main's caches,
+# rust-cache hashes every toolchain `rustup toolchain list` shows into its key,
+# so each job first removes the runner image's own toolchains: otherwise image
+# rollouts split every cache in two. The key keeps its lockfile hash
+# (Cargo.lock, manifests, rust-toolchain.toml), so a bump makes a new key that
+# falls back to the previous cache. Only main saves; PRs restore main's caches,
 # which keeps the repo under the 10 GB cache cap.
 jobs:
   fmt:
@@ -138,9 +140,14 @@ jobs:
         with:
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # One cache per leg: they build different things, and a shared key
           # let the quicker 5.10 leg save first, so the runner leg's debug
@@ -222,9 +229,14 @@ jobs:
           components: clippy
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -245,9 +257,14 @@ jobs:
           components: clippy
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked --all-targets -- -D clippy::all
 
@@ -263,9 +280,14 @@ jobs:
           components: clippy
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked --all-targets -- -D clippy::all
 
@@ -281,9 +303,14 @@ jobs:
         with:
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -331,9 +358,14 @@ jobs:
         with:
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --locked --verbose
       - name: Test process-memory scanning (elevated runner)
@@ -365,9 +397,14 @@ jobs:
         with:
           cache: false
           rustflags: ""
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --locked --verbose
       - name: Test process termination against a spawned child
@@ -409,9 +446,14 @@ jobs:
           cache: false
           rustflags: ""
 
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Download eBPF artifact
@@ -522,9 +564,14 @@ jobs:
           cache: false
           rustflags: ""
 
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Each shard builds its own binary: with a warm cache that beats a
@@ -641,9 +688,14 @@ jobs:
           cache: false
           rustflags: ""
 
+      - name: Keep only the pinned toolchain
+        shell: bash
+        run: |
+          pin="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain list --quiet | tr -d '\r' | { grep -v "^${pin}-" || true; } |
+            xargs -r -n1 rustup toolchain uninstall
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          add-rust-environment-hash-key: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build main binary
