@@ -52,6 +52,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check pinned SigmaHQ compatibility
         env:
           RUSTINEL_EBPF_STUB: "1"

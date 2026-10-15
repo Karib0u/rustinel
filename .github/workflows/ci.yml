@@ -24,6 +24,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# rust-cache: keys hash rust-toolchain.toml (part of the lockfile key), not
+# every toolchain preinstalled on the runner image, so image rollouts do not
+# split each job's cache in two. Only main saves; PRs restore main's caches,
+# which keeps the repo under the 10 GB cache cap.
 jobs:
   fmt:
     name: Rustfmt
@@ -95,6 +99,11 @@ jobs:
           rustflags: ""
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Keeps the toolchain hash: the nightly and bpf-linker pins live in
+          # this job, so a pin bump must change the key and drop the cached
+          # bpf-linker binary.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install bpf-linker
         run: command -v bpf-linker >/dev/null 2>&1 || cargo install bpf-linker --version 0.10.4 --locked
@@ -130,6 +139,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -207,6 +219,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -227,6 +242,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked --all-targets -- -D clippy::all
 
   clippy-macos:
@@ -242,6 +260,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked --all-targets -- -D clippy::all
 
   test-linux:
@@ -257,6 +278,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Download eBPF artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -304,6 +328,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --locked --verbose
       - name: Test process-memory scanning (elevated runner)
         run: |
@@ -335,6 +362,9 @@ jobs:
           cache: false
           rustflags: ""
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --locked --verbose
       - name: Test process termination against a spawned child
         run: |
@@ -360,10 +390,8 @@ jobs:
           test_binary="$(cargo test --locked --lib --no-run --message-format=json | jq -r 'select(.reason == "compiler-artifact" and .target.kind == ["lib"] and .executable != null) | .executable')"
           sudo "$test_binary" integration_group_ --ignored --test-threads=1
 
-  # The release binary is built once per OS and shared by every atomic shard,
-  # so sharding Windows does not pay the build twice.
-  atomic-build:
-    name: Atomic build (${{ matrix.platform }})
+  atomic:
+    name: ${{ matrix.shard == '1/1' && format('Atomic ({0})', matrix.platform) || format('Atomic ({0} shard {1})', matrix.platform, matrix.shard) }}
     if: ${{ !inputs.skip_atomics }}
     runs-on: ${{ matrix.os }}
     needs: ebpf-build
@@ -373,53 +401,8 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            binary: rustinel
-          - os: windows-latest
-            platform: windows
-            binary: rustinel.exe
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          cache: false
-          rustflags: ""
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-      - name: Download eBPF artifact
-        if: matrix.platform == 'linux'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: rustinel-ebpf-object
-          path: ebpf/
-
-      - name: Build PR binary
-        run: cargo build --locked --release
-
-      - name: Upload binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: atomic-binary-${{ matrix.platform }}
-          path: target/release/${{ matrix.binary }}
-          retention-days: 1
-          if-no-files-found: error
-
-  atomic:
-    name: ${{ matrix.shard == '1/1' && format('Atomic ({0})', matrix.platform) || format('Atomic ({0} shard {1})', matrix.platform, matrix.shard) }}
-    if: ${{ !inputs.skip_atomics }}
-    runs-on: ${{ matrix.os }}
-    needs: atomic-build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
             shard: 1/1
-          # Windows runs its ~30 atomics sequentially and is the long pole, so
+          # Windows runs its ~75 atomics sequentially and is the long pole, so
           # it is split across two runners.
           - os: windows-latest
             platform: windows
@@ -432,15 +415,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download PR binary
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+          rustflags: ""
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Download eBPF artifact
+        if: matrix.platform == 'linux'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: atomic-binary-${{ matrix.platform }}
-          path: target/release/
+          name: rustinel-ebpf-object
+          path: ebpf/
 
-      - name: Restore executable bit (Linux)
-        if: matrix.platform == 'linux'
-        run: chmod +x target/release/rustinel
+      # Each shard builds its own binary. With a warm cache this is quicker
+      # than a shared build job plus an artifact hop, and the Linux leg does
+      # not wait on the Windows build.
+      - name: Build PR binary
+        run: cargo build --locked --release
 
       - name: Run native capture contract (Windows)
         if: matrix.platform == 'windows' && matrix.shard == '1/2'
@@ -586,6 +582,9 @@ jobs:
           rustflags: ""
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build main binary
         run: cargo build --locked --release
