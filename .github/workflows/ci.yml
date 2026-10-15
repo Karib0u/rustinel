@@ -360,8 +360,10 @@ jobs:
           test_binary="$(cargo test --locked --lib --no-run --message-format=json | jq -r 'select(.reason == "compiler-artifact" and .target.kind == ["lib"] and .executable != null) | .executable')"
           sudo "$test_binary" integration_group_ --ignored --test-threads=1
 
-  atomic:
-    name: Atomic (${{ matrix.platform }})
+  # The release binary is built once per OS and shared by every atomic shard,
+  # so sharding Windows does not pay the build twice.
+  atomic-build:
+    name: Atomic build (${{ matrix.platform }})
     if: ${{ !inputs.skip_atomics }}
     runs-on: ${{ matrix.os }}
     needs: ebpf-build
@@ -371,8 +373,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            binary: rustinel
           - os: windows-latest
             platform: windows
+            binary: rustinel.exe
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -395,8 +399,51 @@ jobs:
       - name: Build PR binary
         run: cargo build --locked --release
 
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: atomic-binary-${{ matrix.platform }}
+          path: target/release/${{ matrix.binary }}
+          retention-days: 1
+          if-no-files-found: error
+
+  atomic:
+    name: ${{ matrix.shard == '1/1' && format('Atomic ({0})', matrix.platform) || format('Atomic ({0} shard {1})', matrix.platform, matrix.shard) }}
+    if: ${{ !inputs.skip_atomics }}
+    runs-on: ${{ matrix.os }}
+    needs: atomic-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            shard: 1/1
+          # Windows runs its ~30 atomics sequentially and is the long pole, so
+          # it is split across two runners.
+          - os: windows-latest
+            platform: windows
+            shard: 1/2
+          - os: windows-latest
+            platform: windows
+            shard: 2/2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download PR binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: atomic-binary-${{ matrix.platform }}
+          path: target/release/
+
+      - name: Restore executable bit (Linux)
+        if: matrix.platform == 'linux'
+        run: chmod +x target/release/rustinel
+
       - name: Run native capture contract (Windows)
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && matrix.shard == '1/2'
         run: python tests\native_capture_contract.py --binary "$env:GITHUB_WORKSPACE\target\release\rustinel.exe"
         shell: pwsh
 
@@ -454,7 +501,8 @@ jobs:
             --engine-bin "$GITHUB_WORKSPACE/scripts/atomic_managed_service.sh" \
             --engine-dir /opt/rustinel \
             --rules-dir "$GITHUB_WORKSPACE/rustinel-rules" \
-            --pack auto
+            --pack auto \
+            --shard "${{ matrix.shard }}"
         shell: bash
 
       - name: Run atomic tests (Windows)
@@ -479,7 +527,8 @@ jobs:
             --engine-bin "$env:GITHUB_WORKSPACE\target\release\rustinel.exe" `
             --engine-dir "$env:GITHUB_WORKSPACE\rustinel-rules\tests\atomic\.engine" `
             --rules-dir "$env:GITHUB_WORKSPACE\rustinel-rules" `
-            --pack auto
+            --pack auto `
+            --shard "${{ matrix.shard }}"
         shell: pwsh
 
       - name: Prepare atomic logs for upload (Unix)
@@ -499,7 +548,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: atomic-${{ matrix.platform }}
+          name: atomic-${{ matrix.platform }}-${{ strategy.job-index }}
           path: |
             rustinel-rules/tests/atomic/report-*.json
             rustinel-rules/tests/atomic/.engine/engine.stdout.log
@@ -508,6 +557,19 @@ jobs:
             rustinel-rules/tests/atomic/managed-logs/
           include-hidden-files: true
           if-no-files-found: warn
+
+  # Branch protection requires "Atomic (windows)", so keep that name as the
+  # roll-up of the Windows shards.
+  atomic-windows:
+    name: Atomic (windows)
+    needs: atomic
+    if: ${{ always() && !inputs.skip_atomics }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every atomic shard to pass
+        env:
+          RESULT: ${{ needs.atomic.result }}
+        run: '[ "$RESULT" = "success" ]'
 
   atomic-macos:
     name: Atomic (macOS)
@@ -522,6 +584,8 @@ jobs:
         with:
           cache: false
           rustflags: ""
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build main binary
         run: cargo build --locked --release
