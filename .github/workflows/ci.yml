@@ -150,6 +150,9 @@ jobs:
             --artifacts-dir .ci/ebpf-load-runner
           sudo -E python3 tests/native_capture_contract.py \
             --binary "$GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/release/rustinel"
+      - name: Run live eBPF tests on runner kernel
+        if: matrix.kernel == 'runner'
+        run: tests/ebpf_live_tests.sh
       - name: Check graceful systemd stop on runner kernel
         if: matrix.kernel == 'runner'
         run: |
@@ -177,7 +180,8 @@ jobs:
               --binary /host/target/x86_64-unknown-linux-gnu/release/rustinel \
               --ebpf-object /host/.ci/ebpf-object/rustinel-ebpf.o \
               --rules-dir /host/rules/sigma \
-              --artifacts-dir /host/.ci/ebpf-load-5.10
+              --artifacts-dir /host/.ci/ebpf-load-5.10 \
+              --expected-degradations /host/tests/ebpf_expected_degradations_5.10.txt
             python3 /host/tests/native_capture_contract.py \
               --binary /host/target/x86_64-unknown-linux-gnu/release/rustinel
       - name: Upload eBPF load diagnostics
@@ -259,6 +263,9 @@ jobs:
           name: rustinel-ebpf-object
           path: ebpf/
       - run: cargo test --locked --verbose
+      - name: Test the eBPF smoke test's degradation detection
+        run: python3 tests/test_ebpf_load_smoke.py
+
       - name: Test process termination against a spawned child
         run: |
           cargo build --locked --example memory_target
@@ -271,6 +278,8 @@ jobs:
           {
             cargo test --locked --lib -- --nocapture trust:: windows_acl::
             cargo test --locked --test yara_disk -- --nocapture unreadable
+            cargo test --locked --lib -- --nocapture running_kernel
+            cargo test --locked --test linux_socket_tuple -- --nocapture running_kernel
           } 2>&1 | tee conditional-tests.log
           {
             echo "### Conditional tests"
