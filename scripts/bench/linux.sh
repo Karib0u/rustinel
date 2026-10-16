@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# awk and sort are locale sensitive: a decimal comma makes summary.json invalid JSON.
+export LC_ALL=C
+
 MODE="with-agent"
 AGENT_PATH="./target/release/rustinel"
 AGENT_ARGS="run"
@@ -11,6 +14,7 @@ PROCESS_LAUNCHES=500
 FILE_COUNT=2000
 FILE_SIZE_BYTES=1024
 ALERT_GLOB="./logs/alerts.json*"
+TELEMETRY_PATH=""
 ALERT_RULE_NAME="Rustinel Benchmark Whoami Linux"
 SIGMA_RULES_PATH="./rules/sigma"
 YARA_RULES_PATH="./rules/yara"
@@ -39,6 +43,7 @@ Options:
   --file-count N
   --file-size-bytes N
   --alert-glob GLOB
+  --telemetry-path FILE   telemetry.json written by the agent (default: next to the alert files)
   --alert-rule-name NAME
   --sigma-rules-path DIR
   --yara-rules-path DIR
@@ -66,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --file-count) FILE_COUNT="$2"; shift 2 ;;
     --file-size-bytes) FILE_SIZE_BYTES="$2"; shift 2 ;;
     --alert-glob) ALERT_GLOB="$2"; shift 2 ;;
+    --telemetry-path) TELEMETRY_PATH="$2"; shift 2 ;;
     --alert-rule-name) ALERT_RULE_NAME="$2"; shift 2 ;;
     --sigma-rules-path) SIGMA_RULES_PATH="$2"; shift 2 ;;
     --yara-rules-path) YARA_RULES_PATH="$2"; shift 2 ;;
@@ -117,6 +123,10 @@ EFFECTIVE_SIGMA_RULES_PATH="$SIGMA_RULES_PATH"
 timestamp="$(date -u +%Y%m%d-%H%M%S)"
 RUN_DIR="$OUTPUT_DIR/$MODE-linux-$timestamp"
 mkdir -p "$RUN_DIR"
+if [[ -z "$TELEMETRY_PATH" ]]; then
+  first_alert_glob="${ALERT_GLOB%% *}"
+  TELEMETRY_PATH="$(dirname "$first_alert_glob")/telemetry.json"
+fi
 SAMPLES_PATH="$RUN_DIR/resource-samples.csv"
 STEPS_PATH="$RUN_DIR/workload-steps.jsonl"
 SUMMARY_PATH="$RUN_DIR/summary.json"
@@ -161,6 +171,17 @@ idle_has_agent_samples() {
   awk -F, 'NR > 1 && $2 == "idle" && ($3 + 0) > 0 { found = 1 } END { exit found ? 0 : 1 }' "$SAMPLES_PATH"
 }
 
+# The agent hardens alert files to root 0600. When the harness runs as a normal
+# user the count would silently stay 0, which looks exactly like a missed
+# detection, so read through sudo when the file is not readable.
+read_alert_file() {
+  if [[ -r "$1" ]]; then
+    cat "$1" 2>/dev/null
+  else
+    sudo -n cat "$1" 2>/dev/null
+  fi
+}
+
 alert_line_count() {
   shopt -s nullglob
   local total=0
@@ -168,9 +189,9 @@ alert_line_count() {
   for file in $ALERT_GLOB; do
     if [[ -f "$file" ]]; then
       if [[ -n "$ALERT_RULE_NAME" ]]; then
-        total=$((total + $(grep -F -c "\"rule.name\":\"$ALERT_RULE_NAME\"" "$file" 2>/dev/null || true)))
+        total=$((total + $(read_alert_file "$file" | grep -F -c "\"rule.name\":\"$ALERT_RULE_NAME\"" || true)))
       else
-        total=$((total + $(wc -l < "$file")))
+        total=$((total + $(read_alert_file "$file" | wc -l)))
       fi
     fi
   done
@@ -198,7 +219,7 @@ detection:
   selection:
     Image|endswith: '/whoami'
   condition: selection
-level: low
+level: critical
 YAML
   EFFECTIVE_SIGMA_RULES_PATH="$dest"
 }
@@ -400,12 +421,50 @@ measure_alert_latency() {
   echo "null"
 }
 
+# Dropped events per pipeline channel and sensor category, from the agent's
+# telemetry.json. A run that shed events must not count as valid.
+telemetry_drop_json() {
+  if [[ ! -f "$TELEMETRY_PATH" ]] && ! sudo -n test -f "$TELEMETRY_PATH" 2>/dev/null; then
+    echo '{"available":false,"dropped_total":null}'
+    return
+  fi
+  command -v python3 >/dev/null 2>&1 || { echo '{"available":false,"dropped_total":null}'; return; }
+  read_alert_file "$TELEMETRY_PATH" | python3 -c '
+import json, sys
+try:
+    t = json.load(sys.stdin)
+except Exception:
+    print(json.dumps({"available": False, "dropped_total": None})); sys.exit()
+ch = {c["channel"]: c.get("dropped", 0) for c in t.get("channels", []) if c.get("dropped", 0)}
+cat = {c["category"]: c.get("dropped", 0) for c in t.get("sensor_events_by_category", []) if c.get("dropped", 0)}
+print(json.dumps({"available": True, "dropped_total": sum(ch.values()), "channels": ch, "categories": cat, "captured_at": t.get("captured_at")}))
+'
+}
+
+stop_started_agent() {
+  [[ -n "$STARTED_AGENT_PID" ]] || return 0
+  echo "Stopping Rustinel process $STARTED_AGENT_PID"
+  # STARTED_AGENT_PID can be the pid of sudo, so signal the agent by name.
+  if [[ "$EUID" -eq 0 ]]; then
+    pkill -INT -x "$PROCESS_NAME" 2>/dev/null || true
+  else
+    sudo -n pkill -INT -x "$PROCESS_NAME" 2>/dev/null || kill -INT "$STARTED_AGENT_PID" 2>/dev/null || true
+  fi
+  local i
+  for i in $(seq 1 60); do
+    [[ -z "$(find_pids)" ]] && break
+    sleep 0.5
+  done
+  if [[ -n "$(find_pids)" ]]; then
+    if [[ "$EUID" -eq 0 ]]; then pkill -9 -x "$PROCESS_NAME" 2>/dev/null || true
+    else sudo -n pkill -9 -x "$PROCESS_NAME" 2>/dev/null || kill -9 "$STARTED_AGENT_PID" 2>/dev/null || true; fi
+  fi
+  STARTED_AGENT_PID=""
+}
+
 cleanup() {
   if [[ -n "$STARTED_AGENT_PID" && "$KEEP_AGENT" -eq 0 ]]; then
-    echo "Stopping Rustinel process $STARTED_AGENT_PID"
-    kill "$STARTED_AGENT_PID" 2>/dev/null || true
-    sleep 2
-    kill -9 "$STARTED_AGENT_PID" 2>/dev/null || true
+    stop_started_agent
   fi
 }
 trap cleanup EXIT
@@ -494,6 +553,23 @@ if [[ "$RUN_CARGO_WORKLOAD" -eq 1 ]]; then
   run_step "cargo_build_release" workload_cargo_build
 fi
 ALERT_LATENCY_MS="$(measure_alert_latency)"
+TELEMETRY_JSON='{"available":false,"dropped_total":null}'
+if [[ "$MODE" == "with-agent" ]]; then
+  if [[ -n "$STARTED_AGENT_PID" && "$KEEP_AGENT" -eq 0 ]]; then
+    stop_started_agent   # the agent writes a final telemetry snapshot on shutdown
+  else
+    echo "Waiting for a fresh telemetry snapshot..."
+    sleep 35
+  fi
+  TELEMETRY_JSON="$(telemetry_drop_json)"
+  if [[ "$TELEMETRY_JSON" == *'"available": true'* ]]; then
+    if [[ "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["dropped_total"])' "$TELEMETRY_JSON")" != "0" ]]; then
+      add_validation_error "the agent dropped events: $TELEMETRY_JSON"
+    fi
+  else
+    add_validation_error "telemetry.json was not readable at $TELEMETRY_PATH, so event loss is unknown"
+  fi
+fi
 if [[ "$MODE" == "with-agent" && "$NO_ALERT_LATENCY" -eq 0 && "$ALERT_LATENCY_MS" == "null" ]]; then
   add_validation_error "with-agent alert latency was null"
 fi
@@ -552,6 +628,7 @@ cat > "$SUMMARY_PATH" <<JSON
   "resource_summaries": [$resources_json],
   "workload_steps": [$steps_json],
   "alert_latency_ms": $ALERT_LATENCY_MS,
+  "telemetry_drops": $TELEMETRY_JSON,
   "valid": $RUN_VALID,
   "validation_errors": [$validation_errors],
   "samples_csv": "$(json_escape "$SAMPLES_PATH")",

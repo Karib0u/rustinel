@@ -42,6 +42,9 @@ Details are in [`scripts/bench/README.md`](https://github.com/Karib0u/rustinel/b
 
 3. Read `target/rustinel-bench/<timestamp>/summary.json`.
    A run with `valid: false` must not back any claim; `validation_errors` says why.
+   A with-agent run is also invalid when `telemetry.json` reports dropped events or, on Windows, when ETW discarded events in the kernel buffer pool, so a run that shed telemetry can no longer pass as valid.
+   The trigger rule is `level: critical`, so SigmaHQ's own `whoami` rules cannot outrank it, and the Linux script sets `LC_ALL=C` so `summary.json` stays valid JSON in any locale.
+   Do not compare versions with the cargo step enabled, since each checkout rebuilds different code; pass `--skip-cargo` or `-SkipCargo`.
 
 Report medians, and keep the corpus, allowlists, build profile, and machine fixed across modes.
 Include the commit, `rules-bench/sources/metadata.json`, machine details, idle CPU and memory, workload slowdown, alert latency, and drop counters.
@@ -55,6 +58,62 @@ Include the commit, `rules-bench/sources/metadata.json`, machine details, idle C
 | Drops | | zero ETW drops in the default workload |
 | Slowdown | | process and file I/O within 5% of the previous with-agent run |
 | Workload | every step `ok` | every step `ok` |
+
+## Realistic and stress benchmark
+
+The runs above measure the cost of the agent at rest, with a short synthetic workload.
+`scripts/bench/realistic.py` measures a working machine instead, with the full rule corpus loaded, and finds where events start to be lost.
+It uses only the Python standard library and runs the same way on Windows, Linux, and macOS.
+
+1. Fetch a corpus that includes public IOC feeds and a realistic IOC volume:
+
+    ```bash
+    python scripts/rules/fetch_corpus.py --output rules-bench --force \
+      --public-iocs --synthetic-ioc 100000
+    ```
+
+    `--public-iocs` adds feeds that need no key: ET compromised IPs, ipsum (three or more lists), Spamhaus DROP, URLhaus online hosts, Phishing Army domains, and recent MalwareBazaar SHA-256.
+    `--synthetic-ioc N` pads IPs, domains, and hashes up to `N` each with values that cannot match real traffic (198.18.0.0/15, `.invalid`, hashes of a fixed label), to stress the lookup tables.
+    Add `--yara-forge-set extended` for a heavier YARA set.
+
+2. Run it elevated, once without the agent and once per version:
+
+    === "Linux and macOS"
+
+        ```bash
+        sudo python3 scripts/bench/realistic.py --mode baseline --idle-secs 0
+        sudo python3 scripts/bench/realistic.py --agent ./rustinel --corpus rules-bench
+        ```
+
+    === "Windows"
+
+        ```powershell
+        python scripts\bench\realistic.py --mode baseline --idle-secs 0
+        python scripts\bench\realistic.py --agent .\rustinel.exe --corpus rules-bench
+        ```
+
+3. Compare runs:
+
+    ```bash
+    python3 scripts/bench/realistic.py compare run-a/summary.json run-b/summary.json
+    ```
+
+The run has these phases, each reported with the agent's CPU and memory, sensor event rate, and the latency of the workload itself:
+
+| Phase | Default length | What happens |
+| --- | --- | --- |
+| `idle` | 60 s | The agent alone. |
+| `warmup` | 30 s | The steady mix, not used for verdicts. |
+| `steady` | 300 s | A desktop-like mix at 1x: short commands, editor-style saves, executable and archive drops, loopback and DNS traffic, a build burst every minute, and registry writes on Windows. |
+| `ramp_x2` to `ramp_x16` | 45 s each | The same mix at 2x, 4x, 8x, and 16x, to find where the first events are lost. |
+
+During every phase except `idle` the harness injects one canary per detection engine every 10 seconds (Sigma process, Sigma file, YARA, IOC IP, IOC domain) and records whether each one raised its alert and how late.
+It reads `telemetry.json` for dropped events per channel and per sensor category, and the kernel-side loss counters (eBPF rings, Endpoint Security) and the ETW buffer loss logged by the agent.
+
+A run is invalid if the agent exits, if any event is lost during `idle`, `warmup`, or `steady`, or if a steady-state canary is missed.
+Loss during the ramp is a result, not an error: `headroom.first_phase_with_loss` names the first step that lost events.
+Report the corpus metadata (`sources/metadata.json`), the machine, and the summary of each run.
+The workload is deterministic for a given `--seed`, but wall-clock rates on a busy host vary, so compare runs on the same machine and read the achieved `ops_per_s` in `summary.json` before trusting a ramp step.
 
 ## Micro-benchmarks
 
