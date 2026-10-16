@@ -120,6 +120,106 @@ class ProcStats:
         except Exception:
             return None
 
+    @staticmethod
+    def system_busy() -> tuple[float, float] | None:
+        """(busy, total) CPU seconds across all cores since boot."""
+        try:
+            if IS_WINDOWS:
+                import ctypes
+                from ctypes import wintypes
+
+                class FILETIME(ctypes.Structure):
+                    _fields_ = [("lo", wintypes.DWORD), ("hi", wintypes.DWORD)]
+
+                i, k, u = FILETIME(), FILETIME(), FILETIME()
+                ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(i), ctypes.byref(k), ctypes.byref(u))
+                v = lambda f: ((f.hi << 32) | f.lo) / 1e7
+                total = v(k) + v(u)  # kernel time includes idle
+                return total - v(i), total
+            if IS_MAC:
+                return None
+            with open("/proc/stat") as fh:
+                vals = [float(x) for x in fh.readline().split()[1:]]
+            idle = vals[3] + vals[4]
+            total = sum(vals[:8])
+            return total - idle, total
+        except Exception:
+            return None
+
+    def thread_cpu(self) -> dict[int, tuple[str, float]]:
+        """Cumulative CPU seconds per thread id, with the thread name when the OS has one."""
+        try:
+            if IS_WINDOWS:
+                return self._threads_windows()
+            if IS_MAC:
+                return {}
+            return self._threads_linux()
+        except Exception:
+            return {}
+
+    def _threads_linux(self):
+        out = {}
+        ticks = os.sysconf("SC_CLK_TCK")
+        for tid in os.listdir(f"/proc/{self.pid}/task"):
+            try:
+                with open(f"/proc/{self.pid}/task/{tid}/stat") as fh:
+                    raw = fh.read()
+            except OSError:
+                continue
+            name = raw[raw.index("(") + 1 : raw.rindex(")")]
+            fields = raw[raw.rindex(")") + 2 :].split()
+            out[int(tid)] = (name, (int(fields[11]) + int(fields[12])) / ticks)
+        return out
+
+    def _threads_windows(self):
+        import ctypes
+        from ctypes import wintypes
+
+        k32 = ctypes.windll.kernel32
+        k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k32.OpenThread.restype = wintypes.HANDLE
+
+        class THREADENTRY32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ThreadID", wintypes.DWORD),
+                ("th32OwnerProcessID", wintypes.DWORD),
+                ("tpBasePri", wintypes.LONG),
+                ("tpDeltaPri", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+            ]
+
+        class FILETIME(ctypes.Structure):
+            _fields_ = [("lo", wintypes.DWORD), ("hi", wintypes.DWORD)]
+
+        out = {}
+        snap = k32.CreateToolhelp32Snapshot(0x4, 0)  # TH32CS_SNAPTHREAD
+        if not snap or snap == wintypes.HANDLE(-1).value:
+            return out
+        try:
+            entry = THREADENTRY32()
+            entry.dwSize = ctypes.sizeof(entry)
+            ok = k32.Thread32First(snap, ctypes.byref(entry))
+            while ok:
+                if entry.th32OwnerProcessID == self.pid:
+                    h = k32.OpenThread(0x0800, False, entry.th32ThreadID)  # THREAD_QUERY_LIMITED_INFORMATION
+                    if h:
+                        c, e, k, u = FILETIME(), FILETIME(), FILETIME(), FILETIME()
+                        if k32.GetThreadTimes(h, ctypes.byref(c), ctypes.byref(e), ctypes.byref(k), ctypes.byref(u)):
+                            ticks = ((k.hi << 32) | k.lo) + ((u.hi << 32) | u.lo)
+                            name = ""
+                            buf = ctypes.c_wchar_p()
+                            if k32.GetThreadDescription(h, ctypes.byref(buf)) >= 0 and buf.value:
+                                name = buf.value
+                                k32.LocalFree(buf)
+                            out[entry.th32ThreadID] = (name, ticks / 1e7)
+                        k32.CloseHandle(h)
+                ok = k32.Thread32Next(snap, ctypes.byref(entry))
+        finally:
+            k32.CloseHandle(snap)
+        return out
+
     def _read_linux(self):
         with open(f"/proc/{self.pid}/stat") as fh:
             raw = fh.read()
@@ -186,6 +286,8 @@ class Sampler(threading.Thread):
         self.stop_flag = threading.Event()
         self.phase = "start"
         self.samples: list[tuple[str, float, float, float, int]] = []  # phase, t, cpu%, rss_mb, threads
+        self.thread_samples: list[tuple[str, float, dict]] = []  # phase, dt, {tid: (name, cpu seconds in the interval)}
+        self.system_samples: list[tuple[str, float]] = []  # phase, whole-machine busy percent
         self.lock = threading.Lock()
 
     def run(self):
@@ -194,9 +296,22 @@ class Sampler(threading.Thread):
             writer.writerow(["time", "phase", "cpu_percent", "rss_mb", "threads"])
             last = self.stats.read()
             last_t = now()
+            last_threads = self.stats.thread_cpu()
+            last_sys = self.stats.system_busy()
             while not self.stop_flag.wait(1.0):
                 cur = self.stats.read()
                 t = now()
+                threads = self.stats.thread_cpu()
+                if threads and last_threads:
+                    delta = {tid: (n, c - last_threads.get(tid, (n, 0.0))[1]) for tid, (n, c) in threads.items()}
+                    with self.lock:
+                        self.thread_samples.append((self.phase, t - last_t, delta))
+                last_threads = threads
+                sys_now = self.stats.system_busy()
+                if sys_now and last_sys and sys_now[1] > last_sys[1]:
+                    with self.lock:
+                        self.system_samples.append((self.phase, (sys_now[0] - last_sys[0]) / (sys_now[1] - last_sys[1]) * 100.0))
+                last_sys = sys_now
                 if cur is None or last is None:
                     last, last_t = cur, t
                     continue
@@ -205,6 +320,21 @@ class Sampler(threading.Thread):
                     self.samples.append((self.phase, t, cpu, cur[1], cur[2]))
                 writer.writerow([f"{t:.2f}", self.phase, f"{cpu:.2f}", f"{cur[1]:.1f}", cur[2]])
                 last, last_t = cur, t
+
+    def thread_summary(self, phase: str, top: int = 6) -> list[dict]:
+        """The busiest threads of a phase: average and peak percent of one core."""
+        with self.lock:
+            rows = [s for s in self.thread_samples if s[0] == phase]
+        per: dict[int, dict] = {}
+        for _, dt, delta in rows:
+            for tid, (name, cpu) in delta.items():
+                e = per.setdefault(tid, {"name": name, "cpu": 0.0, "peak": 0.0})
+                e["cpu"] += cpu
+                e["peak"] = max(e["peak"], cpu / max(dt, 1e-6) * 100.0)
+                e["name"] = e["name"] or name
+        total = sum(dt for _, dt, _ in rows) or 1.0
+        ranked = sorted(per.items(), key=lambda kv: -kv[1]["cpu"])[:top]
+        return [{"tid": tid, "name": e["name"], "avg_percent": r(e["cpu"] / total * 100.0, 1), "peak_percent": r(e["peak"], 1)} for tid, e in ranked]
 
     def summary(self, phase: str) -> dict:
         with self.lock:
@@ -221,6 +351,8 @@ class Sampler(threading.Thread):
             "rss_avg_mb": r(statistics.mean(rss), 1),
             "rss_max_mb": r(max(rss), 1),
             "threads_max": max(s[4] for s in rows),
+            "top_threads": self.thread_summary(phase),
+            "machine_cpu_avg_percent": r(statistics.mean([c for p_, c in self.system_samples if p_ == phase]), 1) if any(p_ == phase for p_, _ in self.system_samples) else None,
         }
 
 
@@ -1060,6 +1192,9 @@ def run(args) -> int:
                 phase["events"] = {
                     "sensor_events_accepted": sensor.get("accepted"),
                     "sensor_events_per_s": r((sensor.get("accepted") or 0) / elapsed, 1),
+                }
+                phase["events"]["accepted_by_category_per_s"] = {
+                    k: r(v["accepted"] / elapsed, 1) for k, v in sorted(d["categories"].items(), key=lambda kv: -kv[1]["accepted"]) if v["accepted"]
                 }
                 phase["dropped_by_channel"] = {k: v["dropped"] for k, v in d["channels"].items() if v["dropped"]}
                 phase["dropped_by_category"] = {k: v["dropped"] for k, v in d["categories"].items() if v["dropped"]}

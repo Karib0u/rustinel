@@ -107,6 +107,10 @@ The run has these phases, each reported with the agent's CPU and memory, sensor 
 | `steady` | 300 s | A desktop-like mix at 1x: short commands, editor-style saves, executable and archive drops, loopback and DNS traffic, a build burst every minute, and registry writes on Windows. |
 | `ramp_x2` to `ramp_x16` | 45 s each | The same mix at 2x, 4x, 8x, and 16x, to find where the first events are lost. |
 
+Each phase of `summary.json` also lists the accepted events per second for every sensor category, the whole-machine CPU percentage, and the six busiest agent threads with their average and peak percent of one core (Windows and Linux).
+A peak near 100% on one thread means that thread is the ceiling.
+A busy machine with no hot thread means the workload is competing with the agent for cores, so a loss at that step says little about the agent itself.
+
 During every phase except `idle` the harness injects one canary per detection engine every 10 seconds (Sigma process, Sigma file, YARA, IOC IP, IOC domain) and records whether each one raised its alert and how late.
 It reads `telemetry.json` for dropped events per channel and per sensor category, and the kernel-side loss counters (eBPF rings, Endpoint Security) and the ETW buffer loss logged by the agent.
 
