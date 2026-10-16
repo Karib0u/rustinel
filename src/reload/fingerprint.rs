@@ -111,7 +111,14 @@ pub(super) fn fingerprint_dir(root: &Path, extensions: &[&str]) -> Fingerprint {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            // `file_type()` is free on most platforms; only a symlink needs a stat to
+            // learn whether it points at a directory.
+            let is_dir = match entry.file_type() {
+                Ok(file_type) if file_type.is_symlink() => path.is_dir(),
+                Ok(file_type) => file_type.is_dir(),
+                Err(_) => path.is_dir(),
+            };
+            if is_dir {
                 queue.push_back(path);
                 continue;
             }
@@ -121,8 +128,9 @@ pub(super) fn fingerprint_dir(root: &Path, extensions: &[&str]) -> Fingerprint {
             }
 
             if let Ok(meta) = entry.metadata() {
-                let normalized = normalize_path(&path);
-                normalized.hash(&mut hasher);
+                // The root is canonical, so entries beneath it need no per-file
+                // canonicalize.
+                path.hash(&mut hasher);
                 meta.len().hash(&mut hasher);
                 modified_nanos(&meta).hash(&mut hasher);
                 file_count += 1;

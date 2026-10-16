@@ -122,8 +122,73 @@ fn should_wake_reload(kind: &notify::EventKind) -> bool {
     !kind.is_access()
 }
 
+/// Decides which filesystem events are worth a fingerprint pass.
+///
+/// Non-recursive targets (the config directory and the IOC parents) are shared
+/// with unrelated files such as logs and state, so only events naming one of the
+/// watched files wake the poller. Events under a recursive rule root always wake it.
+#[derive(Debug, Default)]
+struct EventFilter {
+    rule_roots: Vec<PathBuf>,
+    file_names: Vec<std::ffi::OsString>,
+}
+
+impl EventFilter {
+    fn new(
+        scanner_cfg: &ScannerConfig,
+        ioc_cfg: &IocConfig,
+        config_path: Option<&PathBuf>,
+    ) -> Self {
+        let mut filter = Self::default();
+        let mut roots: Vec<&PathBuf> = Vec::new();
+        if scanner_cfg.sigma_enabled {
+            roots.extend(sigma_dirs(scanner_cfg));
+        }
+        if scanner_cfg.yara_enabled {
+            roots.extend(yara_dirs(scanner_cfg));
+        }
+        for root in roots {
+            // Backends disagree on whether they report the registered or the
+            // canonical spelling, so match both.
+            filter.rule_roots.push(root.clone());
+            filter.rule_roots.push(normalize_path(root));
+        }
+        let mut files: Vec<&PathBuf> = Vec::new();
+        if ioc_cfg.enabled {
+            files.extend([
+                &ioc_cfg.hashes_path,
+                &ioc_cfg.ips_path,
+                &ioc_cfg.domains_path,
+                &ioc_cfg.paths_regex_path,
+            ]);
+        }
+        files.extend(config_path);
+        for file in files {
+            if let Some(name) = file.file_name() {
+                filter.file_names.push(name.to_os_string());
+            }
+        }
+        filter
+    }
+
+    fn matches(&self, event: &notify::Event) -> bool {
+        if event.paths.is_empty() {
+            return true;
+        }
+        event.paths.iter().any(|path| {
+            self.rule_roots.iter().any(|root| path.starts_with(root))
+                || path.file_name().is_some_and(|name| {
+                    self.file_names
+                        .iter()
+                        .any(|wanted| name.eq_ignore_ascii_case(wanted))
+                })
+        })
+    }
+}
+
 fn build_watcher(
     targets: &[(PathBuf, notify::RecursiveMode)],
+    filter: EventFilter,
     tx: mpsc::Sender<()>,
 ) -> Option<notify::RecommendedWatcher> {
     use notify::Watcher;
@@ -133,7 +198,7 @@ fn build_watcher(
             let Ok(event) = res else {
                 return;
             };
-            if !should_wake_reload(&event.kind) {
+            if !should_wake_reload(&event.kind) || !filter.matches(&event) {
                 return;
             }
             // Must not block: this runs on the watcher's event thread, the same
@@ -197,7 +262,8 @@ pub fn spawn_reload_poller(
         let mut config_fp = config_path.as_ref().map(|path| fingerprint_file(path));
 
         let targets = watch_targets(&scanner_cfg, &ioc_cfg, config_path.as_ref());
-        let setup = tokio::task::spawn_blocking(move || build_watcher(&targets, tx));
+        let filter = EventFilter::new(&scanner_cfg, &ioc_cfg, config_path.as_ref());
+        let setup = tokio::task::spawn_blocking(move || build_watcher(&targets, filter, tx));
         let watcher = tokio::select! {
             res = setup => res.ok().flatten(),
             _ = shutdown_rx.changed() => {
@@ -295,7 +361,34 @@ pub fn spawn_reload_poller(
 mod watcher_tests {
     use notify::event::{AccessKind, AccessMode, CreateKind};
 
-    use super::should_wake_reload;
+    use std::path::PathBuf;
+
+    use super::{should_wake_reload, EventFilter};
+    use crate::config::AppConfig;
+
+    fn event(path: &str) -> notify::Event {
+        notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))
+            .add_path(PathBuf::from(path))
+    }
+
+    #[test]
+    fn unrelated_sibling_writes_do_not_wake_reload() {
+        let app = AppConfig::default();
+        let mut scanner = app.scanner;
+        scanner.sigma_enabled = true;
+        scanner.yara_enabled = false;
+        scanner.sigma_rules_path = PathBuf::from("/opt/rustinel/rules/sigma");
+        scanner.sigma_local_rules_paths = Vec::new();
+        let mut ioc = app.ioc;
+        ioc.enabled = false;
+        let config = PathBuf::from("/opt/rustinel/config.toml");
+        let filter = EventFilter::new(&scanner, &ioc, Some(&config));
+
+        assert!(!filter.matches(&event("/opt/rustinel/resource-samples.csv")));
+        assert!(!filter.matches(&event("/opt/rustinel/agent.stdout.log")));
+        assert!(filter.matches(&event("/opt/rustinel/config.toml")));
+        assert!(filter.matches(&event("/opt/rustinel/rules/sigma/sub/new.yml")));
+    }
 
     #[test]
     fn access_events_do_not_wake_reload_fingerprinting() {
