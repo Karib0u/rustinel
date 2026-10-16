@@ -74,7 +74,7 @@ mod tests {
     /// says how much was folded.
     #[test]
     fn the_first_event_emits_and_the_burst_behind_it_is_suppressed() {
-        let mut limiter = LogRateLimiter::new(Duration::from_millis(20));
+        let mut limiter = LogRateLimiter::new(Duration::from_millis(200));
 
         let first = limiter.should_emit("scan_error");
         assert!(first.should_emit);
@@ -84,7 +84,7 @@ mod tests {
             assert!(!limiter.should_emit("scan_error").should_emit);
         }
 
-        std::thread::sleep(Duration::from_millis(25));
+        std::thread::sleep(Duration::from_millis(250));
 
         let next = limiter.should_emit("scan_error");
         assert!(next.should_emit, "the window has elapsed");
@@ -97,7 +97,7 @@ mod tests {
         for _ in 0..2 {
             assert!(!limiter.should_emit("scan_error").should_emit);
         }
-        std::thread::sleep(Duration::from_millis(25));
+        std::thread::sleep(Duration::from_millis(250));
         assert_eq!(
             limiter.should_emit("scan_error").suppressed_since_last_emit,
             2
