@@ -2,7 +2,7 @@
   "schema_version": 1,
   "corpus": {
     "repository": "https://github.com/SigmaHQ/sigma",
-    "commit": "da9bb07d642a2826e89702445d32c795209ec108",
+    "commit": "c04ad420b46c0fb4dba3ce55ce52d0e4f570cc86",
     "roots": [
       "rules",
       "rules-compliance",
@@ -13,7 +13,7 @@
   },
   "platforms": {
     "linux": {
-      "rule_files_found": 3783,
+      "rule_files_found": 3793,
       "verdicts": {
         "failed": {
           "rule_file": 0
@@ -24,7 +24,7 @@
         },
         "skipped": {
           "deferred_logsource": 81,
-          "product_mismatch": 3366,
+          "product_mismatch": 3376,
           "unknown_logsource": 158
         },
         "unsupported": {
@@ -33,7 +33,7 @@
       }
     },
     "macos": {
-      "rule_files_found": 3783,
+      "rule_files_found": 3793,
       "verdicts": {
         "failed": {
           "rule_file": 0
@@ -44,7 +44,7 @@
         },
         "skipped": {
           "deferred_logsource": 0,
-          "product_mismatch": 3539,
+          "product_mismatch": 3549,
           "unknown_logsource": 158
         },
         "unsupported": {
@@ -53,13 +53,13 @@
       }
     },
     "windows": {
-      "rule_files_found": 3783,
+      "rule_files_found": 3793,
       "verdicts": {
         "failed": {
           "rule_file": 0
         },
         "loaded": {
-          "active_collector": 2709,
+          "active_collector": 2719,
           "inactive_collector": 0
         },
         "skipped": {

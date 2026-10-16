@@ -31,7 +31,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  SIGMAHQ_COMMIT: da9bb07d642a2826e89702445d32c795209ec108
+  SIGMAHQ_COMMIT: c04ad420b46c0fb4dba3ce55ce52d0e4f570cc86
 
 jobs:
   corpus:
