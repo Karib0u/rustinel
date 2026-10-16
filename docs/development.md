@@ -52,7 +52,7 @@ Change a `repr(C)` event or layout there, and both sides rebuild against it.
 3. Otherwise `ebpf/rustinel-ebpf.o` is embedded only when it is not older than `ebpf/`, `ebpf-common/`, and their manifests.
    An older copy is ignored with a build warning, and the object is compiled from source with nightly.
 
-The file is ignored by Git, but a stale copy can no longer embed old programs unnoticed.
+The file is ignored by Git, and a stale copy is never embedded unnoticed.
 The agent logs the chosen source (`prebuilt`, `source`, or `stub`) when it loads the embedded object.
 Changing either variable re-runs the build script.
 
@@ -134,7 +134,7 @@ Its public half is `release-minisign.pub`, embedded in the binary, and `rustinel
 ```bash
 cargo test --locked
 cargo fmt --all
-cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked --all-targets -- -D clippy::all
 ```
 
 The normal suite uses synthetic events and needs no privileges.

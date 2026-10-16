@@ -8,7 +8,7 @@
 | Recordings | `captures/rustinel-capture-<timestamp>.ndjson` | `capture` |
 | Replay results | console, or `--output` | `replay` |
 
-On Linux and macOS these files are readable by their owner only.
+On Linux and macOS these files are readable by their owner only, unless [integration access](security.md#integration-access) grants a group read access to logs and alerts.
 
 ## Alerts
 
@@ -35,7 +35,7 @@ One JSON object per line, following ECS 9.5.0.
   "host.os.type": "linux",
   "agent.id": "6f1c2f4e-7a58-4b52-9f55-0d1c7e3a9b10",
   "agent.type": "rustinel",
-  "agent.version": "1.9.2",
+  "agent.version": "1.10.0",
   "process.executable": "/usr/bin/whoami",
   "process.name": "whoami",
   "user.name": "root"
@@ -56,7 +56,7 @@ One JSON object per line, following ECS 9.5.0.
 | `rule.name` | Rule title |
 | `rule.id` | `sigma::<id>`, `yara::<id>`, or `ioc::<type>::<value>` |
 | `edr.rule.severity` | `Informational`, `Low`, `Medium`, `High`, or `Critical` |
-| `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc` |
+| `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc`, or `Agent` for [sensor loss alerts](#sensor-loss-alerts) |
 | `edr.yara.scan_source` | YARA alerts only: `file` or `process_memory` |
 | `edr.event.ingest_seq` | Order in which Rustinel processed the event |
 | `edr.event.provenance` | Populated fields with fidelity limitations, see below |
@@ -156,7 +156,7 @@ Read an alert as: detections that needed events of that category in that window 
 The count says how many events were lost, not how many would have matched.
 `edr.rule.severity` is `Medium` and is not tuned per category.
 
-Loss alerts are written directly to the sink, so they bypass [deduplication](#deduplication) and active response never sees them.
+Loss alerts are written directly to the sink, so they bypass [deduplication](detection.md#deduplication) and active response never sees them.
 They use a path that does not touch the sensor queue, so a stalled alert file cannot cause more loss alerts.
 If the alert file's own queue is full, the loss alert is dropped like any other alert and counted in the `alert_writer` entry of [`telemetry.json`](telemetry.md), which is the only record in that case.
 

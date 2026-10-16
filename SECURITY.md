@@ -11,8 +11,7 @@
 
 **Do not open a public issue for security vulnerabilities.**
 
-Use GitHub's private disclosure feature:
-[Report a vulnerability](https://github.com/Karib0u/rustinel/security/advisories/new)
+Use GitHub's private disclosure feature: [Report a vulnerability](https://github.com/Karib0u/rustinel/security/advisories/new)
 
 Please include:
 - A description of the vulnerability and its impact
@@ -20,11 +19,14 @@ Please include:
 - Affected versions
 - Any suggested mitigations if known
 
-Rustinel is a solo-maintained project with no dedicated security team. Response times are best-effort — expect an acknowledgement within a few days and a resolution timeline within a few weeks. There is no on-call rotation.
+Rustinel is a solo-maintained project with no dedicated security team.
+Response times are best-effort: expect an acknowledgement within a few days and a resolution timeline within a few weeks.
+There is no on-call rotation.
 
 ## Scope
 
-Rustinel runs as root / with elevated privileges and processes untrusted rule files and IOC feeds. Reports are particularly welcome for:
+Rustinel runs as root / with elevated privileges and processes untrusted rule files and IOC feeds.
+Reports are particularly welcome for:
 
 - Rule or IOC file parsing that leads to code execution or privilege escalation
 - eBPF program issues that could be exploited from userspace

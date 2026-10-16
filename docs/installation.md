@@ -5,10 +5,23 @@
 | Platform | Version | Privileges | Also needs |
 | --- | --- | --- | --- |
 | Windows | 10, 11, Server 2016+ (x64) | Administrator | [Visual C++ Redistributable](https://aka.ms/vc14/vc_redist.x64.exe) (x64) |
-| Linux | Kernel 5.8+ (x86_64, arm64) | root, or `CAP_BPF`, `CAP_PERFMON`, `CAP_NET_ADMIN`, and `CAP_SYS_RESOURCE` | `tracefs` mounted; BTF for process identity and socket fields |
+| Linux | Kernel 5.8+ (x86_64, arm64) | root, or the [capabilities below](#linux-capabilities) | `tracefs` mounted; BTF for process identity and socket fields |
 | macOS | 11+ (Intel, Apple Silicon) | root | Full Disk Access, see [macOS permissions](macos-permissions.md) |
 
 macOS support is experimental.
+
+### Linux capabilities
+
+Without root, Rustinel needs `CAP_BPF`, `CAP_PERFMON`, `CAP_NET_ADMIN`, and `CAP_SYS_RESOURCE` to load and attach its eBPF programs.
+Three more keep the rest working on processes and files of other users:
+
+| Capability | Without it |
+| --- | --- |
+| `CAP_SYS_PTRACE` | `/proc` enrichment, such as `Image` and `CurrentDirectory` fallbacks, and memory scanning fail |
+| `CAP_DAC_READ_SEARCH` | Executables in private folders, such as `/home`, are not hashed or YARA-scanned |
+| `CAP_KILL` | Active response cannot kill processes |
+
+The service that `rustinel setup` installs grants all seven, and `rustinel doctor` checks them as `linux_service_capabilities`.
 
 ## Install script
 
@@ -28,6 +41,8 @@ They never build from source or change system settings.
     | `--run` | off | Start Rustinel after installing |
     | `--force` | off | Replace an existing install folder |
 
+    `RUSTINEL_INSTALL_DIR` and `RUSTINEL_VERSION` set the same defaults from the environment.
+
     To read the script first: `curl -fsSLO https://rustinel.io/install.sh`.
 
 === "Windows"
@@ -40,8 +55,11 @@ They never build from source or change system settings.
     | --- | --- | --- |
     | `RUSTINEL_INSTALL_DIR` | `./rustinel` | Install folder |
     | `RUSTINEL_VERSION` | latest | Release to install |
+    | `RUSTINEL_RUN` | off | Start Rustinel after installing |
+    | `RUSTINEL_FORCE` | off | Replace an existing install folder |
 
-The folder contains the binary, a default `config.toml`, demo rules, and an empty `logs/` folder.
+The folder contains the binary, a default `config.toml`, demo rules, and the SIEM examples.
+It has no `logs/` folder: the first elevated run creates it, see [Quickstart](getting-started.md#2-start-rustinel).
 On macOS the binary is inside a signed `Rustinel.app` with a `rustinel` symlink next to it.
 
 ## Manual download

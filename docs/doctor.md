@@ -11,11 +11,14 @@ Run it with `sudo` or as Administrator to check platform prerequisites.
 
 | Check | Verifies |
 | --- | --- |
+| `version` | The running Rustinel version |
+| `install_mode` | `managed`, after `rustinel setup`, or `portable` |
 | `config_discovery` | Which config file was found, see [Which file is used](configuration.md#which-file-is-used) |
 | `config_parse` | The file is valid TOML with valid values |
 | `logs_writable`, `alerts_writable` | The log and alert folders can be written |
 | `required_privileges` | Administrator on Windows; root, or the four eBPF capabilities, on Linux; root on macOS |
 | `platform_support` | The OS and CPU architecture are supported |
+| `allowlist_exclusions` | Lists the effective `allowlist.excluded_paths` |
 
 ## Rules
 
@@ -26,8 +29,10 @@ See [Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
 | Check | Verifies |
 | --- | --- |
 | `sigma_rules_dir`, `yara_rules_dir` | The rule folders exist |
+| `sigma_rules_dirs`, `yara_rules_dirs` | Each pack and [local](rule-packs.md#keep-local-rules-next-to-a-pack) rule directory, with its rule count |
+| `sigma_rules_collision`, `yara_rules_collision` | Local rules that replaced a pack rule with the same Sigma `id` or YARA name |
 | `sigma_rules_parse`, `yara_rules_parse` | Every rule compiles, and no other account can change the rules. Lists the files that do not |
-| `sigma_rules_unsupported` | Correlation or filter documents dropped because a rule they reference does not apply here |
+| `sigma_rules_unsupported` | Correlation or filter documents dropped because a rule they reference does not apply here, or a filter names no target rules |
 | `sigma_rules_inert` | Rules that loaded but have no collector on this platform, grouped by logsource. They never fire |
 | `ioc_files`, `ioc_parse`, `ioc_hashes`, `ioc_ips`, `ioc_domains`, `ioc_paths_regex` | Indicator files exist and parse |
 | `ioc_inputs_trust` | No other account can change the indicator files, see [Input trust](security.md#input-trust) |
@@ -40,6 +45,7 @@ See [Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
 | --- | --- |
 | `native_service` | Service status. Passes in portable mode, where no service is needed |
 | `linux_systemd` | systemd is available (Linux) |
+| `linux_service_capabilities` | The installed or running service has `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH`, and `CAP_KILL`, see [Linux capabilities](installation.md#linux-capabilities) (Linux) |
 | `active_response_mode` | Whether response is off, dry run, or killing |
 | `active_response_safety` | `response.min_severity` is a valid severity |
 | `active_response_allowlist` | Prevention has a trusted path allowlist |
@@ -52,6 +58,7 @@ See [Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
 | `windows_etw` | ETW is usable (Windows) |
 | `linux_kernel`, `linux_btf`, `linux_tracefs`, `linux_dns_hooks` | Kernel 5.8+, BTF, tracefs, and DNS hooks (Linux) |
 | `macos_endpoint_security`, `macos_full_disk_access`, `macos_app_location` | Endpoint Security can start, see [macOS permissions](macos-permissions.md) |
+| `macos_bpf` | `/dev/bpf*` devices exist for network and DNS capture (macOS) |
 
 ## Telemetry health
 
@@ -78,7 +85,7 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | `etw_decode` | ETW records failed to decode. Names the provider, event ID, and version (Windows) |
 | `etw_decode_reconciliation` | Records reached no outcome. A growing gap is a bug worth reporting (Windows) |
 | `windows_process_correlation` | Two sources disagreed about a process command line (Windows) |
-| `windows_event_log_<channel>` | The System or Security subscription failed or went stale (Windows) |
+| `windows_event_log_<channel>` | An Event Log subscription failed, is retrying, or went stale, see [`windows_event_log`](telemetry.md#windows_event_log) (Windows) |
 | `windows_event_log_<channel>_retention` | Records were overwritten before Rustinel read them, for example while it was stopped (Windows) |
 
 ## Snapshot freshness

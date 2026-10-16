@@ -152,13 +152,13 @@ macOS support is experimental.
   They are matched to a process through a socket list refreshed every 250 ms, so short connections can stay unattributed.
 - **Silent: `Initiated` is always absent.**
   A packet capture cannot tell who opened a connection, so rules on it never match.
-- **Interfaces are chosen at startup.**
-  Restart Rustinel after connecting a VPN or adding an interface.
+- **New interfaces are picked up within 5 seconds.**
+  Packets on an interface that comes up, such as a VPN, are missed until then.
   A packet seen on two interfaces can produce two events.
 - **No reassembly.**
   IP fragments are not joined, and DNS over TCP must fit in one segment.
 - **Silent: parent fields need an observed parent.**
-  `ParentImage` and `ParentCommandLine` are empty when Rustinel never saw the parent start or has evicted it.
+  `ParentImage` and `ParentCommandLine` are empty unless Rustinel saw the parent's exec or found it running at startup, and has not evicted it.
 - **Memory scanning is mostly unavailable.**
   It needs `task_for_pid`, which macOS denies to most callers.
   Denied scans return nothing.

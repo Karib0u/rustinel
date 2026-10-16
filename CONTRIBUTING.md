@@ -2,13 +2,13 @@
 
 ## Getting started
 
-See [docs/development.md](docs/development.md) for the full build matrix, toolchain requirements, and fastest local build paths.
+See [docs/development.md](docs/development.md) for toolchain requirements, the Linux eBPF build, and live tests.
 
 Quick start:
 ```sh
 cargo check          # fast syntax + type check
 cargo test           # run the test suite
-cargo clippy --all-targets -- -D clippy::all
+cargo clippy --locked --all-targets -- -D clippy::all
 cargo fmt --all
 ```
 

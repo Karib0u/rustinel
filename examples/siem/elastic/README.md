@@ -23,11 +23,16 @@ export RUSTINEL_ALERTS_DIR=/path/to/rustinel/logs
 docker compose up filebeat
 ```
 
-Trigger the bundled demo rule in another terminal:
+Start Rustinel in another terminal:
 
 ```bash
 cd /path/to/rustinel
 sudo ./rustinel run
+```
+
+Then trigger the bundled demo rule in a third terminal:
+
+```bash
 whoami
 ```
 

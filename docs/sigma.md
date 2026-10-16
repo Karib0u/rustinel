@@ -19,7 +19,7 @@ Fields a platform never fills are listed in [Field availability](field-availabil
 Rules are loaded recursively from `scanner.sigma_rules_path` and from every directory in `scanner.sigma_local_rules_paths`.
 A correlation or filter can reference a rule in another file.
 A filter must name its target rules by id, name, or title under `filter.rules`.
-A filter with `rules: any`, an empty list, or no `rules` key is not loaded, because it would suppress matches for every rule in the tree; `rustinel doctor` reports it as `untargeted_filter`.
+A filter with `rules: any`, an empty list, or no `rules` key is not loaded, because it would suppress matches for every rule in the tree; `rustinel doctor` reports it under `sigma_rules_unsupported`, and `rustinel sigma doctor` as `untargeted_filter`.
 Each loaded filter is logged with its targets.
 A reference to a rule that does not apply to this platform is dropped and reported by `rustinel doctor`.
 
@@ -240,14 +240,14 @@ It does not enumerate bindings already present before it starts.
 | `contains`, `startswith`, `endswith` | Substring, prefix, suffix |
 | `all` | All values must match |
 | `cased` | Case-sensitive |
-| `re`, with `i`, `m`, `s` | Regular expression and flags |
+| `re`, with `i`, `m`, `s` (or `ignorecase`, `multiline`, `dotall`) | Regular expression and flags |
 | `windash` | Also match `-`, `/`, and similar dashes |
 | `fieldref` | Compare with another field |
 | `exists` | Field is present |
 | `cidr` | IP range |
 | `base64`, `base64offset` | Base64-encoded value |
 | `wide`, `utf16`, `utf16le`, `utf16be` | UTF-16 encodings |
-| `lt`, `lte`, `le`, `gt`, `gte`, `ge`, `neq` | Numeric comparison and not-equal |
+| `lt`, `lte`, `gt`, `gte`, `neq` | Numeric comparison and not-equal |
 | `expand` | `%placeholder%` expansion |
 | `minute`, `hour`, `day`, `week`, `month`, `year` | Part of a timestamp |
 

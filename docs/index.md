@@ -37,7 +37,7 @@ Then follow the [Quickstart](getting-started.md) to trigger your first alert.
 - **Capture and replay.**
   Record endpoint activity once, then test rule changes against the recording on any machine.
 - **Visible gaps.**
-  `rustinel doctor` reports rules that can never fire and events dropped under load.
+  `rustinel sigma doctor` reports rules that can never fire, and `rustinel doctor` reports events dropped under load.
 
 ## What it is not
 

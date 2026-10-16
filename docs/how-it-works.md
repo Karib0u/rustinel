@@ -15,7 +15,7 @@ It ships no kernel driver.
 
 | Platform | Source | Collects |
 | --- | --- | --- |
-| Windows | ETW and the System and Security event logs | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task, Security audit events |
+| Windows | ETW, and the System, Security, Application, Windows PowerShell, and Defender event log channels | Process, image load, network, file, registry, DNS, PowerShell, WMI, service, task, Security audit events |
 | Linux | eBPF programs | Process, network, file, DNS |
 | macOS | Endpoint Security, and packet capture on `/dev/bpf` | Process and file; network and DNS |
 
