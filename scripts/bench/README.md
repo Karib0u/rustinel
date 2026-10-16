@@ -92,6 +92,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bench\windows.ps1 `
   -NoBenchmarkTriggerRule
 ```
 
+## Realistic and stress run
+
+`realistic.py` runs a sustained desktop-like workload plus a rate ramp against the full corpus, injects one canary per detection engine, and reports drops from the agent's own telemetry.
+It is the harness to use for "does it hold up on a working machine" and "where does it start losing events".
+Usage, phases, and validity rules are in [docs/benchmarking.md](../../docs/benchmarking.md#realistic-and-stress-benchmark).
+
+Notes for maintainers:
+
+- The agent is started with a generated config in the run directory, so the harness never touches an installed layout.
+  Do not pre-create the agent's log or state directories: the agent insists on owning them and refuses a directory created by another user.
+- The workload directory is inside the run directory, outside the default trusted paths, so written files are hashed and scanned.
+- Canaries put a unique id in the command line (Sigma process), the file name (Sigma file and YARA), the destination port of a connection to a listed TEST-NET-3 address (IOC IP), and the queried name (IOC domain, lowercased by DNS).
+- Kernel-side loss is read from `telemetry.json` (`linux_ebpf`, `macos_collectors`) and from the `lost_total` field of the ETW loss line in the operational log on Windows.
+- On macOS the dropped executables are not run, because the system kills a copy of a signed system binary.
+
 ## Linux sudo handling
 
 The script calls `sudo -v` before starting the background agent, then starts the
