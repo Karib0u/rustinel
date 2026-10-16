@@ -29,6 +29,12 @@ use windows::Win32::System::Diagnostics::Etw::EVENT_TRACE_CONTROL_STOP;
 const SESSION_NAME: &str = "rustinel-etw-file-rundown";
 const MAX_PATH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CAPTURE_MIB: u32 = 64;
+/// A busy host starves the logger thread while the rundown burst arrives, and
+/// the kernel drops events once the pool is full. Measured on lab-windows with
+/// file churn running: 128 buffers lost 2 of 5 captures, 256 and above 0 of 45.
+const BUFFERS: u32 = 512;
+const MAX_ATTEMPTS: u32 = 3;
+const RETRY_BACKOFF: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
 struct Snapshot {
@@ -186,20 +192,45 @@ fn final_file_loss(path: &std::path::Path) -> Result<(u64, u64)> {
 fn properties() -> TraceProperties {
     TraceProperties {
         buffer_size: 64,
-        min_buffer: 128,
-        max_buffer: 128,
+        min_buffer: BUFFERS,
+        max_buffer: BUFFERS,
         flush_timer: Duration::from_secs(1),
         ..Default::default()
     }
 }
 
+/// Run `capture` until it yields a loss-free snapshot or attempts run out.
+/// Only kernel loss is retried: a lost record is transient pressure, whereas
+/// a start or decode failure would repeat. A lossy snapshot is never kept,
+/// so a later attempt always starts from an empty one.
+fn capture_with_retry(
+    max_attempts: u32,
+    backoff: Duration,
+    mut capture: impl FnMut() -> (Snapshot, (u64, u64), Result<()>),
+) -> (Snapshot, (u64, u64), Result<()>, u32) {
+    let mut attempt = 1;
+    loop {
+        let (snapshot, lost, collected) = capture();
+        let result = collected.and_then(|()| snapshot.validate(lost.0.saturating_add(lost.1)));
+        let lossy = lost.0 != 0 || lost.1 != 0;
+        if result.is_ok() || !lossy || attempt >= max_attempts {
+            return (snapshot, lost, result, attempt);
+        }
+        std::thread::sleep(backoff);
+        attempt += 1;
+    }
+}
+
 pub(super) fn seed(state: &EtwState) {
     let started = Instant::now();
-    let snapshot = Arc::new(Mutex::new(Snapshot::default()));
-    let mut lost = (0, 0);
-    let result = collect(Arc::clone(&snapshot), &mut lost, properties());
-    let mut snapshot = snapshot.lock().unwrap_or_else(|e| e.into_inner());
-    let result = result.and_then(|()| snapshot.validate(lost.0.saturating_add(lost.1)));
+    let (mut snapshot, lost, result, attempts) =
+        capture_with_retry(MAX_ATTEMPTS, RETRY_BACKOFF, || {
+            let snapshot = Arc::new(Mutex::new(Snapshot::default()));
+            let mut lost = (0, 0);
+            let collected = collect(Arc::clone(&snapshot), &mut lost, properties());
+            let snapshot = std::mem::take(&mut *snapshot.lock().unwrap_or_else(|e| e.into_inner()));
+            (snapshot, lost, collected)
+        });
     let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let seeded = if result.is_ok() {
         snapshot.entries.len()
@@ -219,18 +250,20 @@ pub(super) fn seed(state: &EtwState) {
             path_bytes: snapshot.path_bytes,
             index_capacity: snapshot.entries.capacity(),
             rejected: result.is_err(),
+            attempts,
         });
     match result {
         Ok(()) => {
             state.paths().seed(std::mem::take(&mut snapshot.entries));
             tracing::info!(
                 seeded,
+                attempts,
                 duration_ms,
                 path_bytes = snapshot.path_bytes,
                 "File rundown seeded pre-existing name keys"
             );
         }
-        Err(error) => tracing::warn!(%error, duration_ms,
+        Err(error) => tracing::warn!(%error, attempts, duration_ms,
             "File rundown rejected; retaining live-only file attribution"),
     }
 }
@@ -243,8 +276,8 @@ mod tests {
     #[test]
     #[ignore = "requires administrator rights and runs repeated kernel rundowns"]
     fn native_buffer_sweep() {
-        for buffers in [32, 64, 80, 96, 112, 128] {
-            for _ in 0..3 {
+        for buffers in [128, 256, 512, 1024] {
+            for _ in 0..5 {
                 let snapshot = Arc::new(Mutex::new(Snapshot::default()));
                 let mut lost = (0, 0);
                 let started = Instant::now();
@@ -299,6 +332,50 @@ mod tests {
         assert!(snapshot.validate(1).is_err());
         snapshot.decode_failed = 1;
         assert!(snapshot.validate(0).is_err());
+    }
+
+    fn lossy_capture(entries: u64) -> (Snapshot, (u64, u64), Result<()>) {
+        let mut snapshot = Snapshot::default();
+        snapshot.insert(1, "C:\\a".into(), 10);
+        (snapshot, (entries, 0), Ok(()))
+    }
+
+    #[test]
+    fn lossy_captures_are_retried_and_the_clean_one_is_kept() {
+        let mut calls = 0;
+        let (snapshot, lost, result, attempts) = capture_with_retry(3, Duration::ZERO, || {
+            calls += 1;
+            lossy_capture(if calls < 3 { 100 } else { 0 })
+        });
+        assert!(result.is_ok());
+        assert_eq!((attempts, lost, calls), (3, (0, 0), 3));
+        assert_eq!(snapshot.entries.len(), 1);
+    }
+
+    #[test]
+    fn persistent_loss_is_rejected_after_the_attempt_limit() {
+        let mut calls = 0;
+        let (_, lost, result, attempts) = capture_with_retry(3, Duration::ZERO, || {
+            calls += 1;
+            lossy_capture(7)
+        });
+        assert!(result.is_err());
+        assert_eq!((attempts, lost, calls), (3, (7, 0), 3));
+    }
+
+    #[test]
+    fn failures_without_loss_are_not_retried() {
+        let mut calls = 0;
+        let (_, _, result, attempts) = capture_with_retry(3, Duration::ZERO, || {
+            calls += 1;
+            (
+                Snapshot::default(),
+                (0, 0),
+                Err(anyhow::anyhow!("start failed")),
+            )
+        });
+        assert!(result.is_err());
+        assert_eq!((attempts, calls), (1, 1));
     }
 
     #[test]
