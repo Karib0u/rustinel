@@ -1019,9 +1019,16 @@ def prepare_rules(corpus: Path, run_dir: Path) -> dict[str, Path]:
     return {"sigma": rules / "sigma", "yara": rules / "yara", "ioc": ioc}
 
 
+def config_path(run_dir: Path) -> Path:
+    return run_dir / "config" / "config.toml"
+
+
 def write_config(run_dir: Path, rules: dict[str, Path], version: tuple[int, ...]) -> tuple[Path, Path]:
     log_dir = run_dir / "agent-logs"
-    cfg = run_dir / "config.toml"
+    # The agent watches the config file's parent directory and re-fingerprints every rule file on any
+    # write there, so the config gets its own directory away from the sample and log files.
+    cfg = config_path(run_dir)
+    cfg.parent.mkdir(parents=True, exist_ok=True)
     text = f"""[scanner]
 sigma_rules_path = {toml_str(rules['sigma'])}
 yara_rules_path = {toml_str(rules['yara'])}
@@ -1220,8 +1227,8 @@ def run(args) -> int:
             sampler.join(timeout=3)
         doctor_ok = False
         if proc is not None:
-            if proc.poll() is None and (run_dir / "config.toml").exists():
-                d = subprocess.run([str(Path(args.agent).resolve()), "--config", str(run_dir / "config.toml"), "doctor", "--json"],
+            if proc.poll() is None and config_path(run_dir).exists():
+                d = subprocess.run([str(Path(args.agent).resolve()), "--config", str(config_path(run_dir)), "doctor", "--json"],
                                    capture_output=True, text=True)
                 (run_dir / "doctor.json").write_text(d.stdout)
                 doctor_ok = True
