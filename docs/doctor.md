@@ -70,9 +70,9 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | --- | --- |
 | `host_state` | Attribution updates were lost; reports process, user, DNS, and path-state occupancy |
 | `process_inventory` | Startup inventory failed or seeded no processes; reports duration and coverage |
-| `artifact_resolver` | A file could not be hashed, scanned, or read for PE metadata in time: a queue was full, a budget expired, the file was too large or changed, or reading failed. Reports dropped jobs separately for process images, loaded images, and written files, and warns that written-file drops leave a YARA and hash IOC detection gap. Also covers a [deferred pass](detection.md#deferred-pass) that ran without `Hashes` or `Imphash` |
+| `artifact_resolver` | At least 0.01% of artifact jobs failed: a file could not be hashed, scanned, or read for PE metadata in time: a queue was full, a budget expired, the file changed, or reading failed. Files over the size limit are listed but never change the result. Reports dropped jobs separately for process images, loaded images, and written files, and warns that written-file drops leave a YARA and hash IOC detection gap. Also covers a [deferred pass](detection.md#deferred-pass) that ran without `Hashes` or `Imphash` |
 | `field_contract_violations` | A normalized event populated a field declared `Never`; detection filters the contradictory field until the decoder or contract is corrected |
-| `pipeline_telemetry` | Warns when a pipeline queue dropped events or `telemetry.enabled = false`. Fails when the alert writer dropped alerts. Also warns when the snapshot is unreadable or malformed, or missing while the service is running |
+| `pipeline_telemetry` | Warns when a pipeline queue shed at least 0.01% of the items offered to it, any alert was dropped, or `telemetry.enabled = false`. Fails when the alert writer dropped at least 0.1% of alerts. Also warns when the snapshot is unreadable or malformed, or missing while the service is running |
 | `telemetry_snapshot` | How old the snapshot is, see [Snapshot freshness](#snapshot-freshness) |
 | `alert_webhooks` | An alert failed, was dropped, was too large, or was abandoned at shutdown for a [webhook](output.md#webhooks). The alert file still has it |
 | `linux_ebpf` | A kernel ring or map filled, records were short or unusable, file paths could not be rebuilt, or counters do not add up |
@@ -87,6 +87,14 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | `windows_process_correlation` | Two sources disagreed about a process command line (Windows) |
 | `windows_event_log_<channel>` | An Event Log subscription failed, is retrying, or went stale, see [`windows_event_log`](telemetry.md#windows_event_log) (Windows) |
 | `windows_event_log_<channel>_retention` | Records were overwritten before Rustinel read them, for example while it was stopped (Windows) |
+
+## Loss budgets
+
+The drop counters in `telemetry.json` are lifetime totals, so `doctor` judges them as a share of what was offered, not as a bare count.
+One lost event among millions passes and the count stays in the message.
+A pipeline queue or the artifact resolver warns from 0.01% loss.
+Alert loss always warns, and fails from 0.1%.
+The thresholds are not configurable.
 
 ## Snapshot freshness
 
