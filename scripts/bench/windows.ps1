@@ -10,6 +10,7 @@ param(
     [int]$FileCount = 2000,
     [int]$FileSizeBytes = 1024,
     [string]$AlertGlob = ".\logs\alerts.json*",
+    [string]$TelemetryPath = "",
     [string]$AlertRuleName = "Rustinel Benchmark Whoami Windows",
     [string]$SigmaRulesPath = ".\rules\sigma",
     [string]$YaraRulesPath = ".\rules\yara",
@@ -114,6 +115,13 @@ function Get-EtwDropSummary {
     $text = Get-AppendedLogText -Offsets $Offsets
     $dropWarnings = [regex]::Matches($text, "Sensor event channel full; dropping ETW event").Count
     $counterMatches = [regex]::Matches($text, "dropped_events=(\d+)")
+    # Kernel-side loss: "ETW discarded events because its kernel buffer pool was
+    # exhausted ... lost_total=N". It never reaches the sensor_events channel.
+    $lostMatches = [regex]::Matches($text, "lost_total=(\d+)")
+    $kernelLost = [int64]0
+    foreach ($match in $lostMatches) {
+        $kernelLost = [Math]::Max($kernelLost, [int64]$match.Groups[1].Value)
+    }
     $finalCounter = [int64]0
     foreach ($match in $counterMatches) {
         $finalCounter = [int64]$match.Groups[1].Value
@@ -122,6 +130,38 @@ function Get-EtwDropSummary {
     return [pscustomobject]@{
         warning_count = $dropWarnings
         final_counter = $finalCounter
+        kernel_lost_total = $kernelLost
+    }
+}
+
+# Dropped events per pipeline channel and sensor category from telemetry.json.
+# The agent rewrites it every telemetry.snapshot_interval_secs, so wait for a
+# snapshot taken after the workload. A run that shed events must not be valid.
+function Get-TelemetryDropSummary {
+    $path = if ($TelemetryPath.Length -gt 0) { $TelemetryPath } else { Join-Path (Split-Path -Parent $AlertGlob) "telemetry.json" }
+    $waitStart = Get-Date
+    $deadline = $waitStart.AddSeconds(40)
+    while ((Get-Date) -lt $deadline) {
+        if ((Test-Path $path) -and (Get-Item $path).LastWriteTime -gt $waitStart) { break }
+        Start-Sleep -Seconds 2
+    }
+    if (-not (Test-Path $path)) {
+        return [pscustomobject]@{ available = $false; dropped_total = $null; path = $path }
+    }
+    try {
+        $t = Get-Content -Raw -Path $path | ConvertFrom-Json
+        $channels = [ordered]@{}
+        $total = [int64]0
+        foreach ($c in @($t.channels)) {
+            if ($c.dropped -gt 0) { $channels[$c.channel] = $c.dropped; $total += [int64]$c.dropped }
+        }
+        $categories = [ordered]@{}
+        foreach ($c in @($t.sensor_events_by_category)) {
+            if ($c.dropped -gt 0) { $categories[$c.category] = $c.dropped }
+        }
+        return [pscustomobject]@{ available = $true; dropped_total = $total; channels = $channels; categories = $categories; captured_at = $t.captured_at; path = $path }
+    } catch {
+        return [pscustomobject]@{ available = $false; dropped_total = $null; path = $path; error = "$_" }
     }
 }
 
@@ -171,7 +211,7 @@ detection:
   selection_cmd:
     CommandLine|contains: ' /all'
   condition: selection_img and selection_cmd
-level: low
+level: critical
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText($rulePath, $rule, $utf8NoBom)
@@ -507,6 +547,18 @@ try {
     if ($Mode -eq "with-agent" -and $null -ne $etwDrops.final_counter -and $etwDrops.final_counter -gt 0) {
         [void]$validationErrors.Add("ETW drops were observed")
     }
+    if ($Mode -eq "with-agent" -and $etwDrops.kernel_lost_total -gt 0) {
+        [void]$validationErrors.Add("ETW discarded $($etwDrops.kernel_lost_total) events in the kernel buffer pool")
+    }
+    $telemetryDrops = [pscustomobject]@{ available = $false; dropped_total = $null }
+    if ($Mode -eq "with-agent") {
+        $telemetryDrops = Get-TelemetryDropSummary
+        if (-not $telemetryDrops.available) {
+            [void]$validationErrors.Add("telemetry.json was not readable at $($telemetryDrops.path), so event loss is unknown")
+        } elseif ($telemetryDrops.dropped_total -gt 0) {
+            [void]$validationErrors.Add("the agent dropped $($telemetryDrops.dropped_total) events: $(($telemetryDrops | ConvertTo-Json -Compress -Depth 4))")
+        }
+    }
 
     $machineInfo = Get-MachineInfo
     $ruleInventory = Get-RuleInventory
@@ -533,6 +585,7 @@ try {
         workload_steps = $steps
         alert_latency_ms = $alertLatency
         etw_drops = $etwDrops
+        telemetry_drops = $telemetryDrops
         valid = $validationErrors.Count -eq 0
         validation_errors = @($validationErrors)
         samples_csv = $samplesPath

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import ipaddress
 import json
@@ -32,6 +33,13 @@ FEODO_RECOMMENDED_URL = "https://feodotracker.abuse.ch/downloads/ipblocklist_rec
 FEODO_30D_URL = "https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
 THREATFOX_API_URL = "https://threatfox-api.abuse.ch/api/v1/"
 URLHAUS_RECENT_CSV_URL = "https://urlhaus-api.abuse.ch/v2/files/exports/{auth_key}/recent.csv"
+
+ET_COMPROMISED_IPS_URL = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+IPSUM_URL = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
+SPAMHAUS_DROP_URL = "https://www.spamhaus.org/drop/drop.txt"
+URLHAUS_TEXT_ONLINE_URL = "https://urlhaus.abuse.ch/downloads/text_online/"
+PHISHING_ARMY_URL = "https://phishing.army/download/phishing_army_blocklist.txt"
+MALWAREBAZAAR_SHA256_URL = "https://bazaar.abuse.ch/export/txt/sha256/recent/"
 
 USER_AGENT = "rustinel-bench-corpus/1.0"
 
@@ -305,6 +313,132 @@ def fetch_urlhaus(auth_key: str | None, metadata: dict[str, object]) -> set[str]
     return domains
 
 
+def fetch_public_iocs(metadata: dict[str, object]) -> tuple[set[str], set[str], set[str]]:
+    """Fetch the no-authentication IOC feeds. Each feed is optional: a failure is logged and skipped."""
+    ips: set[str] = set()
+    domains: set[str] = set()
+    hashes: set[str] = set()
+    report: dict[str, object] = {}
+
+    def text(url: str) -> str | None:
+        try:
+            return request(url).decode("utf-8", "replace")
+        except RuntimeError as err:
+            log(f"  skipped {url}: {err}")
+            return None
+
+    body = text(ET_COMPROMISED_IPS_URL)
+    if body is not None:
+        found = {f"{line.strip()};et:compromised" for line in body.splitlines() if _is_ip(line.strip())}
+        ips |= found
+        report["et_compromised_ips"] = len(found)
+
+    body = text(IPSUM_URL)
+    if body is not None:
+        found = set()
+        for line in body.splitlines():
+            parts = line.split()
+            # ipsum lists "ip count"; a count of 3 or more means three or more blocklists agree.
+            if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) >= 3 and _is_ip(parts[0]):
+                found.add(f"{parts[0]};ipsum:{parts[1]}")
+        ips |= found
+        report["ipsum_ips"] = len(found)
+
+    body = text(SPAMHAUS_DROP_URL)
+    if body is not None:
+        found = set()
+        for line in body.splitlines():
+            token = line.split(";")[0].strip()
+            if token and _is_network(token):
+                found.add(f"{token};spamhaus:drop")
+        ips |= found
+        report["spamhaus_drop_cidrs"] = len(found)
+
+    body = text(URLHAUS_TEXT_ONLINE_URL)
+    if body is not None:
+        found = set()
+        for line in body.splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            host = urllib.parse.urlparse(line.strip()).hostname or ""
+            if _is_ip(host):
+                found_ip = f"{host};urlhaus:online"
+                ips.add(found_ip)
+                continue
+            domain = clean_domain(host)
+            if domain:
+                found.add(f"{domain};urlhaus:online")
+        domains |= found
+        report["urlhaus_online_domains"] = len(found)
+
+    body = text(PHISHING_ARMY_URL)
+    if body is not None:
+        found = set()
+        for line in body.splitlines():
+            domain = clean_domain(line) if not line.startswith("#") else None
+            if domain:
+                found.add(f"{domain};phishing-army")
+        domains |= found
+        report["phishing_army_domains"] = len(found)
+
+    body = text(MALWAREBAZAAR_SHA256_URL)
+    if body is not None:
+        found = set()
+        for line in body.splitlines():
+            digest = clean_hash(line) if not line.startswith("#") else None
+            if digest:
+                found.add(f"{digest};malwarebazaar:recent")
+        hashes |= found
+        report["malwarebazaar_sha256"] = len(found)
+
+    metadata["public_iocs"] = report
+    log(f"Public IOC feeds: {report}")
+    return ips, domains, hashes
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_network(value: str) -> bool:
+    try:
+        ipaddress.ip_network(value, strict=False)
+        return True
+    except ValueError:
+        return False
+
+
+def synthetic_iocs(count: int, ips: set[str], domains: set[str], hashes: set[str], metadata: dict[str, object]) -> None:
+    """Pad each IOC type to `count` entries with deterministic values that cannot match real traffic.
+
+    IPs come from 198.18.0.0/15 (RFC 2544 benchmarking range), domains end in .invalid (RFC 6761),
+    hashes are SHA-256 of a fixed label. They exercise lookup-structure size, not detection.
+    """
+    added = {"ips": 0, "domains": 0, "hashes": 0}
+    base = int(ipaddress.ip_address("198.18.0.0"))
+    i = 0
+    while len(ips) < count and i < 2**17:
+        ips.add(f"{ipaddress.ip_address(base + i)};synthetic")
+        added["ips"] += 1
+        i += 1
+    i = 0
+    while len(domains) < count:
+        domains.add(f"bench-{i:07d}.invalid;synthetic")
+        added["domains"] += 1
+        i += 1
+    i = 0
+    while len(hashes) < count:
+        hashes.add(f"{hashlib.sha256(f'rustinel-bench-{i}'.encode()).hexdigest()};synthetic")
+        added["hashes"] += 1
+        i += 1
+    metadata["synthetic_iocs"] = {"target_per_type": count, "added": added}
+    log(f"Synthetic IOC padding: {added}")
+
+
 def count_files(path: Path, suffixes: tuple[str, ...]) -> int:
     return sum(1 for child in path.rglob("*") if child.is_file() and child.name.lower().endswith(suffixes))
 
@@ -335,6 +469,20 @@ def main() -> int:
     parser.add_argument("--threatfox-min-confidence", type=int, default=70)
     parser.add_argument("--urlhaus-auth-key", default=os.getenv("URLHAUS_AUTH_KEY"))
     parser.add_argument("--include-urlhaus", action="store_true", help="Fetch URLhaus recent URLs and extract domains.")
+    parser.add_argument(
+        "--public-iocs",
+        action="store_true",
+        help="Also fetch no-authentication IOC feeds: ET compromised IPs, ipsum (3+ lists), Spamhaus DROP, "
+        "URLhaus online hosts, Phishing Army domains, MalwareBazaar recent SHA-256.",
+    )
+    parser.add_argument(
+        "--synthetic-ioc",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Pad IPs, domains and hashes up to N entries each with synthetic values that cannot match real "
+        "traffic, to stress lookup structures. IPs are capped at 131072 (198.18.0.0/15).",
+    )
     args = parser.parse_args()
 
     if not 1 <= args.threatfox_days <= 7:
@@ -379,6 +527,14 @@ def main() -> int:
         domains |= fetch_urlhaus(args.urlhaus_auth_key, metadata)
     else:
         metadata["urlhaus"] = {"enabled": False}
+
+    if args.public_iocs:
+        public_ips, public_domains, public_hashes = fetch_public_iocs(metadata)
+        ips |= public_ips
+        domains |= public_domains
+        hashes |= public_hashes
+    if args.synthetic_ioc > 0:
+        synthetic_iocs(args.synthetic_ioc, ips, domains, hashes, metadata)
 
     append_unique(output / "ioc" / "ips.txt", ips, "# IOC Type: IPs\n# Format: VALUE;COMMENT")
     append_unique(output / "ioc" / "domains.txt", domains, "# IOC Type: Domains\n# Format: VALUE;COMMENT")
