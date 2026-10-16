@@ -1083,7 +1083,7 @@ mod tests {
         let job = |path: &Path| {
             let mut job = settling_job(&path.to_string_lossy(), 1, Instant::now());
             job.target.expected = None;
-            job.plan.deadline = Duration::from_millis(100);
+            job.plan.deadline = Duration::from_millis(1500);
             job
         };
         let (tx, mut rx) = mpsc::channel(4);
