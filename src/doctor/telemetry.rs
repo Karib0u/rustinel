@@ -11,6 +11,22 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+/// Shed share, in percent of offered items, below which a lossy counter is
+/// reported without a warning. The counters are lifetime totals, so a single
+/// lost item in millions would otherwise warn until the agent restarts.
+const LOSS_WARN_PCT: f64 = 0.01;
+
+/// Alert-writer loss share at which the verdict fails. Alerts are the product,
+/// so any loss warns, but a lone drop among thousands is not an outage.
+const ALERT_LOSS_FAIL_PCT: f64 = 0.1;
+
+fn loss_pct(lost: u64, offered: u64) -> f64 {
+    if offered == 0 {
+        return if lost > 0 { 100.0 } else { 0.0 };
+    }
+    (lost as f64 / offered as f64) * 100.0
+}
+
 /// Whether the agent is believed to be running, from the service manager.
 ///
 /// Portable runs and unreadable service state are `Unknown`: the absence of a
@@ -271,11 +287,6 @@ fn pipeline_results(snapshot: TelemetrySnapshot) -> Vec<DiagnosticResult> {
     results.extend(field_fidelity_results(&snapshot));
     results.extend(alert_webhook_results(&snapshot));
     let dropping = snapshot.dropping_channels();
-    let alert_writer_drops = snapshot
-        .channels
-        .iter()
-        .find(|channel| channel.channel == "alert_writer")
-        .map_or(0, |channel| channel.dropped);
     if dropping.is_empty() {
         results.insert(
             0,
@@ -297,20 +308,33 @@ fn pipeline_results(snapshot: TelemetrySnapshot) -> Vec<DiagnosticResult> {
         .collect::<Vec<_>>()
         .join("; ");
 
-    let result = if alert_writer_drops > 0 {
+    let alert_channel = dropping
+        .iter()
+        .find(|channel| channel.channel == "alert_writer");
+    let alert_loss = alert_channel.map_or(0.0, |channel| channel.drop_rate_pct());
+    let sensor_loss = dropping
+        .iter()
+        .filter(|channel| channel.channel != "alert_writer")
+        .map(|channel| channel.drop_rate_pct())
+        .fold(0.0, f64::max);
+
+    let result = if alert_loss >= ALERT_LOSS_FAIL_PCT {
+        let alert_drops = alert_channel.map_or(0, |channel| channel.dropped);
         let message = format!(
-            "{} alerts were dropped by the alert writer ({} total channel drops; snapshot from {})",
-            alert_writer_drops,
+            "{} alerts were dropped by the alert writer ({:.2}% of offered; {} total channel drops; snapshot from {})",
+            alert_drops,
+            alert_loss,
             snapshot.total_dropped(),
             snapshot.captured_at
         );
         DiagnosticResult::fail("pipeline_telemetry", message, detail).with_fix(
             "Alert file output lost records. Check disk health and alert volume, then re-run to confirm the count stops growing",
         )
-    } else {
+    } else if alert_channel.is_some() || sensor_loss >= LOSS_WARN_PCT {
         let message = format!(
-            "{} events were shed by pipeline channels (snapshot from {})",
+            "{} events were shed by pipeline channels, worst channel {:.3}% (snapshot from {})",
             snapshot.total_dropped(),
+            alert_loss.max(sensor_loss),
             snapshot.captured_at
         );
         DiagnosticResult::warn("pipeline_telemetry", message, detail).with_fix(
@@ -318,6 +342,15 @@ fn pipeline_results(snapshot: TelemetrySnapshot) -> Vec<DiagnosticResult> {
              rules, widen trusted-path allowlists - and re-run to confirm the totals stop growing; \
              see https://docs.rustinel.io/telemetry-loss/",
         )
+    } else {
+        let message = format!(
+            "{} events were shed, at most {:.4}% of any channel, below the {}% budget (snapshot from {})",
+            snapshot.total_dropped(),
+            sensor_loss,
+            LOSS_WARN_PCT,
+            snapshot.captured_at
+        );
+        DiagnosticResult::pass("pipeline_telemetry", message).with_detail(detail)
     };
 
     results.insert(0, result);
@@ -353,7 +386,6 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         .saturating_add(resolver.identity_unavailable)
         .saturating_add(resolver.read_failed)
         .saturating_add(resolver.consumer_failed)
-        .saturating_add(resolver.oversized)
         .saturating_add(resolver.deferred_budget_exceeded)
         .saturating_add(resolver.deferred_queue_saturated);
     let detail = format!(
@@ -413,8 +445,21 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
     } else {
         message
     };
-    vec![if failures == 0 && dropped == 0 {
+    // Oversized files are an expected limit, not a failure: they stay in the
+    // detail line but never move the verdict.
+    let lost = failures.max(dropped);
+    let offered = resolver.queued.saturating_add(resolver.deferred_queued);
+    let rate = loss_pct(lost, offered);
+    vec![if lost == 0 {
         DiagnosticResult::pass("artifact_resolver", detail)
+    } else if rate < LOSS_WARN_PCT {
+        DiagnosticResult::pass(
+            "artifact_resolver",
+            format!(
+                "{lost} of {offered} artifact jobs failed ({rate:.4}%), below the {LOSS_WARN_PCT}% budget"
+            ),
+        )
+        .with_detail(detail)
     } else {
         DiagnosticResult::warn(
             "artifact_resolver",
@@ -1566,6 +1611,71 @@ mod tests {
             .unwrap()
             .contains("alert_writer: 8 dropped"));
         assert_eq!(read.unwrap().channels[0].dropped, 8);
+    }
+
+    #[test]
+    fn negligible_channel_loss_passes_with_the_count_in_the_message() {
+        let temp = tempfile::tempdir().unwrap();
+        snapshot(vec![channel("sensor_events", 10_000_000, 3)])
+            .write_to(&snapshot_path(temp.path()))
+            .unwrap();
+
+        let (results, _) = telemetry_results(&AppConfig::default(), temp.path());
+
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+        assert!(results[0].message.contains("3 events were shed"));
+        assert!(results[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("sensor_events"));
+    }
+
+    #[test]
+    fn channel_loss_at_the_budget_warns() {
+        let temp = tempfile::tempdir().unwrap();
+        // 1 in 5000 offered is 0.02%, over the 0.01% budget.
+        snapshot(vec![channel("sensor_events", 4_999, 1)])
+            .write_to(&snapshot_path(temp.path()))
+            .unwrap();
+
+        let (results, _) = telemetry_results(&AppConfig::default(), temp.path());
+
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+    }
+
+    #[test]
+    fn a_lone_alert_drop_among_many_warns_but_does_not_fail() {
+        let temp = tempfile::tempdir().unwrap();
+        snapshot(vec![channel("alert_writer", 99_999, 1)])
+            .write_to(&snapshot_path(temp.path()))
+            .unwrap();
+
+        let (results, _) = telemetry_results(&AppConfig::default(), temp.path());
+
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+    }
+
+    #[test]
+    fn oversized_files_and_negligible_failures_do_not_move_the_resolver_verdict() {
+        let mut snap = snapshot(Vec::new());
+        snap.artifact_resolver = Some(crate::artifact::ArtifactResolverSnapshot {
+            queued: 1_000_000,
+            resolved: 1_000_000,
+            oversized: 500,
+            read_failed: 1,
+            ..Default::default()
+        });
+        let results = artifact_resolver_results(&snap);
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+        assert!(results[0]
+            .message
+            .contains("1 of 1000000 artifact jobs failed"));
+
+        snap.artifact_resolver.as_mut().unwrap().read_failed = 0;
+        let results = artifact_resolver_results(&snap);
+        assert_eq!(results[0].status, DiagnosticStatus::Pass);
+        assert!(results[0].detail.is_none());
     }
 
     #[test]
