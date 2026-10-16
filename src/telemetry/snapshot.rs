@@ -134,6 +134,9 @@ pub struct FileRundownSnapshot {
     pub path_bytes: usize,
     pub index_capacity: usize,
     pub rejected: bool,
+    /// Capture attempts made; the figures above describe the last one.
+    #[serde(default)]
+    pub attempts: u32,
 }
 
 /// Windows Kernel-File attribution, including startup before live events arrive.
