@@ -61,6 +61,10 @@ Rules that select on either field run in a separate pass, once per event, as soo
   The fields are marked `derived`.
   Windows cannot cancel a verification, so one that takes 2 seconds or more is counted as slow and holds an I/O slot until it ends.
   Files over 128 MB are not verified.
+  Files under `WindowsApps` are covered by their AppX or MSIX package signature.
+  Rustinel verifies `AppxSignature.p7x` once per package, then checks the file's 64 KiB block hashes against the signed `AppxBlockMap.xml`.
+  A file that matches is `Valid` with the package signer, a file that does not is `Invalid`, and a file the block map does not list is unknown.
+  A certificate chain that cannot be built from cached certificates is also unknown, not invalid.
 - Recordings do not carry these fields, so replay cannot reproduce a match that needed them.
 
 ## YARA
