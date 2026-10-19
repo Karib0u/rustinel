@@ -11,6 +11,7 @@ pub use rustinel_ebpf_common::events::{
     DNS_FLAG_TRUNCATED, DNS_PAYLOAD_CAPACITY, FILE_FLAG_AUX_PATH_TRUNCATED,
     FILE_FLAG_PATH_TRUNCATED, FILE_PATH_LEN, PROCESS_IMAGE_CAPACITY,
 };
+pub use rustinel_ebpf_common::events::{EXEC_SYSCALL_EXECVE, EXEC_SYSCALL_EXECVEAT};
 pub use rustinel_ebpf_common::task_identity_abi;
 
 #[cfg(target_os = "linux")]
@@ -89,6 +90,11 @@ pub trait ProcessEventExt {
     /// back to `/proc/<pid>/cmdline`. Arguments are joined with a single
     /// space, matching how the `/proc` reader renders them.
     fn kernel_command_line(&self) -> Option<String>;
+    /// Argv entries from the kernel capture, with their boundaries and any
+    /// empty arguments kept. Empty when the kernel captured nothing.
+    fn kernel_argv(&self) -> Vec<String>;
+    /// The exec entry point that staged the argv snapshot.
+    fn exec_syscall_name(&self) -> Option<&'static str>;
 }
 
 impl ProcessEventExt for ProcessEvent {
@@ -118,6 +124,8 @@ impl ProcessEventExt for ProcessEvent {
     fn exec_metadata(&self) -> Option<Box<crate::models::ExecMetadata>> {
         Some(Box::new(crate::models::ExecMetadata {
             real_user_id: Some(self.uid.to_string()),
+            argv: Some(self.kernel_argv()).filter(|argv| !argv.is_empty()),
+            exec_syscall: self.exec_syscall_name().map(ToString::to_string),
             ..Default::default()
         }))
     }
@@ -166,6 +174,29 @@ impl ProcessEventExt for ProcessEvent {
             None
         } else {
             Some(parts.join(" "))
+        }
+    }
+
+    fn kernel_argv(&self) -> Vec<String> {
+        let len = (self.args_len as usize).min(self.args.len());
+        if self.args_count == 0 || len == 0 {
+            return Vec::new();
+        }
+
+        // `args_count` bounds the walk so a trailing NUL is not an argument,
+        // while an empty argument in the middle keeps its position.
+        self.args[..len]
+            .split(|byte| *byte == 0)
+            .take(usize::from(self.args_count))
+            .map(|segment| String::from_utf8_lossy(segment).into_owned())
+            .collect()
+    }
+
+    fn exec_syscall_name(&self) -> Option<&'static str> {
+        match self.exec_syscall {
+            EXEC_SYSCALL_EXECVE => Some("execve"),
+            EXEC_SYSCALL_EXECVEAT => Some("execveat"),
+            _ => None,
         }
     }
 }
@@ -507,7 +538,7 @@ mod tests {
             args_truncated: 0,
             image_truncated: 0,
             parent_pid_derived: 0,
-            _pad1: 0,
+            exec_syscall: 0,
             args: [0u8; ARGV_CAPACITY],
         };
         let argv = b"/bin/true\0--quiet\0";
@@ -556,7 +587,7 @@ mod tests {
             args_truncated: 0,
             image_truncated: 0,
             parent_pid_derived: 0,
-            _pad1: 0,
+            exec_syscall: 0,
             args: [0u8; ARGV_CAPACITY],
         };
         event.comm[..4].copy_from_slice(b"bash");

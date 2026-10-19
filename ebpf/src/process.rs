@@ -40,7 +40,10 @@ use aya_ebpf::{
     EbpfContext,
 };
 
-use crate::events::{event_metadata, ProcessEvent, ARGV_CAPACITY, PROCESS_IMAGE_CAPACITY};
+use crate::events::{
+    event_metadata, ProcessEvent, ARGV_CAPACITY, EXEC_SYSCALL_EXECVE, EXEC_SYSCALL_EXECVEAT,
+    PROCESS_IMAGE_CAPACITY,
+};
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, PROCESS_FAMILY};
 
 /// Loader-populated offsets for the process tracepoints used below.
@@ -168,7 +171,10 @@ struct ArgvSnapshot {
     count: u16,
     /// 1 when the argv vector did not fit the capture limits.
     truncated: u8,
-    _pad: [u8; 3],
+    /// Entry point that staged this snapshot: [`EXEC_SYSCALL_EXECVE`] or
+    /// [`EXEC_SYSCALL_EXECVEAT`].
+    syscall: u8,
+    _pad: [u8; 2],
     /// NUL-separated argument bytes.
     args: [u8; ARGV_CAPACITY],
 }
@@ -235,6 +241,7 @@ pub fn handle_execve(ctx: TracePointContext) -> u32 {
         try_capture_argv(
             &ctx,
             tracepoint_offset(core::ptr::addr_of!(PROCESS_TRACEPOINT_OFFSETS.execve_argv)),
+            EXEC_SYSCALL_EXECVE,
         )
     }
     .unwrap_or(1)
@@ -249,6 +256,7 @@ pub fn handle_execveat(ctx: TracePointContext) -> u32 {
             tracepoint_offset(core::ptr::addr_of!(
                 PROCESS_TRACEPOINT_OFFSETS.execveat_argv
             )),
+            EXEC_SYSCALL_EXECVEAT,
         )
     }
     .unwrap_or(1)
@@ -313,7 +321,7 @@ unsafe fn try_handle_exec(ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).comm = comm;
     (*event).image = image;
     (*event).image_truncated = (str_len > image.len()) as u8;
-    (*event)._pad1 = 0;
+    (*event).exec_syscall = 0;
 
     attach_pending_argv(event, old_pid);
 
@@ -425,7 +433,7 @@ unsafe fn try_handle_fork(ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).args_truncated = 0;
     (*event).image_truncated = 0;
     (*event).parent_pid_derived = relationship.parent_pid_derived;
-    (*event)._pad1 = 0;
+    (*event).exec_syscall = 0;
 
     entry.submit(0);
     record_submitted(PROCESS_FAMILY);
@@ -486,19 +494,25 @@ unsafe fn attach_pending_argv(event: *mut ProcessEvent, old_pid: u32) {
         (*event).args_len = 0;
         (*event).args_count = 0;
         (*event).args_truncated = 0;
+        (*event).exec_syscall = 0;
         return;
     };
 
     (*event).args_len = snapshot.len;
     (*event).args_count = snapshot.count;
     (*event).args_truncated = snapshot.truncated;
+    (*event).exec_syscall = snapshot.syscall;
     (*event).args = snapshot.args;
 
     let _ = ARGV_PENDING.remove(&key);
 }
 
 #[inline(always)]
-unsafe fn try_capture_argv(ctx: &TracePointContext, argv_offset: usize) -> Result<u32, i64> {
+unsafe fn try_capture_argv(
+    ctx: &TracePointContext,
+    argv_offset: usize,
+    syscall: u8,
+) -> Result<u32, i64> {
     let argv: u64 = ctx.read_at::<u64>(argv_offset)?;
 
     let Some(scratch) = ARGV_SCRATCH.get_ptr_mut(0) else {
@@ -507,7 +521,8 @@ unsafe fn try_capture_argv(ctx: &TracePointContext, argv_offset: usize) -> Resul
     (*scratch).len = 0;
     (*scratch).count = 0;
     (*scratch).truncated = 0;
-    (*scratch)._pad = [0u8; 3];
+    (*scratch).syscall = syscall;
+    (*scratch)._pad = [0u8; 2];
     (*scratch).args = [0u8; ARGV_CAPACITY];
 
     if argv != 0 {
@@ -622,7 +637,7 @@ unsafe fn try_handle_exit(_ctx: &TracePointContext) -> Result<u32, i64> {
     (*event).args_truncated = 0;
     (*event).image_truncated = 0;
     (*event).parent_pid_derived = 0;
-    (*event)._pad1 = 0;
+    (*event).exec_syscall = 0;
 
     entry.submit(0);
     let _ = PROCESS_START_TIMES.remove(&pid);

@@ -408,7 +408,68 @@ impl NormalizedEvent {
         match self.field_view(FieldViewName::DEFAULT).get(key)? {
             CanonicalValue::String(value) => Some(value),
             CanonicalValue::Bool(value) => Some(if value { "true" } else { "false" }),
-            CanonicalValue::U64(_) => None,
+            CanonicalValue::U64(_) | CanonicalValue::Strs(_) | CanonicalValue::Pair(..) => None,
+        }
+    }
+
+    /// The audit-record facts of a Linux exec or file event.
+    ///
+    /// An exec stands for the `SYSCALL`, `EXECVE` and `PATH` records auditd
+    /// would write, a file event for `SYSCALL` and `PATH`. Facts that differ
+    /// between those records are projections or multi-values, never one
+    /// invented scalar. Anything this view cannot measure is absent.
+    fn audit_value(&self, key: CanonicalField) -> Option<CanonicalValue<'_>> {
+        use CanonicalField as Field;
+        use CanonicalValue as Value;
+
+        if key == Field::AuditComm {
+            return self.process_name.as_deref().map(Value::String);
+        }
+        match &self.fields {
+            EventFields::ProcessCreation(f) => match key {
+                Field::AuditType => Some(Value::Strs(&["SYSCALL", "EXECVE", "PATH"])),
+                Field::AuditSyscall => f.exec.as_ref()?.exec_syscall.as_deref().map(Value::String),
+                Field::AuditArg(index) => f
+                    .exec
+                    .as_ref()?
+                    .argv
+                    .as_ref()?
+                    .get(usize::from(index))
+                    .map(|argument| Value::String(argument)),
+                Field::AuditName => f.image.as_deref().map(Value::String),
+                Field::AuditEuid => f
+                    .linux_identity
+                    .effective_user_id
+                    .as_deref()
+                    .map(Value::String),
+                _ => None,
+            },
+            EventFields::FileEvent(f) => match key {
+                Field::AuditType => Some(Value::Strs(&["SYSCALL", "PATH"])),
+                Field::AuditName => {
+                    match (f.source_filename.as_deref(), f.target_filename.as_deref()) {
+                        (Some(source), Some(target)) => Some(Value::Pair(source, target)),
+                        (None, Some(path)) | (Some(path), None) => Some(Value::String(path)),
+                        (None, None) => None,
+                    }
+                }
+                Field::AuditNameType => {
+                    use crate::models::event_actions::{row_for_code, row_for_event_id};
+                    use crate::vocab::SensorAction;
+                    let row = row_for_event_id(EventCategory::File, self.event_id)
+                        .or_else(|| row_for_code(EventCategory::File, self.opcode))?;
+                    match row.action {
+                        SensorAction::Create => Some(Value::String("CREATE")),
+                        SensorAction::Delete => Some(Value::String("DELETE")),
+                        SensorAction::Modify => Some(Value::String("NORMAL")),
+                        SensorAction::Rename => Some(Value::Pair("DELETE", "CREATE")),
+                        _ => None,
+                    }
+                }
+                Field::AuditEuid => f.user.as_deref().map(Value::String),
+                _ => None,
+            },
+            _ => None,
         }
     }
 
@@ -420,6 +481,12 @@ impl NormalizedEvent {
     ) -> Option<CanonicalValue<'_>> {
         use CanonicalField as Field;
         use CanonicalValue as Value;
+
+        if view == FieldViewName::AUDITD {
+            if let Some(value) = self.audit_value(key) {
+                return Some(value);
+            }
+        }
 
         match key {
             Field::Timestamp => return Some(Value::String(&self.timestamp)),

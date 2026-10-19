@@ -96,6 +96,11 @@ pub struct FieldContract {
     /// Exact value for invariant fields such as a native Windows channel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<&'static str>,
+    /// Every value a multi-valued field holds at once, such as the audit
+    /// record types one exec stands for. A rule value matches when it equals
+    /// any of them.
+    #[serde(skip_serializing_if = "<[&str]>::is_empty")]
+    pub values: &'static [&'static str],
     #[serde(flatten)]
     pub availability: Availability,
 }
@@ -146,6 +151,7 @@ const fn always(field: &'static str, since: Option<&'static str>) -> FieldContra
         field,
         since,
         value: None,
+        values: &[],
         availability: Availability::Always,
     }
 }
@@ -159,7 +165,37 @@ const fn always_value(
         field,
         since,
         value: Some(value),
+        values: &[],
         availability: Availability::Always,
+    }
+}
+
+const fn always_values(
+    field: &'static str,
+    since: Option<&'static str>,
+    values: &'static [&'static str],
+) -> FieldContract {
+    FieldContract {
+        field,
+        since,
+        value: None,
+        values,
+        availability: Availability::Always,
+    }
+}
+
+const fn conditional_values(
+    field: &'static str,
+    since: Option<&'static str>,
+    values: &'static [&'static str],
+    reason: &'static str,
+) -> FieldContract {
+    FieldContract {
+        field,
+        since,
+        value: None,
+        values,
+        availability: Availability::Conditional(reason),
     }
 }
 
@@ -172,6 +208,7 @@ const fn conditional(
         field,
         since,
         value: None,
+        values: &[],
         availability: Availability::Conditional(reason),
     }
 }
@@ -185,6 +222,7 @@ const fn never(
         field,
         since,
         value: None,
+        values: &[],
         availability: Availability::Never(reason),
     }
 }
@@ -2052,6 +2090,155 @@ const CREATE_REMOTE_THREAD: &[FieldContract] = &[never(
     "no Rustinel sensor produces remote-thread creation telemetry",
 )];
 
+/// The auditd view (#321). Linux eBPF telemetry stands for the audit records
+/// auditd would write; nothing here is read from auditd.
+const SINCE_AUDITD_VIEW: Option<&str> = Some(UNRELEASED);
+
+const AUDIT_NO_KEY: &str = "an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one";
+const AUDIT_NO_UNIT: &str =
+    "no Rustinel sensor produces service start or stop records, which carry `unit`";
+const AUDIT_ARGV: &str = "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all";
+
+macro_rules! audit_argv {
+    ($index:literal) => {
+        conditional(concat!("a", $index), SINCE_AUDITD_VIEW, AUDIT_ARGV)
+    };
+}
+
+const AUDITD_PROCESS: &[FieldContract] = &[
+    always_values(
+        "type",
+        SINCE_AUDITD_VIEW,
+        &["SYSCALL", "EXECVE", "PATH"],
+    ),
+    conditional_values(
+        "SYSCALL",
+        SINCE_AUDITD_VIEW,
+        &["execve", "execveat"],
+        "the argv snapshot taken at syscall entry named the entry point; absent when no snapshot was joined",
+    ),
+    audit_argv!("0"),
+    audit_argv!("1"),
+    audit_argv!("2"),
+    audit_argv!("3"),
+    audit_argv!("4"),
+    audit_argv!("5"),
+    audit_argv!("6"),
+    audit_argv!("7"),
+    conditional(
+        "comm",
+        SINCE_AUDITD_VIEW,
+        "the kernel supplied a non-empty task name",
+    ),
+    conditional(
+        "euid",
+        SINCE_AUDITD_VIEW,
+        "runtime BTF resolves effective credentials and the kernel read succeeds",
+    ),
+    always("exe", SINCE_AUDITD_VIEW),
+    always("name", SINCE_AUDITD_VIEW),
+    never(
+        "nametype",
+        SINCE_AUDITD_VIEW,
+        "exec telemetry does not model per-path name types",
+    ),
+    never("key", SINCE_AUDITD_VIEW, AUDIT_NO_KEY),
+    never("unit", SINCE_AUDITD_VIEW, AUDIT_NO_UNIT),
+];
+
+macro_rules! auditd_file_fields {
+    ($name:ident, $nametype:expr) => {
+        const $name: &[FieldContract] = &[
+            always_values("type", SINCE_AUDITD_VIEW, &["SYSCALL", "PATH"]),
+            never(
+                "SYSCALL",
+                SINCE_AUDITD_VIEW,
+                "the eBPF file probes do not retain which syscall produced the event",
+            ),
+            never(
+                "a0",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            never(
+                "a1",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            never(
+                "a2",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            never(
+                "a3",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            never(
+                "a4",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            never(
+                "a5",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            never(
+                "a6",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            never(
+                "a7",
+                SINCE_AUDITD_VIEW,
+                "raw syscall arguments are not captured for file events",
+            ),
+            conditional(
+                "comm",
+                SINCE_AUDITD_VIEW,
+                "the process is still present in the process cache",
+            ),
+            conditional(
+                "euid",
+                SINCE_AUDITD_VIEW,
+                "runtime BTF resolves effective credentials and the kernel read succeeds",
+            ),
+            conditional(
+                "exe",
+                SINCE_AUDITD_VIEW,
+                "the process identity is still present in the process cache",
+            ),
+            always("name", SINCE_AUDITD_VIEW),
+            always_values("nametype", SINCE_AUDITD_VIEW, $nametype),
+            never("key", SINCE_AUDITD_VIEW, AUDIT_NO_KEY),
+            never("unit", SINCE_AUDITD_VIEW, AUDIT_NO_UNIT),
+        ];
+    };
+}
+
+auditd_file_fields!(AUDITD_FILE_CREATE, &["CREATE"]);
+auditd_file_fields!(AUDITD_FILE_MODIFY, &["NORMAL"]);
+auditd_file_fields!(AUDITD_FILE_DELETE, &["DELETE"]);
+auditd_file_fields!(AUDITD_FILE_RENAME, &["DELETE", "CREATE"]);
+
+macro_rules! auditd_contract {
+    ($category:literal, $event:expr, $action:ident, $source:literal, $fields:ident) => {
+        EventFieldContract {
+            view: FieldViewName::AUDITD,
+            platform: Platform::Linux,
+            category: $category,
+            event_id: $event,
+            event_ids: &[],
+            action: Some(SensorAction::$action),
+            provider: "ebpf",
+            source: $source,
+            fields: $fields,
+        }
+    };
+}
+
 macro_rules! contract {
     ($platform:ident, $category:literal, $event:expr, $action:ident, $provider:literal, $source:literal, $fields:ident) => {
         EventFieldContract {
@@ -3002,6 +3189,41 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "DNS socket syscall hooks",
         LINUX_DNS
     ),
+    auditd_contract!(
+        "process_creation",
+        Some(1),
+        Start,
+        "execve tracepoints",
+        AUDITD_PROCESS
+    ),
+    auditd_contract!(
+        "file_event",
+        None,
+        Create,
+        "file syscall tracepoints",
+        AUDITD_FILE_CREATE
+    ),
+    auditd_contract!(
+        "file_event",
+        None,
+        Modify,
+        "file syscall tracepoints",
+        AUDITD_FILE_MODIFY
+    ),
+    auditd_contract!(
+        "file_event",
+        None,
+        Delete,
+        "file syscall tracepoints",
+        AUDITD_FILE_DELETE
+    ),
+    auditd_contract!(
+        "file_event",
+        None,
+        Rename,
+        "file syscall tracepoints",
+        AUDITD_FILE_RENAME
+    ),
     contract!(
         MacOS,
         "process_creation",
@@ -3347,6 +3569,8 @@ struct BaselineEntry<'a> {
     since: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<&'a str>,
+    #[serde(skip_serializing_if = "<[&str]>::is_empty")]
+    values: &'a [&'a str],
     #[serde(flatten)]
     availability: Availability,
 }
@@ -3368,6 +3592,7 @@ pub fn compatibility_json() -> String {
                 field: field.field,
                 since: field.since,
                 value: field.value,
+                values: field.values,
                 availability: field.availability,
             })
         })
@@ -3483,7 +3708,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 | View | Platform | Always | Conditional | Never |\n\
 | --- | --- | ---: | ---: | ---: |\n",
     );
-    for view in [FieldViewName::SYSMON] {
+    for view in [FieldViewName::SYSMON, FieldViewName::AUDITD] {
         for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
             let mut counts = [0usize; 3];
             for availability in FIELD_AVAILABILITY
@@ -3496,6 +3721,9 @@ These count fields, not rules: a rule that references a `Never` field inside an 
                     Availability::Conditional(_) => counts[1] += 1,
                     Availability::Never(_) => counts[2] += 1,
                 }
+            }
+            if counts == [0; 3] {
+                continue;
             }
             output.push_str(&format!(
                 "| `{}` | {} | {} | {} | {} |\n",

@@ -99,6 +99,13 @@ pub struct ExecMetadata {
     pub codesigning_flags: Option<String>,
     #[serde(rename = "IsPlatformBinary", skip_serializing_if = "Option::is_none")]
     pub is_platform_binary: Option<bool>,
+    /// Kernel argv snapshot with its argument boundaries kept, Linux only.
+    /// `CommandLine` is this vector joined with spaces.
+    #[serde(rename = "Argv", skip_serializing_if = "Option::is_none")]
+    pub argv: Option<Vec<String>>,
+    /// `execve` or `execveat`: the entry point that staged the argv snapshot.
+    #[serde(rename = "ExecSyscall", skip_serializing_if = "Option::is_none")]
+    pub exec_syscall: Option<String>,
     #[serde(skip)]
     pub(crate) file_identity: Option<crate::utils::file_identity::FileIdentity>,
 }

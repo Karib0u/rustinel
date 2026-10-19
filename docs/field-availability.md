@@ -16,6 +16,20 @@ Edit that table and run `cargo run --bin generate-docs`.
 
 | View | Platform | Category | Event / action | Source | Unavailable field | Reason |
 | --- | --- | --- | --- | --- | --- | --- |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `SYSCALL` | the eBPF file probes do not retain which syscall produced the event |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a0` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a1` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a2` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a3` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a4` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a5` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a6` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a7` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `key` | an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `unit` | no Rustinel sensor produces service start or stop records, which carry `unit` |
+| `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `key` | an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one |
+| `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `nametype` | exec telemetry does not model per-path name types |
+| `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `unit` | no Rustinel sensor produces service start or stop records, which carry `unit` |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |

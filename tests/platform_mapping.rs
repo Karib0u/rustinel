@@ -49,7 +49,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         args_truncated: 0,
         image_truncated: 0,
         parent_pid_derived: 0,
-        _pad1: 0,
+        exec_syscall: 0,
         args: [0; ARGV_CAPACITY],
     };
     write_cstr(&mut process.image, "/usr/bin/curl");
