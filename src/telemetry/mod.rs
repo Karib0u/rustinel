@@ -26,6 +26,27 @@ pub use macos::{
     BpfInterfaceSnapshot, BpfSnapshot, EsfSnapshot, MacosCollectorSnapshot, MacosCollectors,
 };
 pub use probes::PipelineProbes;
+
+/// Cumulative events lost at one stage, as read for loss alerts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LossTotal {
+    /// Which stage lost them, as in `edr.agent.loss.channel`.
+    pub channel: &'static str,
+    /// What was lost there, as in `edr.agent.loss.category`.
+    pub category: String,
+    /// Events lost since the agent started.
+    pub total: u64,
+}
+
+impl LossTotal {
+    pub fn new(channel: &'static str, category: impl Into<String>, total: u64) -> Self {
+        Self {
+            channel,
+            category: category.into(),
+            total,
+        }
+    }
+}
 pub use process_correlation::{
     ProcessCommandLineCounters, ProcessCorrelationCounters, ProcessCorrelationSnapshot,
 };
