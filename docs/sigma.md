@@ -147,7 +147,7 @@ Things that differ from Sysmon:
   Use them to find tunnelling and generated domains, for example a `value_count` correlation on `QueryName` with `group-by: QueryRegisteredDomain`.
   The suffix data is the Mozilla Public Suffix List, including its private section such as `github.io`.
   It is compiled into the binary by the `psl` crate, so it only changes with a Rustinel release; Dependabot proposes each `psl` update.
-  Linux drops names its DNS parser rejects, such as a label over 63 bytes, so those queries carry no derived field.
+  Linux drops names its DNS parser rejects, such as a label over 63 bytes, and a name cut off by the capture (`QueryTruncated` is `true`) carries no derived field.
 - **`Initiated`** is `'true'` for outgoing and `'false'` for accepted connections, on Windows and Linux.
   On Linux, accepted connections and `SourceIp`, `SourcePort`, and `Protocol` need kernel BTF; without it only outgoing connections are seen. macOS cannot tell the direction, so the field is absent there and matches neither value.
 - **Linux `Image`** is the path passed to `execve()`.

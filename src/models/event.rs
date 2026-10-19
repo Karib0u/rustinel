@@ -583,23 +583,19 @@ impl NormalizedEvent {
                 Field::DnsQueryName => f.query_name.as_deref().map(Value::String),
                 Field::DnsQueryResults => f.query_results.as_deref().map(Value::String),
                 Field::DnsRegisteredDomain => f
-                    .query_name
-                    .as_deref()
+                    .derivable_query_name()
                     .and_then(dns_name::registered_domain)
                     .map(Value::String),
                 Field::DnsLabelCount => f
-                    .query_name
-                    .as_deref()
+                    .derivable_query_name()
                     .filter(|name| !name.is_empty())
                     .map(|name| Value::U64(dns_name::label_count(name))),
                 Field::DnsLongestLabel => f
-                    .query_name
-                    .as_deref()
+                    .derivable_query_name()
                     .filter(|name| !name.is_empty())
                     .map(|name| Value::U64(dns_name::longest_label(name))),
                 Field::DnsNameLength => f
-                    .query_name
-                    .as_deref()
+                    .derivable_query_name()
                     .filter(|name| !name.is_empty())
                     .map(|name| Value::U64(dns_name::name_length(name))),
                 Field::DnsRecordType => f.record_type.as_deref().map(Value::String),

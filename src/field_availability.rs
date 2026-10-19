@@ -1658,22 +1658,22 @@ const LINUX_DNS: &[FieldContract] = &[
     conditional(
         "QueryRegisteredDomain",
         SINCE_DNS_DERIVED,
-        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix; absent when the question cannot be parsed, which drops names with a label over 63 bytes",
+        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
     ),
     conditional(
         "QueryLabelCount",
         SINCE_DNS_DERIVED,
-        "derived read-only from QueryName: the label count of QueryName; absent when the question cannot be parsed, which drops names with a label over 63 bytes",
+        "derived read-only from QueryName: the label count of QueryName; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
     ),
     conditional(
         "QueryLongestLabel",
         SINCE_DNS_DERIVED,
-        "derived read-only from QueryName: the longest label length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes",
+        "derived read-only from QueryName: the longest label length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
     ),
     conditional(
         "QueryNameLength",
         SINCE_DNS_DERIVED,
-        "derived read-only from QueryName: the length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes",
+        "derived read-only from QueryName: the length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
     ),
     conditional(
         "QueryResults",

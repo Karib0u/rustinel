@@ -1200,6 +1200,7 @@ correlation:
                 query_results: None,
                 record_type: Some("TXT".to_string()),
                 query_status: None,
+                query_truncated: None,
                 process_id: Some("202".to_string()),
                 image: Some("/usr/bin/dig".to_string()),
             }),
@@ -1207,6 +1208,28 @@ correlation:
             provenance: Default::default(),
             process_context: None,
         }
+    }
+
+    #[test]
+    fn derived_dns_fields_are_absent_for_a_truncated_name() {
+        let mut event = dns_event("a.b.tunnel.co.uk", 1);
+        let EventFields::DnsQuery(fields) = &mut event.fields else {
+            unreachable!()
+        };
+        fields.query_truncated = Some("true".to_string());
+        let adapter = event::RsigmaEvent::new(&event);
+        for name in [
+            "QueryRegisteredDomain",
+            "QueryLabelCount",
+            "QueryLongestLabel",
+            "QueryNameLength",
+        ] {
+            assert!(
+                rsigma_eval::Event::get_field(&adapter, name).is_none(),
+                "{name}"
+            );
+        }
+        assert!(rsigma_eval::Event::get_field(&adapter, "QueryName").is_some());
     }
 
     #[test]
