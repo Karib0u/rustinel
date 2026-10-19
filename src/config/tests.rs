@@ -490,6 +490,7 @@ fn test_windows_etw_flush_default() {
     assert_eq!(cfg.windows.etw_flush_interval_ms, 20);
     assert_eq!(cfg.windows.etw_process_flush_interval_ms, 5);
     assert!(!cfg.windows.security_filtering_platform_connections);
+    assert!(!cfg.windows.security_long_tail_events);
 }
 
 #[test]
@@ -519,6 +520,7 @@ fn config_builder_uses_windows_etw_flush_default() {
     assert_eq!(cfg.windows.etw_flush_interval_ms, 20);
     assert_eq!(cfg.windows.etw_process_flush_interval_ms, 5);
     assert!(!cfg.windows.security_filtering_platform_connections);
+    assert!(!cfg.windows.security_long_tail_events);
 }
 
 #[test]
