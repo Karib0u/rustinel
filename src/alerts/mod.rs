@@ -14,8 +14,8 @@ pub mod webhook;
 use crate::identity::Identity;
 use crate::models::ecs::EcsAlert;
 use crate::models::{Alert, YaraScanSource};
-use std::io::Write;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::io::{self, Write};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{error, info};
 use tracing_appender::non_blocking::{ErrorCounter, NonBlocking};
@@ -23,15 +23,118 @@ use tracing_appender::non_blocking::{ErrorCounter, NonBlocking};
 pub use dedup::Deduplicator;
 pub use webhook::WebhookDispatcher;
 
+/// Upper bound on alert bytes queued for the file writer.
+///
+/// `tracing_appender::non_blocking` bounds its queue by record count only, and
+/// every queued record owns its bytes, so a stalled disk plus large alerts
+/// could otherwise queue gigabytes.
+pub const DEFAULT_ALERT_QUEUE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Byte budget for alerts queued behind the file writer.
+///
+/// Bytes are reserved when a record is queued and released by [`BudgetedWriter`]
+/// once the writer thread has handled it, successfully or not. A record that
+/// does not fit is dropped rather than blocking ingestion.
+pub struct AlertByteBudget {
+    limit: usize,
+    pending: AtomicUsize,
+    dropped_records: AtomicU64,
+    dropped_bytes: AtomicU64,
+}
+
+impl AlertByteBudget {
+    pub fn new(limit: usize) -> Arc<Self> {
+        Arc::new(Self {
+            limit,
+            pending: AtomicUsize::new(0),
+            dropped_records: AtomicU64::new(0),
+            dropped_bytes: AtomicU64::new(0),
+        })
+    }
+
+    /// Reserve `len` bytes, or count the record as dropped when it would exceed the limit.
+    fn try_reserve(&self, len: usize) -> bool {
+        let mut current = self.pending.load(Ordering::Relaxed);
+        loop {
+            match current.checked_add(len) {
+                Some(next) if next <= self.limit => {
+                    match self.pending.compare_exchange_weak(
+                        current,
+                        next,
+                        Ordering::AcqRel,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => return true,
+                        Err(actual) => current = actual,
+                    }
+                }
+                _ => {
+                    self.dropped_records.fetch_add(1, Ordering::Relaxed);
+                    self.dropped_bytes.fetch_add(len as u64, Ordering::Relaxed);
+                    return false;
+                }
+            }
+        }
+    }
+
+    fn release(&self, len: usize) {
+        self.pending.fetch_sub(len, Ordering::AcqRel);
+    }
+
+    /// Bytes currently queued or in flight.
+    pub fn pending_bytes(&self) -> usize {
+        self.pending.load(Ordering::Relaxed)
+    }
+
+    /// Records dropped because the byte budget was exhausted.
+    pub fn dropped_records(&self) -> u64 {
+        self.dropped_records.load(Ordering::Relaxed)
+    }
+
+    /// Bytes of the records dropped because the byte budget was exhausted.
+    pub fn dropped_bytes(&self) -> u64 {
+        self.dropped_bytes.load(Ordering::Relaxed)
+    }
+}
+
+/// Wraps the file writer so queued bytes return to the budget once written.
+pub struct BudgetedWriter<W> {
+    inner: W,
+    budget: Arc<AlertByteBudget>,
+}
+
+impl<W> BudgetedWriter<W> {
+    pub fn new(inner: W, budget: Arc<AlertByteBudget>) -> Self {
+        Self { inner, budget }
+    }
+}
+
+impl<W: Write> Write for BudgetedWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // Each buffer is one queued record. Release the whole reservation
+        // whatever happens, or a failing sink would leak budget and
+        // eventually drop every alert.
+        let result = self.inner.write_all(buf);
+        self.budget.release(buf.len());
+        result.map(|()| buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct AlertWriterMetrics {
     dropped: ErrorCounter,
     offered: Arc<AtomicU64>,
+    budget: Option<Arc<AlertByteBudget>>,
 }
 
 impl AlertWriterMetrics {
     pub(crate) fn dropped(&self) -> u64 {
-        self.dropped.dropped_lines() as u64
+        let over_budget = self.budget.as_ref().map_or(0, |b| b.dropped_records());
+        (self.dropped.dropped_lines() as u64).saturating_add(over_budget)
     }
 
     pub(crate) fn accepted(&self) -> u64 {
@@ -45,6 +148,7 @@ impl AlertWriterMetrics {
 pub struct AlertSink {
     writer: NonBlocking,
     writer_metrics: AlertWriterMetrics,
+    budget: Option<Arc<AlertByteBudget>>,
     dedup: Option<Arc<Deduplicator>>,
     webhooks: Option<Arc<WebhookDispatcher>>,
     identity: Option<Arc<Identity>>,
@@ -65,14 +169,24 @@ impl AlertSink {
         let writer_metrics = AlertWriterMetrics {
             dropped: writer.error_counter(),
             offered: Arc::new(AtomicU64::new(0)),
+            budget: None,
         };
         Self {
             writer,
             writer_metrics,
+            budget: None,
             dedup: None,
             webhooks: None,
             identity: None,
         }
+    }
+
+    /// Bound queued alert bytes. `budget` must be the one the writer was
+    /// wrapped with via [`BudgetedWriter`], or reservations are never released.
+    pub fn with_byte_budget(mut self, budget: Arc<AlertByteBudget>) -> Self {
+        self.writer_metrics.budget = Some(Arc::clone(&budget));
+        self.budget = Some(budget);
+        self
     }
 
     pub(crate) fn writer_metrics(&self) -> AlertWriterMetrics {
@@ -122,8 +236,18 @@ impl AlertSink {
                 // writeln! two concurrent alerts can land as `{A}{B}\n\n`.
                 line.push('\n');
                 self.writer_metrics.offered.fetch_add(1, Ordering::Relaxed);
-                let mut writer = self.writer.clone();
-                let written = writer.write_all(line.as_bytes());
+                let reserved = self
+                    .budget
+                    .as_ref()
+                    .is_none_or(|budget| budget.try_reserve(line.len()));
+                let written = if reserved {
+                    let mut writer = self.writer.clone();
+                    writer.write_all(line.as_bytes())
+                } else {
+                    // Over the byte budget: shed the file copy, keep ingestion
+                    // and webhook delivery moving. Counted in the dropped metrics.
+                    Ok(())
+                };
                 // Webhook delivery is independent of the file: neither a file
                 // error nor a delivery problem affects the other.
                 if let Some(webhooks) = &self.webhooks {
@@ -277,6 +401,77 @@ mod tests {
         assert_eq!(channel.channel, "alert_writer");
         assert_eq!(channel.dropped, 8);
         assert_eq!(channel.accepted, 2);
+    }
+
+    #[test]
+    fn byte_budget_bounds_queue_behind_blocked_writer() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let budget = AlertByteBudget::new(1000);
+        let (writer, guard) = tracing_appender::non_blocking(BudgetedWriter::new(
+            SlowWriter {
+                started: started_tx,
+                release: release_rx,
+                blocked: false,
+            },
+            Arc::clone(&budget),
+        ));
+        let sink = AlertSink::new(writer).with_byte_budget(Arc::clone(&budget));
+        let metrics = sink.writer_metrics();
+
+        // First record is taken by the worker and blocks in the sink.
+        assert!(budget.try_reserve(100));
+        sink.writer.clone().write_all(&[b'x'; 100]).unwrap();
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(budget.pending_bytes(), 100);
+
+        // Mixed sizes: 400 and 450 fit (950 total), the next 100 does not.
+        assert!(budget.try_reserve(400));
+        assert!(budget.try_reserve(450));
+        assert!(!budget.try_reserve(100));
+        assert!(!budget.try_reserve(2000));
+        assert_eq!(budget.pending_bytes(), 950);
+        assert_eq!(budget.dropped_records(), 2);
+        assert_eq!(budget.dropped_bytes(), 2100);
+        assert_eq!(metrics.dropped(), 2);
+
+        // Draining the sink returns every reserved byte.
+        sink.writer.clone().write_all(&[b'y'; 400]).unwrap();
+        sink.writer.clone().write_all(&[b'z'; 450]).unwrap();
+        release_tx.send(()).unwrap();
+        drop(sink);
+        drop(guard);
+        assert_eq!(budget.pending_bytes(), 0);
+    }
+
+    #[test]
+    fn byte_budget_is_released_when_the_sink_fails() {
+        struct FailingWriter;
+        impl Write for FailingWriter {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("disk gone"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let budget = AlertByteBudget::new(1000);
+        let (writer, guard) =
+            tracing_appender::non_blocking(BudgetedWriter::new(FailingWriter, Arc::clone(&budget)));
+        for _ in 0..10 {
+            assert!(budget.try_reserve(300));
+            writer.clone().write_all(&[b'x'; 300]).unwrap();
+            // Wait for the worker to consume it before reserving again.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while budget.pending_bytes() != 0 && std::time::Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            assert_eq!(budget.pending_bytes(), 0);
+        }
+        drop(guard);
+        assert_eq!(budget.dropped_records(), 0);
     }
 
     #[test]

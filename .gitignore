@@ -45,6 +45,7 @@ tests/**/*
 !tests/ebpf_live_tests.sh
 !tests/ebpf_expected_degradations_5.10.txt
 !tests/ebpf_process_cache_soak.py
+!tests/linux_dns_fixture.py
 # The golden replay fixture is checked in on purpose: the recording, its
 # manifest, the rules it must fire, and the script that produced it are the
 # regression, not build output. See docs/development.md (Replay fixture).

@@ -335,6 +335,7 @@ pub fn dns_query_event(platform: Platform) -> RawEvent {
         }),
         parent_process_start_key: None,
         payload: RawPayload::Dns(DnsQueryFields {
+            query_truncated: None,
             user: None,
             query_name: Some(TEST_DOMAIN.to_string()),
             query_results: Some(TEST_DESTINATION_IP.to_string()),

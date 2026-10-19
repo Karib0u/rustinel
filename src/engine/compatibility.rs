@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use rsigma_parser::{
@@ -18,10 +19,11 @@ use rsigma_parser::{
 use serde::Serialize;
 
 use crate::config::AppConfig;
-use crate::field_availability::{Availability, EventFieldContract, FIELD_AVAILABILITY};
-use crate::models::{Fidelity, FieldViewName};
-use crate::vocab::{Platform, SensorAction};
+use crate::field_availability::{self, Availability, EventFieldContract, FIELD_AVAILABILITY};
+use crate::models::{event_actions, Fidelity, FieldViewName};
+use crate::vocab::Platform;
 
+use super::logsource::platform_product;
 use super::{Engine, LogSourceKey, LogSourceStatus};
 
 pub const SIGMA_COMPATIBILITY_SCHEMA_VERSION: u16 = 1;
@@ -686,6 +688,7 @@ fn analyze_detection(
         return report;
     }
 
+    let routed_event_ids = routed_event_ids(&contracts);
     let mut enabled_viable = false;
     let mut disabled_viable = false;
     let mut all_fields: BTreeMap<String, FieldUse> = BTreeMap::new();
@@ -723,13 +726,40 @@ fn analyze_detection(
     } else {
         report.reasons = unavailable_reasons(&report.fields);
         if report.reasons.is_empty() {
+            let message = if routed_event_ids.is_empty() {
+                "the condition cannot be satisfied by any emitted event shape".to_string()
+            } else {
+                format!(
+                    "the condition cannot be satisfied by any emitted event shape; this logsource routes only to EventID {routed_event_ids}"
+                )
+            };
             report.reasons.push(CompatibilityReason::new(
                 ReasonCode::UnavailableField,
-                "the condition cannot be satisfied by any emitted event shape",
+                message,
             ));
         }
     }
     report
+}
+
+/// The `EventID`s of the shapes a logsource routes to, or empty when any shape
+/// leaves `EventID` unconstrained.
+fn routed_event_ids(contracts: &[&'static EventFieldContract]) -> String {
+    let mut ids = BTreeSet::new();
+    for contract in contracts
+        .iter()
+        .filter(|contract| contract.provider != "none")
+    {
+        let before = ids.len();
+        ids.extend(contract.presented_event_ids());
+        if ids.len() == before && contract.presented_event_ids().next().is_none() {
+            return String::new();
+        }
+    }
+    ids.into_iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn analyze_correlation(
@@ -1186,20 +1216,27 @@ fn evaluate_item(
         return Truth::FALSE;
     }
 
-    if let Some(invariant) = invariant_value(contract, field) {
+    let invariants = invariant_values(contract, field);
+    if !invariants.is_empty() {
+        // How many of the values the shape can hold some listed value matches.
+        let matching = invariants
+            .iter()
+            .filter(|invariant| {
+                item.values
+                    .iter()
+                    .any(|value| value_matches(value, invariant))
+            })
+            .count();
+        let selected = match matching {
+            0 => Truth::FALSE,
+            count if count == invariants.len() => Truth::TRUE,
+            _ => Truth::UNKNOWN,
+        };
         if item.field.modifiers.is_empty() {
-            let matched = item
-                .values
-                .iter()
-                .any(|value| value_matches(value, &invariant));
-            return if matched { Truth::TRUE } else { Truth::FALSE };
+            return selected;
         }
         if item.field.modifiers == [Modifier::Neq] {
-            let matched = item
-                .values
-                .iter()
-                .all(|value| !value_matches(value, &invariant));
-            return if matched { Truth::TRUE } else { Truth::FALSE };
+            return selected.not();
         }
     }
     Truth::UNKNOWN
@@ -1369,6 +1406,7 @@ fn availability_for_contract(contract: &EventFieldContract, field: &str) -> Avai
     if matches!(field, "EventID" | "timestamp" | "event_time") {
         return Availability::Always;
     }
+    let field = crate::models::field_view::contract_field_name(contract.view, field);
     contract
         .fields
         .iter()
@@ -1379,13 +1417,17 @@ fn availability_for_contract(contract: &EventFieldContract, field: &str) -> Avai
         ))
 }
 
-fn invariant_value(contract: &EventFieldContract, field: &str) -> Option<String> {
+/// Every value `field` can hold on this shape, when the shape fixes it.
+fn invariant_values(contract: &EventFieldContract, field: &str) -> Vec<String> {
     if field == "EventID" {
-        return contract.event_id.map(|event_id| event_id.to_string());
+        return contract
+            .presented_event_ids()
+            .map(|event_id| event_id.to_string())
+            .collect();
     }
     if contract.category == "application" && field == "Provider_Name" && contract.source != "MSSQL*"
     {
-        return Some(contract.source.to_string());
+        return vec![contract.source.to_string()];
     }
     contract
         .fields
@@ -1393,6 +1435,8 @@ fn invariant_value(contract: &EventFieldContract, field: &str) -> Option<String>
         .find(|candidate| candidate.field == field)
         .and_then(|candidate| candidate.value)
         .map(ToString::to_string)
+        .into_iter()
+        .collect()
 }
 
 fn value_matches(value: &SigmaValue, invariant: &str) -> bool {
@@ -1416,62 +1460,54 @@ fn contracts_for_logsource(
 ) -> Vec<&'static EventFieldContract> {
     FIELD_AVAILABILITY
         .iter()
-        .filter(|contract| contract.platform == platform)
-        .filter(|contract| contract.view == field_view)
-        .filter(|contract| contract_matches_logsource(contract, logsource))
+        .zip(contract_routes())
+        .filter(|(contract, _)| contract.platform == platform)
+        .filter(|(contract, _)| contract.view == field_view)
+        .filter(|(_, routes)| routes.iter().any(|route| logsource.matches_tuple(route)))
+        .map(|(contract, _)| contract)
         .collect()
 }
 
-fn contract_matches_logsource(contract: &EventFieldContract, logsource: &LogSourceKey) -> bool {
-    if let Some(category) = logsource.category.as_deref() {
-        let (mapped, action) = match category {
-            "file_create" => ("file_event", Some(SensorAction::Create)),
-            "file_delete" => ("file_event", Some(SensorAction::Delete)),
-            "file_rename" => ("file_event", Some(SensorAction::Rename)),
-            "file_change" => ("file_event", Some(SensorAction::Set)),
-            "registry_add" => ("registry_event", Some(SensorAction::Create)),
-            "registry_set" => ("registry_event", Some(SensorAction::Set)),
-            "registry_delete" => ("registry_event", Some(SensorAction::Delete)),
-            // Defender detections: Operational 1116 and 1117.
-            "antivirus" => ("windefend", None),
-            "network" if logsource.service.as_deref() == Some("connection") => {
-                ("network_connection", None)
-            }
-            "network" | "dns" if logsource.service.as_deref() == Some("dns") => ("dns_query", None),
-            other => (other, None),
-        };
-        if contract.category != mapped
-            || action.is_some_and(|action| contract.action != Some(action))
+/// The logsource routes of each `FIELD_AVAILABILITY` row, in table order.
+fn contract_routes() -> &'static [Vec<LogSourceKey>] {
+    static ROUTES: OnceLock<Vec<Vec<LogSourceKey>>> = OnceLock::new();
+    ROUTES.get_or_init(|| FIELD_AVAILABILITY.iter().map(routes_for_contract).collect())
+}
+
+/// Every route the runtime gives an event of this shape.
+///
+/// This asks `Engine::concrete_logsource_aliases` rather than keeping a copy
+/// of its table, so the diagnostic cannot disagree with the runtime about which
+/// rules see which events. A shape no sensor can emit has no runtime route, so
+/// it keeps the Sysmon route its category would have, which lets rules for it
+/// report the field gap instead of a missing logsource.
+fn routes_for_contract(contract: &EventFieldContract) -> Vec<LogSourceKey> {
+    let Some(category) = field_availability::category_from_name(contract.category) else {
+        return vec![LogSourceKey::from_parts(
+            Some(platform_product(contract.platform)),
+            Some(FieldViewName::SYSMON.as_str()),
+            Some(contract.category),
+        )];
+    };
+    let row = contract
+        .action
+        .and_then(|action| event_actions::row_for_action(category, action));
+    let opcode = row.map_or(0, |row| row.action_code);
+    let mut event_ids = contract.presented_event_ids().collect::<Vec<_>>();
+    if event_ids.is_empty() {
+        event_ids.push(row.map_or(0, |row| row.event_id));
+    }
+    let mut routes: Vec<LogSourceKey> = Vec::new();
+    for event_id in event_ids {
+        for route in
+            Engine::concrete_logsource_aliases(contract.platform, category, event_id, opcode)
         {
-            return false;
-        }
-        if category == "antivirus" && !matches!(contract.event_id, Some(1116 | 1117)) {
-            return false;
-        }
-    }
-    if logsource.category.is_none() {
-        if let Some(service) = logsource.service.as_deref() {
-            let categories: &[&str] = match service {
-                "security" => &["security"],
-                "windefend" => &["windefend"],
-                "application" => &["application"],
-                "system" => &["service_creation"],
-                "taskscheduler" | "task scheduler" => &["task_creation"],
-                "powershell" | "powershell-classic" | "microsoft-windows-powershell" => {
-                    &["ps_script", "ps_module", "ps_classic_start"]
-                }
-                "dns-client" | "dns" => &["dns_query"],
-                "wmi" => &["wmi_event"],
-                "connection" => &["network_connection"],
-                "sysmon" => &[],
-                _ => return false,
-            };
-            if !categories.is_empty() && !categories.contains(&contract.category) {
-                return false;
+            if !routes.contains(&route) {
+                routes.push(route);
             }
         }
     }
-    true
+    routes
 }
 
 fn collector_enabled_for_contract(config: &AppConfig, contract: &EventFieldContract) -> bool {
@@ -1868,6 +1904,50 @@ mod tests {
     }
 
     #[test]
+    fn product_less_dns_rule_is_not_reported_inert_on_any_platform() {
+        let rule = r#"title: Telegram Bot API Request
+logsource:
+  category: dns
+detection:
+  selection:
+    query: api.telegram.org
+  condition: selection
+"#;
+        for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+            let report = report(rule, platform);
+            assert_ne!(
+                report.documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire,
+                "{platform:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dns_txt_rule_names_the_blocking_field_off_linux() {
+        let rule = r#"title: DNS TXT Answer
+logsource:
+  category: dns
+detection:
+  selection:
+    record_type: TXT
+    answer|contains: exec
+  condition: selection
+"#;
+        assert_ne!(
+            report(rule, Platform::Linux).documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+        for platform in [Platform::Windows, Platform::MacOS] {
+            assert_eq!(
+                report(rule, platform).documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire,
+                "{platform:?}"
+            );
+        }
+    }
+
+    #[test]
     fn unavailable_or_branch_does_not_make_rule_inert() {
         let report = report(
             r#"title: Alternative fields
@@ -2064,6 +2144,146 @@ detection:
                 && reason.field.as_deref() == Some("OriginalFileName")
         }));
         assert_eq!(report.exit_code, 1);
+    }
+
+    fn windows_verdict(logsource: &str, detection: &str) -> CompatibilityVerdict {
+        let report = report(
+            &format!(
+                "title: Event ID shape\nlogsource:\n  product: windows\n{logsource}detection:\n  selection:\n{detection}  condition: selection\n"
+            ),
+            Platform::Windows,
+        );
+        report.documents[0].verdict
+    }
+
+    #[test]
+    fn sysmon_service_only_reaches_the_event_ids_the_runtime_routes_to_it() {
+        // Sysmon 16 (config change) is on none of the shapes `service: sysmon`
+        // routes to, and Sysmon 27 to 29 are not file IDs the sensor numbers.
+        for event_id in [16, 27, 28, 29] {
+            assert_eq!(
+                windows_verdict("  service: sysmon\n", &format!("    EventID: {event_id}\n")),
+                CompatibilityVerdict::CanNeverFire,
+                "EventID {event_id}"
+            );
+        }
+        assert_ne!(
+            windows_verdict("  service: sysmon\n", "    EventID: 1\n"),
+            CompatibilityVerdict::CanNeverFire
+        );
+    }
+
+    #[test]
+    fn file_and_registry_shapes_pin_the_ids_the_sensors_emit() {
+        for (category, event_id, can_fire) in [
+            ("file_event", 11, true),
+            ("file_delete", 23, true),
+            ("file_event", 27, false),
+            ("registry_event", 13, true),
+            ("registry_event", 14, false),
+        ] {
+            let verdict = windows_verdict(
+                &format!("  category: {category}\n"),
+                &format!("    EventID: {event_id}\n"),
+            );
+            assert_eq!(
+                verdict != CompatibilityVerdict::CanNeverFire,
+                can_fire,
+                "{category} {event_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn wmi_event_category_does_not_reach_sysmon_subscription_ids_or_the_5861_fields() {
+        for event_id in [19, 20, 21] {
+            assert_eq!(
+                windows_verdict(
+                    "  category: wmi_event\n",
+                    &format!("    EventID: {event_id}\n")
+                ),
+                CompatibilityVerdict::CanNeverFire,
+                "EventID {event_id}"
+            );
+        }
+        // `Destination` exists only on 5861, which routes under `service: wmi`
+        // with no category.
+        assert_eq!(
+            windows_verdict("  category: wmi_event\n", "    Destination|contains: x\n"),
+            CompatibilityVerdict::CanNeverFire
+        );
+        assert_ne!(
+            windows_verdict("  category: wmi_event\n", "    EventID: 22\n"),
+            CompatibilityVerdict::CanNeverFire
+        );
+    }
+
+    #[test]
+    fn windows_dns_rules_may_pin_the_sysmon_alias_id() {
+        for event_id in [22, 3006, 3008] {
+            assert_ne!(
+                windows_verdict(
+                    "  category: dns_query\n",
+                    &format!("    EventID: {event_id}\n")
+                ),
+                CompatibilityVerdict::CanNeverFire,
+                "EventID {event_id}"
+            );
+        }
+    }
+
+    /// The shape's routes must be the runtime's, and its IDs must be the ones
+    /// the runtime presents to Sigma and the sensors number.
+    #[test]
+    fn contract_routes_and_event_ids_match_the_runtime() {
+        use crate::models::EventCategory;
+
+        for (contract, routes) in FIELD_AVAILABILITY.iter().zip(contract_routes()) {
+            let Some(category) = field_availability::category_from_name(contract.category) else {
+                continue;
+            };
+            let row = contract
+                .action
+                .and_then(|action| event_actions::row_for_action(category, action));
+            if matches!(category, EventCategory::File | EventCategory::Registry)
+                && contract.platform == Platform::Windows
+            {
+                let row = row.expect("file and registry actions have a row");
+                assert_eq!(
+                    contract.event_id,
+                    Some(row.event_id),
+                    "{} {:?}",
+                    contract.category,
+                    contract.action
+                );
+            }
+            assert!(
+                !routes.is_empty(),
+                "{} {:?} has no runtime route",
+                contract.category,
+                contract.action
+            );
+            for event_id in contract.presented_event_ids() {
+                let runtime = Engine::concrete_logsource_aliases(
+                    contract.platform,
+                    category,
+                    event_id,
+                    row.map_or(0, |row| row.action_code),
+                );
+                assert!(
+                    runtime.iter().all(|route| routes.contains(route)),
+                    "{} {event_id}",
+                    contract.category
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wmi_trace_shape_lists_no_operational_or_sysmon_subscription_ids() {
+        let ids = field_availability::WMI_TRACE_EVENT_IDS;
+        assert!(ids.iter().all(|id| !(5857..=5861).contains(id)));
+        assert!(ids.iter().all(|id| !(19..=21).contains(id)));
     }
 
     #[test]

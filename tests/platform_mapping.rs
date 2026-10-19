@@ -275,7 +275,7 @@ fn linux_ebpf_raw_events_map_to_sensor_events() {
         uid: 1000,
         fd: 3,
         payload_len: message.len() as u16,
-        _pad0: 0,
+        flags: 0,
         _pad1: 0,
         process_start_time: 123_456,
         payload: [0; DNS_PAYLOAD_CAPACITY],

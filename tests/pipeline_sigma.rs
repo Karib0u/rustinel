@@ -612,6 +612,45 @@ level: high
 }
 
 #[test]
+fn product_less_dns_category_rule_matches_on_every_platform() {
+    // Shape of SigmaHQ's rules/network/dns/net_dns_susp_telegram_api.yml.
+    for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+        let fixture = SigmaFixture::new();
+        fixture.write_rule(
+            "net_dns_telegram.yml",
+            r#"title: Telegram Bot API Request
+logsource:
+  category: dns
+detection:
+  selection:
+    query: 'api.telegram.org'
+  condition: selection
+level: medium
+"#,
+        );
+        let engine = load_engine(platform, &fixture);
+        let harness = TestNormalizer::new();
+        let mut event = dns_query_event(platform);
+        match &mut event.payload {
+            RawPayload::Dns(fields) => fields.query_name = Some("api.telegram.org".to_string()),
+            other => panic!("unexpected payload: {other:?}"),
+        }
+        let normalized = harness
+            .normalizer
+            .normalize(&event)
+            .expect("DNS query should normalize");
+        assert_sigma_alert(
+            &engine
+                .check_event(&normalized)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| panic!("category dns rule should match on {platform:?}")),
+            "Telegram Bot API Request",
+        );
+    }
+}
+
+#[test]
 fn sigma_network_detection_pipeline_enriches_repeats_and_maps_to_ecs() {
     for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
         let fixture = SigmaFixture::new();
