@@ -1511,11 +1511,14 @@ fn routes_for_contract(contract: &EventFieldContract) -> Vec<LogSourceKey> {
 }
 
 fn collector_enabled_for_contract(config: &AppConfig, contract: &EventFieldContract) -> bool {
-    if contract.platform == Platform::Windows
-        && contract.category == "security"
-        && matches!(contract.event_id, Some(5152 | 5156 | 5157))
-    {
-        return config.windows.security_filtering_platform_connections;
+    if contract.platform == Platform::Windows && contract.category == "security" {
+        match contract.event_id {
+            Some(5152 | 5156 | 5157) => {
+                return config.windows.security_filtering_platform_connections
+            }
+            Some(4672 | 4799 | 5140) => return config.windows.security_long_tail_events,
+            _ => {}
+        }
     }
     contract.provider != "none"
 }

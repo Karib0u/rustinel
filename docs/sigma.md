@@ -178,6 +178,7 @@ Only these IDs are collected; a rule for any other ID loads but never matches.
 | 4656 | Handle requested | `ObjectType`, `ObjectName`, `AccessMask`, `AccessList`, `ProcessName` |
 | 4657 | Registry value modified | `ObjectName`, `ObjectValueName`, `OperationType`, `OldValue`, `NewValue`, `ProcessName` |
 | 4663 | Object accessed | `ObjectType`, `ObjectName`, `AccessMask`, `AccessList`, `ProcessName` |
+| 4672 ʲ | Special privileges assigned to a new logon | `PrivilegeList` |
 | 4697 | Service installed | `ServiceName`, `ServiceFileName`, `ServiceType`, `ServiceStartType`, `ServiceAccount` |
 | 4698, 4699, 4700, 4701 | Scheduled task created, deleted, enabled, disabled | `TaskName`, `TaskContent` |
 | 4702 | Scheduled task updated | `TaskName`, `TaskContentNew` |
@@ -185,6 +186,7 @@ Only these IDs are collected; a rule for any other ID loads but never matches.
 | 4720, 4738 | User account created, changed | `TargetUserName`, `SamAccountName`, `OldUacValue`, `NewUacValue`, `AllowedToDelegateTo`, `SidHistory` |
 | 4722, 4724, 4726 | User account enabled, password reset, deleted | `TargetUserName`, `TargetSid` |
 | 4728, 4732, 4756 | Member added to a global, local, universal group | `MemberName`, `MemberSid`, `TargetUserName`, `TargetSid` |
+| 4740 | User account locked out | `TargetUserName`, `TargetDomainName`, `TargetSid`, `CallerComputerName` |
 | 4741, 4743 | Computer account created, deleted | `TargetUserName`, `SamAccountName`, `DnsHostName`, `ServicePrincipalNames` |
 | 4765, 4766 | SID history added, addition failed | `SourceUserName`, `TargetUserName`, `SidList` |
 | 4771 | Kerberos pre-authentication failed | `TargetUserName`, `ServiceName`, `Status`, `PreAuthType`, `IpAddress` |
@@ -192,7 +194,9 @@ Only these IDs are collected; a rule for any other ID loads but never matches.
 | 4781 | Account renamed | `OldTargetUserName`, `NewTargetUserName` |
 | 4794 | DSRM administrator password set | `Workstation`, `Status` |
 | 4817 | Object auditing settings changed | `ObjectType`, `ObjectName`, `OldSd`, `NewSd` |
+| 4799 ʲ | Local group membership enumerated | `TargetUserName`, `TargetSid`, `CallerProcessId`, `CallerProcessName` |
 | 5136 | Directory object changed | `ObjectDN`, `ObjectClass`, `AttributeLDAPDisplayName`, `AttributeValue`, `OperationType` |
+| 5140 ʲ | Network share accessed | `ShareName`, `ShareLocalPath`, `ObjectType`, `AccessMask`, `IpAddress`, `IpPort` |
 | 5145 | Share access checked | `ShareName`, `ShareLocalPath`, `RelativeTargetName`, `AccessMask`, `AccessList`, `IpAddress` |
 | 5152 ⁱ | Packet dropped | `Application`, `Direction`, `SourceAddress`, `DestAddress`, `DestPort`, `FilterName` |
 | 5156 ⁱ, 5157 ⁱ | Connection allowed, blocked | `Application`, `Direction`, `SourceAddress`, `SourcePort`, `DestAddress`, `DestPort`, `LayerRTID` |
@@ -200,6 +204,8 @@ Only these IDs are collected; a rule for any other ID loads but never matches.
 | 6416 | Device recognized | `DeviceId`, `DeviceDescription`, `ClassName` |
 
 ⁱ Only with `windows.security_filtering_platform_connections = true`, see [Windows host logging](windows-logging.md#filtering-platform-connections).
+
+ʲ Only with `windows.security_long_tail_events = true`, see [Windows host logging](windows-logging.md#long-tail-events).
 
 Every event except 4771, 4776, and the filtering platform events also carries `SubjectUserSid`, `SubjectUserName`, `SubjectDomainName`, and `SubjectLogonId`.
 The connection events name the process `ProcessID` or `ProcessId`, depending on the Windows build: write rules against `Application` instead.

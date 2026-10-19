@@ -44,6 +44,7 @@ Check the real policy with `auditpol /get /category:*`.
 | 4771 Kerberos pre-authentication failed | Kerberos Authentication Service (domain controllers) | `{0CCE9242-…}` | Domain controllers |
 | 4720, 4722, 4724, 4726, 4738, 4765, 4766, 4781, 4794 user accounts | User Account Management | `{0CCE9235-…}` | Success |
 | 4728, 4732, 4756 group membership | Security Group Management | `{0CCE9237-…}` | Success |
+| 4740 account lockout | User Account Management | `{0CCE9235-…}` | Success |
 | 4741, 4743 computer accounts | Computer Account Management (domain controllers) | `{0CCE9236-…}` | Domain controllers |
 | 4719, 4817 audit policy changed | Audit Policy Change | `{0CCE922F-…}` | Success |
 | 1102 Security log cleared | None, always written | | Always |
@@ -58,6 +59,9 @@ Check the real policy with `auditpol /get /category:*`.
 | 6416 device recognized | Plug and Play Events | `{0CCE9248-…}` | No |
 | 5156, 5157 connection allowed, blocked | Filtering Platform Connection | `{0CCE9226-…}` | No |
 | 5152 packet dropped | Filtering Platform Packet Drop | `{0CCE9225-…}` | No |
+| 4672 special privileges assigned | Special Logon | `{0CCE921B-…}` | Success |
+| 5140 network share accessed | File Share | `{0CCE9224-…}` | No |
+| 4799 local group membership enumerated | Security Group Management | `{0CCE9237-…}` | Success |
 
 Every GUID ends in `-69AE-11D9-BED3-505054503030`.
 
@@ -96,6 +100,17 @@ Events 5156 (connection allowed), 5157 (connection blocked), and 5152 (packet dr
 
 They are off in Rustinel by default because Windows writes one record per connection, far more often than it writes logon events.
 Size the Security log before enabling them, or older records will be overwritten before other rules see them.
+
+### Long-tail events
+
+Events 4672 (special privileges assigned), 5140 (network share accessed), and 4799 (local group membership enumerated) need two switches:
+
+1. The host audits them: enable *Special Logon*, *File Share*, and *Security Group Management*.
+2. Rustinel reads them: set `security_long_tail_events = true` under `[windows]`.
+
+They are off in Rustinel by default because 4672 is written for every administrative logon and 5140 for every connection to a share.
+Their rate follows logon and file-server traffic, not attacker activity, so measure it on a representative host before enabling them fleet-wide.
+Account lockout (4740) is collected by default: it is written only when an account crosses the lockout threshold, on the domain controller or on the local machine that owns the account.
 
 ## PowerShell module logging
 

@@ -300,7 +300,8 @@ fn sensors(config: &AppConfig, host: &Arc<HostState>, mode: RunMode) -> SensorSe
     .with_event_log_directory(config.logging.directory.join(event_log))
     .with_security_filtering_platform_connections(
         config.windows.security_filtering_platform_connections,
-    );
+    )
+    .with_security_long_tail_events(config.windows.security_long_tail_events);
     SensorSet::new(vec![Member::required(
         "ETW sensor",
         Arc::new(EtwLive::new(etw)),
