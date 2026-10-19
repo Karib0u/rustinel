@@ -699,6 +699,10 @@ pub struct EcsAlert {
     /// rather than a detection.
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub edr_agent_tamper: Option<AgentTamper>,
+
+    /// Present only on `agent::lifecycle::*` alerts.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub edr_agent_lifecycle: Option<AgentLifecycle>,
 }
 
 /// What an agent tamper alert observed.
@@ -728,6 +732,31 @@ pub struct AgentTamper {
     /// Plain-language summary, repeated in `rule.description`.
     #[serde(skip)]
     pub detail: String,
+}
+
+/// Which lifecycle transition an alert reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LifecycleKind {
+    Stopping,
+    UncleanShutdown,
+}
+
+/// What a lifecycle alert reports.
+#[derive(Serialize)]
+pub struct AgentLifecycle {
+    #[serde(skip)]
+    pub kind: LifecycleKind,
+    /// Why the agent is stopping: `signal`, `service_stop`, or `sensor_failure`.
+    /// For `unclean_shutdown` it is `no_clean_stop_marker`.
+    #[serde(rename = "edr.agent.lifecycle.reason")]
+    pub reason: &'static str,
+    /// RFC 3339 time of the previous run's last telemetry snapshot, when one
+    /// was found. Only set on `unclean_shutdown`.
+    #[serde(
+        rename = "edr.agent.lifecycle.last_snapshot_at",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_snapshot_at: Option<String>,
 }
 
 /// What a sensor loss alert measured.

@@ -83,6 +83,10 @@ pub const CONFIG_SECTIONS: &[ConfigSection] = &[
         summary: "The `telemetry.json` loss counters that `rustinel doctor` reads.",
     },
     ConfigSection {
+        name: "heartbeat",
+        summary: "The agent heartbeat file and whether it also goes to the alert webhooks.",
+    },
+    ConfigSection {
         name: "windows",
         summary: "ETW delivery. Read on every platform so one file can serve a mixed fleet, used only on Windows.",
     },
@@ -385,6 +389,12 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         key: "telemetry.loss_alert_interval_secs",
         default_note: None,
         description: "Window over which lost events are aggregated into one `agent::loss::*` alert per stage and category, covering the sensor queue, kernel-side loss and file enrichment queues. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts).",
+    },
+    // heartbeat
+    ConfigOption {
+        key: "heartbeat.webhooks",
+        default_note: None,
+        description: "Also send each heartbeat line to the alert webhooks. The line is always written to `heartbeat.json.<date>` in the log directory. See [heartbeat](agent-health.md#heartbeat).",
     },
     // windows
     ConfigOption {

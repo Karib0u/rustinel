@@ -12,7 +12,9 @@ mod registry;
 mod threat;
 mod user;
 
-pub use alert::{AgentLoss, AgentTamper, DnsAnswer, EcsAlert, ReplayProvenance};
+pub use alert::{
+    AgentLifecycle, AgentLoss, AgentTamper, DnsAnswer, EcsAlert, LifecycleKind, ReplayProvenance,
+};
 
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
@@ -66,13 +68,12 @@ impl EcsAlert {
     /// It is written straight to the sink, so it never passes through
     /// deduplication or active response.
     pub fn agent_loss(platform: Platform, timestamp: String, loss: AgentLoss) -> Self {
-        let description = loss_description(&loss);
         let mut ecs = Self::agent_alert(
             platform,
             timestamp,
             AlertSeverity::Medium,
             format!("agent::loss::{}", loss.channel),
-            description,
+            loss_description(&loss),
             "sensor-events-dropped",
         );
         ecs.edr_agent_loss = Some(loss);
@@ -95,6 +96,47 @@ impl EcsAlert {
             tamper.change,
         );
         ecs.edr_agent_tamper = Some(tamper);
+        ecs
+    }
+
+    /// An operational alert about the agent starting or stopping.
+    ///
+    /// Shaped like [`EcsAlert::agent_loss`]: it goes straight to the sink, so
+    /// it skips deduplication and active response.
+    pub fn agent_lifecycle(
+        platform: Platform,
+        timestamp: String,
+        lifecycle: AgentLifecycle,
+    ) -> Self {
+        let (severity, rule, description, action) = match lifecycle.kind {
+            LifecycleKind::Stopping => (
+                if lifecycle.reason == "sensor_failure" {
+                    AlertSeverity::High
+                } else {
+                    AlertSeverity::Low
+                },
+                "agent::lifecycle::stopping",
+                format!("The agent is shutting down (reason: {})", lifecycle.reason),
+                "agent-stopping",
+            ),
+            LifecycleKind::UncleanShutdown => (
+                AlertSeverity::High,
+                "agent::lifecycle::unclean_shutdown",
+                "The previous run did not stop cleanly: it was killed, crashed, or the host \
+                 lost power. Nothing was collected between its last snapshot and this start"
+                    .to_string(),
+                "agent-unclean-shutdown",
+            ),
+        };
+        let mut ecs = Self::agent_alert(
+            platform,
+            timestamp,
+            severity,
+            rule.to_string(),
+            description,
+            action,
+        );
+        ecs.edr_agent_lifecycle = Some(lifecycle);
         ecs
     }
 
@@ -315,6 +357,7 @@ impl From<&Alert> for EcsAlert {
             edr_replay: None,
             edr_agent_loss: None,
             edr_agent_tamper: None,
+            edr_agent_lifecycle: None,
         };
 
         // Map internal fields to ECS based on event type

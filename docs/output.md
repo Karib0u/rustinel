@@ -134,7 +134,7 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | `edr.service` | Service installs (Windows) |
 | `edr.task` | Scheduled tasks (Windows) |
 | `edr.security` | Security audit events (Windows) |
-| `edr.agent` | Operational alerts about the agent itself, such as [sensor loss](#sensor-loss-alerts) and [ETW provider tamper](#etw-provider-tamper-alerts) |
+| `edr.agent` | Operational alerts about the agent itself: [sensor loss](#sensor-loss-alerts), [ETW provider tamper](#etw-provider-tamper-alerts), and [start and stop](agent-health.md#lifecycle-alerts) |
 
 ### Sensor loss alerts
 
@@ -209,6 +209,10 @@ Rustinel does not re-enable the provider itself.
 
 Tamper alerts are written directly to the sink like [loss alerts](#sensor-loss-alerts), so they bypass deduplication and active response never sees them.
 The checks and mismatches are counted in the [`etw_provider_watch`](telemetry.md#etw_provider_watch) entry of `telemetry.json`.
+
+### Heartbeat and lifecycle alerts
+
+The agent writes a [heartbeat file](agent-health.md#heartbeat) and [`agent::lifecycle::*` alerts](agent-health.md#lifecycle-alerts) so a SIEM can tell a stop, a crash, and a silent host apart.
 
 ### Platform-specific fields
 

@@ -210,6 +210,14 @@ The `telemetry.json` loss counters that `rustinel doctor` reads.
 | `snapshot_interval_secs` | `30` | How often `telemetry.json` is rewritten. It is also written at shutdown. |
 | `loss_alert_interval_secs` | `60` | Window over which lost events are aggregated into one `agent::loss::*` alert per stage and category, covering the sensor queue, kernel-side loss and file enrichment queues. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts). |
 
+### `[heartbeat]`
+
+The agent heartbeat file and whether it also goes to the alert webhooks.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `webhooks` | `false` | Also send each heartbeat line to the alert webhooks. The line is always written to `heartbeat.json.<date>` in the log directory. See [heartbeat](agent-health.md#heartbeat). |
+
 ### `[windows]`
 
 ETW delivery. Read on every platform so one file can serve a mixed fleet, used only on Windows.

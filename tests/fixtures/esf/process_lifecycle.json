@@ -1,0 +1,395 @@
+{
+ "provenance": {
+  "macos": "27.0.1 (26A434)",
+  "arch": "arm64",
+  "date": "2026-10-19",
+  "scenario": "Exec with arguments and cwd (env, echo), a shebang script, an ad-hoc signed binary, and their exits, run from a fixed directory"
+ },
+ "records": [
+  {
+   "time": {
+    "sec": 1792411618,
+    "nsec": 809903056
+   },
+   "global_seq_num": 1222,
+   "actor": {
+    "pid": 90780,
+    "pidversion": 2527740,
+    "euid": 501,
+    "executable": "/bin/bash",
+    "start_time_ns": 1792411618806670000
+   },
+   "event": {
+    "Exec": {
+     "target": {
+      "pid": 90780,
+      "pidversion": 2527741,
+      "euid": 501,
+      "ruid": 501,
+      "ppid": 90745,
+      "original_ppid": 90745,
+      "parent_token": [
+       90745,
+       2527678
+      ],
+      "executable": {
+       "path": "/usr/bin/env",
+       "stat": {
+        "dev": 16777232,
+        "ino": 1152921500312607903,
+        "size": 167712,
+        "mtime_sec": 1790233837,
+        "mtime_nsec": 0,
+        "ctime_sec": 1790233837,
+        "ctime_nsec": 0
+       }
+      },
+      "start_time_ns": 1792411618806670000,
+      "codesigning_flags": 637606673,
+      "signing_id": "com.apple.env",
+      "team_id": "",
+      "cdhash": "3533552bea7af23c0bd06692f796334a8bc3a144",
+      "is_platform_binary": true
+     },
+     "args": [
+      "/usr/bin/env",
+      "RUSTINEL_FIXTURE=1",
+      "/bin/echo",
+      "rustinel-esf-fixture"
+     ],
+     "cwd": "/private/tmp/rustinel-esf-fixture",
+     "script": null
+    }
+   }
+  },
+  {
+   "time": {
+    "sec": 1792411618,
+    "nsec": 817625118
+   },
+   "global_seq_num": 1240,
+   "actor": {
+    "pid": 90780,
+    "pidversion": 2527741,
+    "euid": 501,
+    "executable": "/usr/bin/env",
+    "start_time_ns": 1792411618806670000
+   },
+   "event": {
+    "Exec": {
+     "target": {
+      "pid": 90780,
+      "pidversion": 2527742,
+      "euid": 501,
+      "ruid": 501,
+      "ppid": 90745,
+      "original_ppid": 90745,
+      "parent_token": [
+       90745,
+       2527678
+      ],
+      "executable": {
+       "path": "/bin/echo",
+       "stat": {
+        "dev": 16777232,
+        "ino": 1152921500312607325,
+        "size": 166480,
+        "mtime_sec": 1790233837,
+        "mtime_nsec": 0,
+        "ctime_sec": 1790233837,
+        "ctime_nsec": 0
+       }
+      },
+      "start_time_ns": 1792411618806670000,
+      "codesigning_flags": 637606673,
+      "signing_id": "com.apple.echo",
+      "team_id": "",
+      "cdhash": "155626dd58a7c9c60e134665a5a6845b0ae6acd1",
+      "is_platform_binary": true
+     },
+     "args": [
+      "/bin/echo",
+      "rustinel-esf-fixture"
+     ],
+     "cwd": "/private/tmp/rustinel-esf-fixture",
+     "script": null
+    }
+   }
+  },
+  {
+   "time": {
+    "sec": 1792411618,
+    "nsec": 823080936
+   },
+   "global_seq_num": 1258,
+   "actor": {
+    "pid": 90780,
+    "pidversion": 2527742,
+    "euid": 501,
+    "executable": "/bin/echo",
+    "start_time_ns": 1792411618806670000
+   },
+   "event": "Exit"
+  },
+  {
+   "time": {
+    "sec": 1792411618,
+    "nsec": 825582470
+   },
+   "global_seq_num": 1263,
+   "actor": {
+    "pid": 90781,
+    "pidversion": 2527743,
+    "euid": 501,
+    "executable": "/bin/bash",
+    "start_time_ns": 1792411618823433000
+   },
+   "event": {
+    "Exec": {
+     "target": {
+      "pid": 90781,
+      "pidversion": 2527744,
+      "euid": 501,
+      "ruid": 501,
+      "ppid": 90745,
+      "original_ppid": 90745,
+      "parent_token": [
+       90745,
+       2527678
+      ],
+      "executable": {
+       "path": "/bin/sh",
+       "stat": {
+        "dev": 16777232,
+        "ino": 1152921500312607361,
+        "size": 166576,
+        "mtime_sec": 1790233837,
+        "mtime_nsec": 0,
+        "ctime_sec": 1790233837,
+        "ctime_nsec": 0
+       }
+      },
+      "start_time_ns": 1792411618823433000,
+      "codesigning_flags": 637606673,
+      "signing_id": "com.apple.sh",
+      "team_id": "",
+      "cdhash": "e3ba6fb175299470ec076c7a97e33f85096f0f20",
+      "is_platform_binary": true
+     },
+     "args": [
+      "/bin/sh",
+      "/private/tmp/rustinel-esf-fixture/hello.sh"
+     ],
+     "cwd": "/private/tmp/rustinel-esf-fixture",
+     "script": "/private/tmp/rustinel-esf-fixture/hello.sh"
+    }
+   }
+  },
+  {
+   "time": {
+    "sec": 1792411619,
+    "nsec": 79212381
+   },
+   "global_seq_num": 1332,
+   "actor": {
+    "pid": 90781,
+    "pidversion": 2527744,
+    "euid": 501,
+    "executable": "/bin/sh",
+    "start_time_ns": 1792411618823433000
+   },
+   "event": {
+    "Exec": {
+     "target": {
+      "pid": 90781,
+      "pidversion": 2527745,
+      "euid": 501,
+      "ruid": 501,
+      "ppid": 90745,
+      "original_ppid": 90745,
+      "parent_token": [
+       90745,
+       2527678
+      ],
+      "executable": {
+       "path": "/bin/bash",
+       "stat": {
+        "dev": 16777232,
+        "ino": 1152921500312607307,
+        "size": 1961872,
+        "mtime_sec": 1790233837,
+        "mtime_nsec": 0,
+        "ctime_sec": 1790233837,
+        "ctime_nsec": 0
+       }
+      },
+      "start_time_ns": 1792411618823433000,
+      "codesigning_flags": 637602561,
+      "signing_id": "com.apple.bash",
+      "team_id": "",
+      "cdhash": "fb6115632b45a8492f329243df6ad31230917d74",
+      "is_platform_binary": true
+     },
+     "args": [
+      "/bin/sh",
+      "/private/tmp/rustinel-esf-fixture/hello.sh"
+     ],
+     "cwd": "/private/tmp/rustinel-esf-fixture",
+     "script": null
+    }
+   }
+  },
+  {
+   "time": {
+    "sec": 1792411619,
+    "nsec": 88624521
+   },
+   "global_seq_num": 1358,
+   "actor": {
+    "pid": 90781,
+    "pidversion": 2527745,
+    "euid": 501,
+    "executable": "/bin/bash",
+    "start_time_ns": 1792411618823433000
+   },
+   "event": "Exit"
+  },
+  {
+   "time": {
+    "sec": 1792411619,
+    "nsec": 92987301
+   },
+   "global_seq_num": 1372,
+   "actor": {
+    "pid": 90782,
+    "pidversion": 2527746,
+    "euid": 501,
+    "executable": "/bin/bash",
+    "start_time_ns": 1792411619088909000
+   },
+   "event": {
+    "Exec": {
+     "target": {
+      "pid": 90782,
+      "pidversion": 2527747,
+      "euid": 501,
+      "ruid": 501,
+      "ppid": 90745,
+      "original_ppid": 90745,
+      "parent_token": [
+       90745,
+       2527678
+      ],
+      "executable": {
+       "path": "/private/tmp/rustinel-esf-fixture/adhoc-echo",
+       "stat": {
+        "dev": 16777232,
+        "ino": 141256311,
+        "size": 115696,
+        "mtime_sec": 1792411618,
+        "mtime_nsec": 284319744,
+        "ctime_sec": 1792411618,
+        "ctime_nsec": 284508994
+       }
+      },
+      "start_time_ns": 1792411619088909000,
+      "codesigning_flags": 570425859,
+      "signing_id": "adhoc-echo-555549445581b009a64a36bfa301cd6b44676f2d",
+      "team_id": "",
+      "cdhash": "bf874a30f55a7d3c29478ad6c39bdbb79c136c8c",
+      "is_platform_binary": false
+     },
+     "args": [
+      "/private/tmp/rustinel-esf-fixture/adhoc-echo",
+      "adhoc"
+     ],
+     "cwd": "/private/tmp/rustinel-esf-fixture",
+     "script": null
+    }
+   }
+  },
+  {
+   "time": {
+    "sec": 1792411619,
+    "nsec": 276307576
+   },
+   "global_seq_num": 1444,
+   "actor": {
+    "pid": 90782,
+    "pidversion": 2527747,
+    "euid": 501,
+    "executable": "/private/tmp/rustinel-esf-fixture/adhoc-echo",
+    "start_time_ns": 1792411619088909000
+   },
+   "event": "Exit"
+  },
+  {
+   "time": {
+    "sec": 1792411619,
+    "nsec": 278767819
+   },
+   "global_seq_num": 1451,
+   "actor": {
+    "pid": 90783,
+    "pidversion": 2527748,
+    "euid": 501,
+    "executable": "/bin/bash",
+    "start_time_ns": 1792411619276596000
+   },
+   "event": {
+    "Exec": {
+     "target": {
+      "pid": 90783,
+      "pidversion": 2527749,
+      "euid": 501,
+      "ruid": 501,
+      "ppid": 90745,
+      "original_ppid": 90745,
+      "parent_token": [
+       90745,
+       2527678
+      ],
+      "executable": {
+       "path": "/usr/bin/true",
+       "stat": {
+        "dev": 16777232,
+        "ino": 1152921500312608939,
+        "size": 133184,
+        "mtime_sec": 1790233837,
+        "mtime_nsec": 0,
+        "ctime_sec": 1790233837,
+        "ctime_nsec": 0
+       }
+      },
+      "start_time_ns": 1792411619276596000,
+      "codesigning_flags": 637606673,
+      "signing_id": "com.apple.true",
+      "team_id": "",
+      "cdhash": "7b69150b06f5ba48569a436ea8be9f39e369c432",
+      "is_platform_binary": true
+     },
+     "args": [
+      "/usr/bin/true"
+     ],
+     "cwd": "/private/tmp/rustinel-esf-fixture",
+     "script": null
+    }
+   }
+  },
+  {
+   "time": {
+    "sec": 1792411619,
+    "nsec": 281437395
+   },
+   "global_seq_num": 1468,
+   "actor": {
+    "pid": 90783,
+    "pidversion": 2527749,
+    "euid": 501,
+    "executable": "/usr/bin/true",
+    "start_time_ns": 1792411619276596000
+   },
+   "event": "Exit"
+  }
+ ]
+}

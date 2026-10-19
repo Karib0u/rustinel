@@ -4,6 +4,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use crate::alerts::AlertSink;
+use crate::runtime::lifecycle::{Lifecycle, StopReason};
 use crate::runtime::pipeline::LivePipeline;
 use crate::runtime::telemetry::{SensorLossAlerter, TelemetryReporter};
 
@@ -49,6 +50,7 @@ impl LivePipeline {
     /// The caller must stop sensors and drop its response-engine sender first.
     /// The sensor worker retains the router until its queued events are drained.
     /// No other router clones may outlive that worker, since they own job senders.
+    #[allow(clippy::too_many_arguments)]
     pub async fn shutdown(
         self,
         sensor_worker: JoinHandle<()>,
@@ -57,6 +59,8 @@ impl LivePipeline {
         alert_sink: &AlertSink,
         telemetry_reporter: Option<TelemetryReporter>,
         loss_alerter: Option<SensorLossAlerter>,
+        lifecycle: Lifecycle,
+        stop_reason: StopReason,
     ) {
         let artifact_resolver_handle = self.artifact_resolver_handle;
         drop(self.router);
@@ -82,6 +86,10 @@ impl LivePipeline {
             alerter.finish().await;
         }
 
+        // Sensors have drained and the sink is still open. The dedup flush and
+        // webhook shutdown below carry it out.
+        lifecycle.stopping(stop_reason);
+
         // The response worker can still emit alerts, so flush only after it exits.
         if let Some(handle) = dedup_worker {
             handle.abort();
@@ -100,6 +108,8 @@ impl LivePipeline {
         if let Some(reporter) = telemetry_reporter {
             reporter.finish().await;
         }
+        // Last: a marker written earlier would hide a crash during the drain.
+        lifecycle.finish().await;
         drop(artifact_resolver_handle);
     }
 }
@@ -221,6 +231,7 @@ mod tests {
             reload_tx: Some(reload_tx),
         };
         let (writer, _guard) = tracing_appender::non_blocking(std::io::sink());
+        let writer2 = writer.clone();
         tokio::time::timeout(
             std::time::Duration::from_secs(5),
             pipeline.shutdown(
@@ -230,6 +241,8 @@ mod tests {
                 &AlertSink::new(writer),
                 None,
                 None,
+                Lifecycle::disabled(&AlertSink::new(writer2)),
+                StopReason::Signal,
             ),
         )
         .await

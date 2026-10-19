@@ -97,7 +97,63 @@ pub(crate) fn telemetry_results(
     logs_dir: &Path,
     runtime: RuntimeState,
 ) -> TelemetryAssessment {
-    assess(cfg, logs_dir, runtime, Utc::now())
+    let now = Utc::now();
+    let mut assessment = assess(cfg, logs_dir, runtime, now);
+    assessment
+        .results
+        .extend(heartbeat_result(cfg, logs_dir, runtime, now));
+    assessment
+}
+
+/// Whether a running agent is keeping the heartbeat file fresh.
+///
+/// That file is what a SIEM alerts on when a host goes quiet, so a service
+/// that is up but not writing it, or an unreadable log directory, is worth a
+/// warning here before the SIEM notices. Silent when no agent is expected.
+fn heartbeat_result(
+    cfg: &AppConfig,
+    logs_dir: &Path,
+    runtime: RuntimeState,
+    now: DateTime<Utc>,
+) -> Option<DiagnosticResult> {
+    if runtime != RuntimeState::Running {
+        return None;
+    }
+    let stale_after = stale_after_secs(cfg.telemetry.snapshot_interval_secs);
+    let newest_age_secs = std::fs::read_dir(logs_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(crate::telemetry::HEARTBEAT_FILE_NAME)
+        })
+        .filter_map(|entry| entry.metadata().ok()?.modified().ok())
+        .map(|modified| (now - DateTime::<Utc>::from(modified)).num_seconds())
+        .min();
+    Some(match newest_age_secs {
+        Some(age) if age <= stale_after as i64 => DiagnosticResult::pass(
+            "heartbeat",
+            format!("Heartbeat is current ({}s old)", age.max(0)),
+        ),
+        Some(age) => DiagnosticResult::warn(
+            "heartbeat",
+            format!("The heartbeat file was last written {age}s ago although the service is running"),
+            "A SIEM alerting on a missing heartbeat will report this host as quiet",
+        )
+        .with_fix("Inspect the agent log for heartbeat write errors and check the log directory permissions"),
+        None => DiagnosticResult::warn(
+            "heartbeat",
+            format!(
+                "No {}.<date> file in {} although the service is running",
+                crate::telemetry::HEARTBEAT_FILE_NAME,
+                logs_dir.display()
+            ),
+            "Nothing is written for a SIEM to detect a silent host with",
+        )
+        .with_fix("Check that this config's log directory is the one the service uses"),
+    })
 }
 
 fn assess(

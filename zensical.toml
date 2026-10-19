@@ -39,6 +39,7 @@ nav = [
         { "Platform coverage" = "coverage.md" },
         { "Limitations" = "limitations.md" },
         { "Telemetry loss" = "telemetry-loss.md" },
+        { "Agent health" = "agent-health.md" },
         { "Security model" = "security.md" },
     ] },
 
