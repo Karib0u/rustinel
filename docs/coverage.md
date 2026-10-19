@@ -37,14 +37,13 @@ A blank cell in the table above is one of three things.
 | --- | --- | --- | --- |
 | Named pipes (`pipe_created`) | Unavailable without a driver | Windows | Kernel-File ETW records no pipe name or creator for a pipe exchange. |
 | Process tampering | Unavailable without a driver | Windows | The only source is the Threat Intelligence provider, which is closed to a process that is not a protected process light. |
-| Process access | Planned, [#302](https://github.com/Karib0u/rustinel/issues/302) | Windows | Kernel-Audit-API-Calls gives the access, but not the true `GrantedAccess`, see [Limitations](limitations.md#windows). |
-| Remote threads | Planned, [#550](https://github.com/Karib0u/rustinel/issues/550) | Windows | Thread starts give the source and target process, with field gaps for rules that need module or function names. |
-| File reads of sensitive paths | Planned, [#551](https://github.com/Karib0u/rustinel/issues/551) (Windows), [#645](https://github.com/Karib0u/rustinel/issues/645) (Linux) | Windows, Linux | Bounded to sensitive paths, not every read. |
-| Alternate data streams | Planned, [#553](https://github.com/Karib0u/rustinel/issues/553) | Windows | Stream names come from ETW, but contents and hashes need a bounded read. |
-| Raw device reads | Planned, [#554](https://github.com/Karib0u/rustinel/issues/554) | Windows | Raw reads of physical drives. |
+| Process access | Planned | Windows | Kernel-Audit-API-Calls gives the access, but not the true `GrantedAccess`, see [Limitations](limitations.md#windows). |
+| Remote threads | Planned | Windows | Thread starts give the source and target process, with field gaps for rules that need module or function names. |
+| File reads of sensitive paths | Planned | Windows, Linux | Bounded to sensitive paths, not every read. |
+| Alternate data streams | Planned | Windows | Stream names come from ETW, but contents and hashes need a bounded read. |
+| Raw device reads | Planned | Windows | Raw reads of physical drives. |
 
 Anything else not in the table is not collected today and has no decision recorded.
-The spike behind these decisions is [#485](https://github.com/Karib0u/rustinel/issues/485).
 
 ## Not in scope
 
