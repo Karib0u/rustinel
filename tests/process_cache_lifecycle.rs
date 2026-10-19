@@ -37,6 +37,7 @@ fn process_event(pid: u32, start_time: u64, action: SensorAction) -> RawEvent {
             parent_command_line: None,
             current_directory: None,
             integrity_level: None,
+            logon_id: None,
             user: None,
             original_file_name: None,
             product: None,

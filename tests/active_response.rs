@@ -72,6 +72,7 @@ fn build_yara_alert(pid: u32, image: &str) -> Alert {
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: None,
             }),
             process_name: None,
