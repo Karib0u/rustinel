@@ -34,6 +34,31 @@ use user::apply_user_fields;
 const ECS_VERSION: &str = "9.5.0";
 const EVENT_MODULE: &str = "edr";
 
+/// What a loss alert tells the receiver, by the stage that lost the events.
+fn loss_description(loss: &AgentLoss) -> String {
+    let AgentLoss {
+        channel,
+        category,
+        dropped,
+        window_secs,
+    } = loss;
+    match *channel {
+        "sensor_events" => format!(
+            "{dropped} {category} events were dropped in {window_secs} seconds because the \
+             {channel} queue was full; detections that depend on them did not run"
+        ),
+        "artifact_resolution" | "artifact_written_files" | "yara_memory_scan" => format!(
+            "{dropped} {category} requests were dropped in {window_secs} seconds because the \
+             {channel} queue was full; the base events were still evaluated, but their hashes, \
+             PE metadata or YARA results are missing"
+        ),
+        _ => format!(
+            "{dropped} {category} events were lost in {window_secs} seconds by {channel} \
+             before the sensor could read them; detections that depend on them did not run"
+        ),
+    }
+}
+
 impl EcsAlert {
     /// An operational alert about the agent itself rather than a detection:
     /// `edr.rule.engine` is `Agent` and `event.dataset` is `edr.agent`.
@@ -44,11 +69,7 @@ impl EcsAlert {
         let alert = Alert {
             severity: AlertSeverity::Medium,
             rule_name: format!("agent::loss::{}", loss.channel),
-            rule_description: Some(format!(
-                "{} {} events were dropped in {} seconds because the {} queue was full; \
-                 detections that depend on them did not run",
-                loss.dropped, loss.category, loss.window_secs, loss.channel
-            )),
+            rule_description: Some(loss_description(&loss)),
             rule_id: None,
             sigma_metadata: None,
             engine: DetectionEngine::Sigma,

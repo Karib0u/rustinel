@@ -8,7 +8,7 @@ Every drop is counted, so you can tell whether a quiet endpoint is quiet or blin
 
 | Stage | Example | Reported by `doctor` as |
 | --- | --- | --- |
-| Before Rustinel | An eBPF ring is full, Endpoint Security or `/dev/bpf` drops, ETW buffers overflow | `linux_ebpf`, `macos_esf_kernel_loss`, `macos_bpf_kernel_loss`. ETW loss is a warning in the operational log |
+| Before Rustinel | An eBPF ring is full, Endpoint Security or `/dev/bpf` drops, ETW buffers overflow | `linux_ebpf`, `macos_esf_kernel_loss`, `macos_bpf_kernel_loss`. ETW loss is a warning in the operational log. All raise a [loss alert](output.md#sensor-loss-alerts) |
 | Inside the sensor | A Windows registry or file event whose path cannot be recovered, an ETW record that fails to decode | `registry_path_resolution`, `file_path_attribution`, `etw_decode` |
 | Attribution state | A process update has no known identity, or a directory-open update cannot name its descriptor | `host_state` |
 | Between stages | A full queue between the sensor and the detectors, artifact resolution, memory YARA, or response | `pipeline_telemetry` |
@@ -41,6 +41,22 @@ rustinel doctor --json | jq '.telemetry.channels[] | select(.dropped > 0)'
 
 Counters reset when the agent restarts.
 Every field is described in [telemetry.json](telemetry.md).
+
+## Which loss raises an alert
+
+With `telemetry.loss_alert_interval_secs` above zero, these stages write an `agent::loss::*` alert to the alert file and every webhook, so a remote operator learns about them without running `doctor`:
+
+| Stage | `edr.agent.loss.channel` |
+| --- | --- |
+| Queue between the sensors and the detectors | `sensor_events` |
+| ETW kernel buffers (Windows) | `etw_session` |
+| eBPF rings and maps (Linux) | `ebpf_ring`, `ebpf_oversized`, `ebpf_map_full` |
+| Endpoint Security and `/dev/bpf` (macOS) | `macos_esf`, `macos_bpf` |
+| File enrichment and memory scan queues | `artifact_resolution`, `artifact_written_files`, `yara_memory_scan` |
+
+The first five rows mean the sensor is blind for that window.
+The enrichment rows mean base events still flow and only hashes, PE metadata or YARA results are missing.
+Everything else in the table above, including `active_response`, `capture_writer`, `alert_writer` and the registry, file and decode counters, appears only in `doctor` or the log.
 
 ## Which drops matter most
 

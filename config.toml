@@ -118,7 +118,7 @@ directory = "captures"      # default parent for rustinel-capture-<UTC timestamp
 [telemetry]
 enabled = true
 snapshot_interval_secs = 30 # a snapshot is also written at shutdown
-loss_alert_interval_secs = 60 # one alert per dropped sensor category per window; 0 disables
+loss_alert_interval_secs = 60 # one alert per lost-event stage and category per window; 0 disables
 
 # 6b. Windows ETW Delivery
 #   ETW's native flush timer has a one-second minimum. Rustinel requests an
