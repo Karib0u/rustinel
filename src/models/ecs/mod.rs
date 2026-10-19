@@ -312,6 +312,8 @@ impl From<&Alert> for EcsAlert {
             file_file_version: None,
             file_code_signature_exists: None,
             file_code_signature_subject_name: None,
+            file_code_signature_status: None,
+            file_code_signature_valid: None,
             dll_name: None,
             dll_path: None,
             dll_hash_md5: None,
@@ -478,6 +480,11 @@ impl From<&Alert> for EcsAlert {
                 ecs.file_file_version = f.file_version.clone();
                 ecs.file_code_signature_exists = parse_bool(&f.signed);
                 ecs.file_code_signature_subject_name = f.signature.clone();
+                ecs.file_code_signature_status = f.signature_status.clone();
+                ecs.file_code_signature_valid = f
+                    .signature_status
+                    .as_deref()
+                    .map(|status| status.eq_ignore_ascii_case("Valid"));
                 ecs.dll_path = f.image_loaded.clone();
                 ecs.dll_name = f.image_loaded.as_deref().and_then(basename);
                 let digests = SysmonDigests::parse(f.hashes.as_deref());

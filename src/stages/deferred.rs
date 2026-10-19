@@ -29,7 +29,7 @@ use crate::ioc::ComputedHashes;
 use crate::models::{CanonicalEvent, EventFields};
 use crate::response::ResponseEngine;
 use crate::state::HostState;
-use crate::vocab::PeMetadata;
+use crate::vocab::{PeMetadata, SignatureVerdict};
 
 /// Longest a deferred-pass event waits for `Hashes` and `Imphash`, measured
 /// from its arrival. Past it the deferred rules evaluate it without them, so
@@ -68,6 +68,7 @@ pub(crate) struct DeferredCounters {
 pub(crate) struct DeferredFields {
     pub hashes: Option<ComputedHashes>,
     pub imphash: Option<String>,
+    pub signature: Option<SignatureVerdict>,
     pub pe_metadata: Option<PeMetadata>,
 }
 
@@ -193,12 +194,18 @@ impl DeferredDetection {
                 if let Some(metadata) = &fields.pe_metadata {
                     apply_pe_metadata(&mut entry.event, metadata);
                 }
-                apply_artifact_fields(
+                let signed = entry.needs.signature
+                    && fields
+                        .signature
+                        .as_ref()
+                        .is_some_and(|verdict| apply_signature(&mut entry.event, verdict));
+                let artifact = apply_artifact_fields(
                     &mut entry.event,
                     entry.needs,
                     fields.hashes.as_ref(),
                     fields.imphash.as_deref(),
-                )
+                );
+                signed || artifact
             });
             let counter = if enriched {
                 &self.counters.enriched
@@ -286,6 +293,29 @@ fn apply_artifact_fields(
     has_hashes || has_imphash
 }
 
+/// Fill `Signed`, `Signature`, and `SignatureStatus` on an image load from a
+/// verification. Returns whether the fields were set; an unknown verdict
+/// leaves them absent so it never reads as unsigned.
+fn apply_signature(event: &mut CanonicalEvent, verdict: &SignatureVerdict) -> bool {
+    let Some(values) = verdict.fields() else {
+        return false;
+    };
+    let EventFields::ImageLoad(fields) = &mut event.normalized_mut().fields else {
+        return false;
+    };
+    fields.signed = Some(values.signed.to_string());
+    fields.signature = values.signature.clone();
+    fields.signature_status = Some(values.status.to_string());
+    // Verified from the file after the event, so not a kernel measurement.
+    let provenance = &mut event.normalized_mut().provenance;
+    provenance.mark_derived(crate::engine::SIGNED_FIELD);
+    provenance.mark_derived(crate::engine::SIGNATURE_STATUS_FIELD);
+    if values.signature.is_some() {
+        provenance.mark_derived(crate::engine::SIGNATURE_FIELD);
+    }
+    true
+}
+
 /// Sysmon's `Hashes` value: `SHA1=`, `MD5=`, `SHA256=`, `IMPHASH=` in that
 /// order, uppercase hex, comma separated, listing only requested values that
 /// resolved. `None` when none did, so absence is never an empty string.
@@ -325,9 +355,10 @@ mod tests {
 
     use super::*;
     use crate::artifact::test_support::{
-        detecting_runtime, process_event, read_alerts, rule_names,
+        detecting_runtime, image_event, process_event, read_alerts, rule_names,
     };
     use crate::sensor::Platform;
+    use crate::vocab::SignatureFault;
 
     #[test]
     fn deferred_stage_flushes_correlation_without_another_event() {
@@ -416,5 +447,109 @@ correlation:
             "an image without imports leaves IMPHASH out rather than inventing one"
         );
         assert_eq!(sysmon_hashes(md5_and_imphash, None, None), None);
+    }
+
+    const UNSIGNED_RULE: &str = r#"title: Unsigned Image
+id: unsigned-image
+logsource:
+  product: windows
+  category: image_load
+detection:
+  selection:
+    Signed: 'false'
+  condition: selection
+"#;
+    const REVOKED_RULE: &str = r#"title: Revoked Image
+id: revoked-image
+logsource:
+  product: windows
+  category: image_load
+detection:
+  selection:
+    SignatureStatus: Revoked
+    Signature|contains: Acme
+  condition: selection
+"#;
+
+    /// Run the deferred stage over one image load whose resolution produced
+    /// `signature`, and return the rules that fired.
+    fn rules_fired_for(signature: Option<SignatureVerdict>) -> Vec<String> {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("loaded.dll");
+        std::fs::write(&image, b"sample").unwrap();
+        let (runtime, detectors, alerts_path, guard) =
+            detecting_runtime(temp.path(), &[UNSIGNED_RULE.into(), REVOKED_RULE.into()]);
+        let event = image_event(&image);
+        let needs = detectors.sigma().deferred_field_needs(event.normalized());
+        assert!(needs.signature, "both rules select on signature fields");
+        let (ingress, stage) = channel(
+            detectors,
+            Arc::new(HostState::default()),
+            runtime.alert_sink,
+            None,
+            Arc::new(DeferredCounters::default()),
+        );
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        assert!(ingress.defer(&event, needs, rx));
+        tx.send(DeferredFields {
+            signature,
+            ..DeferredFields::default()
+        })
+        .unwrap();
+        drop(ingress);
+        stage.run();
+        drop(guard);
+        rule_names(&read_alerts(&alerts_path))
+    }
+
+    #[test]
+    fn an_unsigned_verdict_fires_the_unsigned_rule() {
+        assert_eq!(
+            rules_fired_for(Some(SignatureVerdict::Unsigned)),
+            vec!["Unsigned Image"]
+        );
+    }
+
+    #[test]
+    fn an_unknown_verdict_is_not_unsigned() {
+        assert!(rules_fired_for(Some(SignatureVerdict::Unknown)).is_empty());
+        assert!(rules_fired_for(None).is_empty());
+    }
+
+    #[test]
+    fn a_faulted_signature_carries_its_status_and_signer() {
+        assert_eq!(
+            rules_fired_for(Some(SignatureVerdict::Invalid {
+                fault: SignatureFault::Revoked,
+                signer: Some("Acme Corp".into()),
+            })),
+            vec!["Revoked Image"]
+        );
+        assert!(rules_fired_for(Some(SignatureVerdict::Valid {
+            signer: Some("Acme Corp".into())
+        }))
+        .is_empty());
+    }
+
+    #[test]
+    fn a_verdict_marks_the_fields_derived_and_never_touches_a_process_start() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut image = image_event(&temp.path().join("a.dll"));
+        assert!(apply_signature(
+            &mut image,
+            &SignatureVerdict::Valid {
+                signer: Some("Acme".into())
+            }
+        ));
+        let fields = match &image.normalized().fields {
+            EventFields::ImageLoad(fields) => fields.clone(),
+            _ => unreachable!(),
+        };
+        assert_eq!(fields.signed.as_deref(), Some("true"));
+        assert_eq!(fields.signature.as_deref(), Some("Acme"));
+        assert_eq!(fields.signature_status.as_deref(), Some("Valid"));
+
+        let mut process = process_event(&temp.path().join("a.exe"), Platform::Windows);
+        assert!(!apply_signature(&mut process, &SignatureVerdict::Unsigned));
     }
 }

@@ -952,6 +952,7 @@ pub(super) fn decode_image_load(
         file_version: None,
         signed: None,
         signature: None,
+        signature_status: None,
         user: None,
     };
 

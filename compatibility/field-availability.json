@@ -1965,9 +1965,9 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signed",
-      "since": null,
-      "availability": "never",
-      "reason": "Kernel-Process image-load events contain no Authenticode result"
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "verified from the loaded file after admission when a loaded rule selects on it, and seen only by those rules; absent when verification did not complete"
     },
     {
       "view": "sysmon",
@@ -1978,9 +1978,22 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signature",
-      "since": null,
-      "availability": "never",
-      "reason": "Kernel-Process image-load events contain no signer identity"
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "the signer's display name, set with Signed when the file carries a signature that verification could read"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "image_load",
+      "event_id": 7,
+      "action": "load",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Process",
+      "field": "SignatureStatus",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "set with Signed: Valid, Expired, Revoked, Invalid, or Unavailable for an unsigned file"
     },
     {
       "view": "sysmon",
@@ -2148,8 +2161,8 @@
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signed",
       "since": "unreleased",
-      "availability": "never",
-      "reason": "Kernel-Process image-load events contain no Authenticode result"
+      "availability": "conditional",
+      "reason": "verified from the loaded file after admission when a loaded rule selects on it, and seen only by those rules; absent when verification did not complete"
     },
     {
       "view": "sysmon",
@@ -2161,8 +2174,21 @@
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signature",
       "since": "unreleased",
-      "availability": "never",
-      "reason": "Kernel-Process image-load events contain no signer identity"
+      "availability": "conditional",
+      "reason": "the signer's display name, set with Signed when the file carries a signature that verification could read"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "driver_load",
+      "event_id": 6,
+      "action": "load",
+      "provider": "etw",
+      "source": "Microsoft-Windows-Kernel-Process",
+      "field": "SignatureStatus",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "set with Signed: Valid, Expired, Revoked, Invalid, or Unavailable for an unsigned file"
     },
     {
       "view": "sysmon",

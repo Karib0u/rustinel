@@ -1,8 +1,9 @@
 //! Rules evaluated in the deferred pass, after artifact resolution.
 //!
-//! `Hashes` and `Imphash` are computed from the file behind an event, which
-//! takes longer than the admission budget allows (#427). A rule that selects
-//! on either field is therefore evaluated in a separate pass on the event once
+//! `Hashes`, `Imphash`, and the Authenticode fields `Signed`, `Signature`, and
+//! `SignatureStatus` are computed from the file behind an event, which takes
+//! longer than the admission budget allows (#427). A rule that selects on any
+//! of them is therefore evaluated in a separate pass on the event once
 //! the artifact resolver has filled them, and never in the admission pass, so
 //! every rule sees each event exactly once.
 //!
@@ -19,12 +20,17 @@ use rsigma_parser::{
 
 use super::logsource::logsource_key;
 use super::{Engine, LogSourceKey};
-use crate::models::NormalizedEvent;
+use crate::models::{EventFields, NormalizedEvent};
+use crate::sensor::Platform;
 
 /// Sysmon's multi-digest field: `SHA1=...,MD5=...,SHA256=...,IMPHASH=...`.
 pub(crate) const HASHES_FIELD: &str = "Hashes";
 /// The import hash on its own, as older Sigma rules spell it.
 pub(crate) const IMPHASH_FIELD: &str = "Imphash";
+/// Authenticode fields of an image load, verified from the file (#320).
+pub(crate) const SIGNED_FIELD: &str = "Signed";
+pub(crate) const SIGNATURE_FIELD: &str = "Signature";
+pub(crate) const SIGNATURE_STATUS_FIELD: &str = "SignatureStatus";
 
 /// Which evaluation of an event a caller is running.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +62,9 @@ pub struct ArtifactFieldNeeds {
     pub sha1: bool,
     pub sha256: bool,
     pub imphash: bool,
+    /// `Signed`, `Signature`, or `SignatureStatus`: one verification fills all
+    /// three.
+    pub signature: bool,
 }
 
 impl ArtifactFieldNeeds {
@@ -64,10 +73,11 @@ impl ArtifactFieldNeeds {
         sha1: true,
         sha256: true,
         imphash: true,
+        signature: false,
     };
 
     pub fn is_empty(self) -> bool {
-        !self.md5 && !self.sha1 && !self.sha256 && !self.imphash
+        !self.md5 && !self.sha1 && !self.sha256 && !self.imphash && !self.signature
     }
 
     pub(crate) fn union(self, other: Self) -> Self {
@@ -76,6 +86,7 @@ impl ArtifactFieldNeeds {
             sha1: self.sha1 || other.sha1,
             sha256: self.sha256 || other.sha256,
             imphash: self.imphash || other.imphash,
+            signature: self.signature || other.signature,
         }
     }
 }
@@ -152,7 +163,8 @@ impl DeferredRules {
             return ArtifactFieldNeeds::default();
         }
         let routes = Engine::concrete_logsource_routes_for_event(event);
-        self.needs
+        let mut needs = self
+            .needs
             .iter()
             .filter(|(logsource, _)| {
                 routes
@@ -161,7 +173,12 @@ impl DeferredRules {
             })
             .fold(ArtifactFieldNeeds::default(), |acc, (_, needs)| {
                 acc.union(*needs)
-            })
+            });
+        // Only a Windows image load is verified. macOS reports `Signed` on
+        // process starts from the kernel, so those rules keep admission.
+        needs.signature &= event.platform == Platform::Windows
+            && matches!(event.fields, EventFields::ImageLoad(_));
+        needs
     }
 }
 
@@ -202,6 +219,10 @@ fn item_needs(item: &DetectionItem) -> ArtifactFieldNeeds {
             imphash: true,
             ..ArtifactFieldNeeds::default()
         },
+        Some(SIGNED_FIELD | SIGNATURE_FIELD | SIGNATURE_STATUS_FIELD) => ArtifactFieldNeeds {
+            signature: true,
+            ..ArtifactFieldNeeds::default()
+        },
         Some(HASHES_FIELD) => hashes_value_needs(&item.values),
         _ => ArtifactFieldNeeds::default(),
     }
@@ -222,6 +243,7 @@ fn hashes_value_needs(values: &[SigmaValue]) -> ArtifactFieldNeeds {
             sha1: text.contains("SHA1="),
             sha256: text.contains("SHA256="),
             imphash: text.contains("IMPHASH="),
+            signature: false,
         };
         if named.is_empty() {
             return ArtifactFieldNeeds::ALL;

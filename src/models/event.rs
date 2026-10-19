@@ -685,6 +685,7 @@ impl NormalizedEvent {
                 Field::Imphash => f.imphash.as_deref().map(Value::String),
                 Field::Signed => f.signed.as_deref().map(Value::String),
                 Field::Signature => f.signature.as_deref().map(Value::String),
+                Field::SignatureStatus => f.signature_status.as_deref().map(Value::String),
                 Field::ProcessId => f.process_id.as_deref().map(Value::String),
                 Field::User => f.user.as_deref().map(Value::String),
                 _ => None,

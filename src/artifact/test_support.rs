@@ -95,7 +95,7 @@ pub(crate) fn process_event(path: &Path, platform: Platform) -> CanonicalEvent {
     })
 }
 
-pub(super) fn image_event(path: &Path) -> CanonicalEvent {
+pub(crate) fn image_event(path: &Path) -> CanonicalEvent {
     CanonicalEvent::from_normalized(NormalizedEvent {
         timestamp: "2026-01-01T00:00:00Z".into(),
         source_seq: None,
@@ -119,6 +119,7 @@ pub(super) fn image_event(path: &Path) -> CanonicalEvent {
             file_version: None,
             signed: None,
             signature: None,
+            signature_status: None,
             user: None,
         }),
         process_name: None,

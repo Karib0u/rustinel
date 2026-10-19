@@ -34,6 +34,9 @@ const SINCE_DNS_RESPONSES: Option<&str> = Some("1.8.0");
 const SINCE_SECURITY_FAMILIES: Option<&str> = Some("1.8.0");
 /// Windows `Hashes` and `Imphash` from artifact resolution (#319).
 const SINCE_ARTIFACT_HASHES: Option<&str> = Some("1.8.0");
+/// Windows Authenticode `Signed`, `Signature` and `SignatureStatus` on image
+/// loads from artifact resolution (#320).
+const SINCE_AUTHENTICODE: Option<&str> = Some(UNRELEASED);
 /// Linux container context (#148).
 const SINCE_CONTAINER_CONTEXT: Option<&str> = Some("1.8.0");
 /// Identity-checked Linux process path enrichment (#231).
@@ -382,15 +385,20 @@ const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
         SINCE_1_4_1,
         "PE version-resource enrichment succeeds",
     ),
-    never(
+    conditional(
         "Signed",
-        SINCE_BASELINE,
-        "Kernel-Process image-load events contain no Authenticode result",
+        SINCE_AUTHENTICODE,
+        "verified from the loaded file after admission when a loaded rule selects on it, and seen only by those rules; absent when verification did not complete",
     ),
-    never(
+    conditional(
         "Signature",
-        SINCE_BASELINE,
-        "Kernel-Process image-load events contain no signer identity",
+        SINCE_AUTHENTICODE,
+        "the signer's display name, set with Signed when the file carries a signature that verification could read",
+    ),
+    conditional(
+        "SignatureStatus",
+        SINCE_AUTHENTICODE,
+        "set with Signed: Valid, Expired, Revoked, Invalid, or Unavailable for an unsigned file",
     ),
     never(
         "User",
@@ -458,15 +466,20 @@ const WINDOWS_DRIVER_LOAD: &[FieldContract] = &[
         Some(UNRELEASED),
         "PE version-resource enrichment succeeds",
     ),
-    never(
+    conditional(
         "Signed",
-        Some(UNRELEASED),
-        "Kernel-Process image-load events contain no Authenticode result",
+        SINCE_AUTHENTICODE,
+        "verified from the loaded file after admission when a loaded rule selects on it, and seen only by those rules; absent when verification did not complete",
     ),
-    never(
+    conditional(
         "Signature",
-        Some(UNRELEASED),
-        "Kernel-Process image-load events contain no signer identity",
+        SINCE_AUTHENTICODE,
+        "the signer's display name, set with Signed when the file carries a signature that verification could read",
+    ),
+    conditional(
+        "SignatureStatus",
+        SINCE_AUTHENTICODE,
+        "set with Signed: Valid, Expired, Revoked, Invalid, or Unavailable for an unsigned file",
     ),
     never(
         "User",

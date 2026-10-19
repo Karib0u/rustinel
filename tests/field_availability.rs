@@ -179,9 +179,7 @@ fn required_permanent_gaps_are_recorded() {
             .map(|entry| entry.availability);
         assert!(matches!(availability, Some(Availability::Conditional(_))));
     }
-    for field in ["Signed", "Signature"] {
-        assert!(has_never(Platform::Windows, "image_load", field));
-    }
+    assert!(has_never(Platform::Windows, "image_load", "User"));
     assert!(has_never(Platform::Windows, "task_creation", "TaskContent"));
     assert!(has_never(Platform::Windows, "dns_query", "RecordType"));
     assert!(has_never(Platform::Windows, "pipe_created", "*"));
@@ -285,18 +283,18 @@ fn never_fields_cannot_leak_through_the_sigma_accessor() {
             description: None,
             company: None,
             file_version: None,
-            signed: Some("true".to_string()),
-            signature: Some("Fake Signer".to_string()),
-            user: None,
+            signed: None,
+            signature: None,
+            signature_status: None,
+            user: Some("Fake User".to_string()),
         }),
     );
     assert!(matches!(
-        availability_for_event(&image, "Signed"),
+        availability_for_event(&image, "User"),
         Some(Availability::Never(_))
     ));
-    assert_eq!(image.get_field("Signed"), None);
-    assert_eq!(image.get_field("Signature"), None);
-    assert_eq!(populated_never_fields(&image), vec!["Signed", "Signature"]);
+    assert_eq!(image.get_field("User"), None);
+    assert_eq!(populated_never_fields(&image), vec!["User"]);
 
     let task = event(
         EventCategory::Task,

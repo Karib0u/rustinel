@@ -445,7 +445,7 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         .saturating_add(resolver.deferred_budget_exceeded)
         .saturating_add(resolver.deferred_queue_saturated);
     let detail = format!(
-        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; deferred pass: {} queued, {} with artifact fields, {} without ({} past the {} ms budget), {} queue saturated, correlation lateness bounded at {} ms; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} identity unavailable, {} read, {} consumer, {} oversized",
+        "{} queued, {} resolved, {} cache hits/{} misses; stores: PE {}, hashes {}, imphashes {}, signatures {}, YARA {} (generation {}), {} evicted; admission: {} past the {} ms budget, {} backpressured sends; deferred pass: {} queued, {} with artifact fields, {} without ({} past the {} ms budget), {} queue saturated, correlation lateness bounded at {} ms; outcomes: {} queue saturated, {} workers saturated, {} deadline, {} open, {} identity, {} identity unavailable, {} read, {} consumer, {} oversized; Authenticode: {} inconclusive, {} slow",
         resolver.queued,
         resolver.resolved,
         resolver.cache_hits,
@@ -476,6 +476,8 @@ fn artifact_resolver_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResu
         resolver.read_failed,
         resolver.consumer_failed,
         resolver.oversized,
+        resolver.signature_unknown,
+        resolver.signature_slow,
     );
     let detail = format!(
         "{detail}; dropped jobs: process images {}, loaded images {}, written files {}; written-file selection: {} rejected, {} coalesced",
@@ -1308,6 +1310,8 @@ mod tests {
             read_failed: 0,
             consumer_failed: 0,
             oversized: 0,
+            signature_unknown: 0,
+            signature_slow: 0,
             evicted: 3,
             deferred_queued: 20,
             deferred_enriched: 17,

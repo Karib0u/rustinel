@@ -4,7 +4,7 @@ Rustinel runs three engines over the same events.
 
 | Engine | Checks | When | Alerts |
 | --- | --- | --- | --- |
-| Sigma | Every event | Inline, except rules on `Hashes` or `Imphash`, see [Deferred pass](#deferred-pass) | The best match per event, or every match in `all` mode, plus correlations |
+| Sigma | Every event | Inline, except rules on `Hashes`, `Imphash`, or the Authenticode fields, see [Deferred pass](#deferred-pass) | The best match per event, or every match in `all` mode, plus correlations |
 | IOC (IP, domain, path) | Every event | Inline | One per matching indicator |
 | IOC (hash) | Executables of new processes, and qualifying written files | Background | One per matching hash |
 | YARA | Executables of new processes, qualifying written files, Linux memfd memory, and optionally other process memory | Background | One per matching rule |
@@ -53,6 +53,14 @@ Rules that select on either field run in a separate pass, once per event, as soo
   `rustinel doctor` counts these under `artifact_resolver`.
 - One event can raise one alert inline and one from the deferred pass.
   Deferred alerts reach correlation up to 2 seconds late, so a correlation window shorter than that can miss them.
+- Windows image loads and driver loads also get `Signed`, `Signature`, and `SignatureStatus` from Authenticode verification, through the same pass and the same single file open.
+  Embedded signatures are verified first; a file without one is looked up in the system catalogs by its hash.
+  `Signed` is `true` or `false`, `Signature` is the signer's display name (the catalog signer for catalog-signed files), and `SignatureStatus` is `Valid`, `Expired`, `Revoked`, `Invalid`, or `Unavailable` for an unsigned file.
+  A verification that does not finish leaves all three absent, so a rule on `Signed: 'false'` never fires on a file Rustinel could not check.
+  Revocation is not checked and certificates are fetched from cache only, so a verification never waits on the network.
+  The fields are marked `derived`.
+  Windows cannot cancel a verification, so one that takes 2 seconds or more is counted as slow and holds an I/O slot until it ends.
+  Files over 128 MB are not verified.
 - Recordings do not carry these fields, so replay cannot reproduce a match that needed them.
 
 ## YARA

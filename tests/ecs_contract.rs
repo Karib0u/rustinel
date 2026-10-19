@@ -283,6 +283,7 @@ fn ecs_category_coverage_maps_event_contract_fields() {
                     file_version: None,
                     signed: Some("false".to_string()),
                     signature: None,
+                    signature_status: None,
                     user: Some("alice".to_string()),
                 }),
             ),

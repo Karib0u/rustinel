@@ -58,6 +58,14 @@ pub struct ArtifactResolverSnapshot {
     pub read_failed: u64,
     pub consumer_failed: u64,
     pub oversized: u64,
+    /// Authenticode verifications that did not conclude, so the signature
+    /// fields stayed absent.
+    #[serde(default)]
+    pub signature_unknown: u64,
+    /// Authenticode verifications that took two seconds or more. They hold
+    /// an I/O slot throughout because Windows cannot cancel them.
+    #[serde(default)]
+    pub signature_slow: u64,
     pub evicted: u64,
     /// Events whose deferred-pass rules waited for `Hashes`/`Imphash`.
     #[serde(default)]
@@ -114,6 +122,8 @@ pub(super) struct ResolverCounters {
     pub(super) read_failed: AtomicU64,
     pub(super) consumer_failed: AtomicU64,
     pub(super) oversized: AtomicU64,
+    pub(super) signature_unknown: AtomicU64,
+    pub(super) signature_slow: AtomicU64,
 }
 
 pub(super) struct ResolverState {
@@ -172,6 +182,8 @@ impl ResolverState {
             read_failed: self.counters.read_failed.load(Ordering::Relaxed),
             consumer_failed: self.counters.consumer_failed.load(Ordering::Relaxed),
             oversized: self.counters.oversized.load(Ordering::Relaxed),
+            signature_unknown: self.counters.signature_unknown.load(Ordering::Relaxed),
+            signature_slow: self.counters.signature_slow.load(Ordering::Relaxed),
             evicted: stores.evicted,
             deferred_queued: self.counters.deferred.queued.load(Ordering::Relaxed),
             deferred_enriched: self.counters.deferred.enriched.load(Ordering::Relaxed),

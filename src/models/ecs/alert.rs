@@ -467,6 +467,18 @@ pub struct EcsAlert {
     )]
     pub file_code_signature_subject_name: Option<String>,
 
+    #[serde(
+        rename = "file.code_signature.status",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub file_code_signature_status: Option<String>,
+
+    #[serde(
+        rename = "file.code_signature.valid",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub file_code_signature_valid: Option<bool>,
+
     // ========================================================================
     // DLL Fields
     // ========================================================================

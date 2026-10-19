@@ -61,7 +61,7 @@ Each consumer keeps its results in its own store, keyed by file identity, under 
 | `admission_budget_ms` | Longest PE metadata may hold an event before it is admitted without it |
 | `admission_budget_exceeded` | Events admitted without PE metadata because resolution missed the budget |
 | `admission_backpressure` | Events that waited for room in the ordered admission queue; each wait is bounded by the budget |
-| `deferred_budget_ms` | Longest a deferred-pass event waits for `Hashes` and `Imphash` before its rules evaluate it without them |
+| `deferred_budget_ms` | Longest a deferred-pass event waits for `Hashes`, `Imphash`, and the Authenticode fields before its rules evaluate it without them |
 | `correlation_lateness_ms` | Maximum extra time a correlation update waits to preserve ingest order across admission and deferred passes |
 | `deferred_queued` | Events whose deferred-pass rules waited for artifact fields |
 | `deferred_enriched`, `deferred_unenriched` | Deferred passes evaluated with at least one artifact field, or without any |
@@ -71,6 +71,7 @@ Each consumer keeps its results in its own store, keyed by file identity, under 
 | `cache_hits`, `cache_misses` | Whole-job cache outcomes after the identity was measured |
 | `queue_saturated`, `worker_saturated`, `deadline_exceeded` | Enrichment shed because a resolver queue or the written-file settle table was full, an I/O thread could not be started, or a job exceeded its deadline; the event is still admitted |
 | `open_failed`, `identity_mismatch`, `read_failed`, `consumer_failed`, `oversized` | Explicit unavailable outcomes by cause |
+| `signature_unknown`, `signature_slow` | Authenticode verifications that did not conclude, and those that took 2 seconds or more |
 | `process_image_dropped`, `loaded_image_dropped`, `written_file_dropped` | Jobs shed by kind because a queue or settle table was full, a queue closed, an I/O thread could not start, or a deadline expired; excludes file-access failures and coalesced writes |
 | `written_file_rejected` | File events rejected before queueing because the selector rejected them or the target path was missing or empty |
 | `written_file_coalesced` | Repeated writes replaced by the latest event for the same path and object during settling |

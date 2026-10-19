@@ -47,6 +47,7 @@ use crate::response::ResponseEngine;
 use crate::sensor::Platform;
 use crate::utils::file_identity::FileIdentity;
 pub use crate::vocab::PeMetadata;
+pub(crate) use crate::vocab::SignatureVerdict;
 
 pub(crate) use ingress::spawn_artifact_resolver;
 pub(crate) use snapshot::ArtifactResolverHandle;
@@ -77,6 +78,11 @@ impl ArtifactNeeds {
         self.hashes.md5 || self.hashes.sha1 || self.hashes.sha256 || self.imphash
     }
 
+    /// Whether every consumer the deferred pass waits on has its result.
+    fn deferred_fields_ready(self) -> bool {
+        !self.pe_metadata && !self.needs_digest_read() && !self.signature
+    }
+
     fn is_empty(self) -> bool {
         !self.hashes.md5
             && !self.hashes.sha1
@@ -90,25 +96,16 @@ impl ArtifactNeeds {
 
 /// Results computed from a single identity-validated open handle.
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)] // imphash and signature are extension points for #319/#320.
+#[allow(dead_code)] // Only tests read the identity back.
 pub(crate) struct Artifact {
     pub identity: Option<FileIdentity>,
     pub hashes: Option<ComputedHashes>,
-    /// Reserved for #319; it will consume the already-read bytes here.
     pub imphash: Option<String>,
     pub pe_metadata: Option<PeMetadata>,
-    /// Reserved for #320; unknown remains distinct from unsigned.
-    pub signature: Option<ArtifactSignature>,
+    /// `None` and `Unknown` both mean verification did not complete, which
+    /// stays distinct from `Unsigned`.
+    pub signature: Option<SignatureVerdict>,
     pub yara: Option<Vec<YaraRuleMatch>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // populated by the Authenticode consumer in #320.
-pub(crate) enum ArtifactSignature {
-    Unknown,
-    Unsigned,
-    Invalid,
-    Valid { signer: Option<String> },
 }
 
 #[derive(Clone)]
@@ -156,4 +153,18 @@ fn parse_imphash_bytes(bytes: &[u8]) -> Option<String> {
 #[cfg(not(windows))]
 fn parse_imphash_bytes(_bytes: &[u8]) -> Option<String> {
     None
+}
+
+/// Verification time past which a signature check is counted as slow. The
+/// check cannot be cancelled, so this is observed rather than enforced.
+const SIGNATURE_SLOW: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(windows)]
+fn verify_signature(file: &File, path: &Path) -> SignatureVerdict {
+    crate::utils::authenticode::verify_file(file, path)
+}
+
+#[cfg(not(windows))]
+fn verify_signature(_file: &File, _path: &Path) -> SignatureVerdict {
+    SignatureVerdict::Unknown
 }
