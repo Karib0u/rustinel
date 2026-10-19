@@ -498,6 +498,11 @@ mod tests {
                 attempted: 3,
                 captured: 2,
                 missed: 1,
+                current_directory_captured: 0,
+                current_directory_missed: 0,
+                backfill_queries: 0,
+                backfill_micros: 0,
+                backfill_max_micros: 0,
             })
         );
     }
