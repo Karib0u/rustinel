@@ -403,6 +403,7 @@ mod tests {
             process_start_key: None,
             parent_process_start_key: None,
             payload: RawPayload::Dns(DnsQueryFields {
+                query_truncated: None,
                 user: None,
                 query_name: None,
                 query_results: None,

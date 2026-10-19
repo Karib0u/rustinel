@@ -423,6 +423,14 @@ pub struct EcsAlert {
     )]
     pub edr_file_path_truncated: Option<String>,
 
+    /// `true` when the sensor captured only the start of the DNS message, so
+    /// `dns.question.name` ends where the capture did.
+    #[serde(
+        rename = "edr.dns.query_truncated",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_dns_query_truncated: Option<String>,
+
     #[serde(
         rename = "file.pe.original_file_name",
         skip_serializing_if = "Option::is_none"

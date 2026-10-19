@@ -50,6 +50,8 @@ const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
+/// DNS messages cut at the capture limit keep the name they have (#804).
+const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -490,6 +492,11 @@ const WINDOWS_REGISTRY: &[FieldContract] = &[
 ];
 
 const WINDOWS_DNS: &[FieldContract] = &[
+    never(
+        "QueryTruncated",
+        SINCE_DNS_TRUNCATION,
+        "ETW delivers whole DNS Client events",
+    ),
     always_value(
         "Channel",
         SINCE_WINDOWS_CHANNEL,
@@ -621,6 +628,15 @@ const DEFENDER_CHANNEL: &str = "Microsoft-Windows-Windows Defender/Operational";
 const DEFENDER_FIELD_REASON: &str = "the Defender event template supplies this value";
 
 macro_rules! defender_fields {
+    ($($field:literal),*; aliases: $($alias:literal),*; unreleased: $($new:literal),* $(,)?) => {
+        &[
+            always_value("Channel", SINCE_DEFENDER, DEFENDER_CHANNEL),
+            always("Provider_Name", SINCE_DEFENDER),
+            $(conditional($field, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+            $(conditional($alias, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+            $(conditional($new, Some(UNRELEASED), DEFENDER_FIELD_REASON),)*
+        ]
+    };
     ($($field:literal),*; aliases: $($alias:literal),* $(,)?) => {
         &[
             always_value("Channel", SINCE_DEFENDER, DEFENDER_CHANNEL),
@@ -760,7 +776,7 @@ const WINDOWS_DEFENDER_1116: &[FieldContract] = defender_fields!(
     "Additional Actions String",
     "Remediation User",
     "Security intelligence Version",
-    "Engine Version"; aliases: "ProcessName", "SourceName", "ThreatName"
+    "Engine Version"; aliases: "ProcessName", "SourceName", "ThreatName"; unreleased: "Signature", "Filename"
 );
 const WINDOWS_DEFENDER_1121: &[FieldContract] = defender_fields!(
     "Product Name",
@@ -1614,6 +1630,11 @@ const LINUX_FILE: &[FieldContract] = &[
 ];
 
 const LINUX_DNS: &[FieldContract] = &[
+    conditional(
+        "QueryTruncated",
+        SINCE_DNS_TRUNCATION,
+        "the message was longer than the sensor's 512-byte capture and ended inside the name",
+    ),
     always("RecordType", SINCE_BASELINE),
     always("ProcessId", SINCE_BASELINE),
     conditional(
@@ -1807,6 +1828,11 @@ const MACOS_NETWORK: &[FieldContract] = &[
 ];
 
 const MACOS_DNS: &[FieldContract] = &[
+    never(
+        "QueryTruncated",
+        SINCE_DNS_TRUNCATION,
+        "the BPF DNS path parses one packet and drops a question it cannot finish",
+    ),
     always("QueryName", SINCE_1_1_0),
     conditional(
         "RecordType",
@@ -2948,6 +2974,7 @@ pub(crate) fn availability_in_contract(
     field: &str,
 ) -> Option<Availability> {
     contract.and_then(|contract| {
+        let field = crate::models::field_view::contract_field_name(contract.view, field);
         contract
             .fields
             .iter()

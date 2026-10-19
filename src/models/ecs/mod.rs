@@ -223,6 +223,7 @@ impl From<&Alert> for EcsAlert {
             file_created: None,
             edr_file_previous_created: None,
             edr_file_path_truncated: None,
+            edr_dns_query_truncated: None,
             file_original_file_name: None,
             file_product: None,
             file_description: None,
@@ -380,6 +381,7 @@ impl From<&Alert> for EcsAlert {
                     }
                 }
                 ecs.dns_response_code = f.query_status.clone();
+                ecs.edr_dns_query_truncated = f.query_truncated.clone();
                 ecs.network_protocol = Some("dns".to_string());
                 ecs.process_executable = f.image.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
@@ -1171,6 +1173,7 @@ mod tests {
                 event_id_string: "22".to_string(),
                 opcode: 0,
                 fields: EventFields::DnsQuery(DnsQueryFields {
+                    query_truncated: None,
                     user: None,
                     query_name: Some("example.com".to_string()),
                     query_results: Some("1.1.1.1".to_string()),

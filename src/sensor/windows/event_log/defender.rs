@@ -73,6 +73,9 @@ fn decode(xml: &str) -> Result<RawEvent> {
         }
     }
     fields.insert("Provider_Name", PROVIDER);
+    if matches!(event_id, 1116 | 1117) {
+        add_antivirus_verdict_fields(&mut fields);
+    }
 
     let timestamp = system
         .children()
@@ -108,6 +111,33 @@ fn decode(xml: &str) -> Result<RawEvent> {
         parent_process_start_key: None,
         payload: RawPayload::Defender(fields),
     })
+}
+
+/// Names the vendor-agnostic `category: antivirus` Sigma rules select on.
+///
+/// `Signature` is the detection's threat name and `Filename` the first file
+/// resource it names. Both are set on these events only, so `Signature` keeps
+/// its code-signing meaning on process and image-load events.
+fn add_antivirus_verdict_fields(fields: &mut SecurityAuditFields) {
+    if let Some(threat) = fields.get("ThreatName").map(str::to_owned) {
+        fields.insert("Signature", &threat);
+    }
+    if let Some(path) = fields.get("Path").and_then(first_file_resource) {
+        fields.insert("Filename", &path);
+    }
+}
+
+/// The path of the first `file:_` resource in a Defender `Path` value.
+///
+/// Defender lists one or more resources separated by `;`, each prefixed with
+/// its kind (`file:_C:\x.exe`, `containerfile:_...`, `process:_pid:...`).
+/// Only plain file resources name a path on disk.
+fn first_file_resource(path: &str) -> Option<String> {
+    path.split(';')
+        .map(str::trim)
+        .find_map(|resource| resource.strip_prefix("file:_"))
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
 }
 
 fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Option<&'a str> {
@@ -180,6 +210,35 @@ mod tests {
             assert_eq!(fields.get(native), Some("sample"));
             assert_eq!(fields.get(alias), Some("sample"));
         }
+    }
+
+    #[test]
+    fn detections_carry_the_antivirus_verdict_names() {
+        let path = "containerfile:_C:\\a.zip; file:_C:\\Tools\\mimikatz.exe; process:_pid:4,ProcessStart:1";
+        let xml = event(
+            1116,
+            &format!("<Data Name='Threat Name'>HackTool:Win32/Mimikatz.D</Data><Data Name='Path'>{path}</Data>"),
+        );
+        let RawPayload::Defender(fields) = decode(&xml).unwrap().payload else {
+            panic!("Defender payload expected")
+        };
+        assert_eq!(fields.get("Signature"), Some("HackTool:Win32/Mimikatz.D"));
+        assert_eq!(fields.get("Filename"), Some("C:\\Tools\\mimikatz.exe"));
+
+        let xml = event(1116, "<Data Name='Path'>process:_pid:4</Data>");
+        let RawPayload::Defender(fields) = decode(&xml).unwrap().payload else {
+            panic!("Defender payload expected")
+        };
+        assert_eq!(fields.get("Filename"), None);
+    }
+
+    #[test]
+    fn other_defender_events_have_no_antivirus_verdict_names() {
+        let xml = event(1121, "<Data Name='Process Name'>x</Data>");
+        let RawPayload::Defender(fields) = decode(&xml).unwrap().payload else {
+            panic!("Defender payload expected")
+        };
+        assert_eq!(fields.get("Signature"), None);
     }
 
     #[test]

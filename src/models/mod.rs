@@ -9,7 +9,7 @@ pub mod event_actions;
 mod alert;
 mod canonical;
 mod event;
-mod field_view;
+pub(crate) mod field_view;
 mod fields;
 mod match_details;
 

@@ -901,6 +901,7 @@ pub(super) fn decode_dns(
 ) -> Option<DecodedEtwEvent> {
     let mappings = field_maps::dns_query_mappings();
     let fields = DnsQueryFields {
+        query_truncated: None,
         user: None,
         query_name: try_get_string(parser, mappings.get_etw_field("QueryName")?),
         query_results: try_get_string(parser, mappings.get_etw_field("QueryResults")?),

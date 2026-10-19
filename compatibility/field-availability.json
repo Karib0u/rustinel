@@ -1453,6 +1453,22 @@
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryTruncated",
+      "since": "1.10.0",
+      "availability": "never",
+      "reason": "ETW delivers whole DNS Client events"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3006,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
       "field": "Channel",
       "since": "1.8.0",
       "value": "Microsoft-Windows-DNS-Client/Operational",
@@ -1553,6 +1569,22 @@
       "since": null,
       "availability": "never",
       "reason": "the subscribed DNS Client events do not expose the query record type"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryTruncated",
+      "since": "1.10.0",
+      "availability": "never",
+      "reason": "ETW delivers whole DNS Client events"
     },
     {
       "view": "sysmon",
@@ -4755,6 +4787,32 @@
       "view": "sysmon",
       "platform": "windows",
       "category": "windefend",
+      "event_id": 1116,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Windows Defender",
+      "field": "Signature",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "the Defender event template supplies this value"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "windefend",
+      "event_id": 1116,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Windows Defender",
+      "field": "Filename",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "the Defender event template supplies this value"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "windefend",
       "event_id": 1117,
       "action": "create",
       "provider": "windows_event_log",
@@ -5287,6 +5345,32 @@
       "view": "sysmon",
       "platform": "windows",
       "category": "windefend",
+      "event_id": 1117,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Windows Defender",
+      "field": "Signature",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "the Defender event template supplies this value"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "windefend",
+      "event_id": 1117,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Windows Defender",
+      "field": "Filename",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "the Defender event template supplies this value"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "windefend",
       "event_id": 1119,
       "action": "create",
       "provider": "windows_event_log",
@@ -5812,6 +5896,32 @@
       "source": "Microsoft-Windows-Windows Defender",
       "field": "ThreatName",
       "since": "1.9.0",
+      "availability": "conditional",
+      "reason": "the Defender event template supplies this value"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "windefend",
+      "event_id": 1119,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Windows Defender",
+      "field": "Signature",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "the Defender event template supplies this value"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "windefend",
+      "event_id": 1119,
+      "action": "create",
+      "provider": "windows_event_log",
+      "source": "Microsoft-Windows-Windows Defender",
+      "field": "Filename",
+      "since": "unreleased",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -16484,6 +16594,19 @@
       "action": "query",
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
+      "field": "QueryTruncated",
+      "since": "1.10.0",
+      "availability": "conditional",
+      "reason": "the message was longer than the sensor's 512-byte capture and ended inside the name"
+    },
+    {
+      "view": "sysmon",
+      "platform": "linux",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "ebpf",
+      "source": "DNS socket syscall hooks",
       "field": "RecordType",
       "since": null,
       "availability": "always"
@@ -17416,6 +17539,19 @@
       "since": "1.1.0",
       "availability": "never",
       "reason": "ESF paths are not copied through a fixed Rustinel buffer"
+    },
+    {
+      "view": "sysmon",
+      "platform": "macos",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "bpf",
+      "source": "/dev/bpf",
+      "field": "QueryTruncated",
+      "since": "1.10.0",
+      "availability": "never",
+      "reason": "the BPF DNS path parses one packet and drops a question it cannot finish"
     },
     {
       "view": "sysmon",
