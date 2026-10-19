@@ -117,7 +117,7 @@ Measured on a Windows 11 lab host (`lab-windows`, 2026-10-19, French locale), wi
 | Event | Rate | How measured |
 | --- | --- | --- |
 | 4740 | One per lockout, none in 5 days of ordinary use | 12 bad network logons against a throwaway local account produced exactly 1 |
-| 4672 | About one per logon: 3,522 against 3,531 4624 events, with 81 to 1,821 per day (average 33 per hour at the daily peak of 1,821) | Counted in the existing Security log, 14 to 19 October |
+| 4672 | About one per logon: 3,522 against 3,531 4624 events, with 81 to 1,821 per day (about 76 per hour at the 1,821 peak) | Counted in the existing Security log, 14 to 19 October |
 | 5140 | One per new share session, not per file operation: 9 for 9 distinct tree connects, but 2 for 200 reconnects of the same loopback share | Audit enabled for the test, then restored |
 | 4799 | One per enumeration: 50 for 50 `net localgroup`, 307 in 5 days of lab work | Counted in the log and by test |
 
@@ -126,7 +126,7 @@ A file server sees 5140 per client session and a terminal server sees 4672 per l
 4672 and 5140 carry no attacker-specific signal on their own, which is why they stay behind the option.
 
 The 4740 `Subject*` fields name the machine account (`SYSTEM`), not the caller.
-Use `CallerComputerName`, which is empty for a lockout caused on the local machine, to find the source.
+Use `CallerComputerName`, which the local test did not populate, to find the source.
 
 ## PowerShell module logging
 
