@@ -27,6 +27,9 @@ pub use macos::{
 };
 pub use probes::PipelineProbes;
 
+/// Name prefix of the heartbeat file; the date is appended on rotation.
+pub const HEARTBEAT_FILE_NAME: &str = "heartbeat.json";
+
 /// Cumulative events lost at one stage, as read for loss alerts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LossTotal {

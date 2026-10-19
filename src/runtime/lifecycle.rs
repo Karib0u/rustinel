@@ -24,13 +24,12 @@ use crate::identity::Identity;
 use crate::models::ecs::{AgentLifecycle, EcsAlert, LifecycleKind};
 use crate::runtime::logging::open_daily_appender;
 use crate::runtime::telemetry::host_platform;
-use crate::telemetry::{snapshot_path, PipelineProbes, TelemetrySnapshot};
+use crate::telemetry::{snapshot_path, PipelineProbes, TelemetrySnapshot, HEARTBEAT_FILE_NAME};
 use crate::vocab::Platform;
 
-/// File name prefix of the heartbeat, rotated daily like the alert file.
-const HEARTBEAT_FILE_NAME: &str = "heartbeat.json";
 /// Records whether the last run reached the end of its shutdown.
 const RUN_STATE_FILE_NAME: &str = "run-state";
+/// `running <pid>` while a run is in progress.
 const STATE_RUNNING: &str = "running";
 const STATE_STOPPED: &str = "stopped";
 
@@ -63,7 +62,8 @@ impl StopReason {
     }
 }
 
-/// One heartbeat line: identity, then the telemetry snapshot as is.
+/// One heartbeat line: identity and just enough to tell a live agent from a
+/// struggling one. The full counters stay in `telemetry.json`.
 #[derive(Serialize)]
 struct HeartbeatLine<'a> {
     #[serde(rename = "@timestamp")]
@@ -72,15 +72,18 @@ struct HeartbeatLine<'a> {
     dataset: &'static str,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     identity: Option<&'a Identity>,
-    telemetry: &'a TelemetrySnapshot,
+    uptime_secs: u64,
+    /// Items shed by every bounded queue since the agent started.
+    dropped_total: u64,
 }
 
 fn heartbeat_line(identity: Option<&Identity>, snapshot: &TelemetrySnapshot) -> Option<String> {
     let line = HeartbeatLine {
-        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        timestamp: now(),
         dataset: "edr.agent.heartbeat",
         identity,
-        telemetry: snapshot,
+        uptime_secs: snapshot.uptime_secs,
+        dropped_total: snapshot.total_dropped(),
     };
     serde_json::to_string(&line).ok()
 }
@@ -111,41 +114,49 @@ impl Lifecycle {
         let platform = host_platform();
         let marker = cfg.agent.directory.join(RUN_STATE_FILE_NAME);
 
-        if read_state(&marker).as_deref() == Some(STATE_RUNNING) {
-            let last_snapshot_at =
-                TelemetrySnapshot::read_from(&snapshot_path(&cfg.logging.directory))
-                    .map(|snapshot| snapshot.captured_at);
-            warn!(
-                last_snapshot_at = last_snapshot_at.as_deref(),
-                "The previous run did not stop cleanly"
-            );
-            alert_sink.write_ecs(&EcsAlert::agent_lifecycle(
-                platform,
-                now(),
-                AgentLifecycle {
-                    kind: LifecycleKind::UncleanShutdown,
-                    reason: "no_clean_stop_marker",
-                    last_snapshot_at,
-                },
-            ));
-        }
-        let marker = match write_state(&marker, STATE_RUNNING) {
-            Ok(()) => Some(marker),
-            Err(err) => {
+        let previous = read_state(&marker);
+        let other_instance = previous
+            .as_deref()
+            .and_then(running_pid)
+            .is_some_and(|pid| pid != std::process::id() && process_alive(pid));
+        let marker = if other_instance {
+            // Another agent owns the marker (a console run beside the service,
+            // for example). Reporting or rewriting it would be wrong either way.
+            info!("Another agent instance is running; this run does not track its stop");
+            None
+        } else {
+            if previous.as_deref().and_then(running_pid).is_some() {
+                let last_snapshot_at =
+                    TelemetrySnapshot::read_from(&snapshot_path(&cfg.logging.directory))
+                        .map(|snapshot| snapshot.captured_at);
                 warn!(
-                    path = %marker.display(),
-                    error = %err,
-                    "Cannot record the run state; an unclean shutdown will not be reported next start"
+                    last_snapshot_at = last_snapshot_at.as_deref(),
+                    "The previous run did not stop cleanly"
                 );
-                None
+                alert_sink.write_ecs(&EcsAlert::agent_lifecycle(
+                    platform,
+                    now(),
+                    AgentLifecycle {
+                        kind: LifecycleKind::UncleanShutdown,
+                        reason: "no_clean_stop_marker",
+                        last_snapshot_at,
+                    },
+                ));
+            }
+            match write_state(&marker, &format!("{STATE_RUNNING} {}", std::process::id())) {
+                Ok(()) => Some(marker),
+                Err(err) => {
+                    warn!(
+                        path = %marker.display(),
+                        error = %err,
+                        "Cannot record the run state; an unclean shutdown will not be reported next start"
+                    );
+                    None
+                }
             }
         };
 
-        let heartbeat = if cfg.telemetry.enabled {
-            start_heartbeat(cfg, alert_sink, identity, alert_writer, probes)
-        } else {
-            None
-        };
+        let heartbeat = start_heartbeat(cfg, alert_sink, identity, alert_writer, probes);
 
         Self {
             alert_sink: alert_sink.clone(),
@@ -172,14 +183,27 @@ impl Lifecycle {
         write_stopping(&self.alert_sink, self.platform, reason);
     }
 
+    /// Record that this run ended and said why, so the next start does not
+    /// report it again. Used by the exits that skip the drain: their
+    /// `stopping` alert is the report.
+    pub fn mark_stopped(&self) {
+        if let Some(marker) = &self.marker {
+            if let Err(err) = write_state(marker, STATE_STOPPED) {
+                warn!(path = %marker.display(), error = %err, "Cannot record the stop");
+            }
+        }
+    }
+
     /// Stop the heartbeat and record a clean stop. The last thing shutdown does.
     pub async fn finish(self) {
-        if let Some(heartbeat) = self.heartbeat {
+        if let Some(heartbeat) = &self.heartbeat {
             heartbeat.handle.abort();
+        }
+        if let Some(heartbeat) = self.heartbeat {
             let _ = heartbeat.handle.await;
         }
-        if let Some(marker) = self.marker {
-            if let Err(err) = write_state(&marker, STATE_STOPPED) {
+        if let Some(marker) = &self.marker {
+            if let Err(err) = write_state(marker, STATE_STOPPED) {
                 warn!(path = %marker.display(), error = %err, "Cannot record the clean stop");
             }
         }
@@ -260,6 +284,44 @@ fn start_heartbeat(
         handle,
         _guard: guard,
     })
+}
+
+/// The pid in a `running <pid>` marker. A bare `running` yields pid 0.
+fn running_pid(state: &str) -> Option<u32> {
+    let rest = state.strip_prefix(STATE_RUNNING)?;
+    Some(rest.trim().parse().unwrap_or(0))
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the process exists.
+    let found = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(windows)]
+fn process_alive(pid: u32) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    const STILL_ACTIVE: u32 = 259;
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: the handle is opened, queried and closed within this block.
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return false;
+        };
+        let mut code = 0u32;
+        let alive = GetExitCodeProcess(handle, &mut code).is_ok() && code == STILL_ACTIVE;
+        let _ = CloseHandle(handle);
+        alive
+    }
 }
 
 fn read_state(path: &Path) -> Option<String> {
@@ -381,10 +443,57 @@ mod tests {
                 probes.clone(),
             ));
         });
-        assert_eq!(read_state(&marker).as_deref(), Some(STATE_RUNNING));
+        assert!(read_state(&marker).unwrap().starts_with(STATE_RUNNING));
         finished.unwrap().finish().await;
         assert_eq!(read_state(&marker).as_deref(), Some(STATE_STOPPED));
         run(0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_live_foreign_marker_is_neither_reported_nor_overwritten() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = AppConfig::default();
+        cfg.agent.directory = temp.path().join("state");
+        cfg.logging.directory = temp.path().join("logs");
+        let identity = Arc::new(Identity::resolve(&cfg.agent.directory));
+        let marker = cfg.agent.directory.join(RUN_STATE_FILE_NAME);
+        // Pid 1 is always alive and is not this test.
+        write_state(&marker, "running 1").unwrap();
+
+        let alerts = alerts_written(|sink| {
+            let lifecycle = Lifecycle::start(
+                &cfg,
+                sink,
+                identity.clone(),
+                sink.writer_metrics(),
+                PipelineProbes::default(),
+            );
+            assert!(lifecycle.marker.is_none());
+        });
+        assert!(alerts.is_empty(), "{alerts:?}");
+        assert_eq!(read_state(&marker).as_deref(), Some("running 1"));
+    }
+
+    #[tokio::test]
+    async fn an_exit_that_reported_itself_is_not_reported_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut cfg = AppConfig::default();
+        cfg.agent.directory = temp.path().join("state");
+        cfg.logging.directory = temp.path().join("logs");
+        let identity = Arc::new(Identity::resolve(&cfg.agent.directory));
+        let start = |sink: &AlertSink| {
+            Lifecycle::start(
+                &cfg,
+                sink,
+                identity.clone(),
+                sink.writer_metrics(),
+                PipelineProbes::default(),
+            )
+        };
+        alerts_written(|sink| start(sink).mark_stopped());
+        let alerts = alerts_written(|sink| drop(start(sink)));
+        assert!(alerts.is_empty(), "{alerts:?}");
     }
 
     #[test]
@@ -403,6 +512,9 @@ mod tests {
         assert_eq!(value["host.name"], "host-a");
         assert_eq!(value["agent.version"], "9.9.9");
         assert!(value["@timestamp"].is_string());
-        assert_eq!(value["telemetry"]["version"], env!("CARGO_PKG_VERSION"));
+        assert!(value["uptime_secs"].is_u64());
+        assert_eq!(value["dropped_total"], 0);
+        assert!(value.get("telemetry").is_none(), "{line}");
+        assert!(line.len() < 400, "{line}");
     }
 }

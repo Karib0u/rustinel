@@ -122,7 +122,8 @@ loss_alert_interval_secs = 60 # one alert per lost-event stage and category per 
 
 # 6c. Agent Heartbeat
 #   One NDJSON line per snapshot interval in {logging.directory}/heartbeat.json.<date>,
-#   so a SIEM can alert on a host that went quiet. Needs telemetry.enabled.
+#   so a SIEM can alert on a host that went quiet. Always on, at the
+#   telemetry.snapshot_interval_secs interval; ship heartbeat.json.* with the alerts.
 [heartbeat]
 webhooks = false # also send each heartbeat to the alert webhooks
 

@@ -212,7 +212,7 @@ The `telemetry.json` loss counters that `rustinel doctor` reads.
 
 ### `[heartbeat]`
 
-One line per `telemetry.snapshot_interval_secs` in `heartbeat.json.<date>`, while `telemetry.enabled` is on.
+One line per `telemetry.snapshot_interval_secs` in `heartbeat.json.<date>` in the log directory, whether or not `telemetry.enabled` is on.
 
 | Option | Default | Description |
 | --- | --- | --- |

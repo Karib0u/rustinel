@@ -104,10 +104,12 @@ pub(super) async fn run_live(
                 },
                 (name, result) = pipeline.critical_worker_exit(&mut sensor_worker_handle, &mut response_worker_handle) => {
                     write_stopping(&alert_sink, runtime.platform, StopReason::SensorFailure);
+                    lifecycle.mark_stopped();
                     exit_on_critical_worker_failure(name, result, _guards);
                 }
                 (name, reason) = sensors.first_ended() => {
                     write_stopping(&alert_sink, runtime.platform, StopReason::SensorFailure);
+                    lifecycle.mark_stopped();
                     exit_on_sensor_end(name, &reason, _guards);
                 }
             }
