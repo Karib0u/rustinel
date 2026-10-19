@@ -133,6 +133,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | Network | `DestinationIp`, `DestinationPort`, `DestinationHostname`, `SourceIp`, `SourcePort`, `Protocol`, `Initiated` |
 | File | `TargetFilename`, `SourceFilename` (rename), `Image`, `ProcessId`, `User`, `PathTruncated` |
 | DNS | `QueryName`, `QueryResults`, `RecordType`, or the aliases `query`, `answer`, `record_type` |
+| DNS, derived | `QueryRegisteredDomain`, `QueryLabelCount`, `QueryLongestLabel`, `QueryNameLength` |
 | Service (7045) | `ServiceName`, `ImagePath` (also `ServiceFileName`), `ServiceType`, `StartType`, `AccountName`, `Provider_Name` |
 | Defender Operational | `Provider_Name` and the native fields for each event ID, including `Old Value`, `New Value`, `Feature Name`, `Threat Name`, and `Path`. Rule aliases such as `OldValue`, `NewValue`, `Feature_Name`, and `ThreatName` are also available. Detections (1116 and 1117) also carry `Signature` (the threat name) and `Filename` (the first `file:_` resource of `Path`, without the prefix), which is what SigmaHQ's `category: antivirus` rules select on. |
 | Application channel | `Provider_Name`, `Level`, `Data`; Application Error 1000 also has `AppName`, `AppVersion`, `ModuleName`, `ExceptionCode` when present |
@@ -141,6 +142,14 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 
 Things that differ from Sysmon:
 
+- **Derived DNS fields** are read-only values computed from `QueryName` when a rule reads them, so they never appear in recordings or alerts.
+  `QueryRegisteredDomain` is the public suffix plus one label, so `a.b.example.co.uk` gives `example.co.uk`; it is absent for a bare suffix such as `co.uk` and for names under an unlisted suffix such as `.local`.
+  It keeps the letter case of `QueryName`, and group keys compare case-sensitively, so resolvers that randomize case split a group.
+  `QueryLabelCount`, `QueryLongestLabel`, and `QueryNameLength` are numbers: labels, the longest label in bytes, and the whole name in bytes, none of them counting a trailing root dot.
+  Use them to find tunnelling and generated domains, for example a `value_count` correlation on `QueryName` with `group-by: QueryRegisteredDomain`.
+  The suffix data is the Mozilla Public Suffix List, including its private section such as `github.io`.
+  It is compiled into the binary by the `psl` crate, so it only changes with a Rustinel release; Dependabot proposes each `psl` update.
+  Linux drops names its DNS parser rejects, such as a label over 63 bytes, and a name cut off by the capture (`QueryTruncated` is `true`) carries no derived field.
 - **`Initiated`** is `'true'` for outgoing and `'false'` for accepted connections, on Windows and Linux.
   On Linux, accepted connections and `SourceIp`, `SourcePort`, and `Protocol` need kernel BTF; without it only outgoing connections are seen. macOS cannot tell the direction, so the field is absent there and matches neither value.
 - **Linux `Image`** is the path passed to `execve()`.

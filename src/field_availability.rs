@@ -48,6 +48,8 @@ const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.9.0");
 const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 /// WMI-Activity Operational events (#481).
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
+/// Derived DNS name fields (#801).
+const SINCE_DNS_DERIVED: Option<&str> = Some(UNRELEASED);
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
 /// DNS messages cut at the capture limit keep the name they have (#804).
@@ -582,6 +584,26 @@ const WINDOWS_DNS: &[FieldContract] = &[
         "QueryName",
         SINCE_BASELINE,
         "the DNS Client event template carries a query name",
+    ),
+    conditional(
+        "QueryRegisteredDomain",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix",
+    ),
+    conditional(
+        "QueryLabelCount",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the label count of QueryName",
+    ),
+    conditional(
+        "QueryLongestLabel",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the longest label length of QueryName in bytes",
+    ),
+    conditional(
+        "QueryNameLength",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the length of QueryName in bytes",
     ),
     conditional(
         "QueryResults",
@@ -1719,6 +1741,26 @@ const LINUX_DNS: &[FieldContract] = &[
         "the DNS question can be parsed",
     ),
     conditional(
+        "QueryRegisteredDomain",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
+        "QueryLabelCount",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the label count of QueryName; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
+        "QueryLongestLabel",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the longest label length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
+        "QueryNameLength",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
         "QueryResults",
         SINCE_DNS_RESPONSES,
         "the event is a response carrying A, AAAA, or CNAME answers",
@@ -1914,6 +1956,26 @@ const MACOS_DNS: &[FieldContract] = &[
         "RecordType",
         SINCE_1_1_0,
         "the DNS qtype has a known Sysmon-compatible name",
+    ),
+    conditional(
+        "QueryRegisteredDomain",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix",
+    ),
+    conditional(
+        "QueryLabelCount",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the label count of QueryName",
+    ),
+    conditional(
+        "QueryLongestLabel",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the longest label length of QueryName in bytes",
+    ),
+    conditional(
+        "QueryNameLength",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the length of QueryName in bytes",
     ),
     never(
         "QueryResults",

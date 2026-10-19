@@ -1,3 +1,4 @@
+use super::dns_name;
 use super::{CanonicalField, CanonicalValue, EventFields, FieldView, FieldViewName};
 use crate::vocab::Platform;
 use serde::{Deserialize, Serialize};
@@ -581,6 +582,22 @@ impl NormalizedEvent {
                 Field::User => f.user.as_deref().map(Value::String),
                 Field::DnsQueryName => f.query_name.as_deref().map(Value::String),
                 Field::DnsQueryResults => f.query_results.as_deref().map(Value::String),
+                Field::DnsRegisteredDomain => f
+                    .derivable_query_name()
+                    .and_then(dns_name::registered_domain)
+                    .map(Value::String),
+                Field::DnsLabelCount => f
+                    .derivable_query_name()
+                    .filter(|name| !name.is_empty())
+                    .map(|name| Value::U64(dns_name::label_count(name))),
+                Field::DnsLongestLabel => f
+                    .derivable_query_name()
+                    .filter(|name| !name.is_empty())
+                    .map(|name| Value::U64(dns_name::longest_label(name))),
+                Field::DnsNameLength => f
+                    .derivable_query_name()
+                    .filter(|name| !name.is_empty())
+                    .map(|name| Value::U64(dns_name::name_length(name))),
                 Field::DnsRecordType => f.record_type.as_deref().map(Value::String),
                 Field::DnsQueryStatus => f.query_status.as_deref().map(Value::String),
                 Field::DnsQueryTruncated => f.query_truncated.as_deref().map(Value::String),

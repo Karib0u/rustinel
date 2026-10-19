@@ -26,7 +26,6 @@
 3. Needs host policy, see [Windows host logging](windows-logging.md).
 4. Image-load rules receive live DLL loads.
    This is a dense event stream, so enabling a broad rule corpus can increase CPU and memory use during DLL-heavy workloads.
-
 5. Driver loads are Kernel-Process image loads whose actor is the System or idle process.
    They share the image-load provider, so they add no collection cost, and a driver's hashes are computed under the artifact queue's deadline like any loaded image.
 
@@ -70,9 +69,9 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
-| `sysmon` | windows | 204 | 942 | 70 |
-| `sysmon` | linux | 19 | 46 | 15 |
-| `sysmon` | macos | 27 | 24 | 27 |
+| `sysmon` | windows | 204 | 950 | 70 |
+| `sysmon` | linux | 19 | 50 | 15 |
+| `sysmon` | macos | 27 | 28 | 27 |
 
 The complete machine-readable baseline is [`compatibility/field-availability.json`](https://github.com/Karib0u/rustinel/blob/main/compatibility/field-availability.json).
 <!-- END GENERATED FIELD AVAILABILITY -->
