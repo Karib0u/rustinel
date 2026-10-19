@@ -414,7 +414,7 @@ impl HostState {
 
         #[cfg(windows)]
         {
-            enrich_windows_process(event, &self.process_correlation);
+            enrich_windows_process(event, &self.process_correlation, &self.command_line);
         }
 
         #[cfg(not(any(target_os = "linux", windows)))]
@@ -540,6 +540,7 @@ fn enrich_linux_process_from_details(
 fn enrich_windows_process(
     event: &mut RawEvent,
     counters: &crate::telemetry::ProcessCorrelationCounters,
+    backfill: &crate::telemetry::ProcessCommandLineCounters,
 ) {
     if event.platform != crate::vocab::Platform::Windows {
         return;
@@ -556,10 +557,21 @@ fn enrich_windows_process(
     if event.action != crate::vocab::SensorAction::Start {
         return;
     }
-    let live = event.process_start_key.and_then(|key| {
-        crate::utils::query_process_command_line_at_start(process.process_id, key.start_time)
+    let started = std::time::Instant::now();
+    let live = event
+        .process_start_key
+        .map(|key| crate::utils::query_process_start_at_start(process.process_id, key.start_time));
+    if live.is_some() {
+        backfill.record_latency(started.elapsed());
+    }
+    let (command_line, current_directory) = live.map_or((None, None), |live| {
+        (live.command_line, live.current_directory)
     });
-    enrich_windows_command_line(process, live, counters);
+    enrich_windows_command_line(process, command_line, counters);
+    if process.current_directory.is_none() {
+        process.current_directory = current_directory;
+    }
+    backfill.record_current_directory(process.current_directory.is_some());
 }
 
 #[cfg(any(windows, test))]

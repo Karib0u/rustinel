@@ -159,7 +159,7 @@ fn required_permanent_gaps_are_recorded() {
         })
     };
 
-    assert!(has_never(
+    assert!(!has_never(
         Platform::Windows,
         "process_creation",
         "CurrentDirectory"

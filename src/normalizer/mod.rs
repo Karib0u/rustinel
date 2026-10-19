@@ -269,6 +269,14 @@ where
         {
             provenance.mark_derived("CommandLine");
         }
+        // Kernel-Process never carries the working directory, so on Windows it
+        // can only be the live back-fill.
+        if event.platform == Platform::Windows
+            && event.action == SensorAction::Start
+            && fields.current_directory.is_some()
+        {
+            provenance.mark_derived("CurrentDirectory");
+        }
         if fields.parent_process_id_derived && fields.parent_process_id.is_some() {
             provenance.mark_derived("ParentProcessId");
         }
@@ -1069,6 +1077,25 @@ mod tests {
         build_normalizer().resolve_actor_user(Platform::Windows, &mut user, None, &mut provenance);
         assert_eq!(user.as_deref(), Some("0"));
         assert!(provenance.is_empty());
+    }
+
+    #[test]
+    fn windows_current_directory_is_marked_derived() {
+        let normalizer = build_normalizer();
+        let mut event = process_start_event(Platform::Windows, "etw", 4242);
+        if let RawPayload::Process(fields) = &mut event.payload {
+            fields.current_directory = Some(r"C:\Users\analyst\".into());
+        }
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert_eq!(
+            normalized.get_field("CurrentDirectory"),
+            Some(r"C:\Users\analyst\")
+        );
+        assert!(normalized
+            .provenance
+            .entries()
+            .iter()
+            .any(|entry| entry.field == "CurrentDirectory" && entry.fidelity == Fidelity::Derived));
     }
 
     #[test]

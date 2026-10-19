@@ -34,7 +34,10 @@ pub use process::{
     validate_process_identity, ProcessIdentity,
 };
 #[cfg(windows)]
-pub use process::{query_process_command_line_at_start, query_process_command_line_from_handle};
+pub use process::{
+    query_process_command_line_at_start, query_process_command_line_from_handle,
+    query_process_start_at_start, LiveProcessStart,
+};
 pub use time::now_timestamp_string;
 #[cfg(windows)]
 pub use user::lookup_account_sid;

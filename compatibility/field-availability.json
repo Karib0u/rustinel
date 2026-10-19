@@ -230,9 +230,9 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "CurrentDirectory",
-      "since": null,
-      "availability": "never",
-      "reason": "Microsoft-Windows-Kernel-Process does not expose the working directory"
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "Microsoft-Windows-Kernel-Process does not expose the working directory, so it is read from the live process parameters when the process is still alive, its start time matches, and its memory is readable"
     },
     {
       "view": "sysmon",

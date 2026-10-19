@@ -267,10 +267,10 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         SINCE_PROCESS_USER,
         "the classic process record is correlated; the measured SID is retained or resolves to an account name",
     ),
-    never(
+    conditional(
         "CurrentDirectory",
-        SINCE_BASELINE,
-        "Microsoft-Windows-Kernel-Process does not expose the working directory",
+        Some(UNRELEASED),
+        "Microsoft-Windows-Kernel-Process does not expose the working directory, so it is read from the live process parameters when the process is still alive, its start time matches, and its memory is readable",
     ),
     never(
         "TargetImage",
