@@ -106,11 +106,33 @@ pub struct EventFieldContract {
     pub category: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<u16>,
+    /// Further `EventID` values this shape presents to Sigma, beyond `event_id`.
+    ///
+    /// A shape with no `event_id` and no further IDs leaves `EventID`
+    /// unconstrained. A shape that spans several IDs (the WMI trace events) or
+    /// presents an alias (Windows DNS also presents Sysmon 22) lists them here.
+    #[serde(skip_serializing_if = "<[u16]>::is_empty")]
+    pub event_ids: &'static [u16],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<SensorAction>,
     pub provider: &'static str,
     pub source: &'static str,
     pub fields: &'static [FieldContract],
+}
+
+impl EventFieldContract {
+    /// Every `EventID` this shape presents to Sigma, or empty when unconstrained.
+    pub fn presented_event_ids(&self) -> impl Iterator<Item = u16> + '_ {
+        self.event_id
+            .into_iter()
+            .chain(self.event_ids.iter().copied())
+    }
+
+    /// Whether an event with `id` can be of this shape.
+    pub fn presents_event_id(&self, id: u16) -> bool {
+        (self.event_id.is_none() && self.event_ids.is_empty())
+            || self.presented_event_ids().any(|candidate| candidate == id)
+    }
 }
 
 const fn always(field: &'static str, since: Option<&'static str>) -> FieldContract {
@@ -1831,10 +1853,21 @@ macro_rules! contract {
             platform: Platform::$platform,
             category: $category,
             event_id: $event,
+            event_ids: &[],
             action: Some(SensorAction::$action),
             provider: $provider,
             source: $source,
             fields: $fields,
+        }
+    };
+}
+
+/// A shape that presents `$ids` to Sigma in addition to its own `$event`.
+macro_rules! contract_with_ids {
+    ($platform:ident, $category:literal, $event:expr, $ids:expr, $action:ident, $provider:literal, $source:literal, $fields:ident) => {
+        EventFieldContract {
+            event_ids: $ids,
+            ..contract!($platform, $category, $event, $action, $provider, $source, $fields)
         }
     };
 }
@@ -1852,6 +1885,15 @@ macro_rules! application_contract {
         )
     };
 }
+
+/// Windows DNS Client events also present Sysmon's DNS query ID to Sigma
+/// (`RsigmaEvent::event_id_value`), so category-based `dns_query` rules match.
+const DNS_SYSMON_ALIAS_EVENT_IDS: &[u16] = &[22];
+
+/// `EventID`s the WMI-Activity trace shape emits. The Operational events
+/// 5857 to 5861 have their own shapes, and Sysmon's 19 to 21 are never emitted
+/// (#291).
+pub const WMI_TRACE_EVENT_IDS: &[u16] = &[1, 2, 11, 12, 14, 15, 16, 17, 22, 23, 24];
 
 /// Complete event-field availability table.
 pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
@@ -1885,7 +1927,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "file_event",
-        None,
+        Some(11),
         Create,
         "etw",
         "Microsoft-Windows-Kernel-File",
@@ -1894,7 +1936,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "file_event",
-        None,
+        Some(2),
         Set,
         "etw",
         "Microsoft-Windows-Kernel-File",
@@ -1903,7 +1945,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "file_event",
-        None,
+        Some(65),
         Modify,
         "etw",
         "Microsoft-Windows-Kernel-File",
@@ -1912,7 +1954,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "file_event",
-        None,
+        Some(23),
         Delete,
         "etw",
         "Microsoft-Windows-Kernel-File",
@@ -1921,7 +1963,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "file_event",
-        None,
+        Some(71),
         Rename,
         "etw",
         "Microsoft-Windows-Kernel-File",
@@ -1930,7 +1972,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "registry_event",
-        None,
+        Some(12),
         Create,
         "etw",
         "Microsoft-Windows-Kernel-Registry",
@@ -1939,7 +1981,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "registry_event",
-        None,
+        Some(13),
         Set,
         "etw",
         "Microsoft-Windows-Kernel-Registry",
@@ -1948,25 +1990,27 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "registry_event",
-        None,
+        Some(12),
         Delete,
         "etw",
         "Microsoft-Windows-Kernel-Registry",
         WINDOWS_REGISTRY
     ),
-    contract!(
+    contract_with_ids!(
         Windows,
         "dns_query",
         Some(3006),
+        DNS_SYSMON_ALIAS_EVENT_IDS,
         Query,
         "etw",
         "Microsoft-Windows-DNS-Client",
         WINDOWS_DNS
     ),
-    contract!(
+    contract_with_ids!(
         Windows,
         "dns_query",
         Some(3008),
+        DNS_SYSMON_ALIAS_EVENT_IDS,
         Query,
         "etw",
         "Microsoft-Windows-DNS-Client",
@@ -2053,10 +2097,11 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "Microsoft-Windows-WMI-Activity",
         WINDOWS_WMI_5861
     ),
-    contract!(
+    contract_with_ids!(
         Windows,
         "wmi_event",
         None,
+        WMI_TRACE_EVENT_IDS,
         Execute,
         "etw",
         "Microsoft-Windows-WMI-Activity",
@@ -2626,6 +2671,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         platform: Platform::Windows,
         category: "pipe_created",
         event_id: Some(17),
+        event_ids: &[],
         action: None,
         provider: "none",
         source: "Microsoft-Windows-Kernel-File",
@@ -2636,6 +2682,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         platform: Platform::Windows,
         category: "create_remote_thread",
         event_id: Some(8),
+        event_ids: &[],
         action: None,
         provider: "none",
         source: "none",
@@ -2790,6 +2837,13 @@ pub const fn category_name(category: EventCategory) -> &'static str {
     }
 }
 
+/// Inverse of [`category_name`]; `None` for shapes no sensor can emit.
+pub fn category_from_name(name: &str) -> Option<EventCategory> {
+    EventCategory::ALL
+        .into_iter()
+        .find(|category| category_name(*category) == name)
+}
+
 const fn same_platform(left: Platform, right: Platform) -> bool {
     matches!(
         (left, right),
@@ -2910,7 +2964,7 @@ pub(crate) fn event_contract(
         contract.view == view
             && contract.category == category_name(event.category)
             && contract.provider == event.provider
-            && contract.event_id.is_none_or(|id| id == event.event_id)
+            && contract.presents_event_id(event.event_id)
             && (event.category != EventCategory::Application
                 || match &event.fields {
                     crate::models::EventFields::ApplicationEvent(fields) => fields
@@ -3030,6 +3084,8 @@ struct BaselineEntry<'a> {
     category: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     event_id: Option<u16>,
+    #[serde(skip_serializing_if = "<[u16]>::is_empty")]
+    event_ids: &'a [u16],
     #[serde(skip_serializing_if = "Option::is_none")]
     action: Option<SensorAction>,
     provider: &'a str,
@@ -3052,6 +3108,7 @@ pub fn compatibility_json() -> String {
                 platform: contract.platform,
                 category: contract.category,
                 event_id: contract.event_id,
+                event_ids: contract.event_ids,
                 action: contract.action,
                 provider: contract.provider,
                 source: contract.source,
