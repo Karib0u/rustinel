@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::target::{ArtifactKind, ArtifactTarget};
-use super::{ArtifactNeeds, ArtifactRuntime, PeMetadata};
+use super::{Artifact, ArtifactNeeds, ArtifactRuntime, PeMetadata};
 use crate::engine::ArtifactFieldNeeds;
 use crate::ioc::{ComputedHashes, HashRequirements};
 use crate::models::{Alert, CanonicalEvent, EventFields, MatchDebugLevel, NormalizedEvent};
@@ -89,6 +89,7 @@ impl ResolvePlan {
                 sha256: deferred.sha256,
             };
             needs.imphash = deferred.imphash;
+            needs.signature = deferred.signature;
             hash_max_bytes = PE_MAX_READ_BYTES;
             max_read_bytes = max_read_bytes.max(PE_MAX_READ_BYTES);
         }
@@ -203,16 +204,13 @@ impl ArtifactJob {
 
     /// Release the deferred pass once the artifact fields are known, or known
     /// unavailable. Only the first call sends.
-    pub(super) fn publish_deferred(
-        &mut self,
-        hashes: Option<ComputedHashes>,
-        imphash: Option<String>,
-    ) {
-        self.resolved_hashes = hashes.clone();
+    pub(super) fn publish_deferred(&mut self, artifact: &Artifact) {
+        self.resolved_hashes = artifact.hashes.clone();
         if let Some(ready) = self.deferred_ready.take() {
             let _ = ready.try_send(DeferredFields {
-                hashes,
-                imphash,
+                hashes: artifact.hashes.clone(),
+                imphash: artifact.imphash.clone(),
+                signature: artifact.signature.clone(),
                 pe_metadata: self.resolved_pe.take(),
             });
         }

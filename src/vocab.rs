@@ -75,3 +75,105 @@ pub struct PeMetadata {
     /// File version declared by the version resource.
     pub file_version: Option<String>,
 }
+
+/// Why a signature that exists does not verify. These are the distinctions
+/// Sysmon reports in `SignatureStatus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureFault {
+    Expired,
+    Revoked,
+    /// The digest, chain, or trust policy rejected the signature.
+    Invalid,
+}
+
+impl SignatureFault {
+    fn status(self) -> &'static str {
+        match self {
+            Self::Expired => "Expired",
+            Self::Revoked => "Revoked",
+            Self::Invalid => "Invalid",
+        }
+    }
+}
+
+/// The outcome of verifying a file's Authenticode signature. The data shape
+/// is platform-neutral so artifact stores and diagnostics compile everywhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SignatureVerdict {
+    /// Verification did not complete, so nothing is known about the file.
+    /// This is never evidence that the file is unsigned, and it is not cached.
+    Unknown,
+    /// The file carries no embedded signature and no catalog lists its hash.
+    Unsigned,
+    /// A signature or catalog entry exists but does not verify.
+    Invalid {
+        fault: SignatureFault,
+        signer: Option<String>,
+    },
+    Valid {
+        signer: Option<String>,
+    },
+}
+
+/// Sysmon's `Signed`, `Signature`, and `SignatureStatus` for a verdict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureFields {
+    pub signed: &'static str,
+    pub signature: Option<String>,
+    pub status: &'static str,
+}
+
+impl SignatureVerdict {
+    /// The field values a rule sees, or `None` when verification is unknown
+    /// so the fields stay absent instead of reading as unsigned.
+    pub fn fields(&self) -> Option<SignatureFields> {
+        match self {
+            Self::Unknown => None,
+            Self::Unsigned => Some(SignatureFields {
+                signed: "false",
+                signature: None,
+                status: "Unavailable",
+            }),
+            Self::Invalid { fault, signer } => Some(SignatureFields {
+                signed: "true",
+                signature: signer.clone(),
+                status: fault.status(),
+            }),
+            Self::Valid { signer } => Some(SignatureFields {
+                signed: "true",
+                signature: signer.clone(),
+                status: "Valid",
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_has_no_fields_and_unsigned_does() {
+        assert_eq!(SignatureVerdict::Unknown.fields(), None);
+        let unsigned = SignatureVerdict::Unsigned.fields().expect("unsigned");
+        assert_eq!((unsigned.signed, unsigned.status), ("false", "Unavailable"));
+        assert_eq!(unsigned.signature, None);
+    }
+
+    #[test]
+    fn invalid_keeps_the_signer_and_the_reason() {
+        let revoked = SignatureVerdict::Invalid {
+            fault: SignatureFault::Revoked,
+            signer: Some("Acme".into()),
+        }
+        .fields()
+        .expect("revoked");
+        assert_eq!(revoked.signed, "true");
+        assert_eq!(revoked.status, "Revoked");
+        assert_eq!(revoked.signature.as_deref(), Some("Acme"));
+        let valid = SignatureVerdict::Valid { signer: None }
+            .fields()
+            .expect("valid");
+        assert_eq!((valid.signed, valid.status), ("true", "Valid"));
+    }
+}

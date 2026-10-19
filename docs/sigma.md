@@ -127,7 +127,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | --- | --- |
 | Process | `Image`, `CommandLine`, `ProcessId`, `ParentImage`, `ParentCommandLine`, `ParentProcessId`, `User`, `CurrentDirectory`, `IntegrityLevel` |
 | Process, Windows only | `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash` |
-| Image load, Windows only | `ImageLoaded`, `Image`, `ProcessId`, `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash` |
+| Image load, Windows only | `ImageLoaded`, `Image`, `ProcessId`, `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash`, `Signed`, `Signature`, `SignatureStatus` |
 | Process, Linux only | `ImageTruncated`, `CgroupId`, `CgroupPath`, `ContainerId`, `ContainerRuntime` |
 | Process, macOS only | `PreExecImage`, `Script`, `Signed`, `SignatureStatus`, `SigningId`, `TeamId`, `CdHash`, `CodeSigningFlags`, `IsPlatformBinary` |
 | Network | `DestinationIp`, `DestinationPort`, `DestinationHostname`, `SourceIp`, `SourcePort`, `Protocol`, `Initiated` |
@@ -167,6 +167,8 @@ Things that differ from Sysmon:
   They are absent when Rustinel never saw the parent or has evicted it.
 - **`Hashes` and `Imphash`** are computed by Rustinel from the image file, not by the kernel, and rules on them run in a [deferred pass](detection.md#deferred-pass).
   `Hashes` lists only the algorithms loaded rules name, in Sysmon's order.
+- **`Signed`, `Signature`, and `SignatureStatus`** on Windows image loads are verified by Rustinel from the file, also in the [deferred pass](detection.md#deferred-pass).
+  They are absent when verification did not finish.
 - **`Provider_Name`** is the Windows provider that wrote an Event Log record, such as `Service Control Manager`.
   It is not the ECS `event.provider`.
 - **Application `Message`** is unavailable.

@@ -28,7 +28,9 @@ mod stats;
 mod store;
 
 pub use deferred::{ArtifactFieldNeeds, DetectionPass};
-pub(crate) use deferred::{HASHES_FIELD, IMPHASH_FIELD};
+pub(crate) use deferred::{
+    HASHES_FIELD, IMPHASH_FIELD, SIGNATURE_FIELD, SIGNATURE_STATUS_FIELD, SIGNED_FIELD,
+};
 pub use detect::EventDetectors;
 pub use detectors::DetectorStore;
 pub use handler::{CanonicalEventDispatcher, DetectionPipeline};

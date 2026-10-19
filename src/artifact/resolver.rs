@@ -24,8 +24,8 @@ use super::target::{
 };
 use super::written_file::{written_file_qualifies, WrittenFileSettler, WRITTEN_FILE_SETTLE_DELAY};
 use super::{
-    parse_imphash_bytes, parse_pe_metadata_bytes, Artifact, ArtifactOpener, ArtifactRuntime,
-    PeMetadata,
+    parse_imphash_bytes, parse_pe_metadata_bytes, verify_signature, Artifact, ArtifactOpener,
+    ArtifactRuntime, PeMetadata, SignatureVerdict, SIGNATURE_SLOW,
 };
 use crate::ioc::{ComputedHashes, HashAccumulator, HashRequirements};
 use crate::scanner::ScanError;
@@ -369,7 +369,7 @@ impl ArtifactResolver {
         if job.plan.needs.pe_metadata {
             self.publish_pe(job, artifact.pe_metadata.clone());
         }
-        job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+        job.publish_deferred(&artifact);
         self.state
             .counters
             .cache_hits
@@ -393,7 +393,7 @@ impl ArtifactResolver {
             open,
         ) {
             Ok(artifact) => {
-                job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+                job.publish_deferred(&artifact);
                 self.apply(&job, &artifact);
                 self.state.counters.resolved.fetch_add(1, Ordering::Relaxed);
             }
@@ -405,7 +405,7 @@ impl ArtifactResolver {
                     self.apply_hash_iocs(&job, hashes);
                 }
                 // Evaluate the deferred pass now rather than at its budget.
-                job.publish_deferred(None, None);
+                job.publish_deferred(&Artifact::default());
                 debug!(
                     target: "artifact",
                     file = %target.path.display(),
@@ -619,8 +619,8 @@ impl ArtifactResolver {
         if plan.needs.pe_metadata && !missing.pe_metadata {
             self.publish_pe(job, artifact.pe_metadata.clone());
         }
-        if !missing.pe_metadata && !missing.needs_digest_read() {
-            job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+        if missing.deferred_fields_ready() {
+            job.publish_deferred(&artifact);
         }
         if Instant::now() >= deadline_at {
             self.record_deadline(deadline_recorded);
@@ -662,6 +662,13 @@ impl ArtifactResolver {
                 .oversized
                 .fetch_add(1, Ordering::Relaxed);
         }
+        if missing.signature && size > PE_MAX_READ_BYTES {
+            missing.signature = false;
+            self.state
+                .counters
+                .oversized
+                .fetch_add(1, Ordering::Relaxed);
+        }
         if missing.yara && size > plan.yara_max_bytes {
             missing.yara = false;
             self.state
@@ -669,8 +676,8 @@ impl ArtifactResolver {
                 .oversized
                 .fetch_add(1, Ordering::Relaxed);
         }
-        if !missing.pe_metadata && !missing.needs_digest_read() {
-            job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+        if missing.deferred_fields_ready() {
+            job.publish_deferred(&artifact);
         }
         if missing.is_empty() {
             return Ok(artifact);
@@ -678,17 +685,20 @@ impl ArtifactResolver {
 
         // Digests alone never need the whole file in memory: hash it in
         // chunks from this same handle.
-        let hash_only = !missing.pe_metadata && !missing.imphash && !missing.yara;
+        let needs_bytes = missing.pe_metadata || missing.imphash || missing.yara;
         let mut bytes = Vec::new();
         let mut streamed = None;
-        if hash_only {
-            streamed = Some(self.stream_hashes(
-                &mut file,
-                missing.hashes,
-                plan,
-                deadline_at,
-                deadline_recorded,
-            )?);
+        if !needs_bytes {
+            // Signature verification reads through the handle itself.
+            if missing.hashes.md5 || missing.hashes.sha1 || missing.hashes.sha256 {
+                streamed = Some(self.stream_hashes(
+                    &mut file,
+                    missing.hashes,
+                    plan,
+                    deadline_at,
+                    deadline_recorded,
+                )?);
+            }
         } else {
             bytes.reserve(size.min(1024 * 1024) as usize);
             (&mut file)
@@ -742,8 +752,8 @@ impl ArtifactResolver {
                     },
                 );
             self.publish_pe(job, artifact.pe_metadata.clone());
-            if !missing.needs_digest_read() {
-                job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+            if !missing.needs_digest_read() && !missing.signature {
+                job.publish_deferred(&artifact);
             }
             if Instant::now() >= deadline_at {
                 self.record_deadline(deadline_recorded);
@@ -787,7 +797,42 @@ impl ArtifactResolver {
                         imphash: missing.imphash,
                     },
                 );
-            job.publish_deferred(artifact.hashes.clone(), artifact.imphash.clone());
+            if !missing.signature {
+                job.publish_deferred(&artifact);
+            }
+        }
+        if missing.signature {
+            let started = Instant::now();
+            let verdict = verify_signature(&file, &target.path);
+            if started.elapsed() >= SIGNATURE_SLOW {
+                self.state
+                    .counters
+                    .signature_slow
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            if verdict == SignatureVerdict::Unknown {
+                self.state
+                    .counters
+                    .signature_unknown
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            artifact.signature = Some(verdict);
+            // Store and publish before YARA, like the digests: the deferred
+            // pass is waiting on this result.
+            self.state
+                .stores
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(
+                    identity.clone(),
+                    plan,
+                    &artifact,
+                    StoredParts {
+                        pe: false,
+                        imphash: false,
+                    },
+                );
+            job.publish_deferred(&artifact);
         }
         if missing.yara {
             if let Some((_, scanner)) = &plan.yara {

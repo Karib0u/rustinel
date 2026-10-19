@@ -278,9 +278,10 @@ mod tests {
             description: None,
             company: None,
             file_version: None,
-            signed: Some("true".to_string()),
-            signature: Some("Fake Signer".to_string()),
-            user: None,
+            signed: None,
+            signature: None,
+            signature_status: None,
+            user: Some("Fake User".to_string()),
         });
         event
     }
@@ -290,8 +291,7 @@ mod tests {
         let event = image_load_with_never_fields();
         let adapter = RsigmaEvent::new(&event);
         let fields = adapter.field_map();
-        assert!(!fields.contains_key("Signed"));
-        assert!(!fields.contains_key("Signature"));
+        assert!(!fields.contains_key("User"));
     }
 
     #[test]

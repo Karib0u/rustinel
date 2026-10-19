@@ -461,6 +461,12 @@ pub struct ImageLoadFields {
     #[serde(rename = "Signature", skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 
+    /// Sysmon's `Valid`, `Expired`, `Revoked`, `Invalid`, or `Unavailable`
+    /// (unsigned), filled by artifact resolution after admission. Absent means
+    /// verification did not complete, never unsigned.
+    #[serde(rename = "SignatureStatus", skip_serializing_if = "Option::is_none")]
+    pub signature_status: Option<String>,
+
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
