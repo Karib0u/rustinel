@@ -28,8 +28,9 @@ use tracing::{debug, info, warn};
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA};
 use windows::Win32::System::Diagnostics::Etw::{
-    ControlTraceW, EnumerateTraceGuidsEx, TraceGuidQueryInfo, CONTROLTRACE_HANDLE,
-    EVENT_TRACE_CONTROL_QUERY, EVENT_TRACE_FLAG_PROCESS, EVENT_TRACE_PROPERTIES,
+    ControlTraceW, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceQueryInformation,
+    TraceSystemTraceEnableFlagsInfo, CONTROLTRACE_HANDLE, EVENT_TRACE_CONTROL_QUERY,
+    EVENT_TRACE_FLAG_PROCESS, EVENT_TRACE_PROPERTIES,
 };
 
 use crate::alerts::AlertSink;
@@ -236,6 +237,25 @@ pub(super) fn query_session(session_name: &str) -> Result<SessionInfo> {
             (*properties).Wnode.Anonymous1.HistoricalContext,
             (*properties).EnableFlags.0,
         )
+    };
+    // A system logger keeps its current flags in the group mask, which
+    // `EnableFlags` does not follow once the session has been updated.
+    let mut mask = [0u32; 8];
+    let mut returned = 0u32;
+    // SAFETY: `mask` outlives the call and its byte size is passed.
+    let queried = unsafe {
+        TraceQueryInformation(
+            CONTROLTRACE_HANDLE { Value: handle },
+            TraceSystemTraceEnableFlagsInfo,
+            mask.as_mut_ptr() as *mut c_void,
+            std::mem::size_of_val(&mask) as u32,
+            Some(&mut returned),
+        )
+    };
+    let enable_flags = if queried.is_ok() && returned >= 4 {
+        mask[0]
+    } else {
+        enable_flags
     };
     // The logger ID is the low word of the session handle.
     Ok(SessionInfo {

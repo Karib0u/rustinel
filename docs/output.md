@@ -203,7 +203,7 @@ Every 30 seconds it asks the kernel what each session has enabled and compares.
 One alert is written per change, not per check.
 If the provider is restored and then changed again, the second change alerts again.
 Changing the level or keywords to a different wrong value alerts again.
-The comparison covers enablement, level, and keywords.
+The comparison covers enablement, level, and keywords, and for the classic session whether the process provider is still on.
 The kernel does not report event ID filters or the registry value-data request, so a re-enable that restores the original level and keywords without them is not detected.
 Rustinel does not re-enable the provider itself.
 
