@@ -17,7 +17,7 @@
 | Security audit events | ✓ ³ | | |
 | Microsoft Defender Operational events | ✓ | | |
 | Application channel events | ✓ | | |
-| Remote threads, process access, named pipes, drivers | | | |
+| Driver loads | ✓ | | |
 
 1. Captured from the network and matched to a process on a best-effort basis.
 2. Plain DNS on port 53 only.
@@ -28,6 +28,38 @@
 
 macOS support is experimental.
 Detailed gaps are in [Limitations](limitations.md).
+
+## Telemetry that is missing
+
+A blank cell in the table above is one of three things.
+
+| Gap | Status | Platform | Why |
+| --- | --- | --- | --- |
+| Named pipes (`pipe_created`) | Unavailable without a driver | Windows | Kernel-File ETW records no pipe name or creator for a pipe exchange. |
+| Process tampering | Unavailable without a driver | Windows | The only source is the Threat Intelligence provider, which is closed to a process that is not a protected process light. |
+| Process access | Planned | Windows | Kernel-Audit-API-Calls gives the access, but not the true `GrantedAccess`, see [Limitations](limitations.md#windows). |
+| Remote threads | Planned | Windows | Thread starts give the source and target process, with field gaps for rules that need module or function names. |
+| File reads of sensitive paths | Planned | Windows, Linux | Bounded to sensitive paths, not every read. |
+| Alternate data streams | Planned | Windows | Stream names come from ETW, but contents and hashes need a bounded read. |
+| Raw device reads | Planned | Windows | Raw reads of physical drives. |
+
+Anything else not in the table is not collected today and has no decision recorded.
+
+## Not in scope
+
+These are deliberate boundaries, not gaps to close.
+
+- **Other platforms.**
+  Rustinel runs on Windows, Linux, and macOS hosts.
+  ESXi and other hypervisors, network and edge devices, and mobile devices are not platforms.
+- **Per-host correlation.**
+  Correlation state lives in one agent.
+  Correlating across hosts belongs to the SIEM that receives the alerts.
+- **Inventory and exposure.**
+  Rustinel collects no software inventory and no vulnerability exposure data.
+- **Blocking.**
+  Linux (BPF LSM) and macOS (Endpoint Security AUTH events) could block an action before it happens.
+  Rustinel does not use them: detection stays passive by decision, see [Security model](security.md#scope).
 
 ## SigmaHQ rules
 
