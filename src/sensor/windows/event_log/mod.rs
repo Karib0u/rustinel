@@ -72,13 +72,17 @@ impl EventLogSubscriptions {
         shutdown: Arc<AtomicBool>,
         directory: &Path,
         security_filtering_platform_connections: bool,
+        security_long_tail_events: bool,
         health: Arc<EventLogHealth>,
     ) -> Result<Self> {
         let sources = [
             application::source(),
             service::source(),
             powershell_classic::source(),
-            security::source(security_filtering_platform_connections),
+            security::source(
+                security_filtering_platform_connections,
+                security_long_tail_events,
+            ),
             defender::source(),
         ];
         let mut workers = Vec::with_capacity(sources.len());

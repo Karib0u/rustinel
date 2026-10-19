@@ -566,6 +566,16 @@ pub struct WindowsConfig {
     /// highest-volume families by far. Enabling this does not enable the audit
     /// subcategories themselves; Rustinel never changes host policy.
     pub security_filtering_platform_connections: bool,
+
+    /// Subscribe to the Security long tail: 4672 (special privileges
+    /// assigned to a new logon), 5140 (network share accessed) and 4799 (local
+    /// group membership enumerated).
+    ///
+    /// Off by default because 4672 is written for every administrative logon
+    /// and 5140 for every share connection, so their rate follows logon and
+    /// file-server traffic rather than attacker activity. Enabling this does
+    /// not enable the audit subcategories themselves.
+    pub security_long_tail_events: bool,
 }
 
 impl AppConfig {
@@ -682,7 +692,8 @@ impl AppConfig {
             // Windows ETW delivery latency
             .set_default("windows.etw_flush_interval_ms", 20i64)?
             .set_default("windows.etw_process_flush_interval_ms", 5i64)?
-            .set_default("windows.security_filtering_platform_connections", false)?;
+            .set_default("windows.security_filtering_platform_connections", false)?
+            .set_default("windows.security_long_tail_events", false)?;
 
         let builder = builder.add_source(file_source);
         let environment_source = config::Environment::with_prefix("EDR")
@@ -1168,6 +1179,7 @@ impl Default for AppConfig {
                 etw_flush_interval_ms: 20,
                 etw_process_flush_interval_ms: 5,
                 security_filtering_platform_connections: false,
+                security_long_tail_events: false,
             },
         };
 
