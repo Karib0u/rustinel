@@ -309,6 +309,21 @@ fn mapping(view: FieldViewName, name: &str) -> Option<&'static FieldMapping> {
         .map(|index| &mappings[index])
 }
 
+/// The name a contract lists `name` under.
+///
+/// Contracts record each field once, under its enumerated name.
+/// A compatibility alias shares its target's availability, so it resolves to
+/// the enumerated mapping of the same canonical field.
+pub(crate) fn contract_field_name(view: FieldViewName, name: &str) -> &str {
+    let Some(alias) = mapping(view, name).filter(|mapping| !mapping.enumerate) else {
+        return name;
+    };
+    mappings(view)
+        .iter()
+        .find(|mapping| mapping.enumerate && mapping.canonical == alias.canonical)
+        .map_or(name, |mapping| mapping.name)
+}
+
 /// Whether the contract declares `name` unavailable, which hides a value a
 /// producer populated by mistake.
 fn is_never(contract: Option<&'static EventFieldContract>, name: &str) -> bool {
@@ -470,6 +485,29 @@ mod tests {
                     contract.platform.as_str(),
                     contract.category,
                     field.field
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_alias_has_its_target_availability() {
+        for contract in FIELD_AVAILABILITY
+            .iter()
+            .filter(|contract| contract.view == FieldViewName::SYSMON)
+        {
+            let contract = Some(contract);
+            for alias in SYSMON_FIELDS.iter().filter(|mapping| !mapping.enumerate) {
+                let target = SYSMON_FIELDS
+                    .iter()
+                    .find(|mapping| mapping.enumerate && mapping.canonical == alias.canonical)
+                    .expect("alias has an enumerated target");
+                assert_eq!(
+                    field_availability::availability_in_contract(contract, alias.name),
+                    field_availability::availability_in_contract(contract, target.name),
+                    "{} vs {}",
+                    alias.name,
+                    target.name
                 );
             }
         }

@@ -2948,6 +2948,7 @@ pub(crate) fn availability_in_contract(
     field: &str,
 ) -> Option<Availability> {
     contract.and_then(|contract| {
+        let field = crate::models::field_view::contract_field_name(contract.view, field);
         contract
             .fields
             .iter()
