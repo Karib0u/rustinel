@@ -1,0 +1,12 @@
+{
+  "provenance": {
+    "kernel": "7.0.0-38-generic (Ubuntu 26.04)",
+    "recorded": "2026-10-19",
+    "host": "lab-ubuntu",
+    "scenario": "Recorded with RUSTINEL_EBPF_RECORD: systemd-resolved (uid 989) opening a UDP socket to a port 53 upstream, and the same record cut to 1 byte by hand."
+  },
+  "records": [
+    {"ring": "network", "hex": "db66bd2cfc2003000200000000000000a6010000dd030000ffffffff00000000350075d302001101c0a80101000000000000000000000000c0a8011b000000000000000000000000de294e74fa200300"},
+    {"ring": "network", "hex": "db"}
+  ]
+}
