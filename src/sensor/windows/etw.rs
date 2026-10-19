@@ -44,6 +44,34 @@ pub(super) const TRACE_SESSION_NAME: &str = "rustinel-etw-trace";
 /// [`super::flush`], which flushes this session four times as often.
 pub(super) const PROCESS_TRACE_SESSION_NAME: &str = "rustinel-etw-process";
 
+/// Everything the agent enables on its manifest sessions, for the provider
+/// watch to compare against the live sessions.
+pub(super) fn expected_providers() -> Vec<super::provider_watch::ExpectedProvider> {
+    let sessions = [
+        (TRACE_SESSION_NAME, providers::EtwProviders::main_session()),
+        (
+            PROCESS_TRACE_SESSION_NAME,
+            providers::EtwProviders::process_session(),
+        ),
+    ];
+    sessions
+        .into_iter()
+        .flat_map(|(session, providers)| {
+            providers
+                .into_iter()
+                .map(move |provider| super::provider_watch::ExpectedProvider {
+                    session,
+                    name: provider.name,
+                    guid: session::to_windows_guid(provider.guid),
+                    level: provider.level,
+                    keywords: provider.keywords,
+                    captured_data: provider.guid
+                        == ferrisetw::GUID::from(providers::EtwProviders::KERNEL_REGISTRY_GUID),
+                })
+        })
+        .collect()
+}
+
 /// Windows ETW sensor implementation.
 pub struct EtwSensor {
     host: Arc<crate::state::HostState>,

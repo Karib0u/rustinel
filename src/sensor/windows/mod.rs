@@ -5,6 +5,7 @@ pub(crate) mod file_paths;
 mod flush;
 mod loss;
 pub mod mapper;
+mod provider_watch;
 pub(crate) mod registry_paths;
 mod registry_rundown;
 mod registry_value_data;

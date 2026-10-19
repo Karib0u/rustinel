@@ -42,6 +42,11 @@ pub(super) struct ClassicSession {
 }
 
 impl ClassicSession {
+    /// Whether the session was created and still has a consumer.
+    pub(super) fn is_running(&self) -> bool {
+        self.trace.is_some()
+    }
+
     pub(super) fn start(
         state: Arc<EtwState>,
         tx: Sender<RawEvent>,

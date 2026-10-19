@@ -56,7 +56,7 @@ One JSON object per line, following ECS 9.5.0.
 | `rule.name` | Rule title |
 | `rule.id` | `sigma::<id>`, `yara::<id>`, or `ioc::<type>::<value>` |
 | `edr.rule.severity` | `Informational`, `Low`, `Medium`, `High`, or `Critical` |
-| `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc`, or `Agent` for [sensor loss alerts](#sensor-loss-alerts) |
+| `edr.rule.engine` | `Sigma`, `Yara`, or `Ioc`, or `Agent` for [sensor loss](#sensor-loss-alerts) and [ETW provider tamper](#etw-provider-tamper-alerts) alerts |
 | `edr.yara.scan_source` | YARA alerts only: `file` or `process_memory` |
 | `edr.event.ingest_seq` | Order in which Rustinel processed the event |
 | `edr.event.provenance` | Populated fields with fidelity limitations, see below |
@@ -134,7 +134,7 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | `edr.service` | Service installs (Windows) |
 | `edr.task` | Scheduled tasks (Windows) |
 | `edr.security` | Security audit events (Windows) |
-| `edr.agent` | Operational alerts about the agent itself: [sensor loss](#sensor-loss-alerts) and [start and stop](agent-health.md#lifecycle-alerts) |
+| `edr.agent` | Operational alerts about the agent itself: [sensor loss](#sensor-loss-alerts), [ETW provider tamper](#etw-provider-tamper-alerts), and [start and stop](agent-health.md#lifecycle-alerts) |
 
 ### Sensor loss alerts
 
@@ -176,6 +176,39 @@ Loss alerts are written directly to the sink, so they bypass [deduplication](det
 They use a path that does not touch the sensor queue, so a stalled alert file cannot cause more loss alerts.
 Kernel counters are read from the same sources as `rustinel doctor`, so an alert always matches what `doctor` shows.
 If the alert file's own queue is full, the loss alert is dropped like any other alert and counted in the `alert_writer` entry of [`telemetry.json`](telemetry.md), which is the only record in that case.
+
+### ETW provider tamper alerts
+
+On Windows, an administrator can leave an ETW session running and switch one provider off inside it, for example `logman update trace rustinel-etw-trace --p Microsoft-Windows-Kernel-Registry 0 0 -ets`.
+The session stays alive and that telemetry family goes silent.
+A session that stops entirely already makes the agent exit, so this covers the case nothing else reports.
+
+At startup Rustinel records the level and keywords it enabled for each provider on `rustinel-etw-trace` and `rustinel-etw-process`, and the process flag of `rustinel-etw-classic`.
+Every 30 seconds it asks the kernel what each session has enabled and compares.
+`rustinel-etw-file-rundown` is a one-shot startup snapshot that ends by design, so it is not checked.
+
+| Field | Value |
+| --- | --- |
+| `rule.name` | `agent::tamper::etw_provider_modified` |
+| `edr.rule.engine` | `Agent`, not a detection engine |
+| `edr.rule.severity` | `High` |
+| `event.dataset` | `edr.agent` |
+| `event.action` | What changed: `provider_disabled`, `keywords_changed`, `level_changed`, or `kernel_flags_changed` |
+| `edr.agent.tamper.session` | The trace session the provider belongs to |
+| `edr.agent.tamper.provider` | The provider name |
+| `edr.agent.tamper.provider_guid` | The provider GUID |
+| `edr.agent.tamper.expected` | The level and keywords Rustinel enabled |
+| `edr.agent.tamper.observed` | What the session reports now, or `not enabled` |
+
+One alert is written per change, not per check.
+If the provider is restored and then changed again, the second change alerts again.
+Changing the level or keywords to a different wrong value alerts again.
+The comparison covers enablement, level, and keywords, and for the classic session whether the process provider is still on.
+The kernel does not report event ID filters or the registry value-data request, so a re-enable that restores the original level and keywords without them is not detected.
+Rustinel does not re-enable the provider itself.
+
+Tamper alerts are written directly to the sink like [loss alerts](#sensor-loss-alerts), so they bypass deduplication and active response never sees them.
+The checks and mismatches are counted in the [`etw_provider_watch`](telemetry.md#etw_provider_watch) entry of `telemetry.json`.
 
 ### Heartbeat and lifecycle alerts
 

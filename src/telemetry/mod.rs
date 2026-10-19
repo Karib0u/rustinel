@@ -68,10 +68,10 @@ use crate::utils::LogRateLimiter;
 
 pub use snapshot::{
     snapshot_path, ChannelSnapshot, EtwDecodeFailureSnapshot, EtwDecodeSnapshot,
-    FileAttributionSnapshot, FileRundownSnapshot, LinuxEbpfFamilySnapshot,
-    LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot,
-    SensorEventCategorySnapshot, SensorTelemetry, SnapshotRead, TelemetrySnapshot,
-    SNAPSHOT_FILE_NAME,
+    EtwProviderWatchSnapshot, FileAttributionSnapshot, FileRundownSnapshot,
+    LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot,
+    ProcessCommandLineSnapshot, RegistrySnapshot, SensorEventCategorySnapshot, SensorTelemetry,
+    SnapshotRead, TelemetrySnapshot, SNAPSHOT_FILE_NAME,
 };
 pub(crate) use snapshot::{spawn_reporter, write_final_snapshot};
 

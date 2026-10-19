@@ -12,7 +12,9 @@ mod registry;
 mod threat;
 mod user;
 
-pub use alert::{AgentLifecycle, AgentLoss, DnsAnswer, EcsAlert, LifecycleKind, ReplayProvenance};
+pub use alert::{
+    AgentLifecycle, AgentLoss, AgentTamper, DnsAnswer, EcsAlert, LifecycleKind, ReplayProvenance,
+};
 
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
@@ -75,6 +77,25 @@ impl EcsAlert {
             "sensor-events-dropped",
         );
         ecs.edr_agent_loss = Some(loss);
+        ecs
+    }
+
+    /// An operational alert that something changed the agent's own telemetry
+    /// collection, such as an ETW provider switched off under a live session.
+    pub fn agent_tamper(platform: Platform, timestamp: String, tamper: AgentTamper) -> Self {
+        let description = format!(
+            "ETW session {} no longer matches what the agent configured for provider {}: {}",
+            tamper.session, tamper.provider, tamper.detail
+        );
+        let mut ecs = Self::agent_alert(
+            platform,
+            timestamp,
+            AlertSeverity::High,
+            format!("agent::tamper::{}", tamper.kind),
+            description,
+            tamper.change,
+        );
+        ecs.edr_agent_tamper = Some(tamper);
         ecs
     }
 
@@ -335,6 +356,7 @@ impl From<&Alert> for EcsAlert {
             edr_match: alert.match_details.clone(),
             edr_replay: None,
             edr_agent_loss: None,
+            edr_agent_tamper: None,
             edr_agent_lifecycle: None,
         };
 

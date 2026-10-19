@@ -56,6 +56,10 @@ pub(super) async fn run_live(
 
     let state = SharedState::new(&cfg, probes);
     (runtime.seed_host_state)(&state.host);
+    let agent_alerts = alert_sink.clone();
+    state
+        .host
+        .set_agent_alert_writer(Arc::new(move |alert| agent_alerts.write_ecs(alert)));
     let sensors = (runtime.sensors)(&cfg, &state.host, RunMode::Live);
     sensors.attach_loss_probe(&state.probes);
 
