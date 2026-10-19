@@ -1022,6 +1022,7 @@ detection:
             event_id_string: "22".to_string(),
             opcode: 0,
             fields: EventFields::DnsQuery(crate::models::DnsQueryFields {
+                query_truncated: None,
                 user: None,
                 query_name: Some("example.com".to_string()),
                 query_results: Some("1.1.1.1".to_string()),

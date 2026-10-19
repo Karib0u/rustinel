@@ -34,7 +34,7 @@ use super::abi::validate_object_abi;
 use super::events::{
     bytes_to_string, connect_result_is_connection, parse_event, BootTimeConverter, DnsEvent,
     FileEvent, FileEventHeader, FileIndexEvent, NetworkEvent, NetworkEventExt, ProcessEvent,
-    ProcessEventExt, DNS_EVENT_QUERY, DNS_EVENT_RESPONSE,
+    ProcessEventExt, DNS_EVENT_QUERY, DNS_EVENT_RESPONSE, DNS_FLAG_TCP, DNS_FLAG_TRUNCATED,
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 use super::tracepoint_format::{tracepoint_exists, TracepointLayouts};
@@ -372,6 +372,11 @@ impl Sensor for EbpfSensor {
                 "recvfrom",
             ),
             ("handle_dns_recvmsg", "handle_dns_recvmsg_exit", "recvmsg"),
+            (
+                "handle_dns_recvmmsg",
+                "handle_dns_recvmmsg_exit",
+                "recvmmsg",
+            ),
         ] {
             attach_tracepoint(&mut bpf, exit, "syscalls", &format!("sys_exit_{syscall}"))?;
             attach_tracepoint(&mut bpf, entry, "syscalls", &format!("sys_enter_{syscall}"))?;
@@ -1081,25 +1086,32 @@ fn build_dns_event_with_clock(
     time_converter: BootTimeConverter,
 ) -> Option<RawEvent> {
     let payload_len = usize::from(ev.payload_len).min(ev.payload.len());
-    let payload = &ev.payload[..payload_len];
+    let mut payload = &ev.payload[..payload_len];
+    if ev.flags & DNS_FLAG_TCP != 0 {
+        // DNS over TCP opens with a two-byte length the kernel left in place.
+        payload = payload.get(2..)?;
+    }
 
     let (query_name, qtype, query_results, query_status) = match ev.kind {
-        DNS_EVENT_QUERY => {
-            let (name, qtype) = crate::sensor::dns::parse_question(payload)?;
-            (name, qtype, None, None)
-        }
-        DNS_EVENT_RESPONSE => {
-            let response = crate::sensor::dns::parse_response(payload)?;
-            (
+        DNS_EVENT_QUERY => match crate::sensor::dns::parse_question(payload) {
+            Some((name, qtype)) => (name, Some(qtype), None, None),
+            None => (truncated_name(ev, payload)?, None, None, None),
+        },
+        DNS_EVENT_RESPONSE => match crate::sensor::dns::parse_response(payload) {
+            Some(response) => (
                 response.name,
-                response.qtype,
+                Some(response.qtype),
                 crate::sensor::dns::format_query_results(&response.answers),
                 Some(response.rcode.to_string()),
-            )
-        }
+            ),
+            None => (truncated_name(ev, payload)?, None, None, None),
+        },
         _ => return None,
     };
-    let record_type = crate::sensor::dns::record_type_name(qtype).unwrap_or("OTHER");
+    // Only a cut message has no qtype: the question ends before it.
+    let query_truncated = qtype.is_none().then(|| "true".to_string());
+    let record_type =
+        qtype.map(|qtype| crate::sensor::dns::record_type_name(qtype).unwrap_or("OTHER"));
 
     Some(RawEvent {
         process_name: None,
@@ -1117,15 +1129,28 @@ fn build_dns_event_with_clock(
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
         payload: RawPayload::Dns(DnsQueryFields {
+            query_truncated,
             user: None,
             query_name: Some(query_name),
             query_results,
-            record_type: Some(record_type.to_string()),
+            record_type: record_type.map(str::to_string),
             query_status,
             process_id: Some(ev.pid.to_string()),
             image: None,
         }),
     })
+}
+
+/// The name from a message the kernel capped at [`DNS_PAYLOAD_CAPACITY`] bytes,
+/// when the question ran past the cap.
+///
+/// A message that was not cut, or whose cut leaves no plain labels, is not
+/// DNS worth reporting and stays dropped.
+fn truncated_name(ev: &DnsEvent, payload: &[u8]) -> Option<String> {
+    if ev.flags & DNS_FLAG_TRUNCATED == 0 {
+        return None;
+    }
+    crate::sensor::dns::parse_truncated_question(payload)
 }
 
 fn process_start_key(pid: u32, start_time: u64) -> Option<ProcessStartKey> {
@@ -1392,6 +1417,8 @@ fn features_for_program(program: &str) -> &'static [&'static str] {
         | "handle_dns_recvfrom_exit"
         | "handle_dns_recvmsg"
         | "handle_dns_recvmsg_exit"
+        | "handle_dns_recvmmsg"
+        | "handle_dns_recvmmsg_exit"
         | "handle_dns_read" => &["dns"],
         "handle_vfs_unlink_identity1"
         | "handle_vfs_unlink_identity2"
@@ -1607,7 +1634,7 @@ mod tests {
             uid: 1000,
             fd: 5,
             payload_len,
-            _pad0: 0,
+            flags: 0,
             _pad1: 0,
             process_start_time: 123_456,
             payload,
@@ -2533,6 +2560,77 @@ mod tests {
             }
             other => panic!("unexpected payload: {:?}", other),
         }
+    }
+
+    fn dns_fields(event: RawEvent) -> DnsQueryFields {
+        match event.payload {
+            RawPayload::Dns(fields) => fields,
+            other => panic!("unexpected payload: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_dns_event_skips_the_tcp_length_prefix() {
+        let (message, len) = dns_query_payload("tcp.example.test", 28);
+        let mut raw = raw_dns_event(DNS_EVENT_QUERY, (message, len));
+        raw.payload = [0u8; DNS_PAYLOAD_CAPACITY];
+        raw.payload[..2].copy_from_slice(&len.to_be_bytes());
+        raw.payload[2..2 + usize::from(len)].copy_from_slice(&message[..usize::from(len)]);
+        raw.payload_len = len + 2;
+        raw.flags = DNS_FLAG_TCP;
+
+        let fields = dns_fields(build_dns_event(&raw).expect("tcp query should build"));
+        assert_eq!(fields.query_name.as_deref(), Some("tcp.example.test"));
+        assert_eq!(fields.record_type.as_deref(), Some("AAAA"));
+        assert_eq!(fields.query_truncated, None);
+    }
+
+    #[test]
+    fn build_dns_event_reads_the_longest_legal_name_untruncated() {
+        let label = "a".repeat(63);
+        let name = format!("{label}.{label}.{label}.{}", "b".repeat(61));
+        assert_eq!(name.len(), 253);
+
+        let fields = dns_fields(build_dns_event(&raw_dns_query(&name, 1)).expect("builds"));
+        assert_eq!(fields.query_name.as_deref(), Some(name.as_str()));
+        assert_eq!(fields.query_truncated, None);
+    }
+
+    #[test]
+    fn build_dns_event_keeps_a_name_cut_by_the_capture_limit() {
+        // Eight 63-byte labels need 520 bytes, more than the capture holds.
+        let label = "a".repeat(63);
+        let mut message = vec![0u8; crate::sensor::dns::HEADER_LEN];
+        message[5] = 1;
+        for _ in 0..8 {
+            message.push(63);
+            message.extend_from_slice(label.as_bytes());
+        }
+        message.extend_from_slice(&[0, 0, 1, 0, 1]);
+        let mut raw = raw_dns_query("placeholder.test", 1);
+        raw.payload
+            .copy_from_slice(&message[..DNS_PAYLOAD_CAPACITY]);
+        raw.payload_len = DNS_PAYLOAD_CAPACITY as u16;
+        raw.flags = DNS_FLAG_TRUNCATED;
+
+        let fields = dns_fields(build_dns_event(&raw).expect("a cut name should still report"));
+        let name = fields.query_name.expect("name");
+        assert!(
+            name.starts_with(&label) && name.len() > 400,
+            "{}",
+            name.len()
+        );
+        assert_eq!(fields.query_truncated.as_deref(), Some("true"));
+        assert_eq!(fields.record_type, None);
+    }
+
+    #[test]
+    fn build_dns_event_drops_a_cut_message_that_is_not_dns() {
+        let mut raw = raw_dns_query("example.test", 1);
+        raw.payload_len = (crate::sensor::dns::HEADER_LEN + 4) as u16;
+        raw.payload[crate::sensor::dns::HEADER_LEN] = 0xc0;
+        raw.flags = DNS_FLAG_TRUNCATED;
+        assert!(build_dns_event(&raw).is_none());
     }
 
     #[test]

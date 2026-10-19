@@ -604,6 +604,7 @@ impl NormalizedEvent {
                     .map(|name| Value::U64(dns_name::name_length(name))),
                 Field::DnsRecordType => f.record_type.as_deref().map(Value::String),
                 Field::DnsQueryStatus => f.query_status.as_deref().map(Value::String),
+                Field::DnsQueryTruncated => f.query_truncated.as_deref().map(Value::String),
                 Field::ProcessImage => f.image.as_deref().map(Value::String),
                 Field::ProcessId => f.process_id.as_deref().map(Value::String),
                 _ => None,
@@ -716,6 +717,27 @@ pub enum EventCategory {
     Security,
     Defender,
     Application,
+}
+
+impl EventCategory {
+    /// Every category, for tables that must cover each one.
+    pub const ALL: [Self; 15] = [
+        Self::Process,
+        Self::Network,
+        Self::File,
+        Self::Registry,
+        Self::Dns,
+        Self::ImageLoad,
+        Self::Scripting,
+        Self::PowerShellModule,
+        Self::PowerShellClassicStart,
+        Self::Wmi,
+        Self::Service,
+        Self::Task,
+        Self::Security,
+        Self::Defender,
+        Self::Application,
+    ];
 }
 
 #[cfg(test)]

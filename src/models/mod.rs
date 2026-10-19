@@ -10,7 +10,7 @@ mod alert;
 mod canonical;
 pub(crate) mod dns_name;
 mod event;
-mod field_view;
+pub(crate) mod field_view;
 mod fields;
 mod match_details;
 
