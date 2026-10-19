@@ -364,6 +364,7 @@ fn missing_always_fields_detect_decoder_contract_drift() {
             parent_user: None,
             current_directory: None,
             integrity_level: None,
+            logon_id: None,
             user: None,
             parent_process_id_derived: false,
             windows: Default::default(),

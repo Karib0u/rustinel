@@ -54,6 +54,7 @@ fn make_alert(rule: &str, image: &str) -> Alert {
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: Some("alice".to_string()),
                 original_file_name: None,
                 product: None,

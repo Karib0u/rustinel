@@ -35,8 +35,8 @@ pub use process::{
 };
 #[cfg(windows)]
 pub use process::{
-    query_process_command_line_at_start, query_process_command_line_from_handle,
-    query_process_start_at_start, LiveProcessStart,
+    query_live_process_at_start, query_process_command_line_at_start,
+    query_process_command_line_from_handle,
 };
 pub use time::now_timestamp_string;
 #[cfg(windows)]

@@ -16,6 +16,8 @@ pub struct ProcessCorrelationCounters {
     pub classic_unmatched: AtomicU64,
     pub classic_command_line: AtomicU64,
     pub session_failures: AtomicU64,
+    pub logon_id_captured: AtomicU64,
+    pub logon_id_missed: AtomicU64,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +32,8 @@ pub struct ProcessCorrelationSnapshot {
     pub classic_unmatched: u64,
     pub classic_command_line: u64,
     pub session_failures: u64,
+    pub logon_id_captured: u64,
+    pub logon_id_missed: u64,
 }
 
 impl ProcessCorrelationCounters {
@@ -44,6 +48,8 @@ impl ProcessCorrelationCounters {
             classic_unmatched: self.classic_unmatched.load(Ordering::Relaxed),
             classic_command_line: self.classic_command_line.load(Ordering::Relaxed),
             session_failures: self.session_failures.load(Ordering::Relaxed),
+            logon_id_captured: self.logon_id_captured.load(Ordering::Relaxed),
+            logon_id_missed: self.logon_id_missed.load(Ordering::Relaxed),
         }
     }
 }

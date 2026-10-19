@@ -40,6 +40,7 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `ImageSource` | ESF supplies the executable path directly |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `ImageTruncated` | ESF does not use the Linux raw-image buffer |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `IntegrityLevel` | Windows integrity levels do not exist on macOS |
+| `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `LogonId` | Endpoint Security exec events do not carry a logon session |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `OriginalFileName` | PE version resources are Windows-only |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `Product` | PE version resources are Windows-only |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `TargetImage` | a process-creation event has no target process |

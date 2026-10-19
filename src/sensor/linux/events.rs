@@ -299,6 +299,7 @@ pub mod mapping {
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,
+                    logon_id: None,
                     user: event.effective_uid(),
                 },
                 Platform::Linux,
