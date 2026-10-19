@@ -583,6 +583,7 @@ impl NormalizedEvent {
                 Field::DnsQueryResults => f.query_results.as_deref().map(Value::String),
                 Field::DnsRecordType => f.record_type.as_deref().map(Value::String),
                 Field::DnsQueryStatus => f.query_status.as_deref().map(Value::String),
+                Field::DnsQueryTruncated => f.query_truncated.as_deref().map(Value::String),
                 Field::ProcessImage => f.image.as_deref().map(Value::String),
                 Field::ProcessId => f.process_id.as_deref().map(Value::String),
                 _ => None,

@@ -131,6 +131,7 @@ fn dns_query(query_name: &str) -> CanonicalEvent {
         Platform::Windows,
         EventCategory::Dns,
         EventFields::DnsQuery(DnsQueryFields {
+            query_truncated: None,
             user: None,
             query_name: Some(query_name.to_string()),
             query_results: Some(

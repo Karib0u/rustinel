@@ -980,6 +980,7 @@ mod tests {
             let provider = "test";
             let mut dns = file_event(platform, provider, 4242);
             dns.payload = RawPayload::Dns(DnsQueryFields {
+                query_truncated: None,
                 user: None,
                 query_name: Some("example.test".into()),
                 query_results: None,
@@ -1721,6 +1722,7 @@ mod tests {
             let normalizer = Normalizer::new(state);
             let mut dns = file_event(platform, "test", 4242);
             dns.payload = RawPayload::Dns(DnsQueryFields {
+                query_truncated: None,
                 query_name: Some("example.test".into()),
                 query_results: None,
                 record_type: Some("A".into()),

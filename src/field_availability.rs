@@ -50,6 +50,8 @@ const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
+/// DNS messages cut at the capture limit keep the name they have (#804).
+const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -468,6 +470,11 @@ const WINDOWS_REGISTRY: &[FieldContract] = &[
 ];
 
 const WINDOWS_DNS: &[FieldContract] = &[
+    never(
+        "QueryTruncated",
+        SINCE_DNS_TRUNCATION,
+        "ETW delivers whole DNS Client events",
+    ),
     always_value(
         "Channel",
         SINCE_WINDOWS_CHANNEL,
@@ -1592,6 +1599,11 @@ const LINUX_FILE: &[FieldContract] = &[
 ];
 
 const LINUX_DNS: &[FieldContract] = &[
+    conditional(
+        "QueryTruncated",
+        SINCE_DNS_TRUNCATION,
+        "the message was longer than the sensor's 512-byte capture and ended inside the name",
+    ),
     always("RecordType", SINCE_BASELINE),
     always("ProcessId", SINCE_BASELINE),
     conditional(
@@ -1785,6 +1797,11 @@ const MACOS_NETWORK: &[FieldContract] = &[
 ];
 
 const MACOS_DNS: &[FieldContract] = &[
+    never(
+        "QueryTruncated",
+        SINCE_DNS_TRUNCATION,
+        "the BPF DNS path parses one packet and drops a question it cannot finish",
+    ),
     always("QueryName", SINCE_1_1_0),
     conditional(
         "RecordType",
