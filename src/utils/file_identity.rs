@@ -66,6 +66,26 @@ enum PlatformFileIdentity {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum PlatformFileIdentity {}
 
+/// A distinct identity per `n`, for tests that need many without touching disk.
+#[cfg(all(test, any(unix, windows)))]
+pub(crate) fn synthetic(n: u64) -> FileIdentity {
+    FileIdentity {
+        #[cfg(unix)]
+        platform: PlatformFileIdentity::Unix {
+            device: 1,
+            inode: n,
+        },
+        #[cfg(windows)]
+        platform: PlatformFileIdentity::Windows {
+            volume: 1,
+            file_id: n,
+        },
+        size: n,
+        modified: 0,
+        changed: 0,
+    }
+}
+
 #[cfg(unix)]
 pub(crate) fn from_file(file: &File) -> Option<FileIdentity> {
     Some(from_metadata(&file.metadata().ok()?))
