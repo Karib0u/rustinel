@@ -3267,6 +3267,7 @@ dependencies = [
  "minisign-verify",
  "notify",
  "object 0.40.0",
+ "psl",
  "regex",
  "reqwest",
  "roxmltree",

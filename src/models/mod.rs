@@ -8,6 +8,7 @@ pub mod event_actions;
 
 mod alert;
 mod canonical;
+pub(crate) mod dns_name;
 mod event;
 mod field_view;
 mod fields;
