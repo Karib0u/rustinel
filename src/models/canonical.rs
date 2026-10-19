@@ -106,7 +106,7 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
             )
         }
         EventCategory::Dns => SensorAction::Query,
-        EventCategory::ImageLoad => SensorAction::Load,
+        EventCategory::ImageLoad | EventCategory::DriverLoad => SensorAction::Load,
         EventCategory::Scripting => SensorAction::Execute,
         EventCategory::PowerShellModule => SensorAction::Load,
         EventCategory::PowerShellClassicStart => SensorAction::Start,

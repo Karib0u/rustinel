@@ -276,10 +276,10 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         SINCE_PROCESS_USER,
         "the classic process record is correlated; the measured SID is retained or resolves to an account name",
     ),
-    never(
+    conditional(
         "CurrentDirectory",
-        SINCE_BASELINE,
-        "Microsoft-Windows-Kernel-Process does not expose the working directory",
+        Some(UNRELEASED),
+        "Microsoft-Windows-Kernel-Process does not expose the working directory, so it is read from the live process parameters when the process is still alive, its start time matches, and its memory is readable",
     ),
     never(
         "TargetImage",
@@ -368,6 +368,82 @@ const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
         "Imphash",
         SINCE_ARTIFACT_HASHES,
         "computed from the loaded file's import table after admission when a loaded rule selects on it, and seen only by those rules",
+    ),
+];
+
+/// A kernel image load: the same Kernel-Process event 5, split off by the
+/// System or idle actor it names (#548). Sysmon's driver_load carries the
+/// image, its hashes and its signature; the provider supplies only the path.
+const WINDOWS_DRIVER_LOAD: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        Some(UNRELEASED),
+        "Microsoft-Windows-Kernel-Process/Analytic",
+    ),
+    conditional(
+        "ImageLoaded",
+        Some(UNRELEASED),
+        "the provider may omit the loaded image path",
+    ),
+    conditional(
+        "ProcessId",
+        Some(UNRELEASED),
+        "the provider may omit process identity",
+    ),
+    conditional(
+        "Image",
+        Some(UNRELEASED),
+        "the provider may omit the loading process image",
+    ),
+    conditional(
+        "OriginalFileName",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Product",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Description",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Company",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "FileVersion",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    never(
+        "Signed",
+        Some(UNRELEASED),
+        "Kernel-Process image-load events contain no Authenticode result",
+    ),
+    never(
+        "Signature",
+        Some(UNRELEASED),
+        "Kernel-Process image-load events contain no signer identity",
+    ),
+    never(
+        "User",
+        Some(UNRELEASED),
+        "Kernel-Process image-load events contain no user identity",
+    ),
+    conditional(
+        "Hashes",
+        Some(UNRELEASED),
+        "computed from the loaded driver after admission when a loaded rule selects on it, and seen only by those rules",
+    ),
+    conditional(
+        "Imphash",
+        Some(UNRELEASED),
+        "computed from the loaded driver's import table after admission when a loaded rule selects on it, and seen only by those rules",
     ),
 ];
 
@@ -2157,6 +2233,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     ),
     contract!(
         Windows,
+        "driver_load",
+        Some(6),
+        Load,
+        "etw",
+        "Microsoft-Windows-Kernel-Process",
+        WINDOWS_DRIVER_LOAD
+    ),
+    contract!(
+        Windows,
         "ps_script",
         Some(4104),
         Execute,
@@ -2991,6 +3076,7 @@ pub const fn category_name(category: EventCategory) -> &'static str {
         EventCategory::Registry => "registry_event",
         EventCategory::Dns => "dns_query",
         EventCategory::ImageLoad => "image_load",
+        EventCategory::DriverLoad => "driver_load",
         EventCategory::Scripting => "ps_script",
         EventCategory::PowerShellModule => "ps_module",
         EventCategory::PowerShellClassicStart => "ps_classic_start",

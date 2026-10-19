@@ -33,6 +33,8 @@ fn action_code_for_record(
         // Manifest Kernel-Process event 5 carries opcode 0. Normalize both it
         // and the classic opcode-10 shape to the established `7 / load` key.
         EventCategory::ImageLoad => 10,
+        // Sysmon event 6, keyed the same way as the image load it was split from.
+        EventCategory::DriverLoad => 10,
         EventCategory::Network => match action {
             SensorAction::Connect => 12,
             SensorAction::Disconnect => 13,
@@ -83,7 +85,9 @@ fn raw_event_id_for_record(
     record: &impl EtwHeader,
 ) -> u16 {
     match category {
-        EventCategory::Process | EventCategory::ImageLoad => record.event_id(),
+        EventCategory::Process | EventCategory::ImageLoad | EventCategory::DriverLoad => {
+            record.event_id()
+        }
         EventCategory::Network => record.event_id(),
         EventCategory::File => u16::from(action_code),
         EventCategory::Registry => u16::from(action_code),
@@ -116,6 +120,10 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
         },
         EventCategory::ImageLoad => match action_code {
             10 => 7,
+            _ => raw_event_id,
+        },
+        EventCategory::DriverLoad => match action_code {
+            10 => 6,
             _ => raw_event_id,
         },
         // The table also claims alias codes (72 for delete, 41 for a registry
@@ -156,6 +164,11 @@ mod tests {
     #[test]
     fn image_load_maps_to_the_sysmon_7_contract() {
         assert_eq!(map_to_sysmon_id(EventCategory::ImageLoad, 10, 5), 7);
+    }
+
+    #[test]
+    fn driver_load_maps_to_the_sysmon_6_contract() {
+        assert_eq!(map_to_sysmon_id(EventCategory::DriverLoad, 10, 5), 6);
     }
 
     #[test]

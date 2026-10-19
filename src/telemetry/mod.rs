@@ -190,7 +190,8 @@ impl SensorEventCategoryCounters {
 
 /// Static for the same reason as [`CHANNELS`]: `try_send_sensor_event` is
 /// called from sensor callbacks that hold no pipeline handle.
-static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 14] = [
+static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 15] = [
+    SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
@@ -224,6 +225,7 @@ fn sensor_event_category(category: EventCategory) -> (usize, &'static str) {
         EventCategory::PowerShellClassicStart => (12, "powershell_classic_start"),
         EventCategory::Defender => (13, "windefend"),
         EventCategory::Application => (13, "application"),
+        EventCategory::DriverLoad => (14, "driver_load"),
     }
 }
 
@@ -235,6 +237,7 @@ fn sensor_event_category_snapshots() -> Vec<SensorEventCategorySnapshot> {
         EventCategory::Registry,
         EventCategory::Dns,
         EventCategory::ImageLoad,
+        EventCategory::DriverLoad,
         EventCategory::Scripting,
         EventCategory::PowerShellModule,
         EventCategory::Wmi,
@@ -276,7 +279,7 @@ pub(crate) fn sensor_event_drop_totals() -> Vec<(&'static str, u64)> {
 }
 
 fn sensor_event_category_label(index: usize) -> &'static str {
-    const LABELS: [&str; 14] = [
+    const LABELS: [&str; 15] = [
         "process",
         "network",
         "file",
@@ -291,6 +294,7 @@ fn sensor_event_category_label(index: usize) -> &'static str {
         "security",
         "powershell_classic_start",
         "windefend_application",
+        "driver_load",
     ];
     LABELS[index]
 }
@@ -494,6 +498,11 @@ mod tests {
                 attempted: 3,
                 captured: 2,
                 missed: 1,
+                current_directory_captured: 0,
+                current_directory_missed: 0,
+                backfill_queries: 0,
+                backfill_micros: 0,
+                backfill_max_micros: 0,
             })
         );
     }

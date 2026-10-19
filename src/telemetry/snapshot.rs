@@ -339,6 +339,19 @@ pub struct ProcessCommandLineSnapshot {
     pub attempted: u64,
     pub captured: u64,
     pub missed: u64,
+    /// Process starts that ended with a working directory.
+    #[serde(default)]
+    pub current_directory_captured: u64,
+    /// Process starts that ended without a working directory.
+    #[serde(default)]
+    pub current_directory_missed: u64,
+    /// Live back-fill queries timed, and their total and worst duration.
+    #[serde(default)]
+    pub backfill_queries: u64,
+    #[serde(default)]
+    pub backfill_micros: u64,
+    #[serde(default)]
+    pub backfill_max_micros: u64,
 }
 
 /// End-to-end counters for one Linux eBPF ring.
@@ -455,6 +468,15 @@ impl LinuxEbpfSnapshot {
 }
 
 impl ProcessCommandLineSnapshot {
+    /// Share of process starts that ended with a working directory.
+    pub fn current_directory_capture_rate_pct(&self) -> f64 {
+        let total = self.current_directory_captured + self.current_directory_missed;
+        if total == 0 {
+            return 100.0;
+        }
+        (self.current_directory_captured as f64 / total as f64) * 100.0
+    }
+
     pub fn capture_rate_pct(&self) -> f64 {
         if self.attempted == 0 {
             return 100.0;
@@ -906,6 +928,11 @@ mod tests {
             attempted: 4,
             captured: 3,
             missed: 1,
+            current_directory_captured: 0,
+            current_directory_missed: 0,
+            backfill_queries: 0,
+            backfill_micros: 0,
+            backfill_max_micros: 0,
         };
 
         assert_eq!(fidelity.capture_rate_pct(), 75.0);

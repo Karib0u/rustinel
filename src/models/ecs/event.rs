@@ -21,6 +21,7 @@ pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<
         EventCategory::Registry => vec!["registry".to_string()],
         EventCategory::Dns => vec!["network".to_string()],
         EventCategory::ImageLoad => vec!["library".to_string()],
+        EventCategory::DriverLoad => vec!["driver".to_string()],
         EventCategory::Scripting => vec!["process".to_string()],
         EventCategory::PowerShellModule => vec!["process".to_string()],
         EventCategory::PowerShellClassicStart => vec!["process".to_string()],
@@ -175,7 +176,7 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
             vec![file_or_registry_row(category, opcode).1.to_string()]
         }
         EventCategory::Dns => vec!["protocol".to_string()],
-        EventCategory::ImageLoad => vec!["start".to_string()],
+        EventCategory::ImageLoad | EventCategory::DriverLoad => vec!["start".to_string()],
         EventCategory::Scripting => vec!["info".to_string()],
         EventCategory::PowerShellModule => vec!["info".to_string()],
         EventCategory::PowerShellClassicStart => vec!["start".to_string()],
@@ -223,6 +224,7 @@ pub(super) fn ecs_event_action(
         EventCategory::File | EventCategory::Registry => file_or_registry_row(category, opcode).0,
         EventCategory::Dns => "dns-query",
         EventCategory::ImageLoad => "image-load",
+        EventCategory::DriverLoad => "driver-load",
         EventCategory::Scripting => "powershell-script",
         EventCategory::PowerShellModule => "powershell-module",
         EventCategory::PowerShellClassicStart => "powershell-classic-start",
@@ -256,6 +258,7 @@ pub(super) fn event_dataset(category: EventCategory) -> String {
         EventCategory::Registry => "registry",
         EventCategory::Dns => "dns",
         EventCategory::ImageLoad => "library",
+        EventCategory::DriverLoad => "driver",
         EventCategory::Scripting => "scripting",
         EventCategory::PowerShellModule => "powershell_module",
         EventCategory::PowerShellClassicStart => "powershell_classic_start",

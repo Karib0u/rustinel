@@ -93,7 +93,8 @@ The alert still shows the command line as it was run, and Sigma never sees the j
 
 - `.` and `..` are folded as text, without following symlinks.
 - Without a `CurrentDirectory`, only absolute paths are matched.
-  Windows never reports it, and on Linux a process that exits immediately can lack it.
+  On Windows it is read from the live process, so a process that exits before the read lacks it, as does a protected process whose memory cannot be read.
+  On Linux a process that exits immediately can lack it.
 - Flags, modes, numbers, globs, variables, and `host:port` forms are not paths.
   A flag's attached value, as in `--output=payload`, is.
 - Shape alone cannot tell a file from a subcommand: `git status` run from `/tmp` also yields `/tmp/status`.
