@@ -705,6 +705,11 @@ jobs:
             | macOS | arm64 | `rustinel-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz` |
             | macOS | x86_64 | `rustinel-${{ steps.version.outputs.version }}-x86_64-apple-darwin.tar.gz` |
 
+            ## Code signing policy
+
+            Free code signing for the Windows binary is provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+            See the [Code signing policy](https://docs.rustinel.io/code-signing-policy/).
+
             ## Installer
 
             **Linux and macOS**
