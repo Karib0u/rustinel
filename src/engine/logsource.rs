@@ -374,6 +374,8 @@ impl Engine {
                 LogSourceKey::from_parts(Some("windows"), Some("system"), Some("service_creation")),
                 LogSourceKey::from_parts(Some("windows"), Some("security"), None),
                 LogSourceKey::from_parts(Some("windows"), Some("windefend"), None),
+                // SigmaHQ's product-less AV verdict rules: Defender detections.
+                LogSourceKey::from_parts(None, None, Some("antivirus")),
                 LogSourceKey::from_parts(Some("windows"), Some("application"), None),
                 LogSourceKey::from_parts(
                     Some("windows"),
@@ -572,19 +574,37 @@ impl Engine {
     pub(crate) fn concrete_logsource_aliases_for_event(
         event: &NormalizedEvent,
     ) -> Vec<LogSourceKey> {
+        Self::concrete_logsource_aliases(
+            event.platform,
+            event.category,
+            event.event_id,
+            event.opcode,
+        )
+    }
+
+    /// The routes of an event, from the only fields that decide them.
+    ///
+    /// `sigma doctor` calls this with each emitted event shape in place of an
+    /// event, so the diagnostic and the runtime share one routing table.
+    pub(crate) fn concrete_logsource_aliases(
+        platform: Platform,
+        category: EventCategory,
+        event_id: u16,
+        opcode: u8,
+    ) -> Vec<LogSourceKey> {
         let mut aliases = Vec::new();
 
-        match event.category {
+        match category {
             EventCategory::Process => {
                 aliases.push(LogSourceKey::from_parts(
-                    Some(platform_product(event.platform)),
+                    Some(platform_product(platform)),
                     Some(SYSMON_VIEW),
                     Some("process_creation"),
                 ));
             }
             EventCategory::Network => {
                 aliases.push(LogSourceKey::from_parts(
-                    Some(platform_product(event.platform)),
+                    Some(platform_product(platform)),
                     Some(SYSMON_VIEW),
                     Some("network_connection"),
                 ));
@@ -595,25 +615,25 @@ impl Engine {
                 ));
             }
             EventCategory::File => {
-                for category in Self::sigma_file_categories_for_event(event) {
+                for category in Self::sigma_file_categories(event_id, opcode) {
                     aliases.push(LogSourceKey::from_parts(
-                        Some(platform_product(event.platform)),
+                        Some(platform_product(platform)),
                         Some(SYSMON_VIEW),
                         Some(category),
                     ));
                 }
             }
             EventCategory::Registry => {
-                for category in Self::sigma_registry_categories_for_event(event) {
+                for category in Self::sigma_registry_categories(opcode) {
                     aliases.push(LogSourceKey::from_parts(
-                        Some(platform_product(event.platform)),
+                        Some(platform_product(platform)),
                         Some(SYSMON_VIEW),
                         Some(category),
                     ));
                 }
             }
             EventCategory::Dns => {
-                match event.platform {
+                match platform {
                     Platform::Windows => {
                         aliases.push(LogSourceKey::from_parts(
                             Some("windows"),
@@ -647,7 +667,7 @@ impl Engine {
             }
             EventCategory::ImageLoad => {
                 aliases.push(LogSourceKey::from_parts(
-                    Some(platform_product(event.platform)),
+                    Some(platform_product(platform)),
                     Some(SYSMON_VIEW),
                     Some("image_load"),
                 ));
@@ -694,7 +714,7 @@ impl Engine {
                 ));
             }
             EventCategory::Wmi => {
-                if (5857..=5861).contains(&event.event_id) {
+                if (5857..=5861).contains(&event_id) {
                     aliases.push(LogSourceKey::from_parts(Some("windows"), Some("wmi"), None));
                 } else {
                     aliases.push(LogSourceKey::from_parts(
@@ -738,6 +758,9 @@ impl Engine {
                     Some("windefend"),
                     None,
                 ));
+                if matches!(event_id, 1116 | 1117) {
+                    aliases.push(LogSourceKey::from_parts(None, None, Some("antivirus")));
+                }
             }
             EventCategory::Application => {
                 aliases.push(LogSourceKey::from_parts(
@@ -773,9 +796,21 @@ impl Engine {
     /// Both functions read `models::event_actions::EVENT_ACTIONS`, the single
     /// table every platform sensor numbers its file and registry actions from.
     /// A file event's Sysmon-compatible `event_id` wins over its `opcode`.
+    #[cfg(test)]
     pub(crate) fn sigma_file_categories_for_event(event: &NormalizedEvent) -> Vec<&'static str> {
-        let row = event_actions::row_for_event_id(EventCategory::File, event.event_id)
-            .or_else(|| event_actions::row_for_code(EventCategory::File, event.opcode));
+        Self::sigma_file_categories(event.event_id, event.opcode)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sigma_registry_categories_for_event(
+        event: &NormalizedEvent,
+    ) -> Vec<&'static str> {
+        Self::sigma_registry_categories(event.opcode)
+    }
+
+    fn sigma_file_categories(event_id: u16, opcode: u8) -> Vec<&'static str> {
+        let row = event_actions::row_for_event_id(EventCategory::File, event_id)
+            .or_else(|| event_actions::row_for_code(EventCategory::File, opcode));
         match row {
             Some(row) => row.sigma_categories.to_vec(),
             None => event_actions::unknown_action(EventCategory::File)
@@ -783,10 +818,8 @@ impl Engine {
         }
     }
 
-    pub(crate) fn sigma_registry_categories_for_event(
-        event: &NormalizedEvent,
-    ) -> Vec<&'static str> {
-        match event_actions::row_for_code(EventCategory::Registry, event.opcode) {
+    fn sigma_registry_categories(opcode: u8) -> Vec<&'static str> {
+        match event_actions::row_for_code(EventCategory::Registry, opcode) {
             Some(row) => row.sigma_categories.to_vec(),
             None => event_actions::unknown_action(EventCategory::Registry)
                 .map_or_else(Vec::new, |row| row.sigma_categories.to_vec()),

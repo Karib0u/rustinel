@@ -1158,6 +1158,7 @@ fn build_dns_event(packet: &ParsedPacket, event_time: SystemTime) -> Option<RawE
         process_start_key: None,
         parent_process_start_key: None,
         payload: RawPayload::Dns(DnsQueryFields {
+            query_truncated: None,
             user: None,
             query_name: Some(query_name),
             query_results: None,

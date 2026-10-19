@@ -134,12 +134,24 @@ Fields each platform never fills are listed in [Field availability](field-availa
 - **Containers are identified by cgroup, not namespace.**
   `nsenter` without a cgroup change keeps the caller's attribution.
   A container removed before a backlogged event is enriched leaves that event unresolved, never reported as the host.
-- **DNS:** plain UDP on port 53 only, and long names are dropped.
+- **DNS:** plain DNS to port 53, over UDP or TCP.
+  Queries come from `sendto`, `sendmsg`, `sendmmsg`, and `write`, and responses from `recvfrom`, `recvmsg`, `recvmmsg`, and `read`.
   Answers are decoded for A, AAAA, and CNAME records within the first 512 bytes of a response.
   A socket connected to port 53 before Rustinel started is missed until it is reopened.
-  Responses read with `recvmmsg` are not captured, and without kernel BTF neither are queries and responses carried by `write` and `read`, as the pure-Go resolver does.
+  Without kernel BTF, queries and responses carried by `write` and `read` are missed, as the pure-Go resolver sends them.
   `RecordType` is `OTHER` for anything but A, NS, CNAME, SOA, PTR, MX, TXT, AAAA, SRV, and ANY.
   `QueryStatus` is the DNS response code, such as `0` for success and `3` for NXDOMAIN, not a Windows status code.
+- **DNS over TCP** is seen only when the message and its two-byte length arrive in one buffer, or in the two `sendmsg` buffers BIND and `dig` use.
+  A resolver that sends the length separately with `writev`, as glibc does, is missed for queries.
+  Its responses are read in two parts, and the message part is still captured.
+  A stream read that returns a fragment of a message is not reassembled.
+- **Silent: DNS over TLS and HTTPS are not visible.**
+  The traffic is encrypted and no hook sees the name.
+  Port 853 is not watched, and a DoH client looks like any other HTTPS connection.
+- **Names are kept up to the 512-byte capture limit.**
+  A legal name is at most 253 characters, which fits.
+  A name that runs past the limit, as a non-compliant tunnel can send, is reported as far as it was read, with `QueryTruncated` set to `true` and no `RecordType`.
+  Only the first `iovec` of a datagram, or the first two for a TCP query, is read.
 - **No telemetry** for library loads, kernel module loads, ptrace, or file timestamp changes (`file_change`).
 
 ## macOS
