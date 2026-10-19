@@ -252,6 +252,7 @@ mod tests {
             parent_user: None,
             current_directory: cwd.map(Into::into),
             integrity_level: None,
+            logon_id: None,
             user: None,
         }
     }

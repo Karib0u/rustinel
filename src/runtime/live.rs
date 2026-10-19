@@ -57,6 +57,7 @@ pub(super) async fn run_live(
     let state = SharedState::new(&cfg, probes);
     (runtime.seed_host_state)(&state.host);
     let sensors = (runtime.sensors)(&cfg, &state.host, RunMode::Live);
+    sensors.attach_loss_probe(&state.probes);
 
     let mut pipeline = LivePipeline::new(
         &cfg,

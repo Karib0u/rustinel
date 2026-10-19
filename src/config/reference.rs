@@ -388,7 +388,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "telemetry.loss_alert_interval_secs",
         default_note: None,
-        description: "Window over which dropped sensor events are aggregated into one `agent::loss::sensor_events` alert per category. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts).",
+        description: "Window over which lost events are aggregated into one `agent::loss::*` alert per stage and category, covering the sensor queue, kernel-side loss and file enrichment queues. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts).",
     },
     // heartbeat
     ConfigOption {

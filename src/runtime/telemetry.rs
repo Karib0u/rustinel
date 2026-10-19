@@ -13,7 +13,7 @@ use crate::alerts::{AlertSink, AlertWriterMetrics};
 use crate::config::AppConfig;
 use crate::models::ecs::{AgentLoss, EcsAlert};
 use crate::telemetry::{
-    sensor_event_drop_totals, snapshot_path, spawn_reporter, write_final_snapshot, PipelineProbes,
+    snapshot_path, spawn_reporter, write_final_snapshot, LossTotal, PipelineProbes,
 };
 use crate::vocab::Platform;
 
@@ -60,10 +60,11 @@ impl TelemetryReporter {
     }
 }
 
-/// Turns `sensor_events` drops into operational alerts.
+/// Turns lost events into operational alerts: `sensor_events` drops, the
+/// artifact enrichment queues, and the kernel-side loss of each sensor.
 ///
 /// Delivery cannot feed back into the loss it reports. The task only reads the
-/// drop counters and hands a finished alert to the sink, whose writer queue and
+/// loss counters and hands a finished alert to the sink, whose writer queue and
 /// webhook dispatch are both non-blocking and separate from `sensor_events`. A
 /// sink failure is logged by the sink and never touches those counters, so it
 /// cannot produce a further loss alert. At most one alert per dropped category
@@ -72,12 +73,13 @@ pub struct SensorLossAlerter {
     handle: JoinHandle<()>,
     state: LossWindow,
     alert_sink: AlertSink,
+    probes: PipelineProbes,
     window_secs: u64,
 }
 
 impl SensorLossAlerter {
     /// Start alerting, unless `telemetry.loss_alert_interval_secs` is zero.
-    pub fn start(cfg: &AppConfig, alert_sink: &AlertSink) -> Option<Self> {
+    pub fn start(cfg: &AppConfig, alert_sink: &AlertSink, probes: PipelineProbes) -> Option<Self> {
         let window_secs = cfg.telemetry.loss_alert_interval_secs;
         if window_secs == 0 {
             return None;
@@ -86,6 +88,7 @@ impl SensorLossAlerter {
         let state = LossWindow::default();
         let task_sink = alert_sink.clone();
         let mut task_state = state.clone();
+        let task_probes = probes.clone();
         let handle = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_secs(window_secs));
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -93,13 +96,14 @@ impl SensorLossAlerter {
             ticker.tick().await;
             loop {
                 ticker.tick().await;
-                emit_loss_alerts(&task_sink, &mut task_state, window_secs);
+                emit_loss_alerts(&task_sink, &mut task_state, &task_probes, window_secs);
             }
         });
         Some(Self {
             handle,
             state,
             alert_sink: alert_sink.clone(),
+            probes,
             window_secs,
         })
     }
@@ -115,52 +119,74 @@ impl SensorLossAlerter {
         // the last window it closed.
         let _ = self.handle.await;
         let mut state = self.state;
-        emit_loss_alerts(&self.alert_sink, &mut state, self.window_secs);
+        emit_loss_alerts(&self.alert_sink, &mut state, &self.probes, self.window_secs);
     }
 }
 
-/// Per-category drop totals already reported, shared so the shutdown flush
+/// Per-stage loss totals already reported, shared so the shutdown flush
 /// continues from where the periodic task stopped.
 #[derive(Clone, Default)]
 struct LossWindow {
-    reported: std::sync::Arc<std::sync::Mutex<HashMap<&'static str, u64>>>,
+    reported: std::sync::Arc<std::sync::Mutex<HashMap<(&'static str, String), u64>>>,
+}
+
+/// Events lost at one stage inside a window.
+#[derive(Debug, PartialEq, Eq)]
+struct WindowLoss {
+    channel: &'static str,
+    category: String,
+    dropped: u64,
 }
 
 impl LossWindow {
-    /// Drops since the previous call, per category, advancing the baseline.
-    fn advance(&mut self, totals: &[(&'static str, u64)]) -> Vec<(&'static str, u64)> {
+    /// Loss since the previous call, per stage, advancing the baseline.
+    ///
+    /// A total that moved backwards, such as an ETW session restarting its
+    /// counter, reports nothing and becomes the new baseline.
+    fn advance(&mut self, totals: &[LossTotal]) -> Vec<WindowLoss> {
         let mut reported = self
             .reported
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         totals
             .iter()
-            .filter_map(|&(category, total)| {
-                let previous = reported.insert(category, total).unwrap_or(0);
-                let dropped = total.saturating_sub(previous);
-                (dropped > 0).then_some((category, dropped))
+            .filter_map(|loss| {
+                let previous = reported
+                    .insert((loss.channel, loss.category.clone()), loss.total)
+                    .unwrap_or(0);
+                let dropped = loss.total.saturating_sub(previous);
+                (dropped > 0).then(|| WindowLoss {
+                    channel: loss.channel,
+                    category: loss.category.clone(),
+                    dropped,
+                })
             })
             .collect()
     }
 }
 
-fn emit_loss_alerts(alert_sink: &AlertSink, state: &mut LossWindow, window_secs: u64) {
+fn emit_loss_alerts(
+    alert_sink: &AlertSink,
+    state: &mut LossWindow,
+    probes: &PipelineProbes,
+    window_secs: u64,
+) {
     write_loss_alerts(
         alert_sink,
-        state.advance(&sensor_event_drop_totals()),
+        state.advance(&probes.loss_totals()),
         window_secs,
     );
 }
 
-fn write_loss_alerts(alert_sink: &AlertSink, losses: Vec<(&'static str, u64)>, window_secs: u64) {
-    for (category, dropped) in losses {
+fn write_loss_alerts(alert_sink: &AlertSink, losses: Vec<WindowLoss>, window_secs: u64) {
+    for loss in losses {
         let ecs = EcsAlert::agent_loss(
             host_platform(),
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             AgentLoss {
-                channel: crate::telemetry::ChannelId::SensorEvents.as_str(),
-                category,
-                dropped,
+                channel: loss.channel,
+                category: loss.category,
+                dropped: loss.dropped,
                 window_secs,
             },
         );
@@ -199,22 +225,76 @@ mod tests {
         }
     }
 
+    fn total(channel: &'static str, category: &str, total: u64) -> LossTotal {
+        LossTotal::new(channel, category, total)
+    }
+
+    fn loss(channel: &'static str, category: &str, dropped: u64) -> WindowLoss {
+        WindowLoss {
+            channel,
+            category: category.to_string(),
+            dropped,
+        }
+    }
+
     #[test]
-    fn each_window_reports_only_new_drops_per_category() {
+    fn each_window_reports_only_new_loss_per_stage() {
         let mut window = LossWindow::default();
 
         assert!(window.advance(&[]).is_empty());
         assert_eq!(
-            window.advance(&[("process", 3), ("file", 10)]),
-            vec![("process", 3), ("file", 10)]
+            window.advance(&[
+                total("sensor_events", "process", 3),
+                total("sensor_events", "file", 10)
+            ]),
+            vec![
+                loss("sensor_events", "process", 3),
+                loss("sensor_events", "file", 10)
+            ]
         );
         assert_eq!(
-            window.advance(&[("process", 3), ("file", 14), ("dns", 1)]),
-            vec![("file", 4), ("dns", 1)]
+            window.advance(&[
+                total("sensor_events", "process", 3),
+                total("sensor_events", "file", 14),
+                total("etw_session", "kernel_buffer", 1),
+            ]),
+            vec![
+                loss("sensor_events", "file", 4),
+                loss("etw_session", "kernel_buffer", 1)
+            ]
         );
         assert!(window
-            .advance(&[("process", 3), ("file", 14), ("dns", 1)])
+            .advance(&[total("sensor_events", "file", 14)])
             .is_empty());
+    }
+
+    #[test]
+    fn same_category_on_two_stages_is_counted_separately() {
+        let mut window = LossWindow::default();
+        window.advance(&[
+            total("ebpf_ring", "file", 5),
+            total("ebpf_map_full", "file", 2),
+        ]);
+        assert_eq!(
+            window.advance(&[
+                total("ebpf_ring", "file", 9),
+                total("ebpf_map_full", "file", 2)
+            ]),
+            vec![loss("ebpf_ring", "file", 4)]
+        );
+    }
+
+    #[test]
+    fn a_counter_that_restarts_rebases_instead_of_alerting() {
+        let mut window = LossWindow::default();
+        window.advance(&[total("etw_session", "kernel_buffer", 100)]);
+        assert!(window
+            .advance(&[total("etw_session", "kernel_buffer", 0)])
+            .is_empty());
+        assert_eq!(
+            window.advance(&[total("etw_session", "kernel_buffer", 7)]),
+            vec![loss("etw_session", "kernel_buffer", 7)]
+        );
     }
 
     #[test]
@@ -225,7 +305,15 @@ mod tests {
             .finish(output.clone());
         let sink = AlertSink::new(writer);
 
-        write_loss_alerts(&sink, vec![("process", 7), ("network", 2)], 60);
+        write_loss_alerts(
+            &sink,
+            vec![
+                loss("sensor_events", "process", 7),
+                loss("etw_session", "kernel_buffer", 1345227),
+                loss("artifact_resolution", "artifact_enrichment", 3),
+            ],
+            60,
+        );
         drop(sink);
         drop(guard);
 
@@ -234,7 +322,7 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
-        assert_eq!(alerts.len(), 2);
+        assert_eq!(alerts.len(), 3);
         let first = &alerts[0];
         assert_eq!(first["rule.name"], "agent::loss::sensor_events");
         assert_eq!(first["edr.rule.engine"], "Agent");
@@ -243,8 +331,21 @@ mod tests {
         assert_eq!(first["edr.agent.loss.category"], "process");
         assert_eq!(first["edr.agent.loss.dropped"], 7);
         assert_eq!(first["edr.agent.loss.window_secs"], 60);
-        assert_eq!(alerts[1]["edr.agent.loss.category"], "network");
-        assert_eq!(alerts[1]["edr.agent.loss.dropped"], 2);
+
+        let etw = &alerts[1];
+        assert_eq!(etw["rule.name"], "agent::loss::etw_session");
+        assert_eq!(etw["edr.agent.loss.channel"], "etw_session");
+        assert_eq!(etw["edr.agent.loss.dropped"], 1345227);
+        assert!(etw["rule.description"]
+            .as_str()
+            .unwrap()
+            .contains("before the sensor could read them"));
+
+        let artifact = alerts[2]["rule.description"].as_str().unwrap();
+        assert!(
+            artifact.contains("base events were still evaluated"),
+            "{artifact}"
+        );
     }
 
     /// Saturating the real sensor queue is what produces the totals the alert
@@ -253,7 +354,8 @@ mod tests {
     async fn saturating_the_sensor_queue_produces_a_loss_alert() {
         use crate::sensor::RawEvent;
 
-        let before = sensor_event_drop_totals();
+        let probes = PipelineProbes::default();
+        let before = probes.loss_totals();
         let (tx, mut _rx) = tokio::sync::mpsc::channel::<RawEvent>(1);
         let mut dropped = 0u64;
         for _ in 0..5 {
@@ -265,9 +367,20 @@ mod tests {
 
         let mut window = LossWindow::default();
         window.advance(&before);
-        let losses = window.advance(&sensor_event_drop_totals());
-        let dns = losses.iter().find(|(category, _)| *category == "dns");
-        assert!(dns.is_some_and(|(_, count)| *count >= 4), "{losses:?}");
+        let losses = window.advance(&probes.loss_totals());
+        let dns = losses
+            .iter()
+            .find(|loss| loss.channel == "sensor_events" && loss.category == "dns");
+        assert!(dns.is_some_and(|loss| loss.dropped >= 4), "{losses:?}");
+    }
+
+    #[test]
+    fn kernel_loss_probe_feeds_the_totals() {
+        let probes = PipelineProbes::default();
+        probes.attach_kernel_loss(|| vec![total("etw_session", "kernel_buffer", 42)]);
+        assert!(probes
+            .loss_totals()
+            .contains(&total("etw_session", "kernel_buffer", 42)));
     }
 
     fn test_raw_event() -> crate::sensor::RawEvent {
