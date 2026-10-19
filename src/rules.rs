@@ -576,9 +576,10 @@ fn extract_zip_with_limit(archive_path: &Path, destination: &Path, max_bytes: u6
 
     for index in 0..archive.len() {
         let mut file = archive.by_index(index)?;
-        let relative = safe_zip_path(file.name())?;
+        let name = file.name()?.into_owned();
+        let relative = safe_zip_path(&name)?;
         if is_symlink_entry(file.unix_mode()) {
-            bail!("zip entry {} is a symlink", file.name());
+            bail!("zip entry {name} is a symlink");
         }
         total_size = total_size
             .checked_add(file.size())
