@@ -188,6 +188,7 @@ If the alert file's own queue is full, the loss alert is dropped like any other 
 | `edr.process.image_source` | Linux | `execve`: the path as passed to `execve()` |
 | `edr.process.image_truncated` | Linux | `true` when the executable path was cut |
 | `edr.file.path_truncated` | Linux | Which side of a file path was cut |
+| `edr.dns.query_truncated` | Linux | `true` when the DNS message was cut short and the name ends where the capture did |
 | `edr.process.real_user_id`, `edr.process.real_group_id` | Linux | Real credentials |
 | `edr.process.effective_user_id`, `edr.process.effective_group_id` | Linux | Effective credentials. `user.name` resolves the effective UID |
 | `edr.process.cgroup_id` | Linux | Kernel cgroup ID at exec |

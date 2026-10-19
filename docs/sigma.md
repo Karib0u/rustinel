@@ -109,6 +109,7 @@ Stable reason codes in schema version 1 are:
 | `task_creation` | ✓ | | |
 | `service: security` | ✓ | | |
 | `service: windefend` | ✓ | | |
+| `category: antivirus` (no product) | ✓ | | |
 
 A rule whose `product` does not match the platform is skipped.
 A rule for a logsource the platform does not collect loads but never fires.
@@ -132,7 +133,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | File | `TargetFilename`, `SourceFilename` (rename), `Image`, `ProcessId`, `User`, `PathTruncated` |
 | DNS | `QueryName`, `QueryResults`, `RecordType`, or the aliases `query`, `answer`, `record_type` |
 | Service (7045) | `ServiceName`, `ImagePath` (also `ServiceFileName`), `ServiceType`, `StartType`, `AccountName`, `Provider_Name` |
-| Defender Operational | `Provider_Name` and the native fields for each event ID, including `Old Value`, `New Value`, `Feature Name`, `Threat Name`, and `Path`. Rule aliases such as `OldValue`, `NewValue`, `Feature_Name`, and `ThreatName` are also available. |
+| Defender Operational | `Provider_Name` and the native fields for each event ID, including `Old Value`, `New Value`, `Feature Name`, `Threat Name`, and `Path`. Rule aliases such as `OldValue`, `NewValue`, `Feature_Name`, and `ThreatName` are also available. Detections (1116 and 1117) also carry `Signature` (the threat name) and `Filename` (the first `file:_` resource of `Path`, without the prefix), which is what SigmaHQ's `category: antivirus` rules select on. |
 | Application channel | `Provider_Name`, `Level`, `Data`; Application Error 1000 also has `AppName`, `AppVersion`, `ModuleName`, `ExceptionCode` when present |
 | PowerShell | `ScriptBlockText`, `ScriptBlockId`, `Path` (`ps_script`); `ContextInfo`, `Payload` (`ps_module`); `Data` (`ps_classic_start`) |
 | WMI Operational | `EventNamespace`, `Query`, `User`, `ProcessId`, `PossibleCause`; 5857 has `ProviderName`, `ProviderPath`, `HostProcess`, and `Code`; 5861 also has `FilterName`, `ConsumerClass`, `ConsumerName`, `ConsumerText`, and `Destination` |

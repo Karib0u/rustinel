@@ -1406,6 +1406,7 @@ fn availability_for_contract(contract: &EventFieldContract, field: &str) -> Avai
     if matches!(field, "EventID" | "timestamp" | "event_time") {
         return Availability::Always;
     }
+    let field = crate::models::field_view::contract_field_name(contract.view, field);
     contract
         .fields
         .iter()
@@ -1903,6 +1904,50 @@ mod tests {
     }
 
     #[test]
+    fn product_less_dns_rule_is_not_reported_inert_on_any_platform() {
+        let rule = r#"title: Telegram Bot API Request
+logsource:
+  category: dns
+detection:
+  selection:
+    query: api.telegram.org
+  condition: selection
+"#;
+        for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+            let report = report(rule, platform);
+            assert_ne!(
+                report.documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire,
+                "{platform:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dns_txt_rule_names_the_blocking_field_off_linux() {
+        let rule = r#"title: DNS TXT Answer
+logsource:
+  category: dns
+detection:
+  selection:
+    record_type: TXT
+    answer|contains: exec
+  condition: selection
+"#;
+        assert_ne!(
+            report(rule, Platform::Linux).documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+        for platform in [Platform::Windows, Platform::MacOS] {
+            assert_eq!(
+                report(rule, platform).documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire,
+                "{platform:?}"
+            );
+        }
+    }
+
+    #[test]
     fn unavailable_or_branch_does_not_make_rule_inert() {
         let report = report(
             r#"title: Alternative fields
@@ -2285,6 +2330,34 @@ detection:
             .reasons
             .iter()
             .any(|reason| reason.code == ReasonCode::InactiveCollector));
+    }
+
+    #[test]
+    fn product_less_antivirus_rule_fires_on_windows_only() {
+        let rule = r#"title: Antivirus Hacktool Signature
+logsource:
+  category: antivirus
+detection:
+  selection:
+    Signature|contains: HackTool
+  condition: selection
+"#;
+        let windows = report(rule, Platform::Windows);
+        assert_ne!(
+            windows.documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+        for platform in [Platform::Linux, Platform::MacOS] {
+            let other = report(rule, platform);
+            assert_eq!(
+                other.documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire
+            );
+            assert_eq!(
+                other.documents[0].reasons[0].code,
+                ReasonCode::UnknownLogsource
+            );
+        }
     }
 
     #[test]

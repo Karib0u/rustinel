@@ -59,6 +59,10 @@ pub(super) struct DnsTracepointOffsets {
     pub recvmsg_fd: u32,
     pub recvmsg_msg: u32,
     pub recvmsg_ret: u32,
+    pub recvmmsg_fd: u32,
+    pub recvmmsg_msgvec: u32,
+    pub recvmmsg_vlen: u32,
+    pub recvmmsg_ret: u32,
 }
 
 #[repr(C)]
@@ -338,6 +342,28 @@ impl TracepointLayouts {
             &[FieldSpec::one("ret", 8)],
         ) {
             self.dns.recvmsg_ret = v[0];
+        }
+        if let Some(v) = self.fields(
+            "handle_dns_recvmmsg",
+            "syscalls",
+            "sys_enter_recvmmsg",
+            &[
+                FieldSpec::one("fd", 8),
+                FieldSpec::either(&["mmsg", "msg"], 8),
+                FieldSpec::one("vlen", 8),
+            ],
+        ) {
+            self.dns.recvmmsg_fd = v[0];
+            self.dns.recvmmsg_msgvec = v[1];
+            self.dns.recvmmsg_vlen = v[2];
+        }
+        if let Some(v) = self.fields(
+            "handle_dns_recvmmsg_exit",
+            "syscalls",
+            "sys_exit_recvmmsg",
+            &[FieldSpec::one("ret", 8)],
+        ) {
+            self.dns.recvmmsg_ret = v[0];
         }
     }
 

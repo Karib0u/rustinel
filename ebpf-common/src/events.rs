@@ -231,6 +231,13 @@ pub const DNS_EVENT_QUERY: u32 = 1;
 /// [`DnsEvent::kind`] for an inbound response.
 pub const DNS_EVENT_RESPONSE: u32 = 2;
 
+/// [`DnsEvent::flags`]: the message carried the two-byte length prefix of DNS
+/// over TCP. The payload still starts with it.
+pub const DNS_FLAG_TCP: u16 = 1;
+/// [`DnsEvent::flags`]: the message was longer than [`DNS_PAYLOAD_CAPACITY`],
+/// so `payload` holds only its start.
+pub const DNS_FLAG_TRUNCATED: u16 = 2;
+
 /// Raw DNS message observed on a DNS socket.
 ///
 /// The kernel copies the message and nothing else; userspace parses the
@@ -250,7 +257,8 @@ pub struct DnsEvent {
     pub fd: i32,
     /// Number of valid bytes in `payload`.
     pub payload_len: u16,
-    pub _pad0: u16,
+    /// `DNS_FLAG_*` bits.
+    pub flags: u16,
     pub _pad1: u32,
     /// Sensor-minted identity for the process that owns the socket.
     pub process_start_time: u64,
