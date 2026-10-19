@@ -1,6 +1,6 @@
 //! Per-consumer result stores keyed by file identity, bounded by recency.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::job::ResolvePlan;
 use super::{Artifact, ArtifactNeeds, ArtifactSignature, PeMetadata};
@@ -9,6 +9,8 @@ use crate::models::{MatchDebugLevel, YaraRuleMatch};
 use crate::utils::file_identity::FileIdentity;
 
 pub(super) const ARTIFACT_STORE_CAPACITY: usize = 10_000;
+/// Eviction frees `capacity / 20` extra slots, amortizing its full-map scans.
+const EVICTION_HEADROOM_DIVISOR: usize = 20;
 
 pub(super) struct Cached<T> {
     pub(super) value: T,
@@ -203,30 +205,49 @@ impl ArtifactStores {
         self.signatures.clear();
     }
 
+    /// Trims to `capacity` less a headroom, so the full-map scans below are
+    /// paid once per batch of inserts instead of once per insert.
     fn evict(&mut self) {
-        while self.recency.len() > self.capacity {
-            let Some(identity) = self
-                .recency
-                .iter()
-                .min_by_key(|(_, used)| **used)
-                .map(|(identity, _)| identity.clone())
-            else {
-                break;
-            };
-            self.recency.remove(&identity);
-            self.pe.remove(&identity);
-            self.hashes.remove(&identity);
-            self.imphashes.remove(&identity);
-            self.signatures.remove(&identity);
-            self.yara.retain(|key, _| key.identity != identity);
-            self.evicted = self.evicted.saturating_add(1);
+        if self.recency.len() <= self.capacity {
+            return;
         }
+        let keep = self
+            .capacity
+            .saturating_sub(self.eviction_headroom())
+            .max(1);
+        let excess = self.recency.len().saturating_sub(keep);
+        let mut by_age: Vec<(u64, &FileIdentity)> = self
+            .recency
+            .iter()
+            .map(|(identity, used)| (*used, identity))
+            .collect();
+        by_age.select_nth_unstable_by_key(excess - 1, |(used, _)| *used);
+        let victims: HashSet<FileIdentity> = by_age[..excess]
+            .iter()
+            .map(|(_, identity)| (*identity).clone())
+            .collect();
+        for identity in &victims {
+            self.recency.remove(identity);
+            self.pe.remove(identity);
+            self.hashes.remove(identity);
+            self.imphashes.remove(identity);
+            self.signatures.remove(identity);
+        }
+        if !self.yara.is_empty() {
+            self.yara.retain(|key, _| !victims.contains(&key.identity));
+        }
+        self.evicted = self.evicted.saturating_add(victims.len() as u64);
+    }
+
+    fn eviction_headroom(&self) -> usize {
+        (self.capacity / EVICTION_HEADROOM_DIVISOR).max(1)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::file_identity;
 
     #[test]
     fn stale_yara_generation_cannot_move_the_store_backward() {
@@ -234,5 +255,94 @@ mod tests {
         stores.invalidate_yara(Some(2));
         stores.invalidate_yara(Some(0));
         assert_eq!(stores.yara_generation, Some(2));
+    }
+
+    fn seed(stores: &mut ArtifactStores, n: u64) {
+        let identity = file_identity::synthetic(n);
+        stores.touch(&identity);
+        stores.hashes.insert(
+            identity.clone(),
+            Cached {
+                value: ComputedHashes::default(),
+            },
+        );
+        stores.pe.insert(identity.clone(), Cached { value: None });
+        stores
+            .imphashes
+            .insert(identity.clone(), Cached { value: None });
+        stores.yara.insert(
+            YaraCacheKey {
+                identity,
+                generation: 1,
+                match_debug: MatchDebugLevel::Off,
+            },
+            Cached { value: Vec::new() },
+        );
+        stores.evict();
+    }
+
+    #[test]
+    fn eviction_drops_the_oldest_identities_from_every_part_in_one_batch() {
+        let mut stores = ArtifactStores::new(100);
+        for n in 0..100 {
+            seed(&mut stores, n);
+        }
+        assert_eq!(stores.recency.len(), 100);
+        assert_eq!(stores.evicted, 0);
+
+        seed(&mut stores, 100);
+        // 101 entries trims to 100 - 5 headroom, evicting the 6 oldest.
+        assert_eq!(stores.recency.len(), 95);
+        assert_eq!(stores.evicted, 6);
+        for map_len in [
+            stores.hashes.len(),
+            stores.pe.len(),
+            stores.imphashes.len(),
+            stores.yara.len(),
+        ] {
+            assert_eq!(map_len, 95);
+        }
+        for n in 0..6 {
+            let id = file_identity::synthetic(n);
+            assert!(!stores.hashes.contains_key(&id));
+            assert!(!stores.recency.contains_key(&id));
+        }
+        for n in 6..=100 {
+            assert!(stores.hashes.contains_key(&file_identity::synthetic(n)));
+        }
+    }
+
+    #[test]
+    fn the_store_stays_bounded_and_keeps_the_newest_identity() {
+        for capacity in [1, 2, 7, 100] {
+            let mut stores = ArtifactStores::new(capacity);
+            for n in 0..1_000 {
+                seed(&mut stores, n);
+                assert!(stores.recency.len() <= capacity);
+                assert!(stores.hashes.contains_key(&file_identity::synthetic(n)));
+            }
+        }
+    }
+
+    /// `cargo test --release store_eviction_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore = "timing probe, not a correctness test"]
+    fn store_eviction_cost() {
+        for (capacity, seeded) in [(10_000usize, 10_000u64), (30_000, 10_000)] {
+            let mut stores = ArtifactStores::new(capacity);
+            for n in 0..seeded {
+                seed(&mut stores, n);
+            }
+            let ops = 20_000u64;
+            let start = std::time::Instant::now();
+            for n in seeded..seeded + ops {
+                seed(&mut stores, n);
+            }
+            let per_op = start.elapsed().as_secs_f64() * 1e6 / ops as f64;
+            println!(
+                "capacity {capacity}: {per_op:.3} us/op, evicted {}",
+                stores.evicted
+            );
+        }
     }
 }
