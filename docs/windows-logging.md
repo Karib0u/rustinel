@@ -44,7 +44,7 @@ Check the real policy with `auditpol /get /category:*`.
 | 4771 Kerberos pre-authentication failed | Kerberos Authentication Service (domain controllers) | `{0CCE9242-…}` | Domain controllers |
 | 4720, 4722, 4724, 4726, 4738, 4765, 4766, 4781, 4794 user accounts | User Account Management | `{0CCE9235-…}` | Success |
 | 4728, 4732, 4756 group membership | Security Group Management | `{0CCE9237-…}` | Success |
-| 4740 account lockout | User Account Management | `{0CCE9235-…}` | Success |
+| 4740 account lockout | Account Lockout | `{0CCE9217-…}` | Success |
 | 4741, 4743 computer accounts | Computer Account Management (domain controllers) | `{0CCE9236-…}` | Domain controllers |
 | 4719, 4817 audit policy changed | Audit Policy Change | `{0CCE922F-…}` | Success |
 | 1102 Security log cleared | None, always written | | Always |
@@ -110,7 +110,23 @@ Events 4672 (special privileges assigned), 5140 (network share accessed), and 47
 
 They are off in Rustinel by default because 4672 is written for every administrative logon and 5140 for every connection to a share.
 Their rate follows logon and file-server traffic, not attacker activity, so measure it on a representative host before enabling them fleet-wide.
-Account lockout (4740) is collected by default: it is written only when an account crosses the lockout threshold, on the domain controller or on the local machine that owns the account.
+Account lockout (4740) is collected by default: it is written once when an account crosses the lockout threshold, on the domain controller or on the local machine that owns the account.
+
+Measured on a Windows 11 lab host (`lab-windows`, 2026-10-19, French locale), with the lockout threshold at 10:
+
+| Event | Rate | How measured |
+| --- | --- | --- |
+| 4740 | One per lockout, none in 5 days of ordinary use | 12 bad network logons against a throwaway local account produced exactly 1 |
+| 4672 | About one per logon: 3,522 against 3,531 4624 events, with 81 to 1,821 per day (average 33 per hour at the daily peak of 1,821) | Counted in the existing Security log, 14 to 19 October |
+| 5140 | One per new share session, not per file operation: 9 for 9 distinct tree connects, but 2 for 200 reconnects of the same loopback share | Audit enabled for the test, then restored |
+| 4799 | One per enumeration: 50 for 50 `net localgroup`, 307 in 5 days of lab work | Counted in the log and by test |
+
+These are a quiet workstation's rates.
+A file server sees 5140 per client session and a terminal server sees 4672 per logon, so expect orders of magnitude more there.
+4672 and 5140 carry no attacker-specific signal on their own, which is why they stay behind the option.
+
+The 4740 `Subject*` fields name the machine account (`SYSTEM`), not the caller.
+Use `CallerComputerName`, which is empty for a lockout caused on the local machine, to find the source.
 
 ## PowerShell module logging
 
