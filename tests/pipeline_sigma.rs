@@ -78,6 +78,106 @@ level: high
     assert_ecs_field_eq(&ecs_json(&alert), "event.dataset", "edr.windefend");
 }
 
+fn defender_detection(event_id: u16, threat: &str, path: &str) -> RawEvent {
+    let mut fields = SecurityAuditFields::default();
+    fields.insert("Provider_Name", "Microsoft-Windows-Windows Defender");
+    fields.insert("Threat Name", threat);
+    fields.insert("ThreatName", threat);
+    fields.insert("Signature", threat);
+    fields.insert("Path", path);
+    if let Some(file) = path
+        .split(';')
+        .map(str::trim)
+        .find_map(|resource| resource.strip_prefix("file:_"))
+    {
+        fields.insert("Filename", file);
+    }
+    RawEvent {
+        process_name: None,
+        provenance: Default::default(),
+        platform: Platform::Windows,
+        provider: "windows_event_log",
+        action: SensorAction::Create,
+        normalization: SensorNormalization {
+            event_id,
+            action_code: 0,
+        },
+        pid: None,
+        timestamp: std::time::SystemTime::now(),
+        source_seq: Some(1),
+        process_start_key: None,
+        parent_process_start_key: None,
+        payload: RawPayload::Defender(fields),
+    }
+}
+
+#[test]
+fn product_less_antivirus_rules_match_defender_detections() {
+    let fixture = SigmaFixture::new();
+    fixture.write_rule(
+        "av_hacktool.yml",
+        r#"title: Antivirus Hacktool Signature
+logsource:
+  category: antivirus
+detection:
+  selection:
+    Signature|contains:
+      - 'HackTool'
+      - 'Mimikatz'
+  condition: selection
+level: high
+"#,
+    );
+    fixture.write_rule(
+        "av_path.yml",
+        r#"title: Antivirus Relevant File Path
+logsource:
+  category: antivirus
+detection:
+  selection:
+    Filename|contains: 'mimikatz.exe'
+  condition: selection
+level: high
+"#,
+    );
+    let harness = TestNormalizer::new();
+    let engine = load_engine(Platform::Windows, &fixture);
+    // The default match mode reports the best rule per event, so each rule
+    // is isolated by an event the other cannot match.
+    for event_id in [1116, 1117] {
+        for (threat, path, expected) in [
+            (
+                "HackTool:Win32/Mimikatz.D",
+                r"file:_C:\Users\a\x.bin",
+                "Antivirus Hacktool Signature",
+            ),
+            (
+                "Trojan:Win32/Other",
+                r"process:_pid:4; file:_C:\Tools\mimikatz.exe",
+                "Antivirus Relevant File Path",
+            ),
+        ] {
+            let normalized = harness
+                .normalizer
+                .normalize(&defender_detection(event_id, threat, path))
+                .unwrap();
+            let names: Vec<_> = engine
+                .check_event(&normalized)
+                .into_iter()
+                .map(|alert| alert.rule_name)
+                .collect();
+            assert_eq!(names, [expected], "event {event_id} {threat}");
+        }
+    }
+
+    // Other Defender events are not detections.
+    let other = harness
+        .normalizer
+        .normalize(&defender_detection(1121, "HackTool:Win32/Mimikatz.D", "x"))
+        .unwrap();
+    assert!(engine.check_event(&other).is_empty());
+}
+
 fn load_engine(platform: Platform, fixture: &SigmaFixture) -> Engine {
     let mut engine = Engine::new_for_platform(platform);
     engine

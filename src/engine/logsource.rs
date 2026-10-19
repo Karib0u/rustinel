@@ -374,6 +374,8 @@ impl Engine {
                 LogSourceKey::from_parts(Some("windows"), Some("system"), Some("service_creation")),
                 LogSourceKey::from_parts(Some("windows"), Some("security"), None),
                 LogSourceKey::from_parts(Some("windows"), Some("windefend"), None),
+                // SigmaHQ's product-less AV verdict rules: Defender detections.
+                LogSourceKey::from_parts(None, None, Some("antivirus")),
                 LogSourceKey::from_parts(Some("windows"), Some("application"), None),
                 LogSourceKey::from_parts(
                     Some("windows"),
@@ -738,6 +740,9 @@ impl Engine {
                     Some("windefend"),
                     None,
                 ));
+                if matches!(event.event_id, 1116 | 1117) {
+                    aliases.push(LogSourceKey::from_parts(None, None, Some("antivirus")));
+                }
             }
             EventCategory::Application => {
                 aliases.push(LogSourceKey::from_parts(

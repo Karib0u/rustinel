@@ -599,6 +599,15 @@ const DEFENDER_CHANNEL: &str = "Microsoft-Windows-Windows Defender/Operational";
 const DEFENDER_FIELD_REASON: &str = "the Defender event template supplies this value";
 
 macro_rules! defender_fields {
+    ($($field:literal),*; aliases: $($alias:literal),*; unreleased: $($new:literal),* $(,)?) => {
+        &[
+            always_value("Channel", SINCE_DEFENDER, DEFENDER_CHANNEL),
+            always("Provider_Name", SINCE_DEFENDER),
+            $(conditional($field, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+            $(conditional($alias, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+            $(conditional($new, Some(UNRELEASED), DEFENDER_FIELD_REASON),)*
+        ]
+    };
     ($($field:literal),*; aliases: $($alias:literal),* $(,)?) => {
         &[
             always_value("Channel", SINCE_DEFENDER, DEFENDER_CHANNEL),
@@ -738,7 +747,7 @@ const WINDOWS_DEFENDER_1116: &[FieldContract] = defender_fields!(
     "Additional Actions String",
     "Remediation User",
     "Security intelligence Version",
-    "Engine Version"; aliases: "ProcessName", "SourceName", "ThreatName"
+    "Engine Version"; aliases: "ProcessName", "SourceName", "ThreatName"; unreleased: "Signature", "Filename"
 );
 const WINDOWS_DEFENDER_1121: &[FieldContract] = defender_fields!(
     "Product Name",

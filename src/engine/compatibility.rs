@@ -1432,6 +1432,8 @@ fn contract_matches_logsource(contract: &EventFieldContract, logsource: &LogSour
             "registry_add" => ("registry_event", Some(SensorAction::Create)),
             "registry_set" => ("registry_event", Some(SensorAction::Set)),
             "registry_delete" => ("registry_event", Some(SensorAction::Delete)),
+            // Defender detections: Operational 1116 and 1117.
+            "antivirus" => ("windefend", None),
             "network" if logsource.service.as_deref() == Some("connection") => {
                 ("network_connection", None)
             }
@@ -1441,6 +1443,9 @@ fn contract_matches_logsource(contract: &EventFieldContract, logsource: &LogSour
         if contract.category != mapped
             || action.is_some_and(|action| contract.action != Some(action))
         {
+            return false;
+        }
+        if category == "antivirus" && !matches!(contract.event_id, Some(1116 | 1117)) {
             return false;
         }
     }
@@ -2105,6 +2110,34 @@ detection:
             .reasons
             .iter()
             .any(|reason| reason.code == ReasonCode::InactiveCollector));
+    }
+
+    #[test]
+    fn product_less_antivirus_rule_fires_on_windows_only() {
+        let rule = r#"title: Antivirus Hacktool Signature
+logsource:
+  category: antivirus
+detection:
+  selection:
+    Signature|contains: HackTool
+  condition: selection
+"#;
+        let windows = report(rule, Platform::Windows);
+        assert_ne!(
+            windows.documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+        for platform in [Platform::Linux, Platform::MacOS] {
+            let other = report(rule, platform);
+            assert_eq!(
+                other.documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire
+            );
+            assert_eq!(
+                other.documents[0].reasons[0].code,
+                ReasonCode::UnknownLogsource
+            );
+        }
     }
 
     #[test]
