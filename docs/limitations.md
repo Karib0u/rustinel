@@ -51,7 +51,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
 
 - **`Hashes`, `Imphash`, `Signed`, `Signature`, and `SignatureStatus` arrive after the event.**
   Rules on them run up to 2 seconds later, read the file as it is then, and cannot match in replay.
-  Signature fields are absent, not `false`, when verification did not finish, and revocation is not checked.
+  Signature fields are absent, not `false`, when verification did not finish, for files in an AppX or MSIX package that the signed block map does not list, and revocation is not checked.
   See [Deferred pass](detection.md#deferred-pass).
 - **Command lines can be missing or cut.**
   The ETW source cuts command lines at 1,024 characters.
