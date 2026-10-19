@@ -190,8 +190,7 @@ The sensor implements it for the aya ring buffer, and the tests implement it for
 
 Each fixture file has a `provenance` block (kernel, date, host, and what the scenario did) and a list of `{"ring", "hex"}` records in arrival order.
 Keep a file's records in order: the file drain joins relative paths to earlier directory opens.
-The checked-in fixtures are currently built from the `repr(C)` event structs rather than recorded from a kernel, and say so in their provenance.
-Replace them with recordings when you have a lab run.
+The checked-in fixtures were recorded on lab-ubuntu (kernel 7.0.0-38) and cut by hand where a provenance note says so.
 
 To record a new one on a disposable Linux machine, as root:
 
@@ -203,6 +202,7 @@ To record a new one on a disposable Linux machine, as root:
 
 Recordings contain command lines, paths, and user names from the machine.
 Read them before committing, and delete or replace anything that identifies a real person.
+Fixed-size path buffers also carry stale bytes after the terminating NUL, which can be a path the kernel handled earlier, so inspect the whole record (`strings` on the decoded hex) and zero what does not belong.
 
 ### SigmaHQ compatibility gate
 

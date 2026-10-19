@@ -78,21 +78,26 @@ fn process_ring_fixture_decodes_exec_and_exit() {
     drain_process_ring(&mut ring, &tx, &telemetry, BootTimeConverter::capture());
 
     let events = drained(&mut rx);
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 3);
     assert_eq!(events[0].action, SensorAction::Start);
-    assert_eq!(events[0].pid, Some(4001));
+    assert!(events[0].pid.is_some());
     match &events[0].payload {
         RawPayload::Process(p) => {
             assert_eq!(p.image.as_deref(), Some("/usr/bin/bash"));
-            assert_eq!(p.command_line.as_deref(), Some("bash -c id"));
+            assert_eq!(
+                p.command_line.as_deref(),
+                Some("bash -c id; echo hi > /tmp/ringfx-payload.sh")
+            );
         }
         other => panic!("expected process payload, got {other:?}"),
     }
-    assert_eq!(events[1].action, SensorAction::Stop);
+    assert_eq!(events[1].action, SensorAction::Start);
+    assert_eq!(events[2].action, SensorAction::Stop);
+    assert_eq!(events[2].pid, events[0].pid);
 
     let c = counts(&telemetry, "process");
     assert_eq!((c.received, c.decoded, c.short_reads), (4, 3, 1));
-    assert_eq!((c.emitted, c.dropped), (2, 1));
+    assert_eq!((c.emitted, c.dropped), (3, 0));
 }
 
 #[test]
@@ -106,20 +111,19 @@ fn network_ring_fixture_decodes_connect() {
     assert_eq!(events.len(), 1);
     match &events[0].payload {
         RawPayload::Network(n) => {
-            assert_eq!(n.destination_ip.as_deref(), Some("198.51.100.10"));
-            assert_eq!(n.destination_port.as_deref(), Some("443"));
-            assert_eq!(n.protocol.as_deref(), Some("tcp"));
+            assert_eq!(n.destination_port.as_deref(), Some("53"));
+            assert_eq!(n.protocol.as_deref(), Some("udp"));
         }
         other => panic!("expected network payload, got {other:?}"),
     }
 
     let c = counts(&telemetry, "network");
-    assert_eq!((c.received, c.decoded, c.short_reads), (3, 2, 1));
-    assert_eq!((c.emitted, c.dropped), (1, 1));
+    assert_eq!((c.received, c.decoded, c.short_reads), (2, 1, 1));
+    assert_eq!((c.emitted, c.dropped), (1, 0));
 }
 
 #[test]
-fn file_ring_fixture_indexes_directories_and_resolves_relative_paths() {
+fn file_ring_fixture_decodes_creates_and_internal_records() {
     let mut ring = load("file", "file");
     let (tx, mut rx) = mpsc::channel(16);
     let telemetry = LinuxEbpfCounters::new();
@@ -143,14 +147,12 @@ fn file_ring_fixture_indexes_directories_and_resolves_relative_paths() {
             other => panic!("expected file payload, got {other:?}"),
         })
         .collect();
-    assert_eq!(paths, ["/tmp/payload.sh", "/var/tmp/child.txt"]);
+    assert_eq!(paths, ["/var/tmp/ringfx", "/tmp/ringfx-payload.sh"]);
 
-    // The index reset forgot the directory, so the second relative create
-    // cannot be resolved and is counted instead of guessed.
-    assert_eq!(unresolved, 1);
+    assert_eq!(unresolved, 0);
     let c = counts(&telemetry, "file");
-    assert_eq!((c.received, c.decoded, c.short_reads), (6, 5, 1));
-    assert_eq!((c.internal, c.emitted, c.unresolved), (2, 2, 1));
+    assert_eq!((c.received, c.decoded, c.short_reads), (7, 6, 1));
+    assert_eq!((c.internal, c.emitted, c.unresolved), (4, 2, 0));
 }
 
 #[test]
