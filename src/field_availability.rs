@@ -36,7 +36,7 @@ const SINCE_SECURITY_FAMILIES: Option<&str> = Some("1.8.0");
 const SINCE_ARTIFACT_HASHES: Option<&str> = Some("1.8.0");
 /// Windows Authenticode `Signed`, `Signature` and `SignatureStatus` on image
 /// loads from artifact resolution (#320).
-const SINCE_AUTHENTICODE: Option<&str> = Some(UNRELEASED);
+const SINCE_AUTHENTICODE: Option<&str> = Some("1.11.0");
 /// Linux container context (#148).
 const SINCE_CONTAINER_CONTEXT: Option<&str> = Some("1.8.0");
 /// Identity-checked Linux process path enrichment (#231).
@@ -52,13 +52,13 @@ const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 /// WMI-Activity Operational events (#481).
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 /// Derived DNS name fields (#801).
-const SINCE_DNS_DERIVED: Option<&str> = Some(UNRELEASED);
+const SINCE_DNS_DERIVED: Option<&str> = Some("1.11.0");
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
 /// Security 4740 and the gated long-tail events 4672, 4799 and 5140 (#805).
-const SINCE_SECURITY_LONG_TAIL: Option<&str> = Some(UNRELEASED);
+const SINCE_SECURITY_LONG_TAIL: Option<&str> = Some("1.11.0");
 /// The domain-controller Security events and 5379 (#544).
-const SINCE_SECURITY_DOMAIN_CONTROLLER: Option<&str> = Some(UNRELEASED);
+const SINCE_SECURITY_DOMAIN_CONTROLLER: Option<&str> = Some("1.11.0");
 /// DNS messages cut at the capture limit keep the name they have (#804).
 const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 
@@ -281,7 +281,7 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
     ),
     conditional(
         "LogonId",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "derived from the live process token when the process still exists and its start time matches; counted in windows_process_correlation",
     ),
     conditional(
@@ -321,7 +321,7 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
     ),
     conditional(
         "CurrentDirectory",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "Microsoft-Windows-Kernel-Process does not expose the working directory, so it is read from the live process parameters when the process is still alive, its start time matches, and its memory is readable",
     ),
     never(
@@ -425,47 +425,47 @@ const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
 const WINDOWS_DRIVER_LOAD: &[FieldContract] = &[
     always_value(
         "Channel",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "Microsoft-Windows-Kernel-Process/Analytic",
     ),
     conditional(
         "ImageLoaded",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "the provider may omit the loaded image path",
     ),
     conditional(
         "ProcessId",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "the provider may omit process identity",
     ),
     conditional(
         "Image",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "the provider may omit the loading process image",
     ),
     conditional(
         "OriginalFileName",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "PE version-resource enrichment succeeds",
     ),
     conditional(
         "Product",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "PE version-resource enrichment succeeds",
     ),
     conditional(
         "Description",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "PE version-resource enrichment succeeds",
     ),
     conditional(
         "Company",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "PE version-resource enrichment succeeds",
     ),
     conditional(
         "FileVersion",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "PE version-resource enrichment succeeds",
     ),
     conditional(
@@ -485,17 +485,17 @@ const WINDOWS_DRIVER_LOAD: &[FieldContract] = &[
     ),
     never(
         "User",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "Kernel-Process image-load events contain no user identity",
     ),
     conditional(
         "Hashes",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "computed from the loaded driver after admission when a loaded rule selects on it, and seen only by those rules",
     ),
     conditional(
         "Imphash",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "computed from the loaded driver's import table after admission when a loaded rule selects on it, and seen only by those rules",
     ),
 ];
@@ -792,7 +792,7 @@ macro_rules! defender_fields {
             always("Provider_Name", SINCE_DEFENDER),
             $(conditional($field, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
             $(conditional($alias, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
-            $(conditional($new, Some(UNRELEASED), DEFENDER_FIELD_REASON),)*
+            $(conditional($new, Some("1.11.0"), DEFENDER_FIELD_REASON),)*
         ]
     };
     ($($field:literal),*; aliases: $($alias:literal),* $(,)?) => {
@@ -1804,7 +1804,7 @@ const LINUX_PROCESS: &[FieldContract] = &[
     ),
     conditional(
         "LogonId",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "the audit login UID from /proc/<pid>/loginuid, read under the same identity check as CurrentDirectory; 4294967295 means the process has no login session",
     ),
     never(
@@ -2014,7 +2014,7 @@ const MACOS_PROCESS: &[FieldContract] = &[
     ),
     never(
         "LogonId",
-        Some(UNRELEASED),
+        Some("1.11.0"),
         "Endpoint Security exec events do not carry a logon session",
     ),
     never(
@@ -2176,7 +2176,7 @@ const CREATE_REMOTE_THREAD: &[FieldContract] = &[never(
 
 /// The auditd view (#321). Linux eBPF telemetry stands for the audit records
 /// auditd would write; nothing here is read from auditd.
-const SINCE_AUDITD_VIEW: Option<&str> = Some(UNRELEASED);
+const SINCE_AUDITD_VIEW: Option<&str> = Some("1.11.0");
 
 const AUDIT_NO_KEY: &str = "an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one";
 const AUDIT_NO_UNIT: &str =

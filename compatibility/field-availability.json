@@ -139,7 +139,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "LogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived from the live process token when the process still exists and its start time matches; counted in windows_process_correlation"
     },
@@ -243,7 +243,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "CurrentDirectory",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "Microsoft-Windows-Kernel-Process does not expose the working directory, so it is read from the live process parameters when the process is still alive, its start time matches, and its memory is readable"
     },
@@ -1515,7 +1515,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryRegisteredDomain",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix"
     },
@@ -1531,7 +1531,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryLabelCount",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the label count of QueryName"
     },
@@ -1547,7 +1547,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryLongestLabel",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes"
     },
@@ -1563,7 +1563,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryNameLength",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the length of QueryName in bytes"
     },
@@ -1707,7 +1707,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryRegisteredDomain",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix"
     },
@@ -1723,7 +1723,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryLabelCount",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the label count of QueryName"
     },
@@ -1739,7 +1739,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryLongestLabel",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes"
     },
@@ -1755,7 +1755,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryNameLength",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the length of QueryName in bytes"
     },
@@ -1965,7 +1965,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signed",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "verified from the loaded file after admission when a loaded rule selects on it, and seen only by those rules; absent when verification did not complete"
     },
@@ -1978,7 +1978,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signature",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the signer's display name, set with Signed when the file carries a signature that verification could read"
     },
@@ -1991,7 +1991,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SignatureStatus",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "set with Signed: Valid, Expired, Revoked, Invalid, or Unavailable for an unsigned file"
     },
@@ -2043,7 +2043,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Channel",
-      "since": "unreleased",
+      "since": "1.11.0",
       "value": "Microsoft-Windows-Kernel-Process/Analytic",
       "availability": "always"
     },
@@ -2056,7 +2056,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ImageLoaded",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the provider may omit the loaded image path"
     },
@@ -2069,7 +2069,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the provider may omit process identity"
     },
@@ -2082,7 +2082,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the provider may omit the loading process image"
     },
@@ -2095,7 +2095,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "OriginalFileName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -2108,7 +2108,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Product",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -2121,7 +2121,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Description",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -2134,7 +2134,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Company",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -2147,7 +2147,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "FileVersion",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "PE version-resource enrichment succeeds"
     },
@@ -2160,7 +2160,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signed",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "verified from the loaded file after admission when a loaded rule selects on it, and seen only by those rules; absent when verification did not complete"
     },
@@ -2173,7 +2173,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Signature",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the signer's display name, set with Signed when the file carries a signature that verification could read"
     },
@@ -2186,7 +2186,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SignatureStatus",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "set with Signed: Valid, Expired, Revoked, Invalid, or Unavailable for an unsigned file"
     },
@@ -2199,7 +2199,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "User",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "Kernel-Process image-load events contain no user identity"
     },
@@ -2212,7 +2212,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Hashes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "computed from the loaded driver after admission when a loaded rule selects on it, and seen only by those rules"
     },
@@ -2225,7 +2225,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Imphash",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "computed from the loaded driver's import table after admission when a loaded rule selects on it, and seen only by those rules"
     },
@@ -5141,7 +5141,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Signature",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5154,7 +5154,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Filename",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5699,7 +5699,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Signature",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -5712,7 +5712,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Filename",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6257,7 +6257,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Signature",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -6270,7 +6270,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Windows Defender",
       "field": "Filename",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the Defender event template supplies this value"
     },
@@ -8188,7 +8188,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8201,7 +8201,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8214,7 +8214,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8227,7 +8227,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8240,7 +8240,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8253,7 +8253,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8266,7 +8266,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8279,7 +8279,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ShareName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8292,7 +8292,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ShareLocalPath",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8305,7 +8305,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessMask",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -8318,7 +8318,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessList",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11567,7 +11567,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11580,7 +11580,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11593,7 +11593,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11606,7 +11606,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11619,7 +11619,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11632,7 +11632,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11645,7 +11645,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -11658,7 +11658,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CallerComputerName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12334,7 +12334,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12347,7 +12347,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12360,7 +12360,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12373,7 +12373,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12386,7 +12386,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12399,7 +12399,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TicketOptions",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12412,7 +12412,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Status",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12425,7 +12425,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TicketEncryptionType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12438,7 +12438,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PreAuthType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12451,7 +12451,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12464,7 +12464,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12477,7 +12477,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CertIssuerName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12490,7 +12490,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CertSerialNumber",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12503,7 +12503,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CertThumbprint",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12516,7 +12516,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ResponseTicket",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12529,7 +12529,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountSupportedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12542,7 +12542,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountAvailableKeys",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12555,7 +12555,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceSupportedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12568,7 +12568,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceAvailableKeys",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12581,7 +12581,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DCSupportedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12594,7 +12594,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DCAvailableKeys",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12607,7 +12607,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientAdvertizedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12620,7 +12620,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SessionKeyEncryptionType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12633,7 +12633,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PreAuthEncryptionType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12659,7 +12659,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12672,7 +12672,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12685,7 +12685,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12698,7 +12698,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12711,7 +12711,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TicketOptions",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12724,7 +12724,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TicketEncryptionType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12737,7 +12737,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpAddress",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12750,7 +12750,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "IpPort",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12763,7 +12763,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Status",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12776,7 +12776,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonGuid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12789,7 +12789,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TransmittedServices",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12802,7 +12802,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RequestTicketHash",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12815,7 +12815,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ResponseTicketHash",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12828,7 +12828,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountSupportedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12841,7 +12841,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountAvailableKeys",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12854,7 +12854,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceSupportedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12867,7 +12867,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServiceAvailableKeys",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12880,7 +12880,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DCSupportedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12893,7 +12893,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DCAvailableKeys",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12906,7 +12906,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientAdvertizedEncryptionTypes",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12919,7 +12919,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SessionKeyEncryptionType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12945,7 +12945,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12958,7 +12958,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12971,7 +12971,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12984,7 +12984,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -12997,7 +12997,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectServer",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13010,7 +13010,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13023,7 +13023,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13036,7 +13036,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OperationType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13049,7 +13049,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HandleId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13062,7 +13062,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessList",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13075,7 +13075,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessMask",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13088,7 +13088,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Properties",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13101,7 +13101,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AdditionalInfo",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13114,7 +13114,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AdditionalInfo2",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13140,7 +13140,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13153,7 +13153,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13166,7 +13166,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13179,7 +13179,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13192,7 +13192,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ComputerAccountChange",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13205,7 +13205,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13218,7 +13218,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13231,7 +13231,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13244,7 +13244,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13257,7 +13257,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SamAccountName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13270,7 +13270,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DisplayName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13283,7 +13283,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserPrincipalName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13296,7 +13296,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomeDirectory",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13309,7 +13309,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HomePath",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13322,7 +13322,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ScriptPath",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13335,7 +13335,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProfilePath",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13348,7 +13348,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserWorkstations",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13361,7 +13361,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PasswordLastSet",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13374,7 +13374,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccountExpires",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13387,7 +13387,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrimaryGroupId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13400,7 +13400,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AllowedToDelegateTo",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13413,7 +13413,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OldUacValue",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13426,7 +13426,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "NewUacValue",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13439,7 +13439,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserAccountControl",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13452,7 +13452,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "UserParameters",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13465,7 +13465,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SidHistory",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13478,7 +13478,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "LogonHours",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13491,7 +13491,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DnsHostName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13504,7 +13504,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ServicePrincipalNames",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13530,7 +13530,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13543,7 +13543,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13556,7 +13556,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13569,7 +13569,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13582,7 +13582,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectServer",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13595,7 +13595,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13608,7 +13608,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13621,7 +13621,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "HandleId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13634,7 +13634,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TransactionId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13647,7 +13647,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessList",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13660,7 +13660,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessMask",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13673,7 +13673,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13686,7 +13686,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Properties",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13699,7 +13699,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "RestrictedSidCount",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13712,7 +13712,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13725,7 +13725,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13738,7 +13738,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AccessReason",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13764,7 +13764,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13777,7 +13777,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13790,7 +13790,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13803,7 +13803,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13816,7 +13816,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectServer",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13829,7 +13829,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13842,7 +13842,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13855,7 +13855,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13868,7 +13868,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13894,7 +13894,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13907,7 +13907,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13920,7 +13920,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13933,7 +13933,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13946,7 +13946,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OpCorrelationID",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13959,7 +13959,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AppCorrelationID",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13972,7 +13972,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DSName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13985,7 +13985,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DSType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -13998,7 +13998,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectDN",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14011,7 +14011,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectGUID",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14024,7 +14024,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectClass",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14050,7 +14050,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14063,7 +14063,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14076,7 +14076,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14089,7 +14089,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14102,7 +14102,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "OpCorrelationID",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14115,7 +14115,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "AppCorrelationID",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14128,7 +14128,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DSName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14141,7 +14141,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "DSType",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14154,7 +14154,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectDN",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14167,7 +14167,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectGUID",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14180,7 +14180,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ObjectClass",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14193,7 +14193,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TreeDelete",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14219,7 +14219,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14232,7 +14232,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14245,7 +14245,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14258,7 +14258,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14271,7 +14271,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14284,7 +14284,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "Type",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14297,7 +14297,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CountOfCredentialsReturned",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14310,7 +14310,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ReadOperation",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14323,7 +14323,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ReturnCode",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14336,7 +14336,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ProcessCreationTime",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14349,7 +14349,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "ClientProcessId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14375,7 +14375,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14388,7 +14388,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14401,7 +14401,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14414,7 +14414,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14427,7 +14427,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "PrivilegeList",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14453,7 +14453,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14466,7 +14466,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14479,7 +14479,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14492,7 +14492,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "SubjectLogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14505,7 +14505,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14518,7 +14518,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetDomainName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14531,7 +14531,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "TargetSid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14544,7 +14544,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CallerProcessId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -14557,7 +14557,7 @@
       "provider": "windows_event_log",
       "source": "Microsoft-Windows-Security-Auditing",
       "field": "CallerProcessName",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audited event template and host audit policy supply this field"
     },
@@ -18951,7 +18951,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "LogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the audit login UID from /proc/<pid>/loginuid, read under the same identity check as CurrentDirectory; 4294967295 means the process has no login session"
     },
@@ -19529,7 +19529,7 @@
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
       "field": "QueryRegisteredDomain",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
     },
@@ -19542,7 +19542,7 @@
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
       "field": "QueryLabelCount",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the label count of QueryName; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
     },
@@ -19555,7 +19555,7 @@
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
       "field": "QueryLongestLabel",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
     },
@@ -19568,7 +19568,7 @@
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
       "field": "QueryNameLength",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
     },
@@ -19620,7 +19620,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "type",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "SYSCALL",
         "EXECVE",
@@ -19637,7 +19637,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "SYSCALL",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "execve",
         "execveat"
@@ -19654,7 +19654,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a0",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19667,7 +19667,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a1",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19680,7 +19680,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a2",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19693,7 +19693,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a3",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19706,7 +19706,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a4",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19719,7 +19719,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a5",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19732,7 +19732,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a6",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19745,7 +19745,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "a7",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel argv snapshot joined this exec and holds that many arguments; capture stops at 32 arguments, 128 bytes each and 512 bytes in all"
     },
@@ -19758,7 +19758,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "comm",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the kernel supplied a non-empty task name"
     },
@@ -19771,7 +19771,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "euid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -19784,7 +19784,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "exe",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "always"
     },
     {
@@ -19796,7 +19796,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "name",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "always"
     },
     {
@@ -19808,7 +19808,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "nametype",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "exec telemetry does not model per-path name types"
     },
@@ -19821,7 +19821,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "key",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one"
     },
@@ -19834,7 +19834,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "unit",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "no Rustinel sensor produces service start or stop records, which carry `unit`"
     },
@@ -19846,7 +19846,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "type",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "SYSCALL",
         "PATH"
@@ -19861,7 +19861,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SYSCALL",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "the eBPF file probes do not retain which syscall produced the event"
     },
@@ -19873,7 +19873,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a0",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19885,7 +19885,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a1",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19897,7 +19897,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a2",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19909,7 +19909,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a3",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19921,7 +19921,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a4",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19933,7 +19933,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a5",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19945,7 +19945,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a6",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19957,7 +19957,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a7",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -19969,7 +19969,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "comm",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process is still present in the process cache"
     },
@@ -19981,7 +19981,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "euid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -19993,7 +19993,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "exe",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -20005,7 +20005,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "name",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "always"
     },
     {
@@ -20016,7 +20016,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "nametype",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "CREATE"
       ],
@@ -20030,7 +20030,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "key",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one"
     },
@@ -20042,7 +20042,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "unit",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "no Rustinel sensor produces service start or stop records, which carry `unit`"
     },
@@ -20054,7 +20054,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "type",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "SYSCALL",
         "PATH"
@@ -20069,7 +20069,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SYSCALL",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "the eBPF file probes do not retain which syscall produced the event"
     },
@@ -20081,7 +20081,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a0",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20093,7 +20093,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a1",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20105,7 +20105,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a2",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20117,7 +20117,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a3",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20129,7 +20129,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a4",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20141,7 +20141,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a5",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20153,7 +20153,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a6",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20165,7 +20165,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a7",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20177,7 +20177,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "comm",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process is still present in the process cache"
     },
@@ -20189,7 +20189,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "euid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -20201,7 +20201,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "exe",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -20213,7 +20213,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "name",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "always"
     },
     {
@@ -20224,7 +20224,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "nametype",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "NORMAL"
       ],
@@ -20238,7 +20238,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "key",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one"
     },
@@ -20250,7 +20250,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "unit",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "no Rustinel sensor produces service start or stop records, which carry `unit`"
     },
@@ -20262,7 +20262,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "type",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "SYSCALL",
         "PATH"
@@ -20277,7 +20277,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SYSCALL",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "the eBPF file probes do not retain which syscall produced the event"
     },
@@ -20289,7 +20289,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a0",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20301,7 +20301,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a1",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20313,7 +20313,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a2",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20325,7 +20325,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a3",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20337,7 +20337,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a4",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20349,7 +20349,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a5",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20361,7 +20361,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a6",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20373,7 +20373,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a7",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20385,7 +20385,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "comm",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process is still present in the process cache"
     },
@@ -20397,7 +20397,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "euid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -20409,7 +20409,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "exe",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -20421,7 +20421,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "name",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "always"
     },
     {
@@ -20432,7 +20432,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "nametype",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "DELETE"
       ],
@@ -20446,7 +20446,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "key",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one"
     },
@@ -20458,7 +20458,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "unit",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "no Rustinel sensor produces service start or stop records, which carry `unit`"
     },
@@ -20470,7 +20470,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "type",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "SYSCALL",
         "PATH"
@@ -20485,7 +20485,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "SYSCALL",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "the eBPF file probes do not retain which syscall produced the event"
     },
@@ -20497,7 +20497,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a0",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20509,7 +20509,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a1",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20521,7 +20521,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a2",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20533,7 +20533,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a3",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20545,7 +20545,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a4",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20557,7 +20557,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a5",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20569,7 +20569,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a6",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20581,7 +20581,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "a7",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "raw syscall arguments are not captured for file events"
     },
@@ -20593,7 +20593,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "comm",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process is still present in the process cache"
     },
@@ -20605,7 +20605,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "euid",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -20617,7 +20617,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "exe",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -20629,7 +20629,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "name",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "always"
     },
     {
@@ -20640,7 +20640,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "nametype",
-      "since": "unreleased",
+      "since": "1.11.0",
       "values": [
         "DELETE",
         "CREATE"
@@ -20655,7 +20655,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "key",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one"
     },
@@ -20667,7 +20667,7 @@
       "provider": "ebpf",
       "source": "file syscall tracepoints",
       "field": "unit",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "no Rustinel sensor produces service start or stop records, which carry `unit`"
     },
@@ -20970,7 +20970,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "LogonId",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "never",
       "reason": "Endpoint Security exec events do not carry a logon session"
     },
@@ -21596,7 +21596,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "QueryRegisteredDomain",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix"
     },
@@ -21609,7 +21609,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "QueryLabelCount",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the label count of QueryName"
     },
@@ -21622,7 +21622,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "QueryLongestLabel",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes"
     },
@@ -21635,7 +21635,7 @@
       "provider": "bpf",
       "source": "/dev/bpf",
       "field": "QueryNameLength",
-      "since": "unreleased",
+      "since": "1.11.0",
       "availability": "conditional",
       "reason": "derived read-only from QueryName: the length of QueryName in bytes"
     },
