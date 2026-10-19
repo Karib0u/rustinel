@@ -232,6 +232,7 @@ impl Engine {
                 | "dns_query"
                 | "dns"
                 | "image_load"
+                | "driver_load"
                 | "ps_script"
                 | "ps_module"
                 | "ps_classic_start"
@@ -343,6 +344,7 @@ impl Engine {
                     Some("registry_delete"),
                 ),
                 LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("image_load")),
+                LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("driver_load")),
                 LogSourceKey::from_parts(Some("windows"), Some("dns-client"), Some("dns_query")),
                 LogSourceKey::from_parts(Some("windows"), Some("dns"), Some("dns_query")),
                 LogSourceKey::from_parts(Some("windows"), Some("powershell"), Some("ps_script")),
@@ -670,6 +672,13 @@ impl Engine {
                     Some(platform_product(platform)),
                     Some(SYSMON_VIEW),
                     Some("image_load"),
+                ));
+            }
+            EventCategory::DriverLoad => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some(platform_product(platform)),
+                    Some(SYSMON_VIEW),
+                    Some("driver_load"),
                 ));
             }
             EventCategory::Scripting => {

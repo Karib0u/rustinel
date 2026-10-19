@@ -199,6 +199,64 @@ fn image_load_event_5_with_opcode_zero_is_routed() {
     assert_eq!(f.process_id.as_deref(), Some("6340"));
 }
 
+/// The image-load fixture with the loaded image and both PIDs rewritten, so
+/// the same recorded event 5 shape is classified on its actor alone.
+fn image_load_as(image: &str, payload_pid: u32, header_pid: u32) -> FixtureFile {
+    let text = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/etw/image_load.json"
+    ))
+    .replace(
+        r"\\Device\\HarddiskVolume3\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        &image.replace('\\', r"\\"),
+    )
+    .replace("\"u32\": 6340", &format!("\"u32\": {payload_pid}"))
+    .replace(
+        "\"process_id\": 6340",
+        &format!("\"process_id\": {header_pid}"),
+    );
+    load("image_load_as", &text)
+}
+
+#[test]
+fn kernel_image_load_is_a_driver_load() {
+    let driver = r"\Device\HarddiskVolume3\Windows\System32\drivers\WinRing0x64.sys";
+    for (payload_pid, header_pid) in [(4, 4), (4, 0), (0, 0)] {
+        let events = run(&image_load_as(driver, payload_pid, header_pid));
+        assert_eq!(events.len(), 1, "pids {payload_pid}/{header_pid}");
+        let event = &events[0];
+        assert_eq!(event.action, SensorAction::Load);
+        assert_eq!(event.normalization.event_id, 6, "Sysmon driver load");
+        assert_eq!(
+            event.payload.category(),
+            crate::models::EventCategory::DriverLoad
+        );
+        let RawPayload::DriverLoad(f) = &event.payload else {
+            panic!("pids {payload_pid}/{header_pid}: not a driver load");
+        };
+        assert!(f
+            .image_loaded
+            .as_deref()
+            .is_some_and(|p| p.ends_with(r"\Windows\System32\drivers\WinRing0x64.sys")));
+    }
+}
+
+#[test]
+fn user_mode_image_load_stays_an_image_load() {
+    let dll = r"\Device\HarddiskVolume3\Windows\System32\kernel32.dll";
+    // A header PID of 4 does not make a user process a driver: the payload
+    // names the process the image was mapped into.
+    for (payload_pid, header_pid) in [(6340, 6340), (6340, 4), (40, 4)] {
+        let events = run(&image_load_as(dll, payload_pid, header_pid));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].normalization.event_id, 7);
+        assert!(
+            matches!(events[0].payload, RawPayload::ImageLoad(_)),
+            "pids {payload_pid}/{header_pid}"
+        );
+    }
+}
+
 #[test]
 fn file_lifecycle_resolves_pathless_events_and_classifies_actions() {
     let events = run(&fixture!("file_lifecycle"));

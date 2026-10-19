@@ -100,6 +100,7 @@ Stable reason codes in schema version 1 are:
 | `file_change` | ✓ | | |
 | `registry_event`, `registry_*` | ✓ | | |
 | `image_load` | ✓ | | |
+| `driver_load` | ✓ | | |
 | `ps_script` | ✓ | | |
 | `ps_module` | ✓ | | |
 | `ps_classic_start` (also `service: powershell-classic`) | ✓ | | |

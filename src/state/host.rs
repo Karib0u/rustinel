@@ -432,7 +432,7 @@ impl HostState {
 
         #[cfg(windows)]
         {
-            enrich_windows_process(event, &self.process_correlation);
+            enrich_windows_process(event, &self.process_correlation, &self.command_line);
         }
 
         #[cfg(not(any(target_os = "linux", windows)))]
@@ -564,6 +564,7 @@ fn enrich_linux_process_from_details(
 fn enrich_windows_process(
     event: &mut RawEvent,
     counters: &crate::telemetry::ProcessCorrelationCounters,
+    backfill: &crate::telemetry::ProcessCommandLineCounters,
 ) {
     if event.platform != crate::vocab::Platform::Windows {
         return;
@@ -580,11 +581,21 @@ fn enrich_windows_process(
     if event.action != crate::vocab::SensorAction::Start {
         return;
     }
+    let started = std::time::Instant::now();
     let live = event
         .process_start_key
         .map(|key| crate::utils::query_live_process_at_start(process.process_id, key.start_time));
-    let (command_line, logon_id) = live.map_or((None, None), |l| (l.command_line, l.logon_id));
+    if live.is_some() {
+        backfill.record_latency(started.elapsed());
+    }
+    let (command_line, logon_id, current_directory) = live.map_or((None, None, None), |l| {
+        (l.command_line, l.logon_id, l.current_directory)
+    });
     enrich_windows_command_line(process, command_line, counters);
+    if process.current_directory.is_none() {
+        process.current_directory = current_directory;
+    }
+    backfill.record_current_directory(process.current_directory.is_some());
     if apply_windows_logon_id(process, logon_id, counters) {
         event.provenance.mark_derived("LogonId");
     }

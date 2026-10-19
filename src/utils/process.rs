@@ -211,6 +211,8 @@ pub struct LiveProcessFacts {
     pub command_line: Option<String>,
     /// Token `AuthenticationId`, formatted as Sysmon prints `LogonId` (`0x3e7`).
     pub logon_id: Option<String>,
+    /// Working directory read from the process parameters, when readable.
+    pub current_directory: Option<String>,
 }
 
 /// Format a logon session LUID the way Sysmon renders `LogonId`.
@@ -265,27 +267,33 @@ fn query_process_logon_id_from_handle(handle: HANDLE) -> Option<String> {
 /// cannot change the process between the identity check and the queries.
 #[cfg(windows)]
 pub fn query_live_process_at_start(pid: u32, start_time: u64) -> LiveProcessFacts {
-    use windows::Win32::Foundation::FILETIME;
-    use windows::Win32::System::Threading::GetProcessTimes;
+    use windows::Win32::System::Threading::PROCESS_VM_READ;
+    // The working directory needs read access to the target's memory, which a
+    // protected process refuses; it is then absent and the rest is still read.
     // SAFETY: OpenProcess takes a PID and access flags, with no pointer arguments.
-    let Ok(handle) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
-        return LiveProcessFacts::default();
+    let (handle, can_read_memory) = match unsafe {
+        OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+            false,
+            pid,
+        )
+    } {
+        Ok(handle) => (handle, true),
+        // SAFETY: as above.
+        Err(_) => match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+            Ok(handle) => (handle, false),
+            Err(_) => return LiveProcessFacts::default(),
+        },
     };
-    let mut created = FILETIME::default();
-    let mut exited = FILETIME::default();
-    let mut kernel = FILETIME::default();
-    let mut user = FILETIME::default();
-    // SAFETY: `handle` was opened above, and the four FILETIME out-pointers refer
-    // to live locals.
-    let matches =
-        unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }
-            .is_ok()
-            && ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
-                == start_time;
-    let facts = if matches {
+    let facts = if process_created_at(handle, start_time) {
         LiveProcessFacts {
             command_line: query_process_command_line_from_handle(handle),
             logon_id: query_process_logon_id_from_handle(handle),
+            current_directory: if can_read_memory {
+                query_process_current_directory_from_handle(handle)
+            } else {
+                None
+            },
         }
     } else {
         LiveProcessFacts::default()
@@ -300,6 +308,150 @@ pub fn query_live_process_at_start(pid: u32, start_time: u64) -> LiveProcessFact
 #[cfg(windows)]
 pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<String> {
     query_live_process_at_start(pid, start_time).command_line
+}
+
+#[cfg(windows)]
+fn process_created_at(handle: HANDLE, start_time: u64) -> bool {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::GetProcessTimes;
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: `handle` is a live process handle owned by the caller, and the
+    // four FILETIME out-pointers refer to live locals.
+    unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }.is_ok()
+        && ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+            == start_time
+}
+
+/// Longest working directory read from a target, in UTF-16 units.
+/// Windows caps a path at 32,767 units.
+#[cfg(windows)]
+const MAX_CURRENT_DIRECTORY_UNITS: usize = 32_768;
+
+#[cfg(windows)]
+fn read_remote<T: Copy + Default>(handle: HANDLE, address: usize) -> Option<T> {
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    let mut value = T::default();
+    let mut read = 0usize;
+    // SAFETY: the destination is a live local of exactly `size_of::<T>()`
+    // bytes, and `T` is a plain integer or pointer-sized value for which any
+    // bit pattern is valid. A bad remote address fails the call.
+    unsafe {
+        ReadProcessMemory(
+            handle,
+            address as *const _,
+            &mut value as *mut T as *mut _,
+            std::mem::size_of::<T>(),
+            Some(&mut read),
+        )
+    }
+    .ok()?;
+    (read == std::mem::size_of::<T>()).then_some(value)
+}
+
+#[cfg(windows)]
+fn read_remote_utf16(handle: HANDLE, address: usize, units: usize) -> Option<String> {
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    let mut buffer = vec![0u16; units];
+    let mut read = 0usize;
+    // SAFETY: the destination is a live buffer of exactly `units * 2` bytes. A
+    // bad remote address fails the call.
+    unsafe {
+        ReadProcessMemory(
+            handle,
+            address as *const _,
+            buffer.as_mut_ptr() as *mut _,
+            units * 2,
+            Some(&mut read),
+        )
+    }
+    .ok()?;
+    if read != units * 2 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buffer))
+}
+
+/// Read the working directory from the target's `RTL_USER_PROCESS_PARAMETERS`.
+/// Returns None when the process exited, the memory is unreadable, or the path
+/// is empty or not absolute.
+/// A 32-bit target on 64-bit Windows keeps a separate 32-bit PEB, which is read
+/// with its own offsets.
+#[cfg(windows)]
+pub fn query_process_current_directory_from_handle(handle: HANDLE) -> Option<String> {
+    const PROCESS_BASIC_INFORMATION: u32 = 0;
+    const PROCESS_WOW64_INFORMATION: u32 = 26;
+
+    let mut wow64_peb = 0usize;
+    let mut returned = 0u32;
+    // SAFETY: the output is a live `usize` and the length passed is its size.
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle,
+            PROCESS_WOW64_INFORMATION,
+            &mut wow64_peb as *mut usize as *mut u8,
+            std::mem::size_of::<usize>() as u32,
+            &mut returned,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+
+    // (address of the string buffer, length in bytes) of CurrentDirectory.DosPath.
+    let (buffer, length) = if wow64_peb != 0 {
+        // PEB32.ProcessParameters at 0x10; CurrentDirectory at 0x24 in the
+        // 32-bit RTL_USER_PROCESS_PARAMETERS, as {u16 Length, u16 Max, u32 Buffer}.
+        let params: u32 = read_remote(handle, wow64_peb + 0x10)?;
+        let length: u16 = read_remote(handle, params as usize + 0x24)?;
+        let buffer: u32 = read_remote(handle, params as usize + 0x28)?;
+        (buffer as usize, length)
+    } else {
+        // PROCESS_BASIC_INFORMATION is six pointers; PebBaseAddress is the
+        // second. PEB.ProcessParameters at 0x20; CurrentDirectory at 0x38 in
+        // RTL_USER_PROCESS_PARAMETERS, as {u16 Length, u16 Max, pad, u64 Buffer}.
+        let mut basic = [0usize; 6];
+        // SAFETY: the output is a live array and the length passed is its size.
+        let status = unsafe {
+            NtQueryInformationProcess(
+                handle,
+                PROCESS_BASIC_INFORMATION,
+                basic.as_mut_ptr() as *mut u8,
+                std::mem::size_of_val(&basic) as u32,
+                &mut returned,
+            )
+        };
+        if status != 0 || basic[1] == 0 {
+            return None;
+        }
+        let params: usize = read_remote(handle, basic[1] + 0x20)?;
+        let length: u16 = read_remote(handle, params + 0x38)?;
+        let buffer: usize = read_remote(handle, params + 0x40)?;
+        (buffer, length)
+    };
+
+    let units = usize::from(length) / 2;
+    if units == 0 || units > MAX_CURRENT_DIRECTORY_UNITS || buffer == 0 {
+        return None;
+    }
+    let path = read_remote_utf16(handle, buffer, units)?;
+    let path = path.trim_end_matches('\0').to_string();
+    is_absolute_windows_path(&path).then_some(path)
+}
+
+/// A drive-letter or UNC path, which is all a process can have as its working
+/// directory.
+#[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_absolute_windows_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    path.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/'))
 }
 
 #[cfg(target_os = "linux")]
@@ -649,6 +801,16 @@ fn read_proc_stat(pid: u32) -> Option<ProcStat> {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn working_directory_must_be_an_absolute_windows_path() {
+        for path in [r"C:\Windows\System32\", r"d:/work", r"\\server\share\dir"] {
+            assert!(is_absolute_windows_path(path), "{path}");
+        }
+        for path in ["", "relative", r"C:", r"C:dir", r"\temp"] {
+            assert!(!is_absolute_windows_path(path), "{path}");
+        }
+    }
 
     #[test]
     fn query_current_process_details_returns_linux_proc_metadata() {
