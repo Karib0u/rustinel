@@ -384,7 +384,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "telemetry.loss_alert_interval_secs",
         default_note: None,
-        description: "Window over which dropped sensor events are aggregated into one `agent::loss::sensor_events` alert per category. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts).",
+        description: "Window over which lost events are aggregated into one `agent::loss::*` alert per stage and category, covering the sensor queue, kernel-side loss and file enrichment queues. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts).",
     },
     // windows
     ConfigOption {
@@ -401,6 +401,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         key: "windows.security_filtering_platform_connections",
         default_note: None,
         description: "Read Security events 5156, 5157, and 5152: one per allowed connection, blocked connection, and dropped packet. Off by default because they are the highest-volume Security events. The host must also audit them, see [Windows host logging](windows-logging.md#filtering-platform-connections).",
+    },
+    ConfigOption {
+        key: "windows.security_long_tail_events",
+        default_note: None,
+        description: "Read Security events 4672 (special privileges assigned), 5140 (network share accessed), and 4799 (local group membership enumerated). Off by default because 4672 and 5140 follow logon and file-server traffic. The host must also audit them, see [Windows host logging](windows-logging.md#long-tail-events).",
     },
 ];
 

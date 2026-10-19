@@ -208,7 +208,7 @@ The `telemetry.json` loss counters that `rustinel doctor` reads.
 | --- | --- | --- |
 | `enabled` | `true` | Write `telemetry.json` to the log directory. |
 | `snapshot_interval_secs` | `30` | How often `telemetry.json` is rewritten. It is also written at shutdown. |
-| `loss_alert_interval_secs` | `60` | Window over which dropped sensor events are aggregated into one `agent::loss::sensor_events` alert per category. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts). |
+| `loss_alert_interval_secs` | `60` | Window over which lost events are aggregated into one `agent::loss::*` alert per stage and category, covering the sensor queue, kernel-side loss and file enrichment queues. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts). |
 
 ### `[windows]`
 
@@ -219,6 +219,7 @@ ETW delivery. Read on every platform so one file can serve a mixed fleet, used o
 | `etw_flush_interval_ms` | `20` | How often the main ETW session hands over partly filled buffers. Lower is faster alerting. `0` falls back to the 1 second ETW timer. Values below 20 are raised to 20. |
 | `etw_process_flush_interval_ms` | `5` | The same for the process session. Keep it at 10 or below: the command line is read from the live process, so slower values lose it for short-lived processes, and `0` loses most of them. |
 | `security_filtering_platform_connections` | `false` | Read Security events 5156, 5157, and 5152: one per allowed connection, blocked connection, and dropped packet. Off by default because they are the highest-volume Security events. The host must also audit them, see [Windows host logging](windows-logging.md#filtering-platform-connections). |
+| `security_long_tail_events` | `false` | Read Security events 4672 (special privileges assigned), 5140 (network share accessed), and 4799 (local group membership enumerated). Off by default because 4672 and 5140 follow logon and file-server traffic. The host must also audit them, see [Windows host logging](windows-logging.md#long-tail-events). |
 <!-- END GENERATED CONFIG REFERENCE -->
 
 ## Webhook destinations

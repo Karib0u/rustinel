@@ -55,6 +55,7 @@ fn process_event(timestamp: &str, user: &str) -> NormalizedEvent {
             parent_user: None,
             current_directory: None,
             integrity_level: None,
+            logon_id: None,
             user: Some(user.to_string()),
         }),
         process_name: None,

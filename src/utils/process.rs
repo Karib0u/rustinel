@@ -80,6 +80,8 @@ pub struct ProcessDetails {
     pub parent_image: Option<String>,
     pub parent_command_line: Option<String>,
     pub current_directory: Option<String>,
+    /// Audit login UID from `/proc/<pid>/loginuid`; `u32::MAX` means unset.
+    pub login_uid: Option<u32>,
     /// Linux `/proc/<pid>/stat` start time in clock ticks since boot.
     pub start_time: Option<u64>,
 }
@@ -202,15 +204,73 @@ pub fn query_process_command_line(pid: u32) -> Option<String> {
     cmd
 }
 
-/// Read a live command line only from the expected process lifetime.
-/// Creation time and command line use the same handle, so PID reuse cannot
-/// change the process between the identity check and the query.
+/// Live facts read from one process handle after its lifetime was verified.
 #[cfg(windows)]
-pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<String> {
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LiveProcessFacts {
+    pub command_line: Option<String>,
+    /// Token `AuthenticationId`, formatted as Sysmon prints `LogonId` (`0x3e7`).
+    pub logon_id: Option<String>,
+}
+
+/// Format a logon session LUID the way Sysmon renders `LogonId`.
+#[cfg(any(windows, test))]
+pub(crate) fn format_logon_id(low_part: u32, high_part: i32) -> String {
+    format!(
+        "0x{:x}",
+        (u64::from(high_part as u32) << 32) | u64::from(low_part)
+    )
+}
+
+/// Read the logon session of a process token. Needs only
+/// `PROCESS_QUERY_LIMITED_INFORMATION` on the process handle.
+#[cfg(windows)]
+fn query_process_logon_id_from_handle(handle: HANDLE) -> Option<String> {
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenStatistics, TOKEN_QUERY, TOKEN_STATISTICS,
+    };
+    use windows::Win32::System::Threading::OpenProcessToken;
+
+    let mut token = HANDLE::default();
+    // SAFETY: `handle` is a live process handle with query access and `token`
+    // is a live out-pointer.
+    unsafe { OpenProcessToken(handle, TOKEN_QUERY, &mut token) }.ok()?;
+    let mut statistics = TOKEN_STATISTICS::default();
+    let mut returned = 0u32;
+    // SAFETY: the buffer is a live TOKEN_STATISTICS and the length passed is
+    // its size.
+    let ok = unsafe {
+        GetTokenInformation(
+            token,
+            TokenStatistics,
+            Some(&mut statistics as *mut TOKEN_STATISTICS as *mut _),
+            std::mem::size_of::<TOKEN_STATISTICS>() as u32,
+            &mut returned,
+        )
+    }
+    .is_ok();
+    // SAFETY: `token` was opened above, is closed only here, and is not used
+    // afterwards.
+    let _ = unsafe { CloseHandle(token) };
+    ok.then(|| {
+        format_logon_id(
+            statistics.AuthenticationId.LowPart,
+            statistics.AuthenticationId.HighPart,
+        )
+    })
+}
+
+/// Read live process facts only from the expected process lifetime.
+/// Creation time, command line and token use the same handle, so PID reuse
+/// cannot change the process between the identity check and the queries.
+#[cfg(windows)]
+pub fn query_live_process_at_start(pid: u32, start_time: u64) -> LiveProcessFacts {
     use windows::Win32::Foundation::FILETIME;
     use windows::Win32::System::Threading::GetProcessTimes;
     // SAFETY: OpenProcess takes a PID and access flags, with no pointer arguments.
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+    let Ok(handle) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
+        return LiveProcessFacts::default();
+    };
     let mut created = FILETIME::default();
     let mut exited = FILETIME::default();
     let mut kernel = FILETIME::default();
@@ -222,15 +282,24 @@ pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<
             .is_ok()
             && ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
                 == start_time;
-    let command_line = if matches {
-        query_process_command_line_from_handle(handle)
+    let facts = if matches {
+        LiveProcessFacts {
+            command_line: query_process_command_line_from_handle(handle),
+            logon_id: query_process_logon_id_from_handle(handle),
+        }
     } else {
-        None
+        LiveProcessFacts::default()
     };
     // SAFETY: `handle` was opened above, is closed only here, and is not used
     // afterwards.
     let _ = unsafe { CloseHandle(handle) };
-    command_line
+    facts
+}
+
+/// Read a live command line only from the expected process lifetime.
+#[cfg(windows)]
+pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<String> {
+    query_live_process_at_start(pid, start_time).command_line
 }
 
 #[cfg(target_os = "linux")]
@@ -286,6 +355,15 @@ fn macos_process_start_time(pid: i32) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
+fn read_proc_login_uid(pid: u32) -> Option<u32> {
+    fs::read_to_string(format!("/proc/{pid}/loginuid"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+#[cfg(target_os = "linux")]
 pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
     query_process_details_with(pid, ProcessReads::FULL)
 }
@@ -328,6 +406,7 @@ pub fn query_process_details_with(pid: u32, reads: ProcessReads) -> Option<Proce
         parent_image: parent(|ppid| read_proc_link(ppid, "exe")),
         parent_command_line: parent(read_proc_cmdline),
         current_directory: read_proc_link(pid, "cwd"),
+        login_uid: read_proc_login_uid(pid),
         start_time: proc_stat.start_time,
     };
 
@@ -580,6 +659,7 @@ mod tests {
         assert!(details.command_line.is_some());
         assert!(details.parent_process_id.is_some());
         assert!(details.current_directory.is_some());
+        assert!(details.login_uid.is_some());
         assert!(details.start_time.is_some());
     }
 
@@ -750,6 +830,15 @@ mod windows_command_line_tests {
         assert!(query_process_command_line_at_start(pid, start + 1).is_none());
         assert!(query_process_command_line_at_start(4, 1).is_none());
     }
+
+    #[test]
+    fn logon_id_is_read_only_for_the_exact_lifetime() {
+        let pid = std::process::id();
+        let start = query_process_identity(pid).unwrap().start_time.unwrap();
+        let logon_id = query_live_process_at_start(pid, start).logon_id.unwrap();
+        assert!(logon_id.starts_with("0x"), "{logon_id}");
+        assert_eq!(query_live_process_at_start(pid, start + 1).logon_id, None);
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -780,5 +869,15 @@ mod macos_identity_tests {
         child.wait().expect("reap sleep");
 
         assert!(validate_process_identity(&identity).is_err());
+    }
+}
+
+#[cfg(test)]
+mod logon_id_tests {
+    #[test]
+    fn logon_id_is_formatted_like_sysmon() {
+        assert_eq!(super::format_logon_id(0x3e7, 0), "0x3e7");
+        assert_eq!(super::format_logon_id(0x1a2b3c, 0), "0x1a2b3c");
+        assert_eq!(super::format_logon_id(1, 2), "0x200000001");
     }
 }

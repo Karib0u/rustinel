@@ -181,6 +181,7 @@ pub fn process_start_event(platform: Platform) -> RawEvent {
                 current_directory: (platform != Platform::Windows)
                     .then(|| temp_current_directory(platform).to_string()),
                 integrity_level: None,
+                logon_id: None,
                 user: Some(TEST_USER.to_string()),
             },
             platform,

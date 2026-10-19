@@ -56,6 +56,7 @@ pub(super) async fn run_live(
     (runtime.seed_host_state)(&state.host);
     state.host.set_agent_alert_sink(alert_sink.clone());
     let sensors = (runtime.sensors)(&cfg, &state.host, RunMode::Live);
+    sensors.attach_loss_probe(&state.probes);
 
     let mut pipeline = LivePipeline::new(
         &cfg,

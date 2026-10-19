@@ -52,6 +52,8 @@ const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 const SINCE_DNS_DERIVED: Option<&str> = Some(UNRELEASED);
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
+/// Security 4740 and the gated long-tail events 4672, 4799 and 5140 (#805).
+const SINCE_SECURITY_LONG_TAIL: Option<&str> = Some(UNRELEASED);
 /// DNS messages cut at the capture limit keep the name they have (#804).
 const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 
@@ -233,6 +235,11 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         "IntegrityLevel",
         SINCE_1_4_1,
         "available only on process-start templates with a MandatoryLabel SID",
+    ),
+    conditional(
+        "LogonId",
+        Some(UNRELEASED),
+        "derived from the live process token when the process still exists and its start time matches; counted in windows_process_correlation",
     ),
     conditional(
         "OriginalFileName",
@@ -1148,6 +1155,17 @@ macro_rules! security_fields {
 /// template's own, read from the provider manifest on Windows 11 (all template
 /// versions merged), not from documentation.
 macro_rules! security_family {
+    // The same, for a family added after #479.
+    (long_tail: $($field:literal),+ $(,)?) => {
+        &[
+            always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
+            conditional("SubjectUserSid", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            conditional("SubjectUserName", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            conditional("SubjectDomainName", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            conditional("SubjectLogonId", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            $(conditional($field, SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON)),+
+        ]
+    };
     // The template opens with the `Subject*` identity block.
     (subject: $($field:literal),+ $(,)?) => {
         &[
@@ -1348,6 +1366,20 @@ const WINDOWS_SECURITY_ACCOUNT_REMOVED: &[FieldContract] = security_family!(subj
 const WINDOWS_SECURITY_GROUP_MEMBER_ADDED: &[FieldContract] = security_family!(subject:
     "MemberName", "MemberSid", "TargetUserName", "TargetDomainName", "TargetSid",
     "PrivilegeList", "MembershipExpirationTime",
+);
+// Account lockout and the gated long tail (#805).
+const WINDOWS_SECURITY_4740: &[FieldContract] = security_family!(long_tail:
+    "TargetUserName", "TargetDomainName", "TargetSid", "CallerComputerName",
+);
+const WINDOWS_SECURITY_4672: &[FieldContract] = security_family!(long_tail:
+    "PrivilegeList",
+);
+const WINDOWS_SECURITY_4799: &[FieldContract] = security_family!(long_tail:
+    "TargetUserName", "TargetDomainName", "TargetSid", "CallerProcessId", "CallerProcessName",
+);
+const WINDOWS_SECURITY_5140: &[FieldContract] = security_family!(long_tail:
+    "ObjectType", "IpAddress", "IpPort", "ShareName", "ShareLocalPath", "AccessMask",
+    "AccessList",
 );
 const WINDOWS_SECURITY_4765: &[FieldContract] = security_family!(subject:
     "SourceUserName", "SourceSid", "TargetUserName", "TargetDomainName", "TargetSid",
@@ -1572,6 +1604,11 @@ const LINUX_PROCESS: &[FieldContract] = &[
         SINCE_BASELINE,
         "Windows integrity levels do not exist on Linux",
     ),
+    conditional(
+        "LogonId",
+        Some(UNRELEASED),
+        "the audit login UID from /proc/<pid>/loginuid, read under the same identity check as CurrentDirectory; 4294967295 means the process has no login session",
+    ),
     never(
         "TargetImage",
         SINCE_BASELINE,
@@ -1776,6 +1813,11 @@ const MACOS_PROCESS: &[FieldContract] = &[
         "IntegrityLevel",
         SINCE_1_4_1,
         "Windows integrity levels do not exist on macOS",
+    ),
+    never(
+        "LogonId",
+        Some(UNRELEASED),
+        "Endpoint Security exec events do not carry a logon session",
     ),
     never(
         "TargetImage",
@@ -2405,6 +2447,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "security",
+        Some(5140),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_5140
+    ),
+    contract!(
+        Windows,
+        "security",
         Some(5145),
         Access,
         "windows_event_log",
@@ -2567,6 +2618,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "security",
+        Some(4740),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4740
+    ),
+    contract!(
+        Windows,
+        "security",
         Some(4741),
         Create,
         "windows_event_log",
@@ -2590,6 +2650,24 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "windows_event_log",
         "Microsoft-Windows-Security-Auditing",
         WINDOWS_SECURITY_GROUP_MEMBER_ADDED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4672),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4672
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4799),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4799
     ),
     contract!(
         Windows,

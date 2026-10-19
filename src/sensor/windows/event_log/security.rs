@@ -56,14 +56,29 @@ macro_rules! default_selects {
             // Account management.
             select!(
                 "Microsoft-Windows-Security-Auditing";
-                4720, 4722, 4724, 4726, 4728, 4732, 4738, 4741, 4743, 4756, 4765, 4766, 4781,
-                4794
+                4720, 4722, 4724, 4726, 4728, 4732, 4738, 4740, 4741, 4743, 4756, 4765, 4766,
+                4781, 4794
             ),
             // Audit policy, filtering platform policy, and device changes.
             select!("Microsoft-Windows-Security-Auditing"; 4719, 4817, 5447, 6416),
             // The Event Log service writes the log-cleared record itself.
             select!("Microsoft-Windows-Eventlog"; 1102),
         )
+    };
+}
+
+/// The long-tail families behind `windows.security_long_tail_events`.
+macro_rules! long_tail_selects {
+    () => {
+        select!("Microsoft-Windows-Security-Auditing"; 4672, 4799, 5140)
+    };
+}
+
+/// The per-connection families behind
+/// `windows.security_filtering_platform_connections`.
+macro_rules! filtering_platform_selects {
+    () => {
+        select!("Microsoft-Windows-Security-Auditing"; 5152, 5156, 5157)
     };
 }
 
@@ -84,15 +99,36 @@ const QUERY: &str = concat!(
 const QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS: &str = concat!(
     "<QueryList><Query Id=\"0\" Path=\"Security\">",
     default_selects!(),
-    select!("Microsoft-Windows-Security-Auditing"; 5152, 5156, 5157),
+    filtering_platform_selects!(),
     "</Query></QueryList>"
 );
 
-pub(super) const fn source(filtering_platform_connections: bool) -> EventLogSource {
-    let query = if filtering_platform_connections {
-        QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS
-    } else {
-        QUERY
+/// [`QUERY`] plus the long-tail events, for `windows.security_long_tail_events`.
+const QUERY_WITH_LONG_TAIL: &str = concat!(
+    "<QueryList><Query Id=\"0\" Path=\"Security\">",
+    default_selects!(),
+    long_tail_selects!(),
+    "</Query></QueryList>"
+);
+
+/// Both options.
+const QUERY_WITH_ALL: &str = concat!(
+    "<QueryList><Query Id=\"0\" Path=\"Security\">",
+    default_selects!(),
+    filtering_platform_selects!(),
+    long_tail_selects!(),
+    "</Query></QueryList>"
+);
+
+pub(super) const fn source(
+    filtering_platform_connections: bool,
+    long_tail_events: bool,
+) -> EventLogSource {
+    let query = match (filtering_platform_connections, long_tail_events) {
+        (false, false) => QUERY,
+        (true, false) => QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS,
+        (false, true) => QUERY_WITH_LONG_TAIL,
+        (true, true) => QUERY_WITH_ALL,
     };
     EventLogSource::new("security-audit", "Security", query, decode)
 }
@@ -101,6 +137,7 @@ pub(super) const fn source(filtering_platform_connections: bool) -> EventLogSour
 fn action_for_event(event_id: u16) -> SensorAction {
     match event_id {
         4624 | 4625 | 4648 | 4771 | 4776 => SensorAction::Start,
+        4740 => SensorAction::Modify,
         4697 | 4698 | 6416 => SensorAction::Register,
         4720 | 4741 => SensorAction::Create,
         1102 | 4699 | 4726 | 4743 => SensorAction::Delete,
@@ -233,7 +270,10 @@ fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, source, QUERY, QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS};
+    use super::{
+        decode, source, QUERY, QUERY_WITH_ALL, QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS,
+        QUERY_WITH_LONG_TAIL,
+    };
     use crate::engine::Engine;
     use crate::field_availability::FIELD_AVAILABILITY;
     use crate::normalizer::Normalizer;
@@ -769,6 +809,73 @@ level: high
     }
 
     #[test]
+    fn decodes_an_account_lockout_and_the_gated_long_tail() {
+        let locked = security_event(
+            4740,
+            &format!(
+                r#"    <Data Name="TargetUserName">bob</Data>
+    <Data Name="TargetDomainName">DC01</Data>
+    <Data Name="TargetSid">S-1-5-21-1-2-3-1105</Data>
+{SUBJECT}
+    <Data Name="CallerComputerName">WS-042</Data>"#
+            ),
+        );
+        let event = decode(&locked).expect("4740 should decode");
+        assert_eq!(event.action, SensorAction::Modify);
+        let RawPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("TargetUserName"), Some("bob"));
+        assert_eq!(fields.get("CallerComputerName"), Some("WS-042"));
+
+        let privileged = fields_of(
+            4672,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="PrivilegeList">SeDebugPrivilege</Data>"#
+            ),
+        );
+        assert_eq!(privileged.get("PrivilegeList"), Some("SeDebugPrivilege"));
+
+        let share = fields_of(
+            5140,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="ObjectType">File</Data>
+    <Data Name="IpAddress">10.0.0.9</Data>
+    <Data Name="IpPort">49822</Data>
+    <Data Name="ShareName">\\*\C$</Data>
+    <Data Name="ShareLocalPath">\??\C:\</Data>
+    <Data Name="AccessMask">0x1</Data>
+    <Data Name="AccessList">%%1541</Data>"#
+            ),
+        );
+        assert_eq!(share.get("ShareName"), Some(r"\\*\C$"));
+        assert_eq!(share.get("IpAddress"), Some("10.0.0.9"));
+
+        let enumerated = fields_of(
+            4799,
+            &format!(
+                r#"    <Data Name="TargetUserName">Administrators</Data>
+    <Data Name="TargetDomainName">Builtin</Data>
+    <Data Name="TargetSid">S-1-5-32-544</Data>
+{SUBJECT}
+    <Data Name="CallerProcessId">0x1a4</Data>
+    <Data Name="CallerProcessName">C:\Windows\System32\net.exe</Data>"#
+            ),
+        );
+        assert_eq!(enumerated.get("TargetSid"), Some("S-1-5-32-544"));
+        assert_eq!(
+            enumerated.get("CallerProcessName"),
+            Some(r"C:\Windows\System32\net.exe")
+        );
+    }
+
+    fn fields_of(event_id: u16, event_data: &str) -> crate::models::SecurityAuditFields {
+        fields(&security_event(event_id, event_data))
+    }
+
+    #[test]
     fn decodes_audit_policy_changes() {
         let xml = security_event(
             4719,
@@ -966,6 +1073,7 @@ level: high
     }
 
     const FILTERING_PLATFORM_CONNECTION_EVENTS: [u16; 3] = [5152, 5156, 5157];
+    const LONG_TAIL_EVENTS: [u16; 3] = [4672, 4799, 5140];
 
     #[test]
     fn the_subscription_query_covers_exactly_the_supported_events() {
@@ -986,31 +1094,48 @@ level: high
             })
             .collect();
 
-        let full = subscribed(QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS);
+        let full = subscribed(QUERY_WITH_ALL);
         assert_eq!(
             full, supported,
             "the subscription query and the decoder table must agree"
         );
 
         let default = subscribed(QUERY);
-        let gated: std::collections::BTreeSet<_> = full.difference(&default).collect();
+        let ids = |query: &str| -> Vec<u16> {
+            subscribed(query)
+                .difference(&default)
+                .map(|(_, id)| *id)
+                .collect()
+        };
         assert_eq!(
-            gated.iter().map(|(_, id)| *id).collect::<Vec<_>>(),
+            ids(QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS),
             FILTERING_PLATFORM_CONNECTION_EVENTS,
             "only the per-connection events are behind the option"
         );
-        assert_eq!(source(false).query, QUERY);
         assert_eq!(
-            source(true).query,
+            ids(QUERY_WITH_LONG_TAIL),
+            LONG_TAIL_EVENTS,
+            "only the long-tail events are behind the option"
+        );
+        assert_eq!(source(false, false).query, QUERY);
+        assert_eq!(
+            source(true, false).query,
             QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS
         );
+        assert_eq!(source(false, true).query, QUERY_WITH_LONG_TAIL);
+        assert_eq!(source(true, true).query, QUERY_WITH_ALL);
     }
 
     /// The Event Log query parser rejects an XPath of more than 23 terms; see
     /// `select!`.
     #[test]
     fn every_select_stays_within_the_event_log_term_limit() {
-        for query in [QUERY, QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS] {
+        for query in [
+            QUERY,
+            QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS,
+            QUERY_WITH_LONG_TAIL,
+            QUERY_WITH_ALL,
+        ] {
             for (provider, ids) in selects(query) {
                 assert!(
                     ids.len() <= 22,

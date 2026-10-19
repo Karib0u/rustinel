@@ -138,26 +138,43 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 
 ### Sensor loss alerts
 
-Every queue between a sensor and the detectors is bounded and sheds events rather than blocking the sensor.
-When events were dropped, Rustinel writes one alert per affected category at the end of each `telemetry.loss_alert_interval_secs` window (60 by default, `0` disables), to the alert file and to every webhook.
+Events can be lost in the kernel before a sensor reads them, in the bounded queue between a sensor and the detectors, or in the queues that feed file enrichment.
+When any of these lost events, Rustinel writes one alert per affected stage and category at the end of each `telemetry.loss_alert_interval_secs` window (60 by default, `0` disables), to the alert file and to every webhook.
 It writes one more at shutdown for any drops since the last window.
 
 | Field | Value |
 | --- | --- |
-| `rule.name` | `agent::loss::sensor_events` |
+| `rule.name` | `agent::loss::<channel>` |
 | `edr.rule.engine` | `Agent`, not a detection engine |
 | `event.dataset` | `edr.agent` |
-| `edr.agent.loss.channel` | The queue that shed events: `sensor_events` |
-| `edr.agent.loss.category` | The sensor event category, named as in `telemetry.json`. `windefend_application` is one count for both Windows Event Log sources |
-| `edr.agent.loss.dropped` | Events of that category dropped inside this window. It is a delta, not a running total, so sum it across alerts to size a gap |
+| `edr.agent.loss.channel` | The stage that lost events, see the table below |
+| `edr.agent.loss.category` | What was lost there. For `sensor_events` it is the sensor event category, named as in `telemetry.json`, where `windefend_application` is one count for both Windows Event Log sources. For the other stages it is the value in the table below |
+| `edr.agent.loss.dropped` | Events of that category lost inside this window. It is a delta, not a running total, so sum it across alerts to size a gap |
 | `edr.agent.loss.window_secs` | The window the count covers. The shutdown alert reports the configured value but covers at most that long |
 
+| `edr.agent.loss.channel` | `edr.agent.loss.category` | Platform | Meaning |
+| --- | --- | --- | --- |
+| `sensor_events` | Sensor event category | All | The queue between the sensor and the detectors was full. Detections on those events did not run |
+| `etw_session` | `kernel_buffer` | Windows | ETW discarded events because its kernel buffer pool was exhausted, summed over all sessions. The sensor never saw them. A blind sensor |
+| `ebpf_ring` | The eBPF ring, such as `process` or `file` | Linux | The kernel ring was full, so the event was not submitted. A blind sensor |
+| `ebpf_oversized` | The eBPF ring | Linux | The record was larger than the ring reservation. A blind sensor |
+| `ebpf_map_full` | The eBPF ring | Linux | A kernel scratch map was full. A blind sensor |
+| `macos_esf` | `endpoint_security` | macOS | Endpoint Security reported a gap in its sequence numbers. A blind sensor |
+| `macos_bpf` | `network` | macOS | `/dev/bpf` dropped packets before they were read. A blind sensor |
+| `artifact_resolution` | `artifact_enrichment` | All | Base events still reach the rules. Hashes, PE metadata and YARA results for process and loaded-image events are missing |
+| `artifact_written_files` | `written_file_enrichment` | All | Base file events still reach the rules. Hashes and YARA results for written files are missing |
+| `yara_memory_scan` | `memory_scan` | All | Base events still reach the rules. The process was not memory scanned |
+
+Stages that only appear in [`rustinel doctor`](doctor.md) or the log, not as alerts, are listed in [Telemetry loss](telemetry-loss.md#which-loss-raises-an-alert).
+
 Read an alert as: detections that needed events of that category in that window did not all run, and the host may have had matching activity that was never evaluated.
+For the enrichment stages the events themselves were evaluated, and only their file-derived fields are missing.
 The count says how many events were lost, not how many would have matched.
 `edr.rule.severity` is `Medium` and is not tuned per category.
 
 Loss alerts are written directly to the sink, so they bypass [deduplication](detection.md#deduplication) and active response never sees them.
 They use a path that does not touch the sensor queue, so a stalled alert file cannot cause more loss alerts.
+Kernel counters are read from the same sources as `rustinel doctor`, so an alert always matches what `doctor` shows.
 If the alert file's own queue is full, the loss alert is dropped like any other alert and counted in the `alert_writer` entry of [`telemetry.json`](telemetry.md), which is the only record in that case.
 
 ### ETW provider tamper alerts

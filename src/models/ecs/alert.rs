@@ -733,13 +733,16 @@ pub struct AgentTamper {
 /// What a sensor loss alert measured.
 #[derive(Serialize)]
 pub struct AgentLoss {
-    /// The bounded pipeline queue that shed events.
+    /// The stage that lost events: a bounded pipeline queue such as
+    /// `sensor_events`, or a kernel-side source such as `etw_session` or
+    /// `ebpf_ring`.
     #[serde(rename = "edr.agent.loss.channel")]
     pub channel: &'static str,
-    /// Sensor event category, as named in `telemetry.json`.
+    /// What was lost at that stage: a sensor event category as named in
+    /// `telemetry.json`, or the eBPF ring or collector that lost it.
     #[serde(rename = "edr.agent.loss.category")]
-    pub category: &'static str,
-    /// Events of that category dropped inside the window.
+    pub category: String,
+    /// Events of that category lost inside the window.
     #[serde(rename = "edr.agent.loss.dropped")]
     pub dropped: u64,
     /// Seconds the count covers. It is the configured window, except on the
