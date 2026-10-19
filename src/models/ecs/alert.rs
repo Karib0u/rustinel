@@ -694,18 +694,50 @@ pub struct EcsAlert {
     /// rather than a detection.
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub edr_agent_loss: Option<AgentLoss>,
+
+    /// Present only on `agent::lifecycle::*` alerts.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub edr_agent_lifecycle: Option<AgentLifecycle>,
+}
+
+/// Which lifecycle transition an alert reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LifecycleKind {
+    Stopping,
+    UncleanShutdown,
+}
+
+/// What a lifecycle alert reports.
+#[derive(Serialize)]
+pub struct AgentLifecycle {
+    #[serde(skip)]
+    pub kind: LifecycleKind,
+    /// Why the agent is stopping: `signal`, `service_stop`, or `sensor_failure`.
+    /// For `unclean_shutdown` it is `no_clean_stop_marker`.
+    #[serde(rename = "edr.agent.lifecycle.reason")]
+    pub reason: &'static str,
+    /// RFC 3339 time of the previous run's last telemetry snapshot, when one
+    /// was found. Only set on `unclean_shutdown`.
+    #[serde(
+        rename = "edr.agent.lifecycle.last_snapshot_at",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_snapshot_at: Option<String>,
 }
 
 /// What a sensor loss alert measured.
 #[derive(Serialize)]
 pub struct AgentLoss {
-    /// The bounded pipeline queue that shed events.
+    /// The stage that lost events: a bounded pipeline queue such as
+    /// `sensor_events`, or a kernel-side source such as `etw_session` or
+    /// `ebpf_ring`.
     #[serde(rename = "edr.agent.loss.channel")]
     pub channel: &'static str,
-    /// Sensor event category, as named in `telemetry.json`.
+    /// What was lost at that stage: a sensor event category as named in
+    /// `telemetry.json`, or the eBPF ring or collector that lost it.
     #[serde(rename = "edr.agent.loss.category")]
-    pub category: &'static str,
-    /// Events of that category dropped inside the window.
+    pub category: String,
+    /// Events of that category lost inside the window.
     #[serde(rename = "edr.agent.loss.dropped")]
     pub dropped: u64,
     /// Seconds the count covers. It is the configured window, except on the

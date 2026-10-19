@@ -537,6 +537,7 @@ impl NormalizedEvent {
                 Field::ParentCommandLine => f.parent_command_line.as_deref().map(Value::String),
                 Field::ParentUser => f.parent_user.as_deref().map(Value::String),
                 Field::User => f.user.as_deref().map(Value::String),
+                Field::LogonId => f.logon_id.as_deref().map(Value::String),
                 Field::IntegrityLevel => f.integrity_level.as_deref().map(Value::String),
                 Field::CurrentDirectory => f.current_directory.as_deref().map(Value::String),
                 Field::TargetImage => f.target_image.as_deref().map(Value::String),
@@ -704,6 +705,8 @@ pub enum EventCategory {
     Registry,
     Dns,
     ImageLoad,
+    /// A kernel image (driver) load. Carries [`ImageLoadFields`].
+    DriverLoad,
     Scripting,
     PowerShellModule,
     PowerShellClassicStart,
@@ -717,13 +720,14 @@ pub enum EventCategory {
 
 impl EventCategory {
     /// Every category, for tables that must cover each one.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Process,
         Self::Network,
         Self::File,
         Self::Registry,
         Self::Dns,
         Self::ImageLoad,
+        Self::DriverLoad,
         Self::Scripting,
         Self::PowerShellModule,
         Self::PowerShellClassicStart,
@@ -959,6 +963,7 @@ mod round_trip_tests {
                 parent_user: Some("root".to_string()),
                 current_directory: Some("/Users/analyst".to_string()),
                 integrity_level: None,
+                logon_id: None,
                 user: Some("analyst".to_string()),
             }),
             process_name: None,
@@ -1222,6 +1227,7 @@ mod round_trip_tests {
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: None,
                 original_file_name: None,
                 product: None,
@@ -1277,6 +1283,7 @@ mod round_trip_tests {
             parent_user: None,
             current_directory: Some(current_directory.to_string()),
             integrity_level: None,
+            logon_id: None,
             user: None,
             original_file_name: None,
             product: None,

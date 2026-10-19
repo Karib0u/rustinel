@@ -12,7 +12,7 @@ mod registry;
 mod threat;
 mod user;
 
-pub use alert::{AgentLoss, DnsAnswer, EcsAlert, ReplayProvenance};
+pub use alert::{AgentLifecycle, AgentLoss, DnsAnswer, EcsAlert, LifecycleKind, ReplayProvenance};
 
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
@@ -34,6 +34,31 @@ use user::apply_user_fields;
 const ECS_VERSION: &str = "9.5.0";
 const EVENT_MODULE: &str = "edr";
 
+/// What a loss alert tells the receiver, by the stage that lost the events.
+fn loss_description(loss: &AgentLoss) -> String {
+    let AgentLoss {
+        channel,
+        category,
+        dropped,
+        window_secs,
+    } = loss;
+    match *channel {
+        "sensor_events" => format!(
+            "{dropped} {category} events were dropped in {window_secs} seconds because the \
+             {channel} queue was full; detections that depend on them did not run"
+        ),
+        "artifact_resolution" | "artifact_written_files" | "yara_memory_scan" => format!(
+            "{dropped} {category} requests were dropped in {window_secs} seconds because the \
+             {channel} queue was full; the base events were still evaluated, but their hashes, \
+             PE metadata or YARA results are missing"
+        ),
+        _ => format!(
+            "{dropped} {category} events were lost in {window_secs} seconds by {channel} \
+             before the sensor could read them; detections that depend on them did not run"
+        ),
+    }
+}
+
 impl EcsAlert {
     /// An operational alert about the agent itself rather than a detection:
     /// `edr.rule.engine` is `Agent` and `event.dataset` is `edr.agent`.
@@ -41,14 +66,71 @@ impl EcsAlert {
     /// It is written straight to the sink, so it never passes through
     /// deduplication or active response.
     pub fn agent_loss(platform: Platform, timestamp: String, loss: AgentLoss) -> Self {
+        let mut ecs = Self::agent_alert(
+            platform,
+            timestamp,
+            AlertSeverity::Medium,
+            format!("agent::loss::{}", loss.channel),
+            loss_description(&loss),
+            "sensor-events-dropped",
+        );
+        ecs.edr_agent_loss = Some(loss);
+        ecs
+    }
+
+    /// An operational alert about the agent starting or stopping.
+    ///
+    /// Shaped like [`EcsAlert::agent_loss`]: it goes straight to the sink, so
+    /// it skips deduplication and active response.
+    pub fn agent_lifecycle(
+        platform: Platform,
+        timestamp: String,
+        lifecycle: AgentLifecycle,
+    ) -> Self {
+        let (severity, rule, description, action) = match lifecycle.kind {
+            LifecycleKind::Stopping => (
+                if lifecycle.reason == "sensor_failure" {
+                    AlertSeverity::High
+                } else {
+                    AlertSeverity::Low
+                },
+                "agent::lifecycle::stopping",
+                format!("The agent is shutting down (reason: {})", lifecycle.reason),
+                "agent-stopping",
+            ),
+            LifecycleKind::UncleanShutdown => (
+                AlertSeverity::High,
+                "agent::lifecycle::unclean_shutdown",
+                "The previous run did not stop cleanly: it was killed, crashed, or the host \
+                 lost power. Nothing was collected between its last snapshot and this start"
+                    .to_string(),
+                "agent-unclean-shutdown",
+            ),
+        };
+        let mut ecs = Self::agent_alert(
+            platform,
+            timestamp,
+            severity,
+            rule.to_string(),
+            description,
+            action,
+        );
+        ecs.edr_agent_lifecycle = Some(lifecycle);
+        ecs
+    }
+
+    fn agent_alert(
+        platform: Platform,
+        timestamp: String,
+        severity: AlertSeverity,
+        rule_name: String,
+        description: String,
+        action: &str,
+    ) -> Self {
         let alert = Alert {
-            severity: AlertSeverity::Medium,
-            rule_name: format!("agent::loss::{}", loss.channel),
-            rule_description: Some(format!(
-                "{} {} events were dropped in {} seconds because the {} queue was full; \
-                 detections that depend on them did not run",
-                loss.dropped, loss.category, loss.window_secs, loss.channel
-            )),
+            severity,
+            rule_name,
+            rule_description: Some(description),
             rule_id: None,
             sigma_metadata: None,
             engine: DetectionEngine::Sigma,
@@ -74,9 +156,8 @@ impl EcsAlert {
         ecs.event_dataset = format!("{EVENT_MODULE}.agent");
         ecs.event_category = vec!["host".to_string()];
         ecs.event_type = vec!["info".to_string()];
-        ecs.event_action = Some("sensor-events-dropped".to_string());
+        ecs.event_action = Some(action.to_string());
         ecs.event_code = None;
-        ecs.edr_agent_loss = Some(loss);
         ecs
     }
 }
@@ -254,6 +335,7 @@ impl From<&Alert> for EcsAlert {
             edr_match: alert.match_details.clone(),
             edr_replay: None,
             edr_agent_loss: None,
+            edr_agent_lifecycle: None,
         };
 
         // Map internal fields to ECS based on event type
@@ -668,6 +750,7 @@ mod tests {
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,
+                    logon_id: None,
                 }),
                 process_name: None,
                 provenance: Default::default(),
@@ -757,6 +840,7 @@ mod tests {
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
             }),
             process_name: None,
             provenance: Default::default(),

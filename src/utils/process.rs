@@ -80,6 +80,8 @@ pub struct ProcessDetails {
     pub parent_image: Option<String>,
     pub parent_command_line: Option<String>,
     pub current_directory: Option<String>,
+    /// Audit login UID from `/proc/<pid>/loginuid`; `u32::MAX` means unset.
+    pub login_uid: Option<u32>,
     /// Linux `/proc/<pid>/stat` start time in clock ticks since boot.
     pub start_time: Option<u64>,
 }
@@ -202,35 +204,254 @@ pub fn query_process_command_line(pid: u32) -> Option<String> {
     cmd
 }
 
-/// Read a live command line only from the expected process lifetime.
-/// Creation time and command line use the same handle, so PID reuse cannot
-/// change the process between the identity check and the query.
+/// Live facts read from one process handle after its lifetime was verified.
 #[cfg(windows)]
-pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<String> {
-    use windows::Win32::Foundation::FILETIME;
-    use windows::Win32::System::Threading::GetProcessTimes;
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LiveProcessFacts {
+    pub command_line: Option<String>,
+    /// Token `AuthenticationId`, formatted as Sysmon prints `LogonId` (`0x3e7`).
+    pub logon_id: Option<String>,
+    /// Working directory read from the process parameters, when readable.
+    pub current_directory: Option<String>,
+}
+
+/// Format a logon session LUID the way Sysmon renders `LogonId`.
+#[cfg(any(windows, test))]
+pub(crate) fn format_logon_id(low_part: u32, high_part: i32) -> String {
+    format!(
+        "0x{:x}",
+        (u64::from(high_part as u32) << 32) | u64::from(low_part)
+    )
+}
+
+/// Read the logon session of a process token. Needs only
+/// `PROCESS_QUERY_LIMITED_INFORMATION` on the process handle.
+#[cfg(windows)]
+fn query_process_logon_id_from_handle(handle: HANDLE) -> Option<String> {
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenStatistics, TOKEN_QUERY, TOKEN_STATISTICS,
+    };
+    use windows::Win32::System::Threading::OpenProcessToken;
+
+    let mut token = HANDLE::default();
+    // SAFETY: `handle` is a live process handle with query access and `token`
+    // is a live out-pointer.
+    unsafe { OpenProcessToken(handle, TOKEN_QUERY, &mut token) }.ok()?;
+    let mut statistics = TOKEN_STATISTICS::default();
+    let mut returned = 0u32;
+    // SAFETY: the buffer is a live TOKEN_STATISTICS and the length passed is
+    // its size.
+    let ok = unsafe {
+        GetTokenInformation(
+            token,
+            TokenStatistics,
+            Some(&mut statistics as *mut TOKEN_STATISTICS as *mut _),
+            std::mem::size_of::<TOKEN_STATISTICS>() as u32,
+            &mut returned,
+        )
+    }
+    .is_ok();
+    // SAFETY: `token` was opened above, is closed only here, and is not used
+    // afterwards.
+    let _ = unsafe { CloseHandle(token) };
+    ok.then(|| {
+        format_logon_id(
+            statistics.AuthenticationId.LowPart,
+            statistics.AuthenticationId.HighPart,
+        )
+    })
+}
+
+/// Read live process facts only from the expected process lifetime.
+/// Creation time, command line and token use the same handle, so PID reuse
+/// cannot change the process between the identity check and the queries.
+#[cfg(windows)]
+pub fn query_live_process_at_start(pid: u32, start_time: u64) -> LiveProcessFacts {
+    use windows::Win32::System::Threading::PROCESS_VM_READ;
+    // The working directory needs read access to the target's memory, which a
+    // protected process refuses; it is then absent and the rest is still read.
     // SAFETY: OpenProcess takes a PID and access flags, with no pointer arguments.
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
-    let mut created = FILETIME::default();
-    let mut exited = FILETIME::default();
-    let mut kernel = FILETIME::default();
-    let mut user = FILETIME::default();
-    // SAFETY: `handle` was opened above, and the four FILETIME out-pointers refer
-    // to live locals.
-    let matches =
-        unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }
-            .is_ok()
-            && ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
-                == start_time;
-    let command_line = if matches {
-        query_process_command_line_from_handle(handle)
+    let (handle, can_read_memory) = match unsafe {
+        OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+            false,
+            pid,
+        )
+    } {
+        Ok(handle) => (handle, true),
+        // SAFETY: as above.
+        Err(_) => match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+            Ok(handle) => (handle, false),
+            Err(_) => return LiveProcessFacts::default(),
+        },
+    };
+    let facts = if process_created_at(handle, start_time) {
+        LiveProcessFacts {
+            command_line: query_process_command_line_from_handle(handle),
+            logon_id: query_process_logon_id_from_handle(handle),
+            current_directory: if can_read_memory {
+                query_process_current_directory_from_handle(handle)
+            } else {
+                None
+            },
+        }
     } else {
-        None
+        LiveProcessFacts::default()
     };
     // SAFETY: `handle` was opened above, is closed only here, and is not used
     // afterwards.
     let _ = unsafe { CloseHandle(handle) };
-    command_line
+    facts
+}
+
+/// Read a live command line only from the expected process lifetime.
+#[cfg(windows)]
+pub fn query_process_command_line_at_start(pid: u32, start_time: u64) -> Option<String> {
+    query_live_process_at_start(pid, start_time).command_line
+}
+
+#[cfg(windows)]
+fn process_created_at(handle: HANDLE, start_time: u64) -> bool {
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Threading::GetProcessTimes;
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: `handle` is a live process handle owned by the caller, and the
+    // four FILETIME out-pointers refer to live locals.
+    unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }.is_ok()
+        && ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+            == start_time
+}
+
+/// Longest working directory read from a target, in UTF-16 units.
+/// Windows caps a path at 32,767 units.
+#[cfg(windows)]
+const MAX_CURRENT_DIRECTORY_UNITS: usize = 32_768;
+
+#[cfg(windows)]
+fn read_remote<T: Copy + Default>(handle: HANDLE, address: usize) -> Option<T> {
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    let mut value = T::default();
+    let mut read = 0usize;
+    // SAFETY: the destination is a live local of exactly `size_of::<T>()`
+    // bytes, and `T` is a plain integer or pointer-sized value for which any
+    // bit pattern is valid. A bad remote address fails the call.
+    unsafe {
+        ReadProcessMemory(
+            handle,
+            address as *const _,
+            &mut value as *mut T as *mut _,
+            std::mem::size_of::<T>(),
+            Some(&mut read),
+        )
+    }
+    .ok()?;
+    (read == std::mem::size_of::<T>()).then_some(value)
+}
+
+#[cfg(windows)]
+fn read_remote_utf16(handle: HANDLE, address: usize, units: usize) -> Option<String> {
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+    let mut buffer = vec![0u16; units];
+    let mut read = 0usize;
+    // SAFETY: the destination is a live buffer of exactly `units * 2` bytes. A
+    // bad remote address fails the call.
+    unsafe {
+        ReadProcessMemory(
+            handle,
+            address as *const _,
+            buffer.as_mut_ptr() as *mut _,
+            units * 2,
+            Some(&mut read),
+        )
+    }
+    .ok()?;
+    if read != units * 2 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buffer))
+}
+
+/// Read the working directory from the target's `RTL_USER_PROCESS_PARAMETERS`.
+/// Returns None when the process exited, the memory is unreadable, or the path
+/// is empty or not absolute.
+/// A 32-bit target on 64-bit Windows keeps a separate 32-bit PEB, which is read
+/// with its own offsets.
+#[cfg(windows)]
+pub fn query_process_current_directory_from_handle(handle: HANDLE) -> Option<String> {
+    const PROCESS_BASIC_INFORMATION: u32 = 0;
+    const PROCESS_WOW64_INFORMATION: u32 = 26;
+
+    let mut wow64_peb = 0usize;
+    let mut returned = 0u32;
+    // SAFETY: the output is a live `usize` and the length passed is its size.
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle,
+            PROCESS_WOW64_INFORMATION,
+            &mut wow64_peb as *mut usize as *mut u8,
+            std::mem::size_of::<usize>() as u32,
+            &mut returned,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+
+    // (address of the string buffer, length in bytes) of CurrentDirectory.DosPath.
+    let (buffer, length) = if wow64_peb != 0 {
+        // PEB32.ProcessParameters at 0x10; CurrentDirectory at 0x24 in the
+        // 32-bit RTL_USER_PROCESS_PARAMETERS, as {u16 Length, u16 Max, u32 Buffer}.
+        let params: u32 = read_remote(handle, wow64_peb + 0x10)?;
+        let length: u16 = read_remote(handle, params as usize + 0x24)?;
+        let buffer: u32 = read_remote(handle, params as usize + 0x28)?;
+        (buffer as usize, length)
+    } else {
+        // PROCESS_BASIC_INFORMATION is six pointers; PebBaseAddress is the
+        // second. PEB.ProcessParameters at 0x20; CurrentDirectory at 0x38 in
+        // RTL_USER_PROCESS_PARAMETERS, as {u16 Length, u16 Max, pad, u64 Buffer}.
+        let mut basic = [0usize; 6];
+        // SAFETY: the output is a live array and the length passed is its size.
+        let status = unsafe {
+            NtQueryInformationProcess(
+                handle,
+                PROCESS_BASIC_INFORMATION,
+                basic.as_mut_ptr() as *mut u8,
+                std::mem::size_of_val(&basic) as u32,
+                &mut returned,
+            )
+        };
+        if status != 0 || basic[1] == 0 {
+            return None;
+        }
+        let params: usize = read_remote(handle, basic[1] + 0x20)?;
+        let length: u16 = read_remote(handle, params + 0x38)?;
+        let buffer: usize = read_remote(handle, params + 0x40)?;
+        (buffer, length)
+    };
+
+    let units = usize::from(length) / 2;
+    if units == 0 || units > MAX_CURRENT_DIRECTORY_UNITS || buffer == 0 {
+        return None;
+    }
+    let path = read_remote_utf16(handle, buffer, units)?;
+    let path = path.trim_end_matches('\0').to_string();
+    is_absolute_windows_path(&path).then_some(path)
+}
+
+/// A drive-letter or UNC path, which is all a process can have as its working
+/// directory.
+#[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_absolute_windows_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    path.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/'))
 }
 
 #[cfg(target_os = "linux")]
@@ -286,6 +507,15 @@ fn macos_process_start_time(pid: i32) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
+fn read_proc_login_uid(pid: u32) -> Option<u32> {
+    fs::read_to_string(format!("/proc/{pid}/loginuid"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+#[cfg(target_os = "linux")]
 pub fn query_process_details(pid: u32) -> Option<ProcessDetails> {
     query_process_details_with(pid, ProcessReads::FULL)
 }
@@ -328,6 +558,7 @@ pub fn query_process_details_with(pid: u32, reads: ProcessReads) -> Option<Proce
         parent_image: parent(|ppid| read_proc_link(ppid, "exe")),
         parent_command_line: parent(read_proc_cmdline),
         current_directory: read_proc_link(pid, "cwd"),
+        login_uid: read_proc_login_uid(pid),
         start_time: proc_stat.start_time,
     };
 
@@ -572,6 +803,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn working_directory_must_be_an_absolute_windows_path() {
+        for path in [r"C:\Windows\System32\", r"d:/work", r"\\server\share\dir"] {
+            assert!(is_absolute_windows_path(path), "{path}");
+        }
+        for path in ["", "relative", r"C:", r"C:dir", r"\temp"] {
+            assert!(!is_absolute_windows_path(path), "{path}");
+        }
+    }
+
+    #[test]
     fn query_current_process_details_returns_linux_proc_metadata() {
         let pid = std::process::id();
         let details = query_process_details(pid).expect("current process details should exist");
@@ -580,6 +821,7 @@ mod tests {
         assert!(details.command_line.is_some());
         assert!(details.parent_process_id.is_some());
         assert!(details.current_directory.is_some());
+        assert!(details.login_uid.is_some());
         assert!(details.start_time.is_some());
     }
 
@@ -750,6 +992,15 @@ mod windows_command_line_tests {
         assert!(query_process_command_line_at_start(pid, start + 1).is_none());
         assert!(query_process_command_line_at_start(4, 1).is_none());
     }
+
+    #[test]
+    fn logon_id_is_read_only_for_the_exact_lifetime() {
+        let pid = std::process::id();
+        let start = query_process_identity(pid).unwrap().start_time.unwrap();
+        let logon_id = query_live_process_at_start(pid, start).logon_id.unwrap();
+        assert!(logon_id.starts_with("0x"), "{logon_id}");
+        assert_eq!(query_live_process_at_start(pid, start + 1).logon_id, None);
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -780,5 +1031,15 @@ mod macos_identity_tests {
         child.wait().expect("reap sleep");
 
         assert!(validate_process_identity(&identity).is_err());
+    }
+}
+
+#[cfg(test)]
+mod logon_id_tests {
+    #[test]
+    fn logon_id_is_formatted_like_sysmon() {
+        assert_eq!(super::format_logon_id(0x3e7, 0), "0x3e7");
+        assert_eq!(super::format_logon_id(0x1a2b3c, 0), "0x1a2b3c");
+        assert_eq!(super::format_logon_id(1, 2), "0x200000001");
     }
 }

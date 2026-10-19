@@ -234,6 +234,7 @@ mod tests {
             parent_command_line: None,
             current_directory: None,
             integrity_level: None,
+            logon_id: None,
             user: None,
             original_file_name: None,
             product: None,
@@ -414,7 +415,7 @@ impl HostState {
 
         #[cfg(windows)]
         {
-            enrich_windows_process(event, &self.process_correlation);
+            enrich_windows_process(event, &self.process_correlation, &self.command_line);
         }
 
         #[cfg(not(any(target_os = "linux", windows)))]
@@ -528,6 +529,12 @@ fn enrich_linux_process_from_details(
         }
         provenance.mark_derived("Image");
     }
+    if process.logon_id.is_none() {
+        process.logon_id = details.login_uid.map(|uid| uid.to_string());
+        if process.logon_id.is_some() {
+            provenance.mark_derived("LogonId");
+        }
+    }
     if process.current_directory.is_none() {
         process.current_directory = details.current_directory;
         if process.current_directory.is_some() {
@@ -540,6 +547,7 @@ fn enrich_linux_process_from_details(
 fn enrich_windows_process(
     event: &mut RawEvent,
     counters: &crate::telemetry::ProcessCorrelationCounters,
+    backfill: &crate::telemetry::ProcessCommandLineCounters,
 ) {
     if event.platform != crate::vocab::Platform::Windows {
         return;
@@ -556,10 +564,47 @@ fn enrich_windows_process(
     if event.action != crate::vocab::SensorAction::Start {
         return;
     }
-    let live = event.process_start_key.and_then(|key| {
-        crate::utils::query_process_command_line_at_start(process.process_id, key.start_time)
+    let started = std::time::Instant::now();
+    let live = event
+        .process_start_key
+        .map(|key| crate::utils::query_live_process_at_start(process.process_id, key.start_time));
+    if live.is_some() {
+        backfill.record_latency(started.elapsed());
+    }
+    let (command_line, logon_id, current_directory) = live.map_or((None, None, None), |l| {
+        (l.command_line, l.logon_id, l.current_directory)
     });
-    enrich_windows_command_line(process, live, counters);
+    enrich_windows_command_line(process, command_line, counters);
+    if process.current_directory.is_none() {
+        process.current_directory = current_directory;
+    }
+    backfill.record_current_directory(process.current_directory.is_some());
+    if apply_windows_logon_id(process, logon_id, counters) {
+        event.provenance.mark_derived("LogonId");
+    }
+}
+
+/// Record the token's logon session and count the back-fill outcome.
+/// Returns whether the field was set.
+#[cfg(any(windows, test))]
+pub(crate) fn apply_windows_logon_id(
+    process: &mut crate::sensor::RawProcessEvent,
+    live: Option<String>,
+    metrics: &crate::telemetry::ProcessCorrelationCounters,
+) -> bool {
+    use std::sync::atomic::Ordering::Relaxed;
+    match live {
+        Some(logon_id) if process.logon_id.is_none() => {
+            process.logon_id = Some(logon_id);
+            metrics.logon_id_captured.fetch_add(1, Relaxed);
+            true
+        }
+        Some(_) => false,
+        None => {
+            metrics.logon_id_missed.fetch_add(1, Relaxed);
+            false
+        }
+    }
 }
 
 #[cfg(any(windows, test))]
@@ -621,6 +666,26 @@ mod canonicalization_tests {
 
     fn state() -> Arc<HostState> {
         Arc::new(HostState::default())
+    }
+
+    #[test]
+    fn windows_logon_id_backfill_is_counted() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let counters = crate::telemetry::ProcessCorrelationCounters::default();
+        let mut process = RawProcessEvent::from_compatibility(
+            serde_json::from_value(serde_json::json!({"ProcessId": "42"})).unwrap(),
+            Platform::Windows,
+            Some(42),
+        );
+        assert!(apply_windows_logon_id(
+            &mut process,
+            Some("0x3e7".into()),
+            &counters
+        ));
+        assert_eq!(process.logon_id.as_deref(), Some("0x3e7"));
+        assert!(!apply_windows_logon_id(&mut process, None, &counters));
+        assert_eq!(counters.logon_id_captured.load(Relaxed), 1);
+        assert_eq!(counters.logon_id_missed.load(Relaxed), 1);
     }
 
     #[test]
@@ -687,6 +752,7 @@ mod canonicalization_tests {
                 parent_command_line: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: Some(RawUserId::Unix(u32::MAX)),
                 original_file_name: None,
                 product: None,
@@ -761,6 +827,7 @@ mod canonicalization_tests {
                 parent_command_line: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: Some(RawUserId::Unix(1000)),
                 original_file_name: None,
                 product: None,

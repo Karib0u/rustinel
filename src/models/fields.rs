@@ -54,7 +54,9 @@ impl EventFields {
             EventCategory::File => serde_json::from_value(payload).map(Self::FileEvent),
             EventCategory::Registry => serde_json::from_value(payload).map(Self::RegistryEvent),
             EventCategory::Dns => serde_json::from_value(payload).map(Self::DnsQuery),
-            EventCategory::ImageLoad => serde_json::from_value(payload).map(Self::ImageLoad),
+            EventCategory::ImageLoad | EventCategory::DriverLoad => {
+                serde_json::from_value(payload).map(Self::ImageLoad)
+            }
             EventCategory::Scripting => serde_json::from_value(payload).map(Self::PowerShellScript),
             EventCategory::PowerShellModule => {
                 serde_json::from_value(payload).map(Self::PowerShellModule)
@@ -237,6 +239,11 @@ pub struct ProcessCreationFields {
 
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+
+    /// Logon session of the process token, formatted as Sysmon does
+    /// (`0x3e7`). On Linux this is the audit login UID, `0` for root.
+    #[serde(rename = "LogonId", skip_serializing_if = "Option::is_none")]
+    pub logon_id: Option<String>,
 
     /// Internal fidelity marker consumed by normalization.
     #[serde(skip)]

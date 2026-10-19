@@ -170,8 +170,11 @@ Keep it when rotating logs, or Rustinel restarts from the oldest record.
 ## Windows process sections
 
 `windows_process_command_line` counts process starts whose command line was `attempted`, `captured`, and `missed`.
+The same live read also supplies `CurrentDirectory`: `current_directory_captured` and `current_directory_missed` count process starts with and without it.
+`backfill_queries`, `backfill_micros`, and `backfill_max_micros` give the number, total duration, and worst duration of those live reads, in microseconds.
 
 `windows_process_correlation` counts how process metadata from two ETW sources was joined: `matched`, `unmatched`, `conflicting`, `classic_unmatched`, `classic_command_line`, `classic_records`, `rundown`, `decode_failed`, and `session_failures`.
+The same block counts the logon-session back-fill: `logon_id_captured` when the live process token was read and `logon_id_missed` when it was not (the process exited first, its start time no longer matched, or the token was not readable).
 
 ## `registry`
 

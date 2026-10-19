@@ -40,6 +40,7 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `ImageSource` | ESF supplies the executable path directly |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `ImageTruncated` | ESF does not use the Linux raw-image buffer |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `IntegrityLevel` | Windows integrity levels do not exist on macOS |
+| `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `LogonId` | Endpoint Security exec events do not carry a logon session |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `OriginalFileName` | PE version resources are Windows-only |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `Product` | PE version resources are Windows-only |
 | `sysmon` | macos | `process_creation` | `1 / start` | `Endpoint Security exec` | `TargetImage` | a process-creation event has no target process |
@@ -60,6 +61,9 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `create_remote_thread` | `8` | `none` | `*` | no Rustinel sensor produces remote-thread creation telemetry |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `QueryTruncated` | ETW delivers whole DNS Client events |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `RecordType` | the subscribed DNS Client events do not expose the query record type |
+| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `Signature` | Kernel-Process image-load events contain no signer identity |
+| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `Signed` | Kernel-Process image-load events contain no Authenticode result |
+| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `CreationUtcTime` | Kernel-File reports the information class, not the new timestamp |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `PathTruncated` | ETW delivers a complete path or no attributable event |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `PreviousCreationUtcTime` | Kernel-File reports the information class, not the old timestamp |
@@ -69,7 +73,6 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |
 | `sysmon` | windows | `pipe_created` | `17` | `Microsoft-Windows-Kernel-File` | `*` | named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW |
 | `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `CgroupId` | Windows process events do not have a Linux kernel cgroup identifier |
-| `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `CurrentDirectory` | Microsoft-Windows-Kernel-Process does not expose the working directory |
 | `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `TargetImage` | a process-creation event has no target process |
 | `sysmon` | windows | `service_creation` | `7045 / register` | `Service Control Manager` | `Image` | System event 7045 does not carry a creating process image |
 | `sysmon` | windows | `service_creation` | `7045 / register` | `Service Control Manager` | `ProcessId` | System event 7045 does not carry process identity |

@@ -25,13 +25,17 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Result};
-use endpoint_sec::{
-    Client, Event, EventClose, EventCreate, EventCreateDestinationFile, EventExec, EventRename,
-    EventRenameDestinationFile, EventUnlink, Message,
-};
+use endpoint_sec::{Client, Message};
 use endpoint_sec_sys::{es_event_type_t, NewClientError};
 use tokio::sync::mpsc::Sender;
 use tracing::{info, warn};
+
+#[cfg(test)]
+mod fixture_tests;
+mod recorder;
+mod view;
+
+use view::{EsDestination, EsEvent, EsExec, EsFile, EsMessage, EsTime};
 
 use crate::models::{FileEventFields, FileObjectIdentity};
 use crate::sensor::{
@@ -222,6 +226,7 @@ fn run_client(
                 msg.seq_num(),
                 msg.global_seq_num(),
             );
+            recorder::record(&msg);
             build_sensor_event(
                 &msg,
                 &mut identities.lock().unwrap_or_else(|e| e.into_inner()),
@@ -287,15 +292,17 @@ fn seed_exec_identities(identities: &mut ExecIdentities, processes: &crate::stat
 ///
 /// Returns `None` for messages that carry no detection signal or are not yet
 /// mapped. Per-event-class translation is filled in incrementally.
-fn build_sensor_event(msg: &Message, identities: &mut ExecIdentities) -> Option<RawEvent> {
+fn build_sensor_event(msg: &impl EsMessage, identities: &mut ExecIdentities) -> Option<RawEvent> {
     match msg.event()? {
-        Event::NotifyExec(exec) => build_exec_event(msg, &exec, identities),
-        Event::NotifyExit(_) => build_exit_event(msg, identities),
-        Event::NotifyCreate(create) => build_create_event(msg, &create),
-        Event::NotifyUnlink(unlink) => build_unlink_event(msg, &unlink),
-        Event::NotifyRename(rename) => build_rename_event(msg, &rename),
-        Event::NotifyClose(close) => build_close_event(msg, &close),
-        _ => None,
+        EsEvent::Exec(exec) => build_exec_event(msg, &exec, identities),
+        EsEvent::Exit => build_exit_event(msg, identities),
+        EsEvent::Create { destination } => build_create_event(msg, destination?),
+        EsEvent::Unlink { target } => build_unlink_event(msg, &target),
+        EsEvent::Rename {
+            source,
+            destination,
+        } => build_rename_event(msg, &source, destination?),
+        EsEvent::Close { modified, target } => build_close_event(msg, modified, &target),
     }
 }
 
@@ -437,78 +444,64 @@ struct RawExec {
 
 /// Extract the fields we care about from an ESF exec event.
 fn build_exec_event(
-    msg: &Message,
-    exec: &EventExec,
+    msg: &impl EsMessage,
+    exec: &EsExec,
     identities: &mut ExecIdentities,
 ) -> Option<RawEvent> {
-    let target = exec.target();
-    let token = target.audit_token();
+    let target = &exec.target;
 
-    let image = osstr_to_string(target.executable().path());
+    let image = target.executable.path.clone();
     if image.is_empty() {
         return None;
     }
 
-    let command_line = {
-        let parts: Vec<String> = exec.args().map(osstr_to_string).collect();
-        (!parts.is_empty()).then(|| parts.join(" "))
-    };
+    let command_line = (!exec.args.is_empty()).then(|| exec.args.join(" "));
 
-    let current_directory = exec
-        .cwd()
-        .map(|cwd| osstr_to_string(cwd.path()))
-        .filter(|value| !value.is_empty());
+    let current_directory = exec.cwd.clone().filter(|value| !value.is_empty());
 
     let event_time = event_time(msg.raw_time())?;
     let start_time = target
-        .start_time()
-        .map(system_time_nanos)
+        .start_time_ns
         .unwrap_or_else(|| system_time_nanos(event_time));
 
     // The binding probes message version >= 4 before reading parent_audit_token.
     // Older messages use ppid (or original_ppid after reparenting), marked Derived.
-    let parent_token = target
-        .parent_audit_token()
-        .map(|token| (token.pid(), token.pidversion()));
     let (parent_pid, parent_generation, parent_derived) =
-        parent_identity(target.ppid(), target.original_ppid(), parent_token);
+        parent_identity(target.ppid, target.original_ppid, target.parent_token);
     let parent_process_start_key = identities
         .parent(parent_pid as u32, parent_generation)
         // A PID-only or startup-seeded parent must have existed when the child
         // was forked.
         .filter(|key| key.start_time <= start_time);
-    if let Some(start_time) = target.start_time().map(system_time_nanos) {
+    if let Some(start_time) = target.start_time_ns {
         identities.observe(
-            token.pidversion(),
+            target.pidversion,
             ProcessStartKey {
-                pid: token.pid() as u32,
+                pid: target.pid as u32,
                 start_time,
             },
         );
     }
-    let flags = target.codesigning_flags();
-    let nonempty = |value: &OsStr| {
-        let value = osstr_to_string(value);
-        (!value.is_empty()).then_some(value)
-    };
+    let flags = target.codesigning_flags;
+    let nonempty = |value: &str| (!value.is_empty()).then(|| value.to_string());
     let metadata = RawMacOsExec {
         signed: Some(flags & 0x2000_0000 != 0),
-        pre_exec_image: nonempty(msg.process().executable().path()),
-        real_user_id: Some(token.ruid()),
-        script: exec.script().and_then(|file| nonempty(file.path())),
+        pre_exec_image: nonempty(&msg.actor().executable),
+        real_user_id: Some(target.ruid),
+        script: exec.script.as_deref().and_then(nonempty),
         signature_status: Some(signature_status(flags).to_string()),
-        signing_id: nonempty(target.signing_id()),
-        team_id: nonempty(target.team_id()),
-        cdhash: (flags & 0x2000_0000 != 0).then(|| hex::encode(target.cdhash())),
+        signing_id: nonempty(&target.signing_id),
+        team_id: nonempty(&target.team_id),
+        cdhash: (flags & 0x2000_0000 != 0).then(|| target.cdhash.clone()),
         codesigning_flags: Some(flags),
-        is_platform_binary: Some(target.is_platform_binary()),
+        is_platform_binary: Some(target.is_platform_binary),
         file_identity: Some(crate::utils::file_identity::from_stat(
-            target.executable().stat(),
+            &target.executable.stat.to_libc(),
         )),
     };
 
     Some(process_start_event(RawExec {
-        pid: token.pid() as u32,
+        pid: target.pid as u32,
         image,
         command_line,
         parent_pid,
@@ -516,7 +509,7 @@ fn build_exec_event(
         parent_derived,
         metadata,
         current_directory,
-        user: token.euid(),
+        user: target.euid,
         start_time,
         event_time,
         source_seq: msg.global_seq_num(),
@@ -556,6 +549,7 @@ fn process_start_event(raw: RawExec) -> RawEvent {
             parent_command_line: None,
             current_directory: raw.current_directory,
             integrity_level: None,
+            logon_id: None,
             user: Some(RawUserId::Unix(raw.user)),
             original_file_name: None,
             product: None,
@@ -575,14 +569,13 @@ fn process_start_event(raw: RawExec) -> RawEvent {
 ///
 /// ESF reports the exiting process as the message's acting process; the exit
 /// status is not carried in the shared payload (matching the Linux sensor).
-fn build_exit_event(msg: &Message, identities: &mut ExecIdentities) -> Option<RawEvent> {
-    let process = msg.process();
-    let token = process.audit_token();
-    identities.retire(token.pid() as u32, token.pidversion());
+fn build_exit_event(msg: &impl EsMessage, identities: &mut ExecIdentities) -> Option<RawEvent> {
+    let actor = msg.actor();
+    identities.retire(actor.pid as u32, actor.pidversion);
     Some(process_stop_event(
-        token.pid() as u32,
-        token.euid(),
-        process.start_time().map(system_time_nanos),
+        actor.pid as u32,
+        actor.euid,
+        actor.start_time_ns,
         event_time(msg.raw_time())?,
         msg.global_seq_num(),
     ))
@@ -621,6 +614,7 @@ fn process_stop_event(
             parent_command_line: None,
             current_directory: None,
             integrity_level: None,
+            logon_id: None,
             user: Some(RawUserId::Unix(user)),
             original_file_name: None,
             product: None,
@@ -678,24 +672,26 @@ struct RawFile {
 /// raw uid as a string. Username resolution is deferred to the normalizer
 /// (like the Linux sensor) to avoid a directory-services lookup per event on
 /// the high-volume file path.
-fn actor(msg: &Message) -> (u32, Option<String>, String, Option<ProcessStartKey>) {
-    let process = msg.process();
-    let token = process.audit_token();
-    let pid = token.pid() as u32;
-    let image = osstr_to_string(process.executable().path());
+fn actor(msg: &impl EsMessage) -> (u32, Option<String>, String, Option<ProcessStartKey>) {
+    let actor = msg.actor();
+    let pid = actor.pid as u32;
     (
         pid,
-        (!image.is_empty()).then_some(image),
-        token.euid().to_string(),
-        process
-            .start_time()
-            .map(system_time_nanos)
+        (!actor.executable.is_empty()).then_some(actor.executable),
+        actor.euid.to_string(),
+        actor
+            .start_time_ns
             .map(|start_time| ProcessStartKey { pid, start_time }),
     )
 }
 
-fn build_create_event(msg: &Message, create: &EventCreate) -> Option<RawEvent> {
-    let (target, identity) = create_destination(create.destination()?)?;
+/// The object a file names, from the `stat` ESF captured with the event.
+fn identity(file: &EsFile) -> Option<FileObjectIdentity> {
+    crate::utils::file_identity::object_from_stat(&file.stat.to_libc())
+}
+
+fn build_create_event(msg: &impl EsMessage, destination: EsDestination) -> Option<RawEvent> {
+    let (target, identity) = create_destination(destination)?;
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Create,
@@ -711,15 +707,14 @@ fn build_create_event(msg: &Message, create: &EventCreate) -> Option<RawEvent> {
     })
 }
 
-fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<RawEvent> {
-    let target = osstr_to_string(unlink.target().path());
+fn build_unlink_event(msg: &impl EsMessage, unlink: &EsFile) -> Option<RawEvent> {
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Delete,
         pid,
         image,
         user,
-        target,
+        target: unlink.path.clone(),
         source: None,
         event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
@@ -728,12 +723,15 @@ fn build_unlink_event(msg: &Message, unlink: &EventUnlink) -> Option<RawEvent> {
     })
 }
 
-fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<RawEvent> {
-    let target = rename_destination_path(rename.destination()?)?;
-    let source = osstr_to_string(rename.source().path());
+fn build_rename_event(
+    msg: &impl EsMessage,
+    source: &EsFile,
+    destination: EsDestination,
+) -> Option<RawEvent> {
+    let target = destination_path(destination)?;
     // A rename moves the source object, so its identity is the one that now
     // sits at the destination path.
-    let identity = crate::utils::file_identity::object_from_stat(rename.source().stat());
+    let identity = identity(source);
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Rename,
@@ -741,7 +739,7 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<RawEvent> {
         image,
         user,
         target,
-        source: (!source.is_empty()).then_some(source),
+        source: (!source.path.is_empty()).then(|| source.path.clone()),
         event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
@@ -753,57 +751,44 @@ fn build_rename_event(msg: &Message, rename: &EventRename) -> Option<RawEvent> {
 ///
 /// Filtering on `modified` keeps the high-volume close stream down to actual
 /// content changes, the closest ESF analog to Sysmon's file-change event.
-fn build_close_event(msg: &Message, close: &EventClose) -> Option<RawEvent> {
-    if !close.modified() {
+fn build_close_event(msg: &impl EsMessage, modified: bool, close: &EsFile) -> Option<RawEvent> {
+    if !modified {
         return None;
     }
-    let target = osstr_to_string(close.target().path());
-    let identity = crate::utils::file_identity::object_from_stat(close.target().stat());
     let (pid, image, user, process_start_key) = actor(msg);
     file_event(RawFile {
         action: FileAction::Modify,
         pid,
         image,
         user,
-        target,
+        target: close.path.clone(),
         source: None,
         event_time: event_time(msg.raw_time())?,
         source_seq: msg.global_seq_num(),
         process_start_key,
-        identity,
+        identity: identity(close),
     })
 }
 
 /// Resolve the absolute path of a create destination, and the created
 /// object's identity when ESF reports it as an existing file.
-fn create_destination(
-    dest: EventCreateDestinationFile,
-) -> Option<(String, Option<FileObjectIdentity>)> {
-    let (path, identity) = match dest {
-        EventCreateDestinationFile::ExistingFile { file, .. } => (
-            osstr_to_string(file.path()),
-            crate::utils::file_identity::object_from_stat(file.stat()),
-        ),
-        EventCreateDestinationFile::NewPath {
-            directory,
-            filename,
-            ..
-        } => (join_path(directory.path(), filename), None),
-        _ => return None,
+fn create_destination(dest: EsDestination) -> Option<(String, Option<FileObjectIdentity>)> {
+    let identity = match &dest {
+        EsDestination::ExistingFile(file) => identity(file),
+        EsDestination::NewPath { .. } => None,
     };
-    (!path.is_empty()).then_some((path, identity))
+    let path = destination_path(dest)?;
+    Some((path, identity))
 }
 
-/// Resolve the absolute path of a rename destination.
-fn rename_destination_path(dest: EventRenameDestinationFile) -> Option<String> {
+/// Resolve the absolute path of a create or rename destination.
+fn destination_path(dest: EsDestination) -> Option<String> {
     let path = match dest {
-        EventRenameDestinationFile::ExistingFile { file, .. } => osstr_to_string(file.path()),
-        EventRenameDestinationFile::NewPath {
+        EsDestination::ExistingFile(file) => file.path,
+        EsDestination::NewPath {
             directory,
             filename,
-            ..
-        } => join_path(directory.path(), filename),
-        _ => return None,
+        } => join_path(OsStr::new(&directory), OsStr::new(&filename)),
     };
     (!path.is_empty()).then_some(path)
 }
@@ -850,14 +835,10 @@ fn join_path(directory: &OsStr, filename: &OsStr) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn osstr_to_string(value: &OsStr) -> String {
-    value.to_string_lossy().into_owned()
-}
-
 // Read the raw timestamp because Message::time uses unchecked SystemTime addition.
-fn event_time(time: endpoint_sec_sys::timespec) -> Option<SystemTime> {
-    let seconds = u64::try_from(time.tv_sec).ok()?;
-    let nanos = u32::try_from(time.tv_nsec).ok()?;
+fn event_time(time: EsTime) -> Option<SystemTime> {
+    let seconds = u64::try_from(time.sec).ok()?;
+    let nanos = u32::try_from(time.nsec).ok()?;
     if nanos >= 1_000_000_000 {
         return None;
     }
@@ -891,9 +872,9 @@ mod tests {
 
     #[test]
     fn event_timestamp_checks_components_and_extreme_values() {
-        let raw = |seconds, nanos| endpoint_sec_sys::timespec {
-            tv_sec: seconds,
-            tv_nsec: nanos,
+        let raw = |seconds, nanos| EsTime {
+            sec: seconds,
+            nsec: nanos,
         };
         assert_eq!(event_time(raw(0, 0)), Some(SystemTime::UNIX_EPOCH));
         assert_eq!(

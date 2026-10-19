@@ -164,7 +164,9 @@ pub(super) fn decode_routed(
         EventCategory::File => unreachable!("kernel-file records are diverted above"),
         EventCategory::Registry => unreachable!("kernel-registry records are diverted above"),
         EventCategory::Dns => decode_dns(parser, record),
-        EventCategory::ImageLoad => decode_image_load(parser, record),
+        // `DriverLoad` is never routed: `decode_image_load` splits it off an
+        // image load once the loading process is known.
+        EventCategory::ImageLoad | EventCategory::DriverLoad => decode_image_load(parser, record),
         EventCategory::Scripting => decode_powershell(parser, record),
         EventCategory::PowerShellModule => decode_powershell_module(parser, record),
         EventCategory::PowerShellClassicStart => {
@@ -196,6 +198,9 @@ pub(super) fn decode_routed(
         return None;
     }
 
+    // The payload, not the route, has the last word: a kernel image load is
+    // routed as an image load and only recognised once its actor is decoded.
+    let category = decoded.payload.category();
     let normalization = mapper::normalization_for_record(category, action, record);
 
     Some(RawEvent {
@@ -385,6 +390,7 @@ fn raw_windows_process(
         parent_command_line,
         current_directory: None,
         integrity_level,
+        logon_id: None,
         user: None,
         original_file_name: None,
         product: None,
@@ -930,14 +936,13 @@ pub(super) fn decode_image_load(
     let image_loaded = try_get_string(parser, mappings.get_etw_field("ImageLoaded")?)
         .map(|path| convert_nt_to_dos(&path));
 
+    let payload_pid = try_get_uint(parser, mappings.get_etw_field("ProcessId")?);
+    let kernel_image = is_kernel_actor(payload_pid.as_deref(), record);
     let fields = ImageLoadFields {
         hashes: None,
         imphash: None,
         image_loaded,
-        process_id: actor_process_id(
-            try_get_uint(parser, mappings.get_etw_field("ProcessId")?),
-            record,
-        ),
+        process_id: actor_process_id(payload_pid, record),
         image: try_get_string(parser, mappings.get_etw_field("Image")?)
             .map(|path| convert_nt_to_dos(&path)),
         original_file_name: None,
@@ -953,8 +958,25 @@ pub(super) fn decode_image_load(
     Some(DecodedEtwEvent {
         pid: parse_optional_u32(fields.process_id.as_deref()).or(Some(record.process_id())),
         process_start_key: None,
-        payload: RawPayload::ImageLoad(fields),
+        payload: if kernel_image {
+            RawPayload::DriverLoad(fields)
+        } else {
+            RawPayload::ImageLoad(fields)
+        },
     })
+}
+
+/// Whether an image load belongs to the kernel rather than a user process.
+///
+/// Drivers load into the System process (PID 4) and early boot images report
+/// the idle process (PID 0). A user-mode DLL always names the process it was
+/// mapped into. The payload `ProcessID` wins over the header, which on a
+/// manifest record names the emitting thread's process.
+fn is_kernel_actor(payload_pid: Option<&str>, record: &impl EtwHeader) -> bool {
+    let pid = payload_pid
+        .and_then(|pid| pid.parse::<u32>().ok())
+        .unwrap_or_else(|| record.process_id());
+    matches!(pid, 0 | 4)
 }
 
 pub(super) fn decode_powershell(

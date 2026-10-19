@@ -16,6 +16,8 @@ pub struct ProcessCorrelationCounters {
     pub classic_unmatched: AtomicU64,
     pub classic_command_line: AtomicU64,
     pub session_failures: AtomicU64,
+    pub logon_id_captured: AtomicU64,
+    pub logon_id_missed: AtomicU64,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +32,8 @@ pub struct ProcessCorrelationSnapshot {
     pub classic_unmatched: u64,
     pub classic_command_line: u64,
     pub session_failures: u64,
+    pub logon_id_captured: u64,
+    pub logon_id_missed: u64,
 }
 
 impl ProcessCorrelationCounters {
@@ -44,6 +48,8 @@ impl ProcessCorrelationCounters {
             classic_unmatched: self.classic_unmatched.load(Ordering::Relaxed),
             classic_command_line: self.classic_command_line.load(Ordering::Relaxed),
             session_failures: self.session_failures.load(Ordering::Relaxed),
+            logon_id_captured: self.logon_id_captured.load(Ordering::Relaxed),
+            logon_id_missed: self.logon_id_missed.load(Ordering::Relaxed),
         }
     }
 }
@@ -54,6 +60,11 @@ pub struct ProcessCommandLineCounters {
     attempted: AtomicU64,
     captured: AtomicU64,
     missed: AtomicU64,
+    current_directory_captured: AtomicU64,
+    current_directory_missed: AtomicU64,
+    backfill_queries: AtomicU64,
+    backfill_micros: AtomicU64,
+    backfill_max_micros: AtomicU64,
 }
 
 impl ProcessCommandLineCounters {
@@ -62,7 +73,31 @@ impl ProcessCommandLineCounters {
             attempted: AtomicU64::new(0),
             captured: AtomicU64::new(0),
             missed: AtomicU64::new(0),
+            current_directory_captured: AtomicU64::new(0),
+            current_directory_missed: AtomicU64::new(0),
+            backfill_queries: AtomicU64::new(0),
+            backfill_micros: AtomicU64::new(0),
+            backfill_max_micros: AtomicU64::new(0),
         }
+    }
+
+    /// Count whether a Windows process start ended with a working directory.
+    pub fn record_current_directory(&self, captured: bool) {
+        let counter = if captured {
+            &self.current_directory_captured
+        } else {
+            &self.current_directory_missed
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Time one live back-fill of the command line and working directory.
+    pub fn record_latency(&self, elapsed: std::time::Duration) {
+        let micros = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
+        self.backfill_queries.fetch_add(1, Ordering::Relaxed);
+        self.backfill_micros.fetch_add(micros, Ordering::Relaxed);
+        self.backfill_max_micros
+            .fetch_max(micros, Ordering::Relaxed);
     }
 
     pub fn record(&self, captured: bool) {
@@ -83,6 +118,11 @@ impl ProcessCommandLineCounters {
             attempted,
             captured: self.captured.load(Ordering::Relaxed),
             missed: self.missed.load(Ordering::Relaxed),
+            current_directory_captured: self.current_directory_captured.load(Ordering::Relaxed),
+            current_directory_missed: self.current_directory_missed.load(Ordering::Relaxed),
+            backfill_queries: self.backfill_queries.load(Ordering::Relaxed),
+            backfill_micros: self.backfill_micros.load(Ordering::Relaxed),
+            backfill_max_micros: self.backfill_max_micros.load(Ordering::Relaxed),
         })
     }
 }

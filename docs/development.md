@@ -182,6 +182,7 @@ To record a new one on a disposable Windows machine, as Administrator:
 Recordings contain command lines, paths, and user names from the machine.
 Read them before committing, and delete or replace anything that identifies a real person.
 
+<<<<<<< HEAD
 ### Linux ring buffer fixtures
 
 The `drain_process_ring`, `drain_network_ring`, `drain_file_ring`, and `drain_dns_ring` functions in `src/sensor/linux/ebpf.rs` read records through the `RingSource` trait.
@@ -203,6 +204,31 @@ To record a new one on a disposable Linux machine, as root:
 Recordings contain command lines, paths, and user names from the machine.
 Read them before committing, and delete or replace anything that identifies a real person.
 Fixed-size path buffers also carry stale bytes after the terminating NUL, which can be a path the kernel handled earlier, so inspect the whole record (`strings` on the decoded hex) and zero what does not belong.
+=======
+### macOS Endpoint Security fixtures
+
+The macOS decoders read a message through the `EsMessage` trait in `src/sensor/macos/esf/view.rs`.
+The sensor implements it for the live Endpoint Security `Message`, and the tests implement it for `EsRecord`, loaded from JSON under `tests/fixtures/esf`.
+`src/sensor/macos/esf/fixture_tests.rs` feeds each fixture through the same `build_sensor_event` the live handler calls, so `cargo test` on a Mac covers every `build_*_event` without a client, root, or the entitlement.
+
+Each fixture file has a `provenance` block (macOS build, architecture, date, and what the scenario did) and a list of `records` in arrival order.
+Keep related records together and in order: exec parent links resolve against earlier execs in the same file.
+
+To record new ones on a Mac with a Developer ID profile and a terminal that has Full Disk Access:
+
+```bash
+scripts/macos/record-esf-fixtures.sh
+```
+
+The script builds and signs the agent, starts it with `RUSTINEL_ESF_RECORD` set, runs the workloads under `/private/tmp/rustinel-esf-fixture`, and writes `tests/fixtures/esf/process_lifecycle.json` and `file_lifecycle.json`.
+To record by hand, run a signed agent with `RUSTINEL_ESF_RECORD=<file>`.
+It writes nothing until a file named `<file>.on` exists, so create that file just before the activity and delete it right after.
+`RUSTINEL_ESF_RECORD_MAX` (default 5000) caps the record count.
+Pick the records the scenario needs, wrap them as `{"provenance": {...}, "records": [...]}`, and add a test in `fixture_tests.rs`.
+
+Recordings contain command lines, paths, and uids from the machine.
+Read them before committing, and delete or replace anything that identifies a real person.
+>>>>>>> origin/main
 
 ### SigmaHQ compatibility gate
 

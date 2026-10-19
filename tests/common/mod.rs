@@ -181,6 +181,7 @@ pub fn process_start_event(platform: Platform) -> RawEvent {
                 current_directory: (platform != Platform::Windows)
                     .then(|| temp_current_directory(platform).to_string()),
                 integrity_level: None,
+                logon_id: None,
                 user: Some(TEST_USER.to_string()),
             },
             platform,
@@ -781,7 +782,9 @@ pub fn event_fields_from_payload(event: RawEvent) -> EventFields {
         RawPayload::File(fields) => EventFields::FileEvent(fields),
         RawPayload::Dns(fields) => EventFields::DnsQuery(fields),
         RawPayload::Registry(fields) => EventFields::RegistryEvent(fields),
-        RawPayload::ImageLoad(fields) => EventFields::ImageLoad(fields),
+        RawPayload::ImageLoad(fields) | RawPayload::DriverLoad(fields) => {
+            EventFields::ImageLoad(fields)
+        }
         RawPayload::Scripting(fields) => EventFields::PowerShellScript(fields),
         RawPayload::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
         RawPayload::PowerShellClassicStart(fields) => EventFields::PowerShellClassicStart(fields),

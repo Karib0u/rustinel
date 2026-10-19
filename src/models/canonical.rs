@@ -106,7 +106,7 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
             )
         }
         EventCategory::Dns => SensorAction::Query,
-        EventCategory::ImageLoad => SensorAction::Load,
+        EventCategory::ImageLoad | EventCategory::DriverLoad => SensorAction::Load,
         EventCategory::Scripting => SensorAction::Execute,
         EventCategory::PowerShellModule => SensorAction::Load,
         EventCategory::PowerShellClassicStart => SensorAction::Start,
@@ -163,6 +163,7 @@ pub(crate) mod tests {
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: None,
             }),
             process_name: None,

@@ -124,7 +124,7 @@ where
             RawPayload::Registry(fields) => {
                 self.normalize_registry(event, fields.clone(), &mut provenance)
             }
-            RawPayload::ImageLoad(fields) => {
+            RawPayload::ImageLoad(fields) | RawPayload::DriverLoad(fields) => {
                 self.normalize_image_load(event, fields.clone(), &mut provenance)
             }
             RawPayload::Scripting(fields) => {
@@ -268,6 +268,14 @@ where
             && fields.command_line.is_some()
         {
             provenance.mark_derived("CommandLine");
+        }
+        // Kernel-Process never carries the working directory, so on Windows it
+        // can only be the live back-fill.
+        if event.platform == Platform::Windows
+            && event.action == SensorAction::Start
+            && fields.current_directory.is_some()
+        {
+            provenance.mark_derived("CurrentDirectory");
         }
         if fields.parent_process_id_derived && fields.parent_process_id.is_some() {
             provenance.mark_derived("ParentProcessId");
@@ -1072,6 +1080,25 @@ mod tests {
     }
 
     #[test]
+    fn windows_current_directory_is_marked_derived() {
+        let normalizer = build_normalizer();
+        let mut event = process_start_event(Platform::Windows, "etw", 4242);
+        if let RawPayload::Process(fields) = &mut event.payload {
+            fields.current_directory = Some(r"C:\Users\analyst\".into());
+        }
+        let normalized = normalizer.normalize(&event).unwrap();
+        assert_eq!(
+            normalized.get_field("CurrentDirectory"),
+            Some(r"C:\Users\analyst\")
+        );
+        assert!(normalized
+            .provenance
+            .entries()
+            .iter()
+            .any(|entry| entry.field == "CurrentDirectory" && entry.fidelity == Fidelity::Derived));
+    }
+
+    #[test]
     fn windows_live_command_line_provenance_survives_recording() {
         let normalizer = build_normalizer();
         let mut event = process_start_event(Platform::Windows, "etw", 4242);
@@ -1239,6 +1266,7 @@ mod tests {
                     parent_user: None,
                     current_directory: (platform != Platform::Windows).then(|| "/tmp".to_string()),
                     integrity_level: None,
+                    logon_id: None,
                     user: Some("alice".to_string()),
                 },
             ),
@@ -1299,6 +1327,7 @@ mod tests {
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,
+                    logon_id: None,
                     user: Some("alice".to_string()),
                 },
             ),
@@ -1453,6 +1482,7 @@ mod tests {
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,
+                    logon_id: None,
                     user: None,
                 },
             ),
