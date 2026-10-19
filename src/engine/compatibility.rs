@@ -2336,6 +2336,34 @@ detection:
     }
 
     #[test]
+    fn product_less_antivirus_rule_fires_on_windows_only() {
+        let rule = r#"title: Antivirus Hacktool Signature
+logsource:
+  category: antivirus
+detection:
+  selection:
+    Signature|contains: HackTool
+  condition: selection
+"#;
+        let windows = report(rule, Platform::Windows);
+        assert_ne!(
+            windows.documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+        for platform in [Platform::Linux, Platform::MacOS] {
+            let other = report(rule, platform);
+            assert_eq!(
+                other.documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire
+            );
+            assert_eq!(
+                other.documents[0].reasons[0].code,
+                ReasonCode::UnknownLogsource
+            );
+        }
+    }
+
+    #[test]
     fn missing_correlation_dependency_is_reported() {
         let report = report(
             r#"title: Missing dependency

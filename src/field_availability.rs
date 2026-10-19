@@ -48,6 +48,8 @@ const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.9.0");
 const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 /// WMI-Activity Operational events (#481).
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
+/// Derived DNS name fields (#801).
+const SINCE_DNS_DERIVED: Option<&str> = Some(UNRELEASED);
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
 /// Security 4740 and the gated long-tail events 4672, 4799 and 5140 (#805).
@@ -510,6 +512,26 @@ const WINDOWS_DNS: &[FieldContract] = &[
         "the DNS Client event template carries a query name",
     ),
     conditional(
+        "QueryRegisteredDomain",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix",
+    ),
+    conditional(
+        "QueryLabelCount",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the label count of QueryName",
+    ),
+    conditional(
+        "QueryLongestLabel",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the longest label length of QueryName in bytes",
+    ),
+    conditional(
+        "QueryNameLength",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the length of QueryName in bytes",
+    ),
+    conditional(
         "QueryResults",
         SINCE_BASELINE,
         "the event is a response carrying decoded answers",
@@ -630,6 +652,15 @@ const DEFENDER_CHANNEL: &str = "Microsoft-Windows-Windows Defender/Operational";
 const DEFENDER_FIELD_REASON: &str = "the Defender event template supplies this value";
 
 macro_rules! defender_fields {
+    ($($field:literal),*; aliases: $($alias:literal),*; unreleased: $($new:literal),* $(,)?) => {
+        &[
+            always_value("Channel", SINCE_DEFENDER, DEFENDER_CHANNEL),
+            always("Provider_Name", SINCE_DEFENDER),
+            $(conditional($field, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+            $(conditional($alias, SINCE_DEFENDER, DEFENDER_FIELD_REASON),)*
+            $(conditional($new, Some(UNRELEASED), DEFENDER_FIELD_REASON),)*
+        ]
+    };
     ($($field:literal),*; aliases: $($alias:literal),* $(,)?) => {
         &[
             always_value("Channel", SINCE_DEFENDER, DEFENDER_CHANNEL),
@@ -769,7 +800,7 @@ const WINDOWS_DEFENDER_1116: &[FieldContract] = defender_fields!(
     "Additional Actions String",
     "Remediation User",
     "Security intelligence Version",
-    "Engine Version"; aliases: "ProcessName", "SourceName", "ThreatName"
+    "Engine Version"; aliases: "ProcessName", "SourceName", "ThreatName"; unreleased: "Signature", "Filename"
 );
 const WINDOWS_DEFENDER_1121: &[FieldContract] = defender_fields!(
     "Product Name",
@@ -1661,6 +1692,26 @@ const LINUX_DNS: &[FieldContract] = &[
         "the DNS question can be parsed",
     ),
     conditional(
+        "QueryRegisteredDomain",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
+        "QueryLabelCount",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the label count of QueryName; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
+        "QueryLongestLabel",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the longest label length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
+        "QueryNameLength",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true",
+    ),
+    conditional(
         "QueryResults",
         SINCE_DNS_RESPONSES,
         "the event is a response carrying A, AAAA, or CNAME answers",
@@ -1856,6 +1907,26 @@ const MACOS_DNS: &[FieldContract] = &[
         "RecordType",
         SINCE_1_1_0,
         "the DNS qtype has a known Sysmon-compatible name",
+    ),
+    conditional(
+        "QueryRegisteredDomain",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix",
+    ),
+    conditional(
+        "QueryLabelCount",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the label count of QueryName",
+    ),
+    conditional(
+        "QueryLongestLabel",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the longest label length of QueryName in bytes",
+    ),
+    conditional(
+        "QueryNameLength",
+        SINCE_DNS_DERIVED,
+        "derived read-only from QueryName: the length of QueryName in bytes",
     ),
     never(
         "QueryResults",
