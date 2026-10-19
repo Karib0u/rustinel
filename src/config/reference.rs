@@ -417,6 +417,11 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
         default_note: None,
         description: "Read Security events 4672 (special privileges assigned), 5140 (network share accessed), and 4799 (local group membership enumerated). Off by default because 4672 and 5140 follow logon and file-server traffic. The host must also audit them, see [Windows host logging](windows-logging.md#long-tail-events).",
     },
+    ConfigOption {
+        key: "windows.security_domain_controller_events",
+        default_note: None,
+        description: "Read the domain-controller Security events: 4768 and 4769 (Kerberos tickets), 4662 (directory object operation), 4742 (computer account changed), 4661 (SAM or directory handle), 4673 (privileged service called), 5137 and 5141 (directory object created, deleted). Off by default because a domain controller writes them at the rate of its Kerberos and directory traffic. The host must also audit them, see [Windows host logging](windows-logging.md#domain-controller-events).",
+    },
 ];
 
 /// The generated region of `docs/configuration.md`, markers included.

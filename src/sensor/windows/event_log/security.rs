@@ -53,11 +53,11 @@ macro_rules! default_selects {
             select!("Microsoft-Windows-Security-Auditing"; 4656, 4657, 4663, 5136, 5145),
             // Service installation and scheduled tasks.
             select!("Microsoft-Windows-Security-Auditing"; 4697, 4698, 4699, 4700, 4701, 4702),
-            // Account management.
+            // Account management, and Credential Manager reads (5379).
             select!(
                 "Microsoft-Windows-Security-Auditing";
                 4720, 4722, 4724, 4726, 4728, 4732, 4738, 4740, 4741, 4743, 4756, 4765, 4766,
-                4781, 4794
+                4781, 4794, 5379
             ),
             // Audit policy, filtering platform policy, and device changes.
             select!("Microsoft-Windows-Security-Auditing"; 4719, 4817, 5447, 6416),
@@ -82,53 +82,81 @@ macro_rules! filtering_platform_selects {
     };
 }
 
-/// Structured query scoping the subscription to the event IDs in the field
-/// availability table.
+/// The domain-controller families behind
+/// `windows.security_domain_controller_events`.
+macro_rules! domain_controller_selects {
+    () => {
+        concat!(
+            // Kerberos ticket requests and directory object operations.
+            select!("Microsoft-Windows-Security-Auditing"; 4768, 4769, 4662, 4742),
+            // SAM and directory handles, privileged services, directory object
+            // creation and deletion.
+            select!("Microsoft-Windows-Security-Auditing"; 4661, 4673, 5137, 5141),
+        )
+    };
+}
+
+/// A structured query: the default families plus each named option.
 ///
 /// Written out rather than built at runtime: the query is what the kernel
 /// filters on, so an event family is only reachable if it appears both here and
 /// in the table, and a reviewer can see the two agree.
-const QUERY: &str = concat!(
-    "<QueryList><Query Id=\"0\" Path=\"Security\">",
-    default_selects!(),
-    "</Query></QueryList>"
-);
+macro_rules! query {
+    ($($option:ident),* $(,)?) => {
+        concat!(
+            "<QueryList><Query Id=\"0\" Path=\"Security\">",
+            default_selects!(),
+            $($option!(),)*
+            "</Query></QueryList>"
+        )
+    };
+}
+
+const QUERY: &str = query!();
 
 /// [`QUERY`] plus the per-connection Windows Filtering Platform events, for
 /// `windows.security_filtering_platform_connections`.
-const QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS: &str = concat!(
-    "<QueryList><Query Id=\"0\" Path=\"Security\">",
-    default_selects!(),
-    filtering_platform_selects!(),
-    "</Query></QueryList>"
-);
+const QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS: &str = query!(filtering_platform_selects);
 
 /// [`QUERY`] plus the long-tail events, for `windows.security_long_tail_events`.
-const QUERY_WITH_LONG_TAIL: &str = concat!(
-    "<QueryList><Query Id=\"0\" Path=\"Security\">",
-    default_selects!(),
-    long_tail_selects!(),
-    "</Query></QueryList>"
-);
+const QUERY_WITH_LONG_TAIL: &str = query!(long_tail_selects);
 
-/// Both options.
-const QUERY_WITH_ALL: &str = concat!(
-    "<QueryList><Query Id=\"0\" Path=\"Security\">",
-    default_selects!(),
-    filtering_platform_selects!(),
-    long_tail_selects!(),
-    "</Query></QueryList>"
+/// [`QUERY`] plus the domain-controller events, for
+/// `windows.security_domain_controller_events`.
+const QUERY_WITH_DOMAIN_CONTROLLER: &str = query!(domain_controller_selects);
+
+const QUERY_WITH_CONNECTIONS_AND_LONG_TAIL: &str =
+    query!(filtering_platform_selects, long_tail_selects);
+const QUERY_WITH_CONNECTIONS_AND_DOMAIN_CONTROLLER: &str =
+    query!(filtering_platform_selects, domain_controller_selects);
+const QUERY_WITH_LONG_TAIL_AND_DOMAIN_CONTROLLER: &str =
+    query!(long_tail_selects, domain_controller_selects);
+
+/// All options.
+const QUERY_WITH_ALL: &str = query!(
+    filtering_platform_selects,
+    long_tail_selects,
+    domain_controller_selects
 );
 
 pub(super) const fn source(
     filtering_platform_connections: bool,
     long_tail_events: bool,
+    domain_controller_events: bool,
 ) -> EventLogSource {
-    let query = match (filtering_platform_connections, long_tail_events) {
-        (false, false) => QUERY,
-        (true, false) => QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS,
-        (false, true) => QUERY_WITH_LONG_TAIL,
-        (true, true) => QUERY_WITH_ALL,
+    let query = match (
+        filtering_platform_connections,
+        long_tail_events,
+        domain_controller_events,
+    ) {
+        (false, false, false) => QUERY,
+        (true, false, false) => QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS,
+        (false, true, false) => QUERY_WITH_LONG_TAIL,
+        (false, false, true) => QUERY_WITH_DOMAIN_CONTROLLER,
+        (true, true, false) => QUERY_WITH_CONNECTIONS_AND_LONG_TAIL,
+        (true, false, true) => QUERY_WITH_CONNECTIONS_AND_DOMAIN_CONTROLLER,
+        (false, true, true) => QUERY_WITH_LONG_TAIL_AND_DOMAIN_CONTROLLER,
+        (true, true, true) => QUERY_WITH_ALL,
     };
     EventLogSource::new("security-audit", "Security", query, decode)
 }
@@ -136,11 +164,11 @@ pub(super) const fn source(
 /// The action an audit event reports, for logging and downstream routing.
 fn action_for_event(event_id: u16) -> SensorAction {
     match event_id {
-        4624 | 4625 | 4648 | 4771 | 4776 => SensorAction::Start,
-        4740 => SensorAction::Modify,
+        4624 | 4625 | 4648 | 4768 | 4769 | 4771 | 4776 => SensorAction::Start,
+        4740 | 4742 => SensorAction::Modify,
         4697 | 4698 | 6416 => SensorAction::Register,
-        4720 | 4741 => SensorAction::Create,
-        1102 | 4699 | 4726 | 4743 => SensorAction::Delete,
+        4720 | 4741 | 5137 => SensorAction::Create,
+        1102 | 4699 | 4726 | 4743 | 5141 => SensorAction::Delete,
         4781 => SensorAction::Rename,
         4657 => SensorAction::Set,
         5152 | 5156 | 5157 => SensorAction::Connect,
@@ -271,8 +299,10 @@ fn child_text<'a, 'input>(node: roxmltree::Node<'a, 'input>, name: &str) -> Opti
 #[cfg(test)]
 mod tests {
     use super::{
-        decode, source, QUERY, QUERY_WITH_ALL, QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS,
-        QUERY_WITH_LONG_TAIL,
+        decode, source, QUERY, QUERY_WITH_ALL, QUERY_WITH_CONNECTIONS_AND_DOMAIN_CONTROLLER,
+        QUERY_WITH_CONNECTIONS_AND_LONG_TAIL, QUERY_WITH_DOMAIN_CONTROLLER,
+        QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS, QUERY_WITH_LONG_TAIL,
+        QUERY_WITH_LONG_TAIL_AND_DOMAIN_CONTROLLER,
     };
     use crate::engine::Engine;
     use crate::field_availability::FIELD_AVAILABILITY;
@@ -1033,6 +1063,230 @@ level: high
         );
     }
 
+    /// Kerberos templates name the account `TargetUserName` and carry no
+    /// `Subject*` block.
+    #[test]
+    fn decodes_kerberos_ticket_requests() {
+        let tgt = security_event(
+            4768,
+            r#"    <Data Name="TargetUserName">svc-sql</Data>
+    <Data Name="TargetDomainName">ACME.TEST</Data>
+    <Data Name="TargetSid">S-1-5-21-1-2-3-1108</Data>
+    <Data Name="ServiceName">krbtgt</Data>
+    <Data Name="ServiceSid">S-1-5-21-1-2-3-502</Data>
+    <Data Name="TicketOptions">0x40810010</Data>
+    <Data Name="Status">0x0</Data>
+    <Data Name="TicketEncryptionType">0x17</Data>
+    <Data Name="PreAuthType">0</Data>
+    <Data Name="IpAddress">::ffff:10.0.0.9</Data>
+    <Data Name="IpPort">51234</Data>"#,
+        );
+        let event = decode(&tgt).expect("4768 should decode");
+        assert_eq!(event.action, SensorAction::Start);
+        let RawPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        // PreAuthType 0 is the AS-REP roasting signal.
+        assert_eq!(fields.get("PreAuthType"), Some("0"));
+        assert_eq!(fields.get("TicketEncryptionType"), Some("0x17"));
+        assert_eq!(fields.get("IpAddress"), Some("::ffff:10.0.0.9"));
+        assert_eq!(fields.get("SubjectUserName"), None);
+
+        let tgs = fields_of(
+            4769,
+            r#"    <Data Name="TargetUserName">alice@ACME.TEST</Data>
+    <Data Name="TargetDomainName">ACME.TEST</Data>
+    <Data Name="ServiceName">svc-sql</Data>
+    <Data Name="ServiceSid">S-1-5-21-1-2-3-1108</Data>
+    <Data Name="TicketOptions">0x40810000</Data>
+    <Data Name="TicketEncryptionType">0x17</Data>
+    <Data Name="IpAddress">::ffff:10.0.0.9</Data>
+    <Data Name="IpPort">51240</Data>
+    <Data Name="Status">0x0</Data>
+    <Data Name="LogonGuid">{00000000-0000-0000-0000-000000000000}</Data>
+    <Data Name="TransmittedServices">-</Data>"#,
+        );
+        // RC4 against a user service account is the Kerberoasting signal.
+        assert_eq!(tgs.get("TicketEncryptionType"), Some("0x17"));
+        assert_eq!(tgs.get("ServiceName"), Some("svc-sql"));
+        assert_eq!(tgs.get("Status"), Some("0x0"));
+    }
+
+    #[test]
+    fn decodes_a_directory_object_operation() {
+        let xml = security_event(
+            4662,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="ObjectServer">DS</Data>
+    <Data Name="ObjectType">%{{19195a5b-6da0-11d0-afd3-00c04fd930c9}}</Data>
+    <Data Name="ObjectName">%{{3f7a1c0e-0000-0000-0000-000000000001}}</Data>
+    <Data Name="OperationType">Object Access</Data>
+    <Data Name="HandleId">0x0</Data>
+    <Data Name="AccessList">%%7688
+			</Data>
+    <Data Name="AccessMask">0x100</Data>
+    <Data Name="Properties">%%7688
+		{{1131f6ad-9c07-11d1-f79f-00c04fc2dcd2}}
+	{{19195a5b-6da0-11d0-afd3-00c04fd930c9}}</Data>
+    <Data Name="AdditionalInfo">-</Data>
+    <Data Name="AdditionalInfo2"></Data>"#
+            ),
+        );
+        let event = decode(&xml).expect("4662 should decode");
+        assert_eq!(event.action, SensorAction::Access);
+        let RawPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        // The replication-rights GUID DCSync rules look for.
+        assert!(fields
+            .get("Properties")
+            .is_some_and(|value| value.contains("1131f6ad-9c07-11d1-f79f-00c04fc2dcd2")));
+        assert_eq!(fields.get("AccessMask"), Some("0x100"));
+        assert_eq!(fields.get("ObjectServer"), Some("DS"));
+    }
+
+    #[test]
+    fn decodes_a_computer_account_change() {
+        let xml = security_event(
+            4742,
+            &format!(
+                r#"    <Data Name="ComputerAccountChange">-</Data>
+    <Data Name="TargetUserName">WS-042$</Data>
+    <Data Name="TargetDomainName">ACME</Data>
+    <Data Name="TargetSid">S-1-5-21-1-2-3-1120</Data>
+{SUBJECT}
+    <Data Name="SamAccountName">-</Data>
+    <Data Name="AllowedToDelegateTo">cifs/dc01.acme.test</Data>
+    <Data Name="OldUacValue">0x80</Data>
+    <Data Name="NewUacValue">0x1080</Data>
+    <Data Name="UserAccountControl">%%2096</Data>
+    <Data Name="DnsHostName">-</Data>
+    <Data Name="ServicePrincipalNames">-</Data>"#
+            ),
+        );
+        let event = decode(&xml).expect("4742 should decode");
+        assert_eq!(event.action, SensorAction::Modify);
+        let RawPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(
+            fields.get("AllowedToDelegateTo"),
+            Some("cifs/dc01.acme.test")
+        );
+        assert_eq!(fields.get("NewUacValue"), Some("0x1080"));
+        assert_eq!(fields.get("TargetUserName"), Some("WS-042$"));
+    }
+
+    #[test]
+    fn decodes_sam_handles_and_privileged_service_calls() {
+        let handle = security_event(
+            4661,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="ObjectServer">Security Account Manager</Data>
+    <Data Name="ObjectType">SAM_DOMAIN</Data>
+    <Data Name="ObjectName">DC=acme,DC=test</Data>
+    <Data Name="HandleId">0x7f8</Data>
+    <Data Name="TransactionId">{{00000000-0000-0000-0000-000000000000}}</Data>
+    <Data Name="AccessList">%%5400</Data>
+    <Data Name="AccessMask">0x20094</Data>
+    <Data Name="PrivilegeList">-</Data>
+    <Data Name="Properties">-</Data>
+    <Data Name="RestrictedSidCount">0</Data>
+    <Data Name="ProcessId">0x2b4</Data>
+    <Data Name="ProcessName">C:\Windows\System32\lsass.exe</Data>"#
+            ),
+        );
+        let event = decode(&handle).expect("4661 should decode");
+        assert_eq!(event.pid, Some(0x2b4));
+        let RawPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("ObjectType"), Some("SAM_DOMAIN"));
+        assert_eq!(fields.get("AccessMask"), Some("0x20094"));
+
+        let service = fields_of(
+            4673,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="ObjectServer">NT Local Security Authority / Authentication Service</Data>
+    <Data Name="Service">LsaRegisterLogonProcess()</Data>
+    <Data Name="PrivilegeList">SeTcbPrivilege</Data>
+    <Data Name="ProcessId">0x3a0</Data>
+    <Data Name="ProcessName">C:\Windows\System32\svchost.exe</Data>"#
+            ),
+        );
+        assert_eq!(service.get("PrivilegeList"), Some("SeTcbPrivilege"));
+        assert_eq!(service.get("Service"), Some("LsaRegisterLogonProcess()"));
+    }
+
+    #[test]
+    fn decodes_directory_object_creation_and_deletion() {
+        let created = security_event(
+            5137,
+            &format!(
+                r#"    <Data Name="OpCorrelationID">{{aaaaaaaa-0000-0000-0000-000000000001}}</Data>
+    <Data Name="AppCorrelationID">-</Data>
+{SUBJECT}
+    <Data Name="DSName">acme.test</Data>
+    <Data Name="DSType">%%14676</Data>
+    <Data Name="ObjectDN">CN=Rustinel GPO,CN=Policies,CN=System,DC=acme,DC=test</Data>
+    <Data Name="ObjectGUID">{{bbbbbbbb-0000-0000-0000-000000000002}}</Data>
+    <Data Name="ObjectClass">groupPolicyContainer</Data>"#
+            ),
+        );
+        let event = decode(&created).expect("5137 should decode");
+        assert_eq!(event.action, SensorAction::Create);
+        let RawPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("ObjectClass"), Some("groupPolicyContainer"));
+
+        let deleted = security_event(
+            5141,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="DSName">acme.test</Data>
+    <Data Name="DSType">%%14676</Data>
+    <Data Name="ObjectDN">CN=Rustinel GPO,CN=Policies,CN=System,DC=acme,DC=test</Data>
+    <Data Name="ObjectGUID">{{bbbbbbbb-0000-0000-0000-000000000002}}</Data>
+    <Data Name="ObjectClass">groupPolicyContainer</Data>
+    <Data Name="TreeDelete">%%14679</Data>"#
+            ),
+        );
+        let event = decode(&deleted).expect("5141 should decode");
+        assert_eq!(event.action, SensorAction::Delete);
+        let RawPayload::Security(fields) = event.payload else {
+            panic!("expected a security payload");
+        };
+        assert_eq!(fields.get("TreeDelete"), Some("%%14679"));
+    }
+
+    #[test]
+    fn decodes_a_credential_manager_read() {
+        let fields = fields_of(
+            5379,
+            &format!(
+                r#"{SUBJECT}
+    <Data Name="TargetName">MicrosoftAccount:user=02qbnmaybaimkvrv</Data>
+    <Data Name="Type">0</Data>
+    <Data Name="CountOfCredentialsReturned">0</Data>
+    <Data Name="ReadOperation">%%8100</Data>
+    <Data Name="ReturnCode">3221226021</Data>
+    <Data Name="ProcessCreationTime">2026-10-19T15:02:43.4847929Z</Data>
+    <Data Name="ClientProcessId">4412</Data>"#
+            ),
+        );
+        assert_eq!(
+            fields.get("TargetName"),
+            Some("MicrosoftAccount:user=02qbnmaybaimkvrv")
+        );
+        assert_eq!(fields.get("ClientProcessId"), Some("4412"));
+        assert_eq!(fields.get("ReturnCode"), Some("3221226021"));
+        assert_eq!(fields.get("ReadOperation"), Some("%%8100"));
+    }
+
     /// `(provider, event IDs)` for each `Select` of a structured query.
     fn selects(query: &str) -> Vec<(String, Vec<u16>)> {
         let document = roxmltree::Document::parse(query).expect("the query is valid XML");
@@ -1074,6 +1328,7 @@ level: high
 
     const FILTERING_PLATFORM_CONNECTION_EVENTS: [u16; 3] = [5152, 5156, 5157];
     const LONG_TAIL_EVENTS: [u16; 3] = [4672, 4799, 5140];
+    const DOMAIN_CONTROLLER_EVENTS: [u16; 8] = [4661, 4662, 4673, 4742, 4768, 4769, 5137, 5141];
 
     #[test]
     fn the_subscription_query_covers_exactly_the_supported_events() {
@@ -1117,13 +1372,38 @@ level: high
             LONG_TAIL_EVENTS,
             "only the long-tail events are behind the option"
         );
-        assert_eq!(source(false, false).query, QUERY);
         assert_eq!(
-            source(true, false).query,
+            ids(QUERY_WITH_DOMAIN_CONTROLLER),
+            DOMAIN_CONTROLLER_EVENTS,
+            "only the domain-controller events are behind the option"
+        );
+        assert!(
+            subscribed(QUERY).contains(&("Microsoft-Windows-Security-Auditing".to_string(), 5379)),
+            "5379 is on the default subscription"
+        );
+        assert_eq!(source(false, false, false).query, QUERY);
+        assert_eq!(
+            source(true, false, false).query,
             QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS
         );
-        assert_eq!(source(false, true).query, QUERY_WITH_LONG_TAIL);
-        assert_eq!(source(true, true).query, QUERY_WITH_ALL);
+        assert_eq!(source(false, true, false).query, QUERY_WITH_LONG_TAIL);
+        assert_eq!(
+            source(false, false, true).query,
+            QUERY_WITH_DOMAIN_CONTROLLER
+        );
+        assert_eq!(
+            source(true, true, false).query,
+            QUERY_WITH_CONNECTIONS_AND_LONG_TAIL
+        );
+        assert_eq!(
+            source(true, false, true).query,
+            QUERY_WITH_CONNECTIONS_AND_DOMAIN_CONTROLLER
+        );
+        assert_eq!(
+            source(false, true, true).query,
+            QUERY_WITH_LONG_TAIL_AND_DOMAIN_CONTROLLER
+        );
+        assert_eq!(source(true, true, true).query, QUERY_WITH_ALL);
     }
 
     /// The Event Log query parser rejects an XPath of more than 23 terms; see
@@ -1134,6 +1414,7 @@ level: high
             QUERY,
             QUERY_WITH_FILTERING_PLATFORM_CONNECTIONS,
             QUERY_WITH_LONG_TAIL,
+            QUERY_WITH_DOMAIN_CONTROLLER,
             QUERY_WITH_ALL,
         ] {
             for (provider, ids) in selects(query) {

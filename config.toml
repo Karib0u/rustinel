@@ -161,11 +161,20 @@ webhooks = false # also send each heartbeat to the alert webhooks
 #   enumerated). They are off by default because 4672 and 5140 follow logon
 #   and file-server traffic. The host must also audit the Special Logon,
 #   File Share, and Security Group Management subcategories.
+#
+#   `security_domain_controller_events` adds Security events 4768 and 4769
+#   (Kerberos ticket requests), 4662 (directory object operation), 4742
+#   (computer account changed), 4661 (SAM or directory handle), 4673
+#   (privileged service called), 5137 and 5141 (directory object created,
+#   deleted). A domain controller writes them at the rate of its Kerberos and
+#   directory traffic, so they are off by default. The host must also audit
+#   the Kerberos, Directory Service Access, and related subcategories.
 [windows]
 etw_flush_interval_ms = 20
 etw_process_flush_interval_ms = 5
 security_filtering_platform_connections = false
 security_long_tail_events = false
+security_domain_controller_events = false
 
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]

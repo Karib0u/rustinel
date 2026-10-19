@@ -73,6 +73,7 @@ impl EventLogSubscriptions {
         directory: &Path,
         security_filtering_platform_connections: bool,
         security_long_tail_events: bool,
+        security_domain_controller_events: bool,
         health: Arc<EventLogHealth>,
     ) -> Result<Self> {
         let sources = [
@@ -82,6 +83,7 @@ impl EventLogSubscriptions {
             security::source(
                 security_filtering_platform_connections,
                 security_long_tail_events,
+                security_domain_controller_events,
             ),
             defender::source(),
         ];

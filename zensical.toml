@@ -48,6 +48,7 @@ nav = [
         { "Configuration" = "configuration.md" },
         { "Alert and recording format" = "output.md" },
         { "Sigma support" = "sigma.md" },
+        { "Windows Security events" = "windows-security-events.md" },
         { "Field availability" = "field-availability.md" },
         { "Doctor checks" = "doctor.md" },
         { "telemetry.json" = "telemetry.md" },

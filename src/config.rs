@@ -588,6 +588,18 @@ pub struct WindowsConfig {
     /// file-server traffic rather than attacker activity. Enabling this does
     /// not enable the audit subcategories themselves.
     pub security_long_tail_events: bool,
+
+    /// Subscribe to the domain-controller Security family: 4768 and 4769
+    /// (Kerberos ticket requests), 4662 (operation on a directory object),
+    /// 4742 (computer account changed), 4661 (handle to a SAM or directory
+    /// object), 4673 (privileged service called), 5137 and 5141 (directory
+    /// object created, deleted).
+    ///
+    /// Off by default because a domain controller audits 4662, 4768 and 4769 by
+    /// default and writes one per Kerberos request or directory read, so the
+    /// rate follows the size of the domain, not attacker activity. Enabling
+    /// this does not enable the audit subcategories themselves.
+    pub security_domain_controller_events: bool,
 }
 
 impl AppConfig {
@@ -706,7 +718,8 @@ impl AppConfig {
             .set_default("windows.etw_flush_interval_ms", 20i64)?
             .set_default("windows.etw_process_flush_interval_ms", 5i64)?
             .set_default("windows.security_filtering_platform_connections", false)?
-            .set_default("windows.security_long_tail_events", false)?;
+            .set_default("windows.security_long_tail_events", false)?
+            .set_default("windows.security_domain_controller_events", false)?;
 
         let builder = builder.add_source(file_source);
         let environment_source = config::Environment::with_prefix("EDR")
@@ -1194,6 +1207,7 @@ impl Default for AppConfig {
                 etw_process_flush_interval_ms: 5,
                 security_filtering_platform_connections: false,
                 security_long_tail_events: false,
+                security_domain_controller_events: false,
             },
         };
 
