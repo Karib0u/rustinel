@@ -1183,6 +1183,118 @@ correlation:
         assert!(engine.flush_due(due).is_empty());
     }
 
+    fn dns_event(name: &str, seq: u64) -> NormalizedEvent {
+        NormalizedEvent {
+            timestamp: format!("2025-01-01T00:00:{seq:02}Z"),
+            source_seq: None,
+            ingest_seq: seq,
+            platform: Platform::Linux,
+            provider: "ebpf".to_string(),
+            category: crate::models::EventCategory::Dns,
+            event_id: 22,
+            event_id_string: "22".to_string(),
+            opcode: 0,
+            fields: EventFields::DnsQuery(crate::models::DnsQueryFields {
+                user: None,
+                query_name: Some(name.to_string()),
+                query_results: None,
+                record_type: Some("TXT".to_string()),
+                query_status: None,
+                query_truncated: None,
+                process_id: Some("202".to_string()),
+                image: Some("/usr/bin/dig".to_string()),
+            }),
+            process_name: None,
+            provenance: Default::default(),
+            process_context: None,
+        }
+    }
+
+    #[test]
+    fn derived_dns_fields_are_absent_for_a_truncated_name() {
+        let mut event = dns_event("a.b.tunnel.co.uk", 1);
+        let EventFields::DnsQuery(fields) = &mut event.fields else {
+            unreachable!()
+        };
+        fields.query_truncated = Some("true".to_string());
+        let adapter = event::RsigmaEvent::new(&event);
+        for name in [
+            "QueryRegisteredDomain",
+            "QueryLabelCount",
+            "QueryLongestLabel",
+            "QueryNameLength",
+        ] {
+            assert!(
+                rsigma_eval::Event::get_field(&adapter, name).is_none(),
+                "{name}"
+            );
+        }
+        assert!(rsigma_eval::Event::get_field(&adapter, "QueryName").is_some());
+    }
+
+    #[test]
+    fn value_count_groups_dns_queries_by_registered_domain() {
+        let engine = engine_with_rules(
+            Platform::Linux,
+            &[
+                r#"title: Any TXT Query
+id: 77777777-7777-4777-8777-777777777777
+logsource:
+  category: dns
+detection:
+  selection:
+    RecordType: TXT
+  condition: selection
+"#,
+                r#"title: Many Subdomains
+id: 88888888-8888-4888-8888-888888888888
+level: high
+correlation:
+  type: value_count
+  rules:
+    - 77777777-7777-4777-8777-777777777777
+  group-by:
+    - QueryRegisteredDomain
+  timespan: 1m
+  condition:
+    field: QueryName
+    gte: 3
+"#,
+            ],
+        );
+        let mut fired = Vec::new();
+        // Three distinct subdomains of one `co.uk` registrant, and three
+        // queries for three different registrants that share the suffix.
+        for (seq, name) in [
+            (1, "a1.tunnel.co.uk"),
+            (2, "a2.tunnel.co.uk"),
+            (3, "a3.tunnel.co.uk."),
+            (4, "x.one.co.uk"),
+            (5, "x.two.co.uk"),
+            (6, "x.three.co.uk"),
+        ] {
+            fired.extend(rule_names(&engine.evaluate_event_pass(
+                &dns_event(name, seq),
+                DetectionPass::Admission,
+            )));
+        }
+        fired.extend(
+            engine
+                .flush_pending_with_origins()
+                .into_iter()
+                .map(|alert| alert.alert.rule_name),
+        );
+        let titles: Vec<_> = fired
+            .into_iter()
+            .filter(|name| name == "Many Subdomains")
+            .collect();
+        assert_eq!(
+            titles.len(),
+            1,
+            "only the shared registrant crosses the threshold"
+        );
+    }
+
     #[test]
     fn shutdown_flushes_pending_correlation() {
         let engine = engine_with_rules(

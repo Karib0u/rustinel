@@ -53,7 +53,11 @@ pub enum CanonicalField {
     DestinationHostname,
     DestinationIp,
     DestinationPort,
+    DnsLabelCount,
+    DnsLongestLabel,
     DnsQueryName,
+    DnsNameLength,
+    DnsRegisteredDomain,
     DnsQueryResults,
     DnsQueryStatus,
     DnsQueryTruncated,
@@ -166,6 +170,16 @@ const fn alias(name: &'static str, canonical: CanonicalField) -> FieldMapping {
     }
 }
 
+/// Read-only fields computed from another field. They are addressable by
+/// name but are not enumerated, so keyword matching never sees them.
+#[cfg(test)]
+const DERIVED_FIELDS: &[&str] = &[
+    "QueryLabelCount",
+    "QueryLongestLabel",
+    "QueryNameLength",
+    "QueryRegisteredDomain",
+];
+
 /// Sysmon-compatible rule names, sorted for allocation-free binary lookup.
 ///
 /// This is the compatibility surface that `NormalizedEvent::get_field`
@@ -247,7 +261,11 @@ pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("ProviderPath", CanonicalField::ProviderPath),
     field("Provider_Name", CanonicalField::ProviderName),
     field("Query", CanonicalField::Query),
+    alias("QueryLabelCount", CanonicalField::DnsLabelCount),
+    alias("QueryLongestLabel", CanonicalField::DnsLongestLabel),
     field("QueryName", CanonicalField::DnsQueryName),
+    alias("QueryNameLength", CanonicalField::DnsNameLength),
+    alias("QueryRegisteredDomain", CanonicalField::DnsRegisteredDomain),
     field("QueryResults", CanonicalField::DnsQueryResults),
     field("QueryStatus", CanonicalField::DnsQueryStatus),
     field("QueryTruncated", CanonicalField::DnsQueryTruncated),
@@ -501,7 +519,12 @@ mod tests {
             .filter(|contract| contract.view == FieldViewName::SYSMON)
         {
             let contract = Some(contract);
-            for alias in SYSMON_FIELDS.iter().filter(|mapping| !mapping.enumerate) {
+            // Derived fields have no enumerated twin: they stay out of keyword
+            // matching and enumeration, and carry their own availability.
+            for alias in SYSMON_FIELDS
+                .iter()
+                .filter(|mapping| !mapping.enumerate && !DERIVED_FIELDS.contains(&mapping.name))
+            {
                 let target = SYSMON_FIELDS
                     .iter()
                     .find(|mapping| mapping.enumerate && mapping.canonical == alias.canonical)

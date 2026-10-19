@@ -406,6 +406,17 @@ pub struct DnsQueryFields {
     pub image: Option<String>,
 }
 
+impl DnsQueryFields {
+    /// The query name when it is whole, for fields derived from its shape.
+    /// A name cut off by the capture would give a wrong label count, length,
+    /// and registered domain, so those fields stay absent for it.
+    pub(crate) fn derivable_query_name(&self) -> Option<&str> {
+        self.query_name
+            .as_deref()
+            .filter(|_| self.query_truncated.as_deref() != Some("true"))
+    }
+}
+
 /// Image load event fields (Sigma: image_load)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageLoadFields {
