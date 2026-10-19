@@ -248,6 +248,7 @@ mod tests {
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: None,
             },
             Platform::Linux,

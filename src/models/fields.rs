@@ -240,6 +240,11 @@ pub struct ProcessCreationFields {
     #[serde(rename = "User", skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 
+    /// Logon session of the process token, formatted as Sysmon does
+    /// (`0x3e7`). On Linux this is the audit login UID, `0` for root.
+    #[serde(rename = "LogonId", skip_serializing_if = "Option::is_none")]
+    pub logon_id: Option<String>,
+
     /// Internal fidelity marker consumed by normalization.
     #[serde(skip)]
     pub parent_process_id_derived: bool,

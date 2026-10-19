@@ -390,6 +390,7 @@ fn raw_windows_process(
         parent_command_line,
         current_directory: None,
         integrity_level,
+        logon_id: None,
         user: None,
         original_file_name: None,
         product: None,

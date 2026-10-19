@@ -1589,6 +1589,7 @@ detection:
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
+                logon_id: None,
                 user: Some("TestUser".to_string()),
             }),
             process_name: None,

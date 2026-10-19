@@ -8,7 +8,7 @@ mod load;
 mod matchers;
 mod types;
 
-pub(crate) use hash::compute_hashes_from_bytes;
+pub(crate) use hash::{compute_hashes_from_bytes, HashAccumulator};
 pub use hash::{ComputedHashes, HashCache, HashRequirements};
 pub use types::{IocKind, IocMatch};
 
@@ -272,6 +272,7 @@ impl IocEngine {
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,
+                    logon_id: None,
                     user: None,
                 }),
                 process_name: None,
