@@ -374,10 +374,6 @@ mod imp {
         };
         // SAFETY: reads the calling thread's error code.
         let last_error = unsafe { GetLastError() }.0;
-        eprintln!(
-            "DBG trust result {:#010x} last_error {:#010x}",
-            result as u32, last_error
-        );
         let signer = signer_name(data);
         data.dwStateAction = WTD_STATEACTION_CLOSE;
         // SAFETY: closes the state the verify call opened.
