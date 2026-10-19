@@ -55,6 +55,8 @@ fn process_event(pid: u32, start_time: u64, action: SensorAction) -> RawEvent {
                 image_source: Some("execve".to_string()),
                 image_truncated: None,
                 parent_process_id_derived: false,
+                argv: Vec::new(),
+                exec_syscall: None,
             })),
         }),
     }

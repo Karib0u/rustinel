@@ -16,6 +16,11 @@ pub const ARGV_CAPACITY: usize = 512;
 /// Bytes captured for the executable image, including the NUL terminator.
 pub const PROCESS_IMAGE_CAPACITY: usize = 256;
 
+/// `ProcessEvent::exec_syscall` for `execve(2)`.
+pub const EXEC_SYSCALL_EXECVE: u8 = 1;
+/// `ProcessEvent::exec_syscall` for `execveat(2)`.
+pub const EXEC_SYSCALL_EXECVEAT: u8 = 2;
+
 /// Process lifecycle event.
 ///
 /// - kind 1 = exec (`sched_process_exec`)
@@ -61,7 +66,9 @@ pub struct ProcessEvent {
     pub image_truncated: u8,
     /// 1 when `CLONE_PARENT` made `parent_pid` a creator approximation.
     pub parent_pid_derived: u8,
-    pub _pad1: u8,
+    /// Entry point of the exec: [`EXEC_SYSCALL_EXECVE`] or
+    /// [`EXEC_SYSCALL_EXECVEAT`], or 0 when no argv snapshot was joined.
+    pub exec_syscall: u8,
     /// Argv captured at `execve` entry, NUL-separated (no trailing NUL
     /// guaranteed). Only the first `args_len` bytes are meaningful.
     ///

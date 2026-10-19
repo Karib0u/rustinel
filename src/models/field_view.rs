@@ -16,6 +16,9 @@ pub struct FieldViewName(&'static str);
 
 impl FieldViewName {
     pub const SYSMON: Self = Self("sysmon");
+    /// The Linux audit record vocabulary (`type`, `SYSCALL`, `a0`..`a7`, `exe`,
+    /// `name`), rendered over the eBPF sensor's own measurements.
+    pub const AUDITD: Self = Self("auditd");
     pub const DEFAULT: Self = Self::SYSMON;
 
     pub const fn as_str(self) -> &'static str {
@@ -28,6 +31,18 @@ impl FieldViewName {
 /// These names describe the data, independent of any external rule schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanonicalField {
+    /// Zero-based argv entry of an exec. Audit `a0`..`a7` on `EXECVE`.
+    /// Raw syscall arguments are a different fact and never share this.
+    AuditArg(u8),
+    AuditComm,
+    AuditEuid,
+    /// Audit `name`: the executed path, or the file path(s) of a file event.
+    AuditName,
+    AuditNameType,
+    /// The syscall entry point: `execve` or `execveat` for an exec.
+    AuditSyscall,
+    /// The audit record types one event stands for.
+    AuditType,
     AccountName,
     CdHash,
     Channel,
@@ -140,6 +155,11 @@ pub enum CanonicalField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanonicalValue<'a> {
     String(&'a str),
+    /// A fact several records carry at once, such as audit `type`.
+    Strs(&'static [&'static str]),
+    /// Two values of one field, such as the source and target `name` of a
+    /// rename.
+    Pair(&'a str, &'a str),
     Bool(bool),
     U64(u64),
 }
@@ -303,6 +323,30 @@ pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("timestamp", CanonicalField::Timestamp),
 ];
 
+/// Linux audit record names, sorted for allocation-free binary lookup.
+///
+/// This is a projection of eBPF telemetry, not an audit log. `key` and `unit`
+/// are deliberately absent: an audit key is a label an operator configures, and
+/// a view must never manufacture one.
+pub const AUDITD_FIELDS: &[FieldMapping] = &[
+    field("SYSCALL", CanonicalField::AuditSyscall),
+    field("a0", CanonicalField::AuditArg(0)),
+    field("a1", CanonicalField::AuditArg(1)),
+    field("a2", CanonicalField::AuditArg(2)),
+    field("a3", CanonicalField::AuditArg(3)),
+    field("a4", CanonicalField::AuditArg(4)),
+    field("a5", CanonicalField::AuditArg(5)),
+    field("a6", CanonicalField::AuditArg(6)),
+    field("a7", CanonicalField::AuditArg(7)),
+    field("comm", CanonicalField::AuditComm),
+    field("euid", CanonicalField::AuditEuid),
+    field("exe", CanonicalField::ProcessImage),
+    field("name", CanonicalField::AuditName),
+    field("nametype", CanonicalField::AuditNameType),
+    alias("syscall", CanonicalField::AuditSyscall),
+    field("type", CanonicalField::AuditType),
+];
+
 #[derive(Debug, Clone, Copy)]
 pub struct FieldViewDefinition {
     pub name: FieldViewName,
@@ -310,10 +354,16 @@ pub struct FieldViewDefinition {
 }
 
 /// Every detection view compiled into Rustinel.
-pub const FIELD_VIEWS: &[FieldViewDefinition] = &[FieldViewDefinition {
-    name: FieldViewName::SYSMON,
-    fields: SYSMON_FIELDS,
-}];
+pub const FIELD_VIEWS: &[FieldViewDefinition] = &[
+    FieldViewDefinition {
+        name: FieldViewName::SYSMON,
+        fields: SYSMON_FIELDS,
+    },
+    FieldViewDefinition {
+        name: FieldViewName::AUDITD,
+        fields: AUDITD_FIELDS,
+    },
+];
 
 pub fn mappings(view: FieldViewName) -> &'static [FieldMapping] {
     FIELD_VIEWS
@@ -478,6 +528,20 @@ mod tests {
     fn sysmon_table_is_sorted_and_unique() {
         for pair in SYSMON_FIELDS.windows(2) {
             assert!(pair[0].name < pair[1].name, "{:?} is not sorted", pair);
+        }
+    }
+
+    #[test]
+    fn auditd_table_is_sorted_and_unique() {
+        for pair in AUDITD_FIELDS.windows(2) {
+            assert!(pair[0].name < pair[1].name, "{:?} is not sorted", pair);
+        }
+    }
+
+    #[test]
+    fn auditd_view_never_maps_operator_labels() {
+        for name in ["key", "unit"] {
+            assert!(mapping(FieldViewName::AUDITD, name).is_none(), "{name}");
         }
     }
 

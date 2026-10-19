@@ -5,6 +5,7 @@ use crate::vocab::Platform;
 use serde::{Deserialize, Serialize};
 
 const SYSMON_VIEW: &str = FieldViewName::SYSMON.as_str();
+const AUDITD_VIEW: &str = FieldViewName::AUDITD.as_str();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogSource {
@@ -155,6 +156,15 @@ impl LogSourceRoute {
             view: FieldViewName::SYSMON,
         }
     }
+
+    /// The `linux/auditd` route, which no category narrows: auditd rules name
+    /// record types in their detection, not a Sigma category.
+    fn auditd() -> Self {
+        Self {
+            key: LogSourceKey::from_parts(Some("linux"), Some(AUDITD_VIEW), None),
+            view: FieldViewName::AUDITD,
+        }
+    }
 }
 
 pub(crate) fn current_platform() -> Platform {
@@ -264,8 +274,7 @@ impl Engine {
     pub(crate) fn is_deferred_linux_service(service: &str) -> bool {
         matches!(
             service,
-            "auditd"
-                | "auth"
+            "auth"
                 | "sudo"
                 | "sshd"
                 | "cron"
@@ -409,10 +418,17 @@ impl Engine {
     /// `service: sysmon` names the compatibility view selected for those rule
     /// routes; collector provenance remains on the canonical event.
     pub(crate) fn active_logsource_routes(&self) -> Vec<LogSourceRoute> {
-        self.active_logsource_keys()
+        let mut routes: Vec<_> = self
+            .active_logsource_keys()
             .into_iter()
             .map(LogSourceRoute::sysmon)
-            .collect()
+            .collect();
+        // Linux exec and file telemetry also stands for the audit records
+        // auditd would have written, rendered through the auditd view.
+        if self.platform == Platform::Linux {
+            routes.push(LogSourceRoute::auditd());
+        }
+        routes
     }
 
     pub(crate) fn matches_active_logsource(&self, logsource: &LogSourceKey) -> bool {
@@ -571,17 +587,6 @@ impl Engine {
                 collector_active: true,
             } => {}
         }
-    }
-
-    pub(crate) fn concrete_logsource_aliases_for_event(
-        event: &NormalizedEvent,
-    ) -> Vec<LogSourceKey> {
-        Self::concrete_logsource_aliases(
-            event.platform,
-            event.category,
-            event.event_id,
-            event.opcode,
-        )
     }
 
     /// The routes of an event, from the only fields that decide them.
@@ -787,10 +792,39 @@ impl Engine {
     pub(crate) fn concrete_logsource_routes_for_event(
         event: &NormalizedEvent,
     ) -> Vec<LogSourceRoute> {
-        Self::concrete_logsource_aliases_for_event(event)
-            .into_iter()
-            .map(LogSourceRoute::sysmon)
-            .collect()
+        Self::concrete_logsource_routes(
+            event.platform,
+            event.category,
+            event.event_id,
+            event.opcode,
+        )
+    }
+
+    /// The routes of an event shape: its Sysmon-view aliases, then the auditd
+    /// route when the shape stands for audit records.
+    pub(crate) fn concrete_logsource_routes(
+        platform: Platform,
+        category: EventCategory,
+        event_id: u16,
+        opcode: u8,
+    ) -> Vec<LogSourceRoute> {
+        let mut routes: Vec<_> =
+            Self::concrete_logsource_aliases(platform, category, event_id, opcode)
+                .into_iter()
+                .map(LogSourceRoute::sysmon)
+                .collect();
+        // An exec writes `SYSCALL`, `EXECVE` and `PATH` records and a file
+        // operation `SYSCALL` and `PATH`. A process exit (action code 2)
+        // carries neither.
+        let audit_record = match category {
+            EventCategory::Process => opcode != 2,
+            EventCategory::File => true,
+            _ => false,
+        };
+        if platform == Platform::Linux && audit_record {
+            routes.push(LogSourceRoute::auditd());
+        }
+        routes
     }
 
     /// Map a file event to its Sigma logsource categories.
@@ -856,8 +890,23 @@ mod tests {
             let engine = Engine::new_for_platform(platform);
             let routes = engine.active_logsource_routes();
             assert!(!routes.is_empty());
+            // Every route's service names the view that evaluates it, except
+            // the generic network and DNS routes, which the Sysmon view serves.
+            let auditd: Vec<_> = routes
+                .iter()
+                .filter(|route| route.view == FieldViewName::AUDITD)
+                .collect();
+            assert_eq!(
+                auditd.len(),
+                usize::from(platform == Platform::Linux),
+                "{platform:?}"
+            );
+            assert!(auditd
+                .iter()
+                .all(|route| route.key.service.as_deref() == Some(route.view.as_str())));
             assert!(routes
                 .iter()
+                .filter(|route| route.view != FieldViewName::AUDITD)
                 .all(|route| route.view == FieldViewName::SYSMON));
             assert!(routes
                 .iter()

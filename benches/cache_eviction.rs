@@ -124,6 +124,8 @@ fn fork_event(pid: u32) -> rustinel::sensor::RawEvent {
                 identity: Default::default(),
                 cgroup_id: None,
                 parent_process_id_derived: false,
+                argv: Vec::new(),
+                exec_syscall: None,
                 image_source: None,
                 image_truncated: None,
             })),

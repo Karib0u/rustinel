@@ -37,10 +37,11 @@ Rules that load against a collector on each platform:
 | Platform | Rules |
 | --- | ---: |
 | Windows | 2,709 |
-| Linux | 178 |
+| Linux | 232 |
 | macOS | 86 |
 
-The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `auditd`.
+The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `sshd` or `syslog`.
+Linux `auditd` rules load against the eBPF telemetry through the `auditd` field view, see [Linux auditd rules](sigma.md#linux-auditd-rules).
 
 ## Rules that load but never fire
 
@@ -69,6 +70,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 | `sysmon` | windows | 208 | 985 | 69 |
 | `sysmon` | linux | 19 | 51 | 15 |
 | `sysmon` | macos | 27 | 28 | 28 |
+| `auditd` | linux | 15 | 23 | 47 |
 
 The complete machine-readable baseline is [`compatibility/field-availability.json`](https://github.com/Karib0u/rustinel/blob/main/compatibility/field-availability.json).
 <!-- END GENERATED FIELD AVAILABILITY -->

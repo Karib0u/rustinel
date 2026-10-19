@@ -72,7 +72,10 @@ fn compatibility_entries_always_state_since() {
         .expect("compatibility entries are an array");
     assert!(!entries.is_empty());
     for entry in entries {
-        assert_eq!(entry["view"], "sysmon");
+        assert!(
+            matches!(entry["view"].as_str(), Some("sysmon" | "auditd")),
+            "unknown view: {entry}"
+        );
         assert!(
             entry
                 .as_object()

@@ -869,6 +869,8 @@ fn build_process_event_with_clock(
                         identity: ev.raw_linux_identity(),
                         cgroup_id: (ev.cgroup_id != 0).then_some(ev.cgroup_id),
                         parent_process_id_derived: ev.parent_pid_derived != 0,
+                        argv: ev.kernel_argv(),
+                        exec_syscall: ev.exec_syscall_name(),
                         image_source: Some("execve".to_string()),
                         image_truncated: image_truncated.then_some(true),
                     })),
@@ -913,6 +915,8 @@ fn build_process_event_with_clock(
                     identity: ev.raw_linux_identity(),
                     cgroup_id: (ev.cgroup_id != 0).then_some(ev.cgroup_id),
                     parent_process_id_derived: false,
+                    argv: Vec::new(),
+                    exec_syscall: None,
                     image_source: None,
                     image_truncated: None,
                 })),
@@ -959,6 +963,8 @@ fn build_process_event_with_clock(
                     identity: Default::default(),
                     cgroup_id: (ev.cgroup_id != 0).then_some(ev.cgroup_id),
                     parent_process_id_derived: ev.parent_pid_derived != 0,
+                    argv: Vec::new(),
+                    exec_syscall: None,
                     image_source: None,
                     image_truncated: None,
                 })),
@@ -1580,7 +1586,7 @@ mod tests {
             args_truncated: 0,
             image_truncated: 0,
             parent_pid_derived: 0,
-            _pad1: 0,
+            exec_syscall: 0,
             args: [0u8; ARGV_CAPACITY],
         }
     }
@@ -1892,6 +1898,49 @@ mod tests {
             }
             other => panic!("unexpected payload: {:?}", other),
         }
+    }
+
+    #[test]
+    fn exec_keeps_argv_boundaries_and_the_entry_point_for_the_auditd_view() {
+        let mut raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/bin/sh");
+        // An argument with a space and an empty argument each stay one entry.
+        let (args, args_len, args_count) = packed_argv(&["sh", "-c id", "", "x"]);
+        raw.args = args;
+        raw.args_len = args_len;
+        raw.args_count = args_count;
+        raw.exec_syscall = crate::sensor::linux::events::EXEC_SYSCALL_EXECVEAT;
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        let RawPayload::Process(process) = event.payload else {
+            panic!("unexpected payload");
+        };
+        let RawProcessPlatform::Linux(source) = process.platform.as_ref() else {
+            panic!("expected a Linux process");
+        };
+        assert_eq!(source.argv, ["sh", "-c id", "", "x"]);
+        assert_eq!(source.exec_syscall, Some("execveat"));
+
+        let exec = process.compatibility_fields().exec.expect("exec metadata");
+        assert_eq!(
+            exec.argv.as_deref(),
+            Some(["sh", "-c id", "", "x"].map(String::from).as_slice())
+        );
+        assert_eq!(exec.exec_syscall.as_deref(), Some("execveat"));
+    }
+
+    #[test]
+    fn exec_without_a_kernel_snapshot_has_no_argv_or_entry_point() {
+        let raw = raw_process_event(PROCESS_EVENT_EXEC, DEAD_PID, "/bin/true");
+
+        let event = build_process_event(&raw).expect("process exec should build");
+        let RawPayload::Process(process) = event.payload else {
+            panic!("unexpected payload");
+        };
+        let RawProcessPlatform::Linux(source) = process.platform.as_ref() else {
+            panic!("expected a Linux process");
+        };
+        assert!(source.argv.is_empty());
+        assert_eq!(source.exec_syscall, None);
     }
 
     #[test]

@@ -809,12 +809,319 @@ detection:
     fn deferred_linux_logsource_is_reported() {
         let classification = linux_engine().classify_logsource(&logsource(
             Some("linux"),
-            Some("auditd"),
+            Some("sshd"),
             Some("process_creation"),
         ));
 
         assert_eq!(classification.status, LogSourceStatus::Deferred);
         assert_eq!(classification.collector_active, None);
+    }
+
+    #[test]
+    fn linux_auditd_logsource_is_backed_by_the_auditd_view() {
+        let classification =
+            linux_engine().classify_logsource(&logsource(Some("linux"), Some("auditd"), None));
+
+        assert_eq!(classification.status, LogSourceStatus::Supported);
+        assert_eq!(classification.collector_active, Some(true));
+        // macOS has no auditd view: the product is Linux only.
+        let classification =
+            macos_engine().classify_logsource(&logsource(Some("linux"), Some("auditd"), None));
+        assert_eq!(classification.status, LogSourceStatus::ProductMismatch);
+    }
+
+    fn audit_exec(argv: &[&str], syscall: Option<&str>) -> NormalizedEvent {
+        let mut event = process_event(Platform::Linux, "/usr/bin/xclip", &argv.join(" "));
+        event.provider = "ebpf".to_string();
+        if let EventFields::ProcessCreation(fields) = &mut event.fields {
+            fields.exec = Some(Box::new(crate::models::ExecMetadata {
+                argv: (!argv.is_empty()).then(|| argv.iter().map(ToString::to_string).collect()),
+                exec_syscall: syscall.map(ToString::to_string),
+                ..Default::default()
+            }));
+        }
+        event
+    }
+
+    fn audit_file(
+        action: crate::vocab::SensorAction,
+        source: Option<&str>,
+        target: &str,
+        image: Option<&str>,
+    ) -> NormalizedEvent {
+        let row = crate::models::event_actions::row_for_action(
+            crate::models::EventCategory::File,
+            action,
+        )
+        .expect("file action row");
+        NormalizedEvent {
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+            source_seq: None,
+            ingest_seq: 0,
+            platform: Platform::Linux,
+            provider: "ebpf".to_string(),
+            category: crate::models::EventCategory::File,
+            event_id: row.event_id,
+            event_id_string: row.event_id.to_string(),
+            opcode: row.action_code,
+            fields: EventFields::FileEvent(crate::models::FileEventFields {
+                source_filename: source.map(ToString::to_string),
+                target_filename: Some(target.to_string()),
+                process_id: Some("4242".to_string()),
+                image: image.map(ToString::to_string),
+                creation_utc_time: None,
+                previous_creation_utc_time: None,
+                user: Some("0".to_string()),
+                file_identity: None,
+                path_truncated: None,
+            }),
+            process_name: None,
+            provenance: Default::default(),
+            process_context: None,
+        }
+    }
+
+    const AUDITD_XCLIP: &str = r#"title: Clipboard Collection
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    type: EXECVE
+    a0: xclip
+    a1:
+      - '-selection'
+      - '-sel'
+    a2:
+      - clipboard
+      - clip
+    a3: '-o'
+  condition: selection
+"#;
+
+    #[test]
+    fn auditd_execve_rule_matches_the_captured_argv() {
+        let engine = engine_with_rule(Platform::Linux, AUDITD_XCLIP);
+
+        let hit = audit_exec(&["xclip", "-selection", "clipboard", "-o"], Some("execve"));
+        assert_eq!(engine.check_event(&hit).len(), 1);
+
+        let wrong_argument = audit_exec(&["xclip", "-selection", "primary", "-o"], Some("execve"));
+        assert!(engine.check_event(&wrong_argument).is_empty());
+    }
+
+    #[test]
+    fn auditd_argument_fields_come_from_argv_boundaries_not_the_command_line() {
+        let engine = engine_with_rule(Platform::Linux, AUDITD_XCLIP);
+
+        // The command line reads like a hit, but no argv was captured, so
+        // `a0` is absent rather than re-tokenized from `CommandLine`.
+        let mut event = audit_exec(&[], None);
+        if let EventFields::ProcessCreation(fields) = &mut event.fields {
+            fields.command_line = Some("xclip -selection clipboard -o".to_string());
+        }
+        assert!(engine.check_event(&event).is_empty());
+
+        // One argument that contains spaces is one `a1`, not three.
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Space in argument
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    type: EXECVE
+    a0: sh
+    a1: '-c id'
+  condition: selection
+"#,
+        );
+        assert_eq!(
+            engine
+                .check_event(&audit_exec(&["sh", "-c id"], Some("execve")))
+                .len(),
+            1
+        );
+        assert!(engine
+            .check_event(&audit_exec(&["sh", "-c", "id"], Some("execve")))
+            .is_empty());
+    }
+
+    #[test]
+    fn auditd_syscall_distinguishes_execve_from_execveat() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Execveat
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    type: SYSCALL
+    SYSCALL: execveat
+  condition: selection
+"#,
+        );
+        assert_eq!(
+            engine
+                .check_event(&audit_exec(&["a"], Some("execveat")))
+                .len(),
+            1
+        );
+        assert!(engine
+            .check_event(&audit_exec(&["a"], Some("execve")))
+            .is_empty());
+        assert!(engine.check_event(&audit_exec(&["a"], None)).is_empty());
+    }
+
+    #[test]
+    fn auditd_exe_selects_exec_and_file_processes() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Process Run From Tmp
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    type: SYSCALL
+    exe|startswith: /tmp/
+  condition: selection
+"#,
+        );
+        let mut exec = audit_exec(&["x"], Some("execve"));
+        if let EventFields::ProcessCreation(fields) = &mut exec.fields {
+            fields.image = Some("/tmp/payload".to_string());
+        }
+        assert_eq!(engine.check_event(&exec).len(), 1);
+
+        let write = audit_file(
+            crate::vocab::SensorAction::Create,
+            None,
+            "/root/x",
+            Some("/tmp/payload"),
+        );
+        assert_eq!(engine.check_event(&write).len(), 1);
+
+        let elsewhere = audit_file(
+            crate::vocab::SensorAction::Create,
+            None,
+            "/root/x",
+            Some("/usr/bin/vi"),
+        );
+        assert!(engine.check_event(&elsewhere).is_empty());
+    }
+
+    #[test]
+    fn auditd_path_rules_use_name_and_nametype() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Systemd Service Creation
+logsource:
+  product: linux
+  service: auditd
+detection:
+  path:
+    type: PATH
+    nametype: CREATE
+  name:
+    name|startswith: /etc/systemd/system/
+  condition: path and name
+"#,
+        );
+        let created = audit_file(
+            crate::vocab::SensorAction::Create,
+            None,
+            "/etc/systemd/system/evil.service",
+            None,
+        );
+        assert_eq!(engine.check_event(&created).len(), 1);
+
+        let modified = audit_file(
+            crate::vocab::SensorAction::Modify,
+            None,
+            "/etc/systemd/system/evil.service",
+            None,
+        );
+        assert!(engine.check_event(&modified).is_empty());
+
+        // A rename creates its target path.
+        let renamed = audit_file(
+            crate::vocab::SensorAction::Rename,
+            Some("/tmp/evil.service"),
+            "/etc/systemd/system/evil.service",
+            None,
+        );
+        assert_eq!(engine.check_event(&renamed).len(), 1);
+    }
+
+    #[test]
+    fn auditd_rename_carries_the_source_and_target_names() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Logging Config Change
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    type: PATH
+    name: /etc/rsyslog.conf
+  condition: selection
+"#,
+        );
+        let renamed_away = audit_file(
+            crate::vocab::SensorAction::Rename,
+            Some("/etc/rsyslog.conf"),
+            "/tmp/rsyslog.conf.bak",
+            None,
+        );
+        assert_eq!(engine.check_event(&renamed_away).len(), 1);
+    }
+
+    #[test]
+    fn auditd_rule_does_not_see_a_sysmon_view_field() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Sysmon field in an auditd rule
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    Image|endswith: /xclip
+  condition: selection
+"#,
+        );
+        assert!(engine
+            .check_event(&audit_exec(&["xclip"], Some("execve")))
+            .is_empty());
+    }
+
+    #[test]
+    fn auditd_key_is_never_synthesized() {
+        let engine = engine_with_rule(
+            Platform::Linux,
+            r#"title: Audit key
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    key: susp_activity
+  condition: selection
+"#,
+        );
+        assert!(engine
+            .check_event(&audit_exec(&["wget"], Some("execve")))
+            .is_empty());
+    }
+
+    #[test]
+    fn auditd_rules_do_not_run_on_sysmon_routed_events_of_other_platforms() {
+        let engine = engine_with_rule(Platform::Windows, AUDITD_XCLIP);
+        assert_eq!(engine.stats().total_rules, 0);
     }
 
     #[test]
