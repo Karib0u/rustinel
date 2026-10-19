@@ -141,7 +141,6 @@ A file create, modify, delete, or rename stands for `SYSCALL` and `PATH`.
 
 `a0` to `a7` are argv entries, never raw syscall arguments, and are never split out of `CommandLine`.
 An argument that contains a space stays one argument.
-Capture stops at 32 arguments, 128 bytes each and 512 bytes in all.
 
 `key` and `unit` are not mapped.
 An audit key is a label an operator configures on an audit rule, so the view never invents one.
