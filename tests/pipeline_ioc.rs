@@ -344,10 +344,14 @@ fn domain_metadata_preserves_duplicate_lines_and_optional_comments() {
 /// A Linux process start whose command line is exactly `command_line`, run from
 /// `cwd`.
 fn linux_process(command_line: &str, cwd: Option<&str>) -> CanonicalEvent {
+    process_in(Platform::Linux, command_line, cwd)
+}
+
+fn process_in(platform: Platform, command_line: &str, cwd: Option<&str>) -> CanonicalEvent {
     let harness = TestNormalizer::new();
     let mut normalized = harness
         .normalizer
-        .normalize(&process_start_event(Platform::Linux))
+        .normalize(&process_start_event(platform))
         .expect("process event should normalize");
     let EventFields::ProcessCreation(fields) = &mut normalized.fields else {
         panic!("expected process fields");
@@ -389,6 +393,36 @@ fn relative_command_line_operands_alert_like_their_absolute_form() {
     // Without a working directory there is nothing honest to resolve against.
     assert!(detectors
         .evaluate(&linux_process("chmod +x malware", None))
+        .is_empty());
+}
+
+#[test]
+fn relative_command_line_operands_resolve_on_windows() {
+    // #650: the live back-fill supplies the working directory, so a relative
+    // operand names the same file as its absolute form.
+    let fixture = IocFixture::new();
+    fixture.write_paths_regex(r"(?i)^c:\\users\\public\\malware\.exe$; staged payload\n");
+    let detectors = EventDetectors::new(
+        Arc::new(Engine::new_for_platform(Platform::Windows)),
+        Arc::new(IocEngine::load(&fixture.config())),
+    );
+
+    for command_line in [
+        r"cmd.exe /c C:\Users\Public\malware.exe",
+        r"cmd.exe /c .\malware.exe",
+    ] {
+        let event = process_in(Platform::Windows, command_line, Some(r"C:\Users\Public\"));
+        let alerts = detectors.evaluate(&event);
+        assert_eq!(alerts.len(), 1, "{command_line}");
+        assert_eq!(alerts[0].event.get_field("CommandLine"), Some(command_line));
+    }
+
+    assert!(detectors
+        .evaluate(&process_in(
+            Platform::Windows,
+            r"cmd.exe /c .\malware.exe",
+            None
+        ))
         .is_empty());
 }
 

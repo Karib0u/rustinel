@@ -52,6 +52,8 @@ const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 const SINCE_DNS_DERIVED: Option<&str> = Some(UNRELEASED);
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
+/// Security 4740 and the gated long-tail events 4672, 4799 and 5140 (#805).
+const SINCE_SECURITY_LONG_TAIL: Option<&str> = Some(UNRELEASED);
 /// DNS messages cut at the capture limit keep the name they have (#804).
 const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 
@@ -274,10 +276,10 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         SINCE_PROCESS_USER,
         "the classic process record is correlated; the measured SID is retained or resolves to an account name",
     ),
-    never(
+    conditional(
         "CurrentDirectory",
-        SINCE_BASELINE,
-        "Microsoft-Windows-Kernel-Process does not expose the working directory",
+        Some(UNRELEASED),
+        "Microsoft-Windows-Kernel-Process does not expose the working directory, so it is read from the live process parameters when the process is still alive, its start time matches, and its memory is readable",
     ),
     never(
         "TargetImage",
@@ -366,6 +368,82 @@ const WINDOWS_IMAGE_LOAD: &[FieldContract] = &[
         "Imphash",
         SINCE_ARTIFACT_HASHES,
         "computed from the loaded file's import table after admission when a loaded rule selects on it, and seen only by those rules",
+    ),
+];
+
+/// A kernel image load: the same Kernel-Process event 5, split off by the
+/// System or idle actor it names (#548). Sysmon's driver_load carries the
+/// image, its hashes and its signature; the provider supplies only the path.
+const WINDOWS_DRIVER_LOAD: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        Some(UNRELEASED),
+        "Microsoft-Windows-Kernel-Process/Analytic",
+    ),
+    conditional(
+        "ImageLoaded",
+        Some(UNRELEASED),
+        "the provider may omit the loaded image path",
+    ),
+    conditional(
+        "ProcessId",
+        Some(UNRELEASED),
+        "the provider may omit process identity",
+    ),
+    conditional(
+        "Image",
+        Some(UNRELEASED),
+        "the provider may omit the loading process image",
+    ),
+    conditional(
+        "OriginalFileName",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Product",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Description",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "Company",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    conditional(
+        "FileVersion",
+        Some(UNRELEASED),
+        "PE version-resource enrichment succeeds",
+    ),
+    never(
+        "Signed",
+        Some(UNRELEASED),
+        "Kernel-Process image-load events contain no Authenticode result",
+    ),
+    never(
+        "Signature",
+        Some(UNRELEASED),
+        "Kernel-Process image-load events contain no signer identity",
+    ),
+    never(
+        "User",
+        Some(UNRELEASED),
+        "Kernel-Process image-load events contain no user identity",
+    ),
+    conditional(
+        "Hashes",
+        Some(UNRELEASED),
+        "computed from the loaded driver after admission when a loaded rule selects on it, and seen only by those rules",
+    ),
+    conditional(
+        "Imphash",
+        Some(UNRELEASED),
+        "computed from the loaded driver's import table after admission when a loaded rule selects on it, and seen only by those rules",
     ),
 ];
 
@@ -1153,6 +1231,17 @@ macro_rules! security_fields {
 /// template's own, read from the provider manifest on Windows 11 (all template
 /// versions merged), not from documentation.
 macro_rules! security_family {
+    // The same, for a family added after #479.
+    (long_tail: $($field:literal),+ $(,)?) => {
+        &[
+            always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
+            conditional("SubjectUserSid", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            conditional("SubjectUserName", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            conditional("SubjectDomainName", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            conditional("SubjectLogonId", SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON),
+            $(conditional($field, SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON)),+
+        ]
+    };
     // The template opens with the `Subject*` identity block.
     (subject: $($field:literal),+ $(,)?) => {
         &[
@@ -1353,6 +1442,20 @@ const WINDOWS_SECURITY_ACCOUNT_REMOVED: &[FieldContract] = security_family!(subj
 const WINDOWS_SECURITY_GROUP_MEMBER_ADDED: &[FieldContract] = security_family!(subject:
     "MemberName", "MemberSid", "TargetUserName", "TargetDomainName", "TargetSid",
     "PrivilegeList", "MembershipExpirationTime",
+);
+// Account lockout and the gated long tail (#805).
+const WINDOWS_SECURITY_4740: &[FieldContract] = security_family!(long_tail:
+    "TargetUserName", "TargetDomainName", "TargetSid", "CallerComputerName",
+);
+const WINDOWS_SECURITY_4672: &[FieldContract] = security_family!(long_tail:
+    "PrivilegeList",
+);
+const WINDOWS_SECURITY_4799: &[FieldContract] = security_family!(long_tail:
+    "TargetUserName", "TargetDomainName", "TargetSid", "CallerProcessId", "CallerProcessName",
+);
+const WINDOWS_SECURITY_5140: &[FieldContract] = security_family!(long_tail:
+    "ObjectType", "IpAddress", "IpPort", "ShareName", "ShareLocalPath", "AccessMask",
+    "AccessList",
 );
 const WINDOWS_SECURITY_4765: &[FieldContract] = security_family!(subject:
     "SourceUserName", "SourceSid", "TargetUserName", "TargetDomainName", "TargetSid",
@@ -2130,6 +2233,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     ),
     contract!(
         Windows,
+        "driver_load",
+        Some(6),
+        Load,
+        "etw",
+        "Microsoft-Windows-Kernel-Process",
+        WINDOWS_DRIVER_LOAD
+    ),
+    contract!(
+        Windows,
         "ps_script",
         Some(4104),
         Execute,
@@ -2420,6 +2532,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "security",
+        Some(5140),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_5140
+    ),
+    contract!(
+        Windows,
+        "security",
         Some(5145),
         Access,
         "windows_event_log",
@@ -2582,6 +2703,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
         "security",
+        Some(4740),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4740
+    ),
+    contract!(
+        Windows,
+        "security",
         Some(4741),
         Create,
         "windows_event_log",
@@ -2605,6 +2735,24 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "windows_event_log",
         "Microsoft-Windows-Security-Auditing",
         WINDOWS_SECURITY_GROUP_MEMBER_ADDED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4672),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4672
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4799),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4799
     ),
     contract!(
         Windows,
@@ -2928,6 +3076,7 @@ pub const fn category_name(category: EventCategory) -> &'static str {
         EventCategory::Registry => "registry_event",
         EventCategory::Dns => "dns_query",
         EventCategory::ImageLoad => "image_load",
+        EventCategory::DriverLoad => "driver_load",
         EventCategory::Scripting => "ps_script",
         EventCategory::PowerShellModule => "ps_module",
         EventCategory::PowerShellClassicStart => "ps_classic_start",

@@ -705,6 +705,8 @@ pub enum EventCategory {
     Registry,
     Dns,
     ImageLoad,
+    /// A kernel image (driver) load. Carries [`ImageLoadFields`].
+    DriverLoad,
     Scripting,
     PowerShellModule,
     PowerShellClassicStart,
@@ -718,13 +720,14 @@ pub enum EventCategory {
 
 impl EventCategory {
     /// Every category, for tables that must cover each one.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Process,
         Self::Network,
         Self::File,
         Self::Registry,
         Self::Dns,
         Self::ImageLoad,
+        Self::DriverLoad,
         Self::Scripting,
         Self::PowerShellModule,
         Self::PowerShellClassicStart,
