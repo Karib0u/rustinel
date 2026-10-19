@@ -148,10 +148,17 @@ loss_alert_interval_secs = 60 # one alert per lost-event stage and category per 
 #   dropped packet. They are off by default because they are the Security
 #   channel's highest-volume events. The host must also audit the Filtering
 #   Platform Connection and Packet Drop subcategories.
+#
+#   `security_long_tail_events` adds Security events 4672 (special privileges
+#   assigned), 5140 (network share accessed), and 4799 (local group membership
+#   enumerated). They are off by default because 4672 and 5140 follow logon
+#   and file-server traffic. The host must also audit the Special Logon,
+#   File Share, and Security Group Management subcategories.
 [windows]
 etw_flush_interval_ms = 20
 etw_process_flush_interval_ms = 5
 security_filtering_platform_connections = false
+security_long_tail_events = false
 
 # 7. Atomic IOC Detection (Hashes, IPs, Domains, Path Regex)
 [ioc]

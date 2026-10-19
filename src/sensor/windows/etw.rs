@@ -53,6 +53,7 @@ pub struct EtwSensor {
     flush_interval_ms: u64,
     process_flush_interval_ms: u64,
     security_filtering_platform_connections: bool,
+    security_long_tail_events: bool,
 }
 
 impl EtwSensor {
@@ -78,6 +79,7 @@ impl EtwSensor {
             flush_interval_ms,
             process_flush_interval_ms,
             security_filtering_platform_connections: false,
+            security_long_tail_events: false,
         }
     }
 
@@ -94,6 +96,12 @@ impl EtwSensor {
     /// See `windows.security_filtering_platform_connections`.
     pub fn with_security_filtering_platform_connections(mut self, enabled: bool) -> Self {
         self.security_filtering_platform_connections = enabled;
+        self
+    }
+
+    /// See `windows.security_long_tail_events`.
+    pub fn with_security_long_tail_events(mut self, enabled: bool) -> Self {
+        self.security_long_tail_events = enabled;
         self
     }
 
@@ -136,6 +144,7 @@ impl EtwSensor {
                 Arc::clone(&self.shutdown),
                 &self.event_log_directory,
                 self.security_filtering_platform_connections,
+                self.security_long_tail_events,
                 Arc::clone(
                     &self
                         .host
