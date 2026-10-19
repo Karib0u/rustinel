@@ -182,7 +182,6 @@ To record a new one on a disposable Windows machine, as Administrator:
 Recordings contain command lines, paths, and user names from the machine.
 Read them before committing, and delete or replace anything that identifies a real person.
 
-<<<<<<< HEAD
 ### Linux ring buffer fixtures
 
 The `drain_process_ring`, `drain_network_ring`, `drain_file_ring`, and `drain_dns_ring` functions in `src/sensor/linux/ebpf.rs` read records through the `RingSource` trait.
@@ -204,7 +203,7 @@ To record a new one on a disposable Linux machine, as root:
 Recordings contain command lines, paths, and user names from the machine.
 Read them before committing, and delete or replace anything that identifies a real person.
 Fixed-size path buffers also carry stale bytes after the terminating NUL, which can be a path the kernel handled earlier, so inspect the whole record (`strings` on the decoded hex) and zero what does not belong.
-=======
+
 ### macOS Endpoint Security fixtures
 
 The macOS decoders read a message through the `EsMessage` trait in `src/sensor/macos/esf/view.rs`.
@@ -228,7 +227,6 @@ Pick the records the scenario needs, wrap them as `{"provenance": {...}, "record
 
 Recordings contain command lines, paths, and uids from the machine.
 Read them before committing, and delete or replace anything that identifies a real person.
->>>>>>> origin/main
 
 ### SigmaHQ compatibility gate
 
