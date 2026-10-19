@@ -285,6 +285,17 @@ impl LiveSensor for EtwLive {
     fn events_lost(&self) -> u64 {
         self.sensor.events_lost()
     }
+
+    fn kernel_loss(&self) -> Vec<crate::telemetry::LossTotal> {
+        match self.sensor.events_lost() {
+            0 => Vec::new(),
+            total => vec![crate::telemetry::LossTotal::new(
+                "etw_session",
+                "kernel_buffer",
+                total,
+            )],
+        }
+    }
 }
 
 fn sensors(config: &AppConfig, host: &Arc<HostState>, mode: RunMode) -> SensorSet {

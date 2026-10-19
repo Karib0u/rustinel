@@ -111,6 +111,7 @@ fn fork_event(pid: u32) -> rustinel::sensor::RawEvent {
             parent_command_line: None,
             current_directory: None,
             integrity_level: None,
+            logon_id: None,
             user: None,
             original_file_name: None,
             product: None,

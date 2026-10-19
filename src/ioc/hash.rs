@@ -118,31 +118,53 @@ fn compute_hashes(
     requirements: HashRequirements,
     buf: &mut [u8],
 ) -> anyhow::Result<ComputedHashes> {
-    let mut md5_hasher = requirements.md5.then(Md5::new);
-    let mut sha1_hasher = requirements.sha1.then(Sha1::new);
-    let mut sha256_hasher = requirements.sha256.then(Sha256::new);
-
+    let mut hasher = HashAccumulator::new(requirements);
     loop {
         let read = file.read(buf)?;
         if read == 0 {
             break;
         }
-        if let Some(hasher) = md5_hasher.as_mut() {
-            hasher.update(&buf[..read]);
-        }
-        if let Some(hasher) = sha1_hasher.as_mut() {
-            hasher.update(&buf[..read]);
-        }
-        if let Some(hasher) = sha256_hasher.as_mut() {
-            hasher.update(&buf[..read]);
+        hasher.update(&buf[..read]);
+    }
+    Ok(hasher.finish())
+}
+
+/// Incremental digests over several chunks, so a caller that already owns the
+/// read loop (deadline, byte limit) does not need the whole file in memory.
+pub(crate) struct HashAccumulator {
+    md5: Option<Md5>,
+    sha1: Option<Sha1>,
+    sha256: Option<Sha256>,
+}
+
+impl HashAccumulator {
+    pub(crate) fn new(requirements: HashRequirements) -> Self {
+        Self {
+            md5: requirements.md5.then(Md5::new),
+            sha1: requirements.sha1.then(Sha1::new),
+            sha256: requirements.sha256.then(Sha256::new),
         }
     }
 
-    Ok(ComputedHashes {
-        md5: md5_hasher.map(|h| hex::encode(h.finalize())),
-        sha1: sha1_hasher.map(|h| hex::encode(h.finalize())),
-        sha256: sha256_hasher.map(|h| hex::encode(h.finalize())),
-    })
+    pub(crate) fn update(&mut self, chunk: &[u8]) {
+        if let Some(hasher) = self.md5.as_mut() {
+            hasher.update(chunk);
+        }
+        if let Some(hasher) = self.sha1.as_mut() {
+            hasher.update(chunk);
+        }
+        if let Some(hasher) = self.sha256.as_mut() {
+            hasher.update(chunk);
+        }
+    }
+
+    pub(crate) fn finish(self) -> ComputedHashes {
+        ComputedHashes {
+            md5: self.md5.map(|h| hex::encode(h.finalize())),
+            sha1: self.sha1.map(|h| hex::encode(h.finalize())),
+            sha256: self.sha256.map(|h| hex::encode(h.finalize())),
+        }
+    }
 }
 
 /// Compute requested digests from bytes already read by the artifact resolver.
@@ -150,25 +172,9 @@ pub(crate) fn compute_hashes_from_bytes(
     bytes: &[u8],
     requirements: HashRequirements,
 ) -> ComputedHashes {
-    let mut md5_hasher = requirements.md5.then(Md5::new);
-    let mut sha1_hasher = requirements.sha1.then(Sha1::new);
-    let mut sha256_hasher = requirements.sha256.then(Sha256::new);
-
-    if let Some(hasher) = md5_hasher.as_mut() {
-        hasher.update(bytes);
-    }
-    if let Some(hasher) = sha1_hasher.as_mut() {
-        hasher.update(bytes);
-    }
-    if let Some(hasher) = sha256_hasher.as_mut() {
-        hasher.update(bytes);
-    }
-
-    ComputedHashes {
-        md5: md5_hasher.map(|h| hex::encode(h.finalize())),
-        sha1: sha1_hasher.map(|h| hex::encode(h.finalize())),
-        sha256: sha256_hasher.map(|h| hex::encode(h.finalize())),
-    }
+    let mut hasher = HashAccumulator::new(requirements);
+    hasher.update(bytes);
+    hasher.finish()
 }
 
 fn now_secs() -> u64 {
