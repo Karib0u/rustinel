@@ -33,7 +33,7 @@ fn timestamps_reject_invalid_and_out_of_range_values() {
             "<Data>Available</Data><Data>None</Data><Data>HostApplication=test</Data>",
         ),
         (
-            security::source(false, false),
+            security::source(false, false, false),
             "Microsoft-Windows-Security-Auditing",
             4624,
             "<Data Name='TargetUserName'>test</Data>",

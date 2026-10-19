@@ -54,6 +54,8 @@ const SINCE_DNS_DERIVED: Option<&str> = Some(UNRELEASED);
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
 /// Security 4740 and the gated long-tail events 4672, 4799 and 5140 (#805).
 const SINCE_SECURITY_LONG_TAIL: Option<&str> = Some(UNRELEASED);
+/// The domain-controller Security events and 5379 (#544).
+const SINCE_SECURITY_DOMAIN_CONTROLLER: Option<&str> = Some(UNRELEASED);
 /// DNS messages cut at the capture limit keep the name they have (#804).
 const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 
@@ -1242,6 +1244,25 @@ macro_rules! security_family {
             $(conditional($field, SINCE_SECURITY_LONG_TAIL, SECURITY_FIELD_REASON)),+
         ]
     };
+    // The same, for the domain-controller families, whose templates open with
+    // the `Subject*` block.
+    (domain_controller_subject: $($field:literal),+ $(,)?) => {
+        &[
+            always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
+            conditional("SubjectUserSid", SINCE_SECURITY_DOMAIN_CONTROLLER, SECURITY_FIELD_REASON),
+            conditional("SubjectUserName", SINCE_SECURITY_DOMAIN_CONTROLLER, SECURITY_FIELD_REASON),
+            conditional("SubjectDomainName", SINCE_SECURITY_DOMAIN_CONTROLLER, SECURITY_FIELD_REASON),
+            conditional("SubjectLogonId", SINCE_SECURITY_DOMAIN_CONTROLLER, SECURITY_FIELD_REASON),
+            $(conditional($field, SINCE_SECURITY_DOMAIN_CONTROLLER, SECURITY_FIELD_REASON)),+
+        ]
+    };
+    // The Kerberos templates name no subject.
+    (domain_controller: $($field:literal),+ $(,)?) => {
+        &[
+            always_value("Channel", SINCE_WINDOWS_CHANNEL, "Security"),
+            $(conditional($field, SINCE_SECURITY_DOMAIN_CONTROLLER, SECURITY_FIELD_REASON)),+
+        ]
+    };
     // The template opens with the `Subject*` identity block.
     (subject: $($field:literal),+ $(,)?) => {
         &[
@@ -1456,6 +1477,56 @@ const WINDOWS_SECURITY_4799: &[FieldContract] = security_family!(long_tail:
 const WINDOWS_SECURITY_5140: &[FieldContract] = security_family!(long_tail:
     "ObjectType", "IpAddress", "IpPort", "ShareName", "ShareLocalPath", "AccessMask",
     "AccessList",
+);
+// The domain-controller family (#544) and Credential Manager reads. The field
+// names are the templates' own, read from the provider manifest on Windows 11.
+const WINDOWS_SECURITY_4768: &[FieldContract] = security_family!(domain_controller:
+    "TargetUserName", "TargetDomainName", "TargetSid", "ServiceName", "ServiceSid",
+    "TicketOptions", "Status", "TicketEncryptionType", "PreAuthType", "IpAddress", "IpPort",
+    "CertIssuerName", "CertSerialNumber", "CertThumbprint", "ResponseTicket",
+    "AccountSupportedEncryptionTypes", "AccountAvailableKeys",
+    "ServiceSupportedEncryptionTypes", "ServiceAvailableKeys", "DCSupportedEncryptionTypes",
+    "DCAvailableKeys", "ClientAdvertizedEncryptionTypes", "SessionKeyEncryptionType",
+    "PreAuthEncryptionType",
+);
+const WINDOWS_SECURITY_4769: &[FieldContract] = security_family!(domain_controller:
+    "TargetUserName", "TargetDomainName", "ServiceName", "ServiceSid", "TicketOptions",
+    "TicketEncryptionType", "IpAddress", "IpPort", "Status", "LogonGuid", "TransmittedServices",
+    "RequestTicketHash", "ResponseTicketHash", "AccountSupportedEncryptionTypes",
+    "AccountAvailableKeys", "ServiceSupportedEncryptionTypes", "ServiceAvailableKeys",
+    "DCSupportedEncryptionTypes", "DCAvailableKeys", "ClientAdvertizedEncryptionTypes",
+    "SessionKeyEncryptionType",
+);
+const WINDOWS_SECURITY_4662: &[FieldContract] = security_family!(domain_controller_subject:
+    "ObjectServer", "ObjectType", "ObjectName", "OperationType", "HandleId", "AccessList",
+    "AccessMask", "Properties", "AdditionalInfo", "AdditionalInfo2",
+);
+const WINDOWS_SECURITY_4742: &[FieldContract] = security_family!(domain_controller_subject:
+    "ComputerAccountChange", "TargetUserName", "TargetDomainName", "TargetSid", "PrivilegeList",
+    "SamAccountName", "DisplayName", "UserPrincipalName", "HomeDirectory", "HomePath",
+    "ScriptPath", "ProfilePath", "UserWorkstations", "PasswordLastSet", "AccountExpires",
+    "PrimaryGroupId", "AllowedToDelegateTo", "OldUacValue", "NewUacValue", "UserAccountControl",
+    "UserParameters", "SidHistory", "LogonHours", "DnsHostName", "ServicePrincipalNames",
+);
+const WINDOWS_SECURITY_4661: &[FieldContract] = security_family!(domain_controller_subject:
+    "ObjectServer", "ObjectType", "ObjectName", "HandleId", "TransactionId", "AccessList",
+    "AccessMask", "PrivilegeList", "Properties", "RestrictedSidCount", "ProcessId", "ProcessName",
+    "AccessReason",
+);
+const WINDOWS_SECURITY_4673: &[FieldContract] = security_family!(domain_controller_subject:
+    "ObjectServer", "Service", "PrivilegeList", "ProcessId", "ProcessName",
+);
+const WINDOWS_SECURITY_5137: &[FieldContract] = security_family!(domain_controller_subject:
+    "OpCorrelationID", "AppCorrelationID", "DSName", "DSType", "ObjectDN", "ObjectGUID",
+    "ObjectClass",
+);
+const WINDOWS_SECURITY_5141: &[FieldContract] = security_family!(domain_controller_subject:
+    "OpCorrelationID", "AppCorrelationID", "DSName", "DSType", "ObjectDN", "ObjectGUID",
+    "ObjectClass", "TreeDelete",
+);
+const WINDOWS_SECURITY_5379: &[FieldContract] = security_family!(domain_controller_subject:
+    "TargetName", "Type", "CountOfCredentialsReturned", "ReadOperation", "ReturnCode",
+    "ProcessCreationTime", "ClientProcessId",
 );
 const WINDOWS_SECURITY_4765: &[FieldContract] = security_family!(subject:
     "SourceUserName", "SourceSid", "TargetUserName", "TargetDomainName", "TargetSid",
@@ -2735,6 +2806,87 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "windows_event_log",
         "Microsoft-Windows-Security-Auditing",
         WINDOWS_SECURITY_GROUP_MEMBER_ADDED
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4768),
+        Start,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4768
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4769),
+        Start,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4769
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4662),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4662
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4742),
+        Modify,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4742
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4661),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4661
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(4673),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_4673
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(5137),
+        Create,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_5137
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(5141),
+        Delete,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_5141
+    ),
+    contract!(
+        Windows,
+        "security",
+        Some(5379),
+        Access,
+        "windows_event_log",
+        "Microsoft-Windows-Security-Auditing",
+        WINDOWS_SECURITY_5379
     ),
     contract!(
         Windows,
