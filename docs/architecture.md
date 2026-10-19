@@ -167,7 +167,7 @@ Signature results are cached by file identity; revocation is not checked, so the
   Inspect them with `Get-EtwTraceSession -Name rustinel-etw-trace` (or `rustinel-etw-process`).
 - A classic kernel logger supplies creation-time command lines and SIDs, joined to Kernel-Process events by PID, parent PID, and time.
 - At startup, key and file name snapshots let registry and file writes through pre-existing handles be named.
-- Event Log subscriptions read System event 7045, the Security audit events in [Sigma rules](sigma.md#windows-security-events), and selected Application, Windows PowerShell, and Defender events, filtered by a structured query with one `Select` per family: an event is only reachable if it is in both the query and the [`FIELD_AVAILABILITY`](field-availability.md) table.
+- Event Log subscriptions read System event 7045, the Security audit events in [Windows Security events](windows-security-events.md), and selected Application, Windows PowerShell, and Defender events, filtered by a structured query with one `Select` per family: an event is only reachable if it is in both the query and the [`FIELD_AVAILABILITY`](field-availability.md) table.
   Read positions are saved under `logging.directory/event-log`.
   Each channel subscription recovers on its own with bounded backoff (`event_log/recovery.rs`) and escalates to a sensor failure only when retries run out or the error is permanent.
 

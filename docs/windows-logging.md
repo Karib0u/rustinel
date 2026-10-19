@@ -57,6 +57,14 @@ Check the real policy with `auditpol /get /category:*`.
 | 5136 directory object changed | Directory Service Changes (domain controllers) | `{0CCE923C-…}` | No |
 | 5447 filtering platform filter changed | Filtering Platform Policy Change | `{0CCE9233-…}` | No |
 | 6416 device recognized | Plug and Play Events | `{0CCE9248-…}` | No |
+| 4768 Kerberos TGT requested | Kerberos Authentication Service (domain controllers) | `{0CCE9242-…}` | Domain controllers |
+| 4769 Kerberos service ticket requested | Kerberos Service Ticket Operations (domain controllers) | `{0CCE9240-…}` | Domain controllers |
+| 4662 directory object operation | Directory Service Access (domain controllers) | `{0CCE923B-…}` | Domain controllers, needs a SACL |
+| 4742 computer account changed | Computer Account Management (domain controllers) | `{0CCE9236-…}` | Domain controllers |
+| 4661 SAM or directory handle | SAM, Directory Service Access | `{0CCE9220-…}`, `{0CCE923B-…}` | No, needs a SACL |
+| 4673 privileged service called | Sensitive Privilege Use | `{0CCE9228-…}` | No |
+| 5137, 5141 directory object created, deleted | Directory Service Changes (domain controllers) | `{0CCE923C-…}` | No |
+| 5379 Credential Manager credentials read | User Account Management | `{0CCE9235-…}` | Success |
 | 5156, 5157 connection allowed, blocked | Filtering Platform Connection | `{0CCE9226-…}` | No |
 | 5152 packet dropped | Filtering Platform Packet Drop | `{0CCE9225-…}` | No |
 | 4672 special privileges assigned | Special Logon | `{0CCE921B-…}` | Success |
@@ -127,6 +135,21 @@ A file server sees 5140 per client session and a terminal server sees 4672 per l
 
 The 4740 `Subject*` fields name the machine account (`SYSTEM`), not the caller.
 Use `CallerComputerName`, which the local test did not populate, to find the source.
+
+### Domain-controller events
+
+Events 4768 and 4769 (Kerberos ticket requests), 4662 (operation on a directory object), 4742 (computer account changed), 4661 (handle to a SAM or directory object), 4673 (privileged service called), 5137 and 5141 (directory object created, deleted) need two switches:
+
+1. The host audits them: enable the subcategories in the table above.
+   4662 and 4661 also need a SACL on the directory objects to watch, for example the domain root for DCSync detection.
+2. Rustinel reads them: set `security_domain_controller_events = true` under `[windows]`.
+
+They are off in Rustinel by default because a domain controller writes 4768 and 4769 for every Kerberos request and 4662 for every audited directory read, so the rate follows the size of the domain.
+4673 is not domain-controller only, but it is written for every use of a sensitive privilege and is gated with the rest.
+Size the Security log, and measure on the domain controller, before enabling them.
+
+5379 (Credential Manager credentials read) is not gated.
+It is written when a process reads a stored credential, and it is collected by default.
 
 ## PowerShell module logging
 

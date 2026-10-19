@@ -1527,6 +1527,9 @@ fn collector_enabled_for_contract(config: &AppConfig, contract: &EventFieldContr
                 return config.windows.security_filtering_platform_connections
             }
             Some(4672 | 4799 | 5140) => return config.windows.security_long_tail_events,
+            Some(4768 | 4769 | 4662 | 4742 | 4661 | 4673 | 5137 | 5141) => {
+                return config.windows.security_domain_controller_events
+            }
             _ => {}
         }
     }
