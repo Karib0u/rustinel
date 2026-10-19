@@ -167,6 +167,7 @@ fn snapshot_with(channels: Vec<ChannelSnapshot>) -> TelemetrySnapshot {
         registry: None,
         file_attribution: None,
         etw_decode: None,
+        etw_provider_watch: None,
         alert_webhooks: Vec::new(),
     }
 }

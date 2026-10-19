@@ -98,6 +98,9 @@ pub struct HostState {
     /// matching field contract. The detector accessor hides them, but the
     /// contradiction is still a decoder/contract defect operators must see.
     pub(crate) field_contract_violations: AtomicU64,
+    /// Where a sensor writes alerts about the agent itself, such as a tampered
+    /// ETW provider. Unset in capture and replay, which have no alert file.
+    agent_alerts: std::sync::OnceLock<crate::alerts::AlertSink>,
 }
 impl HostState {
     pub fn new(mut limits: StateLimits) -> Self {
@@ -119,7 +122,17 @@ impl HostState {
             macos_collectors: Default::default(),
             provenance: Default::default(),
             field_contract_violations: AtomicU64::new(0),
+            agent_alerts: std::sync::OnceLock::new(),
         }
+    }
+    /// Give sensors somewhere to write agent alerts. The first sink wins.
+    pub fn set_agent_alert_sink(&self, sink: crate::alerts::AlertSink) {
+        let _ = self.agent_alerts.set(sink);
+    }
+    /// The sink for agent alerts, when this runtime has one.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn agent_alert_sink(&self) -> Option<&crate::alerts::AlertSink> {
+        self.agent_alerts.get()
     }
     pub fn for_runtime(max_processes: usize) -> Arc<Self> {
         let state = Arc::new(Self::new(StateLimits {

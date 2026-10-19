@@ -694,6 +694,40 @@ pub struct EcsAlert {
     /// rather than a detection.
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub edr_agent_loss: Option<AgentLoss>,
+
+    /// Present only on `agent::tamper::*` alerts, which describe the agent
+    /// rather than a detection.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub edr_agent_tamper: Option<AgentTamper>,
+}
+
+/// What an agent tamper alert observed.
+#[derive(Serialize)]
+pub struct AgentTamper {
+    /// Alert kind, the last segment of `rule.name`: `etw_provider_modified`.
+    #[serde(skip)]
+    pub kind: &'static str,
+    /// What changed: `provider_disabled`, `keywords_changed`, `level_changed`,
+    /// or `kernel_flags_changed`.
+    #[serde(rename = "edr.agent.tamper.change")]
+    pub change: &'static str,
+    /// The trace session the provider belongs to.
+    #[serde(rename = "edr.agent.tamper.session")]
+    pub session: &'static str,
+    /// Provider name.
+    #[serde(rename = "edr.agent.tamper.provider")]
+    pub provider: &'static str,
+    #[serde(rename = "edr.agent.tamper.provider_guid")]
+    pub provider_guid: String,
+    /// What the agent configured, for example `level 4, keywords 0x1301`.
+    #[serde(rename = "edr.agent.tamper.expected")]
+    pub expected: String,
+    /// What the session reports now. `not enabled` when the provider is off.
+    #[serde(rename = "edr.agent.tamper.observed")]
+    pub observed: String,
+    /// Plain-language summary, repeated in `rule.description`.
+    #[serde(skip)]
+    pub detail: String,
 }
 
 /// What a sensor loss alert measured.

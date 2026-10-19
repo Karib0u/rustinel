@@ -139,6 +139,24 @@ pub struct FileRundownSnapshot {
     pub attempts: u32,
 }
 
+/// Windows ETW provider enablement checks.
+///
+/// The agent compares what each of its sessions has enabled against what it
+/// asked for at startup, so a provider switched off under a live session (the
+/// session keeps running and its heartbeats keep flowing) is not silent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EtwProviderWatchSnapshot {
+    /// Check passes completed.
+    pub checks: u64,
+    /// Provider checks that found a difference, counted on every pass for as
+    /// long as the difference lasts.
+    pub mismatches: u64,
+    /// `agent::tamper::etw_provider_modified` alerts raised, once per change.
+    pub alerts: u64,
+    /// Checks that could not read the session or provider state.
+    pub query_errors: u64,
+}
+
 /// Windows Kernel-File attribution, including startup before live events arrive.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileAttributionSnapshot {
@@ -525,6 +543,10 @@ pub struct TelemetrySnapshot {
     /// on snapshots written before #394.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub etw_decode: Option<EtwDecodeSnapshot>,
+    /// ETW provider enablement checks. Absent on platforms without the ETW
+    /// sensor, and before the first check has run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etw_provider_watch: Option<EtwProviderWatchSnapshot>,
     /// Alert webhook delivery, one entry per configured destination.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alert_webhooks: Vec<super::WebhookSnapshot>,
@@ -556,6 +578,7 @@ impl TelemetrySnapshot {
             registry: sensors.registry,
             file_attribution: sensors.file_attribution,
             etw_decode: sensors.etw_decode,
+            etw_provider_watch: sensors.etw_provider_watch,
             alert_webhooks: probes.webhook_snapshots(),
         }
     }
@@ -665,6 +688,7 @@ pub struct SensorTelemetry {
     pub registry: Option<RegistrySnapshot>,
     pub file_attribution: Option<FileAttributionSnapshot>,
     pub etw_decode: Option<EtwDecodeSnapshot>,
+    pub etw_provider_watch: Option<EtwProviderWatchSnapshot>,
     pub process_correlation: super::ProcessCorrelationSnapshot,
     pub process_command_line: Option<ProcessCommandLineSnapshot>,
     pub field_fidelity: Vec<super::FieldFidelitySnapshot>,
@@ -812,6 +836,7 @@ mod tests {
             registry: None,
             file_attribution: None,
             etw_decode: None,
+            etw_provider_watch: None,
             alert_webhooks: Vec::new(),
         }
     }

@@ -21,6 +21,7 @@ pub(crate) struct WindowsCounters {
     pub(crate) registry: RegistryCounters,
     pub(crate) file_attribution: FileAttributionCounters,
     pub(crate) etw_decode: EtwDecodeCounters,
+    pub(crate) provider_watch: std::sync::Arc<super::provider_watch::ProviderWatchCounters>,
     pub(crate) event_log: std::sync::Arc<crate::telemetry::EventLogHealth>,
 }
 
@@ -29,6 +30,7 @@ impl WindowsCounters {
         out.registry = self.registry.snapshot();
         out.file_attribution = self.file_attribution.snapshot();
         out.etw_decode = self.etw_decode.snapshot();
+        out.etw_provider_watch = self.provider_watch.snapshot();
         out.windows_event_log = self.event_log.snapshot();
     }
 }

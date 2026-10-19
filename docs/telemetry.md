@@ -24,6 +24,7 @@ All counters start at zero when the agent starts.
 | `registry` | Windows registry key-path resolution |
 | `file_attribution` | Windows file path resolution |
 | `etw_decode` | Windows ETW decoding outcomes |
+| `etw_provider_watch` | Windows ETW provider enablement checks, see [tamper alerts](output.md#etw-provider-tamper-alerts) |
 | `alert_webhooks` | Delivery outcomes per [webhook](output.md#webhooks), present when one is configured |
 
 Platform sections appear only on their platform, except `windows_process_correlation`, which is always present and stays at zero elsewhere.
@@ -195,6 +196,18 @@ Keep it when rotating logs, or Rustinel restarts from the oldest record.
 | `unresolved` | Dropped for lack of a path. This is the gap |
 | `index_capacity_evictions` | Handles forgotten because the index was full |
 | `rundown` | The file list taken at startup: whether it was accepted, and its size |
+
+## `etw_provider_watch`
+
+| Field | Meaning |
+| --- | --- |
+| `checks` | Comparison passes completed, one every 30 seconds |
+| `mismatches` | Provider comparisons that found a difference, counted on every pass while the difference lasts |
+| `alerts` | `agent::tamper::etw_provider_modified` alerts raised, one per change |
+| `query_errors` | Passes where the kernel could not be asked about a session or provider |
+
+The entry is absent until the first check runs.
+A healthy host shows `mismatches` and `alerts` at zero.
 
 ## `etw_decode`
 

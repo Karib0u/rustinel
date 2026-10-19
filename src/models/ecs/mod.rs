@@ -12,7 +12,7 @@ mod registry;
 mod threat;
 mod user;
 
-pub use alert::{AgentLoss, DnsAnswer, EcsAlert, ReplayProvenance};
+pub use alert::{AgentLoss, AgentTamper, DnsAnswer, EcsAlert, ReplayProvenance};
 
 use crate::models::{
     Alert, AlertSeverity, DetectionEngine, EventCategory, EventFields, NormalizedEvent,
@@ -41,14 +41,54 @@ impl EcsAlert {
     /// It is written straight to the sink, so it never passes through
     /// deduplication or active response.
     pub fn agent_loss(platform: Platform, timestamp: String, loss: AgentLoss) -> Self {
+        let description = format!(
+            "{} {} events were dropped in {} seconds because the {} queue was full; \
+             detections that depend on them did not run",
+            loss.dropped, loss.category, loss.window_secs, loss.channel
+        );
+        let mut ecs = Self::agent_alert(
+            platform,
+            timestamp,
+            AlertSeverity::Medium,
+            format!("agent::loss::{}", loss.channel),
+            description,
+            "sensor-events-dropped",
+        );
+        ecs.edr_agent_loss = Some(loss);
+        ecs
+    }
+
+    /// An operational alert that something changed the agent's own telemetry
+    /// collection, such as an ETW provider switched off under a live session.
+    pub fn agent_tamper(platform: Platform, timestamp: String, tamper: AgentTamper) -> Self {
+        let description = format!(
+            "ETW session {} no longer matches what the agent configured for provider {}: {}",
+            tamper.session, tamper.provider, tamper.detail
+        );
+        let mut ecs = Self::agent_alert(
+            platform,
+            timestamp,
+            AlertSeverity::High,
+            format!("agent::tamper::{}", tamper.kind),
+            description,
+            tamper.change,
+        );
+        ecs.edr_agent_tamper = Some(tamper);
+        ecs
+    }
+
+    fn agent_alert(
+        platform: Platform,
+        timestamp: String,
+        severity: AlertSeverity,
+        rule_name: String,
+        description: String,
+        action: &str,
+    ) -> Self {
         let alert = Alert {
-            severity: AlertSeverity::Medium,
-            rule_name: format!("agent::loss::{}", loss.channel),
-            rule_description: Some(format!(
-                "{} {} events were dropped in {} seconds because the {} queue was full; \
-                 detections that depend on them did not run",
-                loss.dropped, loss.category, loss.window_secs, loss.channel
-            )),
+            severity,
+            rule_name,
+            rule_description: Some(description),
             rule_id: None,
             sigma_metadata: None,
             engine: DetectionEngine::Sigma,
@@ -74,9 +114,8 @@ impl EcsAlert {
         ecs.event_dataset = format!("{EVENT_MODULE}.agent");
         ecs.event_category = vec!["host".to_string()];
         ecs.event_type = vec!["info".to_string()];
-        ecs.event_action = Some("sensor-events-dropped".to_string());
+        ecs.event_action = Some(action.to_string());
         ecs.event_code = None;
-        ecs.edr_agent_loss = Some(loss);
         ecs
     }
 }
@@ -254,6 +293,7 @@ impl From<&Alert> for EcsAlert {
             edr_match: alert.match_details.clone(),
             edr_replay: None,
             edr_agent_loss: None,
+            edr_agent_tamper: None,
         };
 
         // Map internal fields to ECS based on event type

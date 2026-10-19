@@ -426,6 +426,25 @@ impl EtwSensor {
         });
         let flushers = [main_flusher, process_flusher];
 
+        let counters = &self
+            .host
+            .extension::<crate::sensor::windows::WindowsHostExtension>()
+            .counters;
+        let provider_watch = super::super::provider_watch::spawn(
+            super::expected_providers(),
+            _classic
+                .is_running()
+                .then_some(super::super::provider_watch::ClassicExpectation {
+                    session: super::classic::SESSION_NAME,
+                }),
+            Arc::clone(&self.shutdown),
+            self.host.agent_alert_sink().cloned(),
+            Arc::clone(&counters.provider_watch),
+            super::super::provider_watch::CHECK_INTERVAL,
+        )
+        .map_err(|err| warn!("ETW provider watch disabled: {err:#}"))
+        .ok();
+
         // An Event Log callback can fail while these sessions are starting.
         // Its stop-by-name may precede session creation, so honor shutdown
         // again before entering the blocking processor.
@@ -472,6 +491,9 @@ impl EtwSensor {
             let _ = flusher.join();
         }
         let _ = loss_monitor.join();
+        if let Some(watch) = provider_watch {
+            let _ = watch.join();
+        }
 
         drop(process_trace);
         main_result.and(process_result)
