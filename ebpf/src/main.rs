@@ -33,6 +33,7 @@
 //! | `handle_dns_connect`  | `syscalls/sys_enter_connect` | track DNS socket |
 //! | `handle_dns_recvfrom*`| `sys_enter/exit_recvfrom`    | emit DNS response |
 //! | `handle_dns_recvmsg*` | `sys_enter/exit_recvmsg`     | emit DNS response |
+//! | `handle_dns_recvmmsg*`| `sys_enter/exit_recvmmsg`    | emit DNS response |
 //! | `handle_dns_read`     | `fexit/ksys_read`            | emit DNS response |
 //!
 //! Requirements: Linux 5.8+; runtime BTF enables task identity fields.
@@ -60,7 +61,7 @@ pub use rustinel_ebpf_common::{file_identity_abi, socket_tuple_abi, task_identit
 /// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
 #[used]
 #[no_mangle]
-pub static RUSTINEL_ABI_VERSION: u32 = 6;
+pub static RUSTINEL_ABI_VERSION: u32 = 7;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

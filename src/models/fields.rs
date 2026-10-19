@@ -389,6 +389,11 @@ pub struct DnsQueryFields {
     #[serde(rename = "QueryStatus", skip_serializing_if = "Option::is_none")]
     pub query_status: Option<String>,
 
+    /// `"true"` when the sensor saw only the start of the message and the name
+    /// ends where the capture did. Absent when the whole question was read.
+    #[serde(rename = "QueryTruncated", skip_serializing_if = "Option::is_none")]
+    pub query_truncated: Option<String>,
+
     #[serde(rename = "ProcessId", skip_serializing_if = "Option::is_none")]
     pub process_id: Option<String>,
 

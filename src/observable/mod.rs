@@ -387,6 +387,7 @@ mod tests {
                 Platform::Linux,
                 EventCategory::Dns,
                 EventFields::DnsQuery(DnsQueryFields {
+                    query_truncated: None,
                     user: None,
                     query_name: name.map(Into::into),
                     query_results: None,
