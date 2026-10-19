@@ -68,3 +68,6 @@ tests/**/*
 rules-bench/
 *.pyc
 __pycache__/
+# Endpoint Security messages recorded on a real Mac, read by the decoder tests
+# in src/sensor/macos/esf/fixture_tests.rs. See docs/development.md.
+!tests/fixtures/esf/**
