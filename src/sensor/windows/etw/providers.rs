@@ -340,6 +340,14 @@ mod tests {
     }
 
     #[test]
+    fn wmi_activity_event_ids_are_the_trace_contract_plus_the_operational_events() {
+        // `sigma doctor` reads the trace IDs from the field-availability table.
+        let mut expected = crate::field_availability::WMI_TRACE_EVENT_IDS.to_vec();
+        expected.extend(5857..=5861);
+        assert_eq!(EtwProviders::WMI_EVENT_IDS, expected.as_slice());
+    }
+
+    #[test]
     fn wmi_activity_event_ids_do_not_alias_sysmon_wmi_event_ids() {
         // Sysmon `wmi_event`: 19 = filter, 20 = consumer, 21 = binding.
         const SYSMON_WMI_EVENT_IDS: &[u16] = &[19, 20, 21];

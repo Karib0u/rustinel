@@ -1,4 +1,4 @@
-use crate::alerts::AlertSink;
+use crate::alerts::{AlertByteBudget, AlertSink, BudgetedWriter, DEFAULT_ALERT_QUEUE_BYTES};
 use crate::config;
 use crate::utils::fs::{ensure_output_directory, open_output_file};
 use anyhow::{bail, Context};
@@ -145,13 +145,8 @@ pub fn init_logging(
         .with_target(true)
         .with_filter(base_filter.clone());
 
-    let (alert_writer, alert_guard) = build_daily_writer(
-        "alerts",
-        &cfg.alerts.directory,
-        &cfg.alerts.filename,
-        cfg.security.log_group(),
-    )?;
-    let alert_sink = AlertSink::new(alert_writer);
+    let (alert_writer, alert_guard, alert_budget) = build_alert_writer(cfg)?;
+    let alert_sink = AlertSink::new(alert_writer).with_byte_budget(alert_budget);
 
     let ansi_supported = std::env::var("WT_SESSION").is_ok();
     let console_layer = if cfg.logging.console_output {
@@ -198,12 +193,7 @@ pub fn init_logging(
         .with_target(true)
         .with_filter(base_filter.clone());
 
-    let (alert_writer, alert_guard) = build_daily_writer(
-        "alerts",
-        &cfg.alerts.directory,
-        &cfg.alerts.filename,
-        cfg.security.log_group(),
-    )?;
+    let (alert_writer, alert_guard, alert_budget) = build_alert_writer(cfg)?;
 
     if cfg.logging.console_output {
         let console_layer = fmt::layer()
@@ -219,7 +209,11 @@ pub fn init_logging(
         tracing_subscriber::registry().with(app_layer).init();
     }
 
-    Ok((app_guard, alert_guard, AlertSink::new(alert_writer)))
+    Ok((
+        app_guard,
+        alert_guard,
+        AlertSink::new(alert_writer).with_byte_budget(alert_budget),
+    ))
 }
 
 /// Initialize operational logging only, without the alert pipeline.
@@ -298,6 +292,27 @@ fn console_ansi_supported() -> bool {
     true
 }
 
+fn build_alert_writer(
+    cfg: &config::AppConfig,
+) -> anyhow::Result<(
+    tracing_appender::non_blocking::NonBlocking,
+    tracing_appender::non_blocking::WorkerGuard,
+    std::sync::Arc<AlertByteBudget>,
+)> {
+    let budget = AlertByteBudget::new(DEFAULT_ALERT_QUEUE_BYTES);
+    let appender = open_daily_appender(
+        "alerts",
+        &cfg.alerts.directory,
+        &cfg.alerts.filename,
+        cfg.security.log_group(),
+    )?;
+    let (writer, guard) = tracing_appender::non_blocking(BudgetedWriter::new(
+        appender,
+        std::sync::Arc::clone(&budget),
+    ));
+    Ok((writer, guard, budget))
+}
+
 fn build_daily_writer(
     label: &str,
     directory: &Path,
@@ -307,6 +322,17 @@ fn build_daily_writer(
     tracing_appender::non_blocking::NonBlocking,
     tracing_appender::non_blocking::WorkerGuard,
 )> {
+    Ok(tracing_appender::non_blocking(open_daily_appender(
+        label, directory, filename, group,
+    )?))
+}
+
+fn open_daily_appender(
+    label: &str,
+    directory: &Path,
+    filename: &str,
+    group: Option<u32>,
+) -> anyhow::Result<RestrictedFileAppender> {
     if Path::new(filename).file_name() != Some(std::ffi::OsStr::new(filename)) {
         bail!("invalid {} log filename {:?}", label, filename);
     }
@@ -318,7 +344,7 @@ fn build_daily_writer(
         )
     })?;
     let date = chrono::Utc::now().date_naive();
-    let appender = RestrictedFileAppender {
+    Ok(RestrictedFileAppender {
         inner: open_log_file(directory, filename, date, group).with_context(|| {
             format!(
                 "failed to open {} log file in {}",
@@ -330,8 +356,7 @@ fn build_daily_writer(
         filename_prefix: filename.to_owned(),
         date,
         group,
-    };
-    Ok(tracing_appender::non_blocking(appender))
+    })
 }
 
 fn prepare_log_directory(directory: &Path, group: Option<u32>) -> io::Result<()> {

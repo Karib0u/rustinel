@@ -697,6 +697,27 @@ pub enum EventCategory {
     Application,
 }
 
+impl EventCategory {
+    /// Every category, for tables that must cover each one.
+    pub const ALL: [Self; 15] = [
+        Self::Process,
+        Self::Network,
+        Self::File,
+        Self::Registry,
+        Self::Dns,
+        Self::ImageLoad,
+        Self::Scripting,
+        Self::PowerShellModule,
+        Self::PowerShellClassicStart,
+        Self::Wmi,
+        Self::Service,
+        Self::Task,
+        Self::Security,
+        Self::Defender,
+        Self::Application,
+    ];
+}
+
 #[cfg(test)]
 mod round_trip_tests {
     //! A recorded event must come back exactly as it went out. Replay is only
