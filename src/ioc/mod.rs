@@ -8,7 +8,7 @@ mod load;
 mod matchers;
 mod types;
 
-pub(crate) use hash::compute_hashes_from_bytes;
+pub(crate) use hash::{compute_hashes_from_bytes, HashAccumulator};
 pub use hash::{ComputedHashes, HashCache, HashRequirements};
 pub use types::{IocKind, IocMatch};
 
