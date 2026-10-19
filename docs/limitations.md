@@ -18,6 +18,8 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Unsupported extensions without a recognized file signature are not scanned.
   Memory scanning is optional and needs privileges.
 - **Memory-only and living-off-the-land activity** leaves little telemetry.
+- **Out of scope by decision.**
+  Other platforms, cross-host correlation, software inventory, vulnerability exposure, and blocking are boundaries, see [Not in scope](coverage.md#not-in-scope).
 
 ## Detection engine
 
@@ -84,7 +86,13 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Classic engine starts include version 2 through event 400.
   PowerShell 7 is not collected.
   Module logging (4103) needs host policy, and its text is in the host's language.
-- **No telemetry** for remote threads, process access, named pipes, driver loads, or network data volume.
+- **No telemetry** for named pipes, process tampering, or network data volume, and not yet for remote threads, process access, or file reads.
+  Named pipes and process tampering need a kernel driver.
+  The rest are planned, see [Platform coverage](coverage.md#telemetry-that-is-missing).
+- **Injection needs a driver or a protected process.**
+  APC injection, remote memory writes, and the true `GrantedAccess` of a process handle come from the Threat Intelligence provider, which only a protected process light can consume.
+  Rustinel ships no driver and does not run as one, so these stay out of reach.
+  Process access is planned from Kernel-Audit-API-Calls, which does not carry `GrantedAccess`.
 - **`IntegrityLevel`** exists on process start events only.
 
 ## Linux
@@ -155,6 +163,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
   A name that runs past the limit, as a non-compliant tunnel can send, is reported as far as it was read, with `QueryTruncated` set to `true` and no `RecordType`.
   Only the first `iovec` of a datagram, or the first two for a TCP query, is read.
 - **No telemetry** for library loads, kernel module loads, ptrace, or file timestamp changes (`file_change`).
+  Sensitive file reads are planned, see [Platform coverage](coverage.md#telemetry-that-is-missing).
 
 ## macOS
 
