@@ -50,6 +50,10 @@ pub struct HostStateSnapshot {
     pub inventory: Option<InventorySnapshot>,
 }
 
+/// Writes an alert about the agent itself. The runtime supplies it, so sensors
+/// never name the alert sink.
+pub type AgentAlertWriter = std::sync::Arc<dyn Fn(&crate::models::ecs::EcsAlert) + Send + Sync>;
+
 /// Per-OS state a platform sensor keeps on the host.
 ///
 /// The sensor defines the type and `HostState` only stores and reports it, so
@@ -100,7 +104,7 @@ pub struct HostState {
     pub(crate) field_contract_violations: AtomicU64,
     /// Where a sensor writes alerts about the agent itself, such as a tampered
     /// ETW provider. Unset in capture and replay, which have no alert file.
-    agent_alerts: std::sync::OnceLock<crate::alerts::AlertSink>,
+    agent_alerts: std::sync::OnceLock<AgentAlertWriter>,
 }
 impl HostState {
     pub fn new(mut limits: StateLimits) -> Self {
@@ -125,13 +129,13 @@ impl HostState {
             agent_alerts: std::sync::OnceLock::new(),
         }
     }
-    /// Give sensors somewhere to write agent alerts. The first sink wins.
-    pub fn set_agent_alert_sink(&self, sink: crate::alerts::AlertSink) {
-        let _ = self.agent_alerts.set(sink);
+    /// Give sensors somewhere to write agent alerts. The first writer wins.
+    pub fn set_agent_alert_writer(&self, writer: AgentAlertWriter) {
+        let _ = self.agent_alerts.set(writer);
     }
     /// The sink for agent alerts, when this runtime has one.
     #[cfg_attr(not(windows), allow(dead_code))]
-    pub(crate) fn agent_alert_sink(&self) -> Option<&crate::alerts::AlertSink> {
+    pub(crate) fn agent_alert_writer(&self) -> Option<&AgentAlertWriter> {
         self.agent_alerts.get()
     }
     pub fn for_runtime(max_processes: usize) -> Arc<Self> {

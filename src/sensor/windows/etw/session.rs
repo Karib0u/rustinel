@@ -438,7 +438,7 @@ impl EtwSensor {
                     session: super::classic::SESSION_NAME,
                 }),
             Arc::clone(&self.shutdown),
-            self.host.agent_alert_sink().cloned(),
+            self.host.agent_alert_writer().cloned(),
             Arc::clone(&counters.provider_watch),
             super::super::provider_watch::CHECK_INTERVAL,
         )

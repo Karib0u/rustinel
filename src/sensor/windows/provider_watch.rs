@@ -33,8 +33,8 @@ use windows::Win32::System::Diagnostics::Etw::{
     EVENT_TRACE_FLAG_PROCESS, EVENT_TRACE_PROPERTIES,
 };
 
-use crate::alerts::AlertSink;
 use crate::models::ecs::{AgentTamper, EcsAlert};
+use crate::state::AgentAlertWriter;
 use crate::telemetry::EtwProviderWatchSnapshot;
 use crate::vocab::Platform;
 
@@ -333,7 +333,7 @@ pub(super) struct ClassicExpectation {
 
 /// Reports changes and remembers what it already reported.
 struct Reporter {
-    sink: Option<AlertSink>,
+    sink: Option<AgentAlertWriter>,
     counters: Arc<ProviderWatchCounters>,
     reported: HashMap<(&'static str, String), Change>,
 }
@@ -372,8 +372,8 @@ impl Reporter {
             "ETW provider was modified while the session kept running"
         );
         self.counters.alerts.fetch_add(1, Ordering::Relaxed);
-        if let Some(sink) = &self.sink {
-            sink.write_ecs(&EcsAlert::agent_tamper(
+        if let Some(write) = &self.sink {
+            write(&EcsAlert::agent_tamper(
                 Platform::Windows,
                 chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 AgentTamper {
@@ -475,7 +475,7 @@ pub(super) fn spawn(
     expected: Vec<ExpectedProvider>,
     classic: Option<ClassicExpectation>,
     shutdown: Arc<AtomicBool>,
-    sink: Option<AlertSink>,
+    sink: Option<AgentAlertWriter>,
     counters: Arc<ProviderWatchCounters>,
     interval: Duration,
 ) -> Result<JoinHandle<()>> {
