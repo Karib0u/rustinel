@@ -51,6 +51,12 @@ pub(super) trait LiveSensor: Send + Sync {
     fn events_lost(&self) -> u64 {
         0
     }
+
+    /// The same loss, labelled for loss alerts. Sensors whose kernel counters
+    /// already reach the telemetry snapshot leave this empty.
+    fn kernel_loss(&self) -> Vec<crate::telemetry::LossTotal> {
+        Vec::new()
+    }
 }
 
 /// Adapter for a [`Sensor`] whose `start` returns once it is collecting.
@@ -179,6 +185,24 @@ impl SensorSet {
             Poll::Pending
         })
         .await
+    }
+
+    /// Publish this set's kernel-side loss for loss alerts.
+    ///
+    /// The probe holds the sensors, so it must be replaced or the probes
+    /// dropped with the run.
+    pub fn attach_loss_probe(&self, probes: &crate::telemetry::PipelineProbes) {
+        let sensors: Vec<_> = self
+            .members
+            .iter()
+            .map(|member| Arc::clone(&member.sensor))
+            .collect();
+        probes.attach_kernel_loss(move || {
+            sensors
+                .iter()
+                .flat_map(|sensor| sensor.kernel_loss())
+                .collect()
+        });
     }
 
     pub fn events_lost(&self) -> u64 {

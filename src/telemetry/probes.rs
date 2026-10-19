@@ -21,6 +21,7 @@ struct Slots {
     sensors: Mutex<Option<Probe<super::SensorTelemetry>>>,
     webhooks: Mutex<Vec<Weak<WebhookCounters>>>,
     artifact: Mutex<Option<Probe<ArtifactResolverSnapshot>>>,
+    kernel_loss: Mutex<Option<Probe<Vec<super::LossTotal>>>>,
 }
 
 /// Shared, cloneable set of probes for one runtime.
@@ -50,6 +51,85 @@ impl PipelineProbes {
     /// Publish the alert webhook destinations in this runtime's snapshots.
     pub(crate) fn attach_webhooks(&self, counters: &[Arc<WebhookCounters>]) {
         *lock(&self.slots.webhooks) = counters.iter().map(Arc::downgrade).collect();
+    }
+
+    /// Publish loss that happens before a sensor can read an event, for
+    /// sources that are not part of the host-state snapshot (Windows ETW).
+    pub(crate) fn attach_kernel_loss(
+        &self,
+        probe: impl Fn() -> Vec<super::LossTotal> + Send + Sync + 'static,
+    ) {
+        *lock(&self.slots.kernel_loss) = Some(Box::new(move || Some(probe())));
+    }
+
+    /// Cumulative loss per stage, for every stage that has lost anything.
+    ///
+    /// Covers the `sensor_events` queue by category, the artifact enrichment
+    /// queues, and the kernel-side counters of the active sensors.
+    /// Totals only ever grow within one agent run, so callers diff successive
+    /// reads to get a window.
+    pub(crate) fn loss_totals(&self) -> Vec<super::LossTotal> {
+        let mut totals: Vec<super::LossTotal> = super::sensor_event_drop_totals()
+            .into_iter()
+            .map(|(category, total)| super::LossTotal::new("sensor_events", category, total))
+            .collect();
+        for (channel, id, category) in [
+            (
+                "artifact_resolution",
+                super::ChannelId::ArtifactResolution,
+                "artifact_enrichment",
+            ),
+            (
+                "artifact_written_files",
+                super::ChannelId::ArtifactWrittenFiles,
+                "written_file_enrichment",
+            ),
+            (
+                "yara_memory_scan",
+                super::ChannelId::YaraMemoryScan,
+                "memory_scan",
+            ),
+        ] {
+            let dropped = id.counters().snapshot().dropped;
+            if dropped > 0 {
+                totals.push(super::LossTotal::new(channel, category, dropped));
+            }
+        }
+
+        let sensors = self.sensor_telemetry();
+        if let Some(ebpf) = &sensors.linux_ebpf {
+            for family in &ebpf.families {
+                for (channel, total) in [
+                    ("ebpf_ring", family.kernel_ring_full),
+                    ("ebpf_oversized", family.kernel_oversized),
+                    ("ebpf_map_full", family.kernel_map_full),
+                ] {
+                    if total > 0 {
+                        totals.push(super::LossTotal::new(channel, family.ring.clone(), total));
+                    }
+                }
+            }
+        }
+        if let Some(macos) = &sensors.macos_collectors {
+            if let Some(esf) = macos.esf.as_ref().filter(|esf| esf.kernel_dropped > 0) {
+                totals.push(super::LossTotal::new(
+                    "macos_esf",
+                    "endpoint_security",
+                    esf.kernel_dropped,
+                ));
+            }
+            if let Some(bpf) = macos.bpf.as_ref().filter(|bpf| bpf.kernel_dropped > 0) {
+                totals.push(super::LossTotal::new(
+                    "macos_bpf",
+                    "network",
+                    bpf.kernel_dropped,
+                ));
+            }
+        }
+        if let Some(probe) = lock(&self.slots.kernel_loss).as_ref() {
+            totals.extend(probe().unwrap_or_default());
+        }
+        totals
     }
 
     pub(super) fn webhook_snapshots(&self) -> Vec<WebhookSnapshot> {

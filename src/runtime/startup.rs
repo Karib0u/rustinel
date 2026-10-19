@@ -104,7 +104,7 @@ impl RuntimeLogging {
         let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink, probes.clone());
 
         // 2d. Operational alert when sensor events were dropped
-        let loss_alerter = SensorLossAlerter::start(cfg, &alert_sink);
+        let loss_alerter = SensorLossAlerter::start(cfg, &alert_sink, probes.clone());
 
         Ok(Self {
             alert_sink,

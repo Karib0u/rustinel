@@ -27,12 +27,15 @@ use super::{
     parse_imphash_bytes, parse_pe_metadata_bytes, Artifact, ArtifactOpener, ArtifactRuntime,
     PeMetadata,
 };
-use crate::ioc::{ComputedHashes, HashRequirements};
+use crate::ioc::{ComputedHashes, HashAccumulator, HashRequirements};
 use crate::scanner::ScanError;
 use crate::state::HostState;
 use crate::utils::file_identity;
 
 pub(super) const ARTIFACT_IO_ISOLATION_LIMIT: usize = 4;
+
+/// Scratch buffer for hash-only reads, matching the IOC `HashCache` helper.
+const HASH_STREAM_CHUNK: usize = 64 * 1024;
 
 enum LoopEvent {
     Job(Option<ArtifactJob>),
@@ -673,26 +676,41 @@ impl ArtifactResolver {
             return Ok(artifact);
         }
 
-        let mut bytes = Vec::with_capacity(size.min(1024 * 1024) as usize);
-        (&mut file)
-            .take(plan.max_read_bytes.saturating_add(1))
-            .read_to_end(&mut bytes)
-            .map_err(|error| {
+        // Digests alone never need the whole file in memory: hash it in
+        // chunks from this same handle.
+        let hash_only = !missing.pe_metadata && !missing.imphash && !missing.yara;
+        let mut bytes = Vec::new();
+        let mut streamed = None;
+        if hash_only {
+            streamed = Some(self.stream_hashes(
+                &mut file,
+                missing.hashes,
+                plan,
+                deadline_at,
+                deadline_recorded,
+            )?);
+        } else {
+            bytes.reserve(size.min(1024 * 1024) as usize);
+            (&mut file)
+                .take(plan.max_read_bytes.saturating_add(1))
+                .read_to_end(&mut bytes)
+                .map_err(|error| {
+                    self.state
+                        .counters
+                        .read_failed
+                        .fetch_add(1, Ordering::Relaxed);
+                    ResolveError::Read(error)
+                })?;
+            if bytes.len() as u64 > plan.max_read_bytes {
                 self.state
                     .counters
-                    .read_failed
+                    .oversized
                     .fetch_add(1, Ordering::Relaxed);
-                ResolveError::Read(error)
-            })?;
-        if bytes.len() as u64 > plan.max_read_bytes {
-            self.state
-                .counters
-                .oversized
-                .fetch_add(1, Ordering::Relaxed);
-            return Err(ResolveError::TooLarge {
-                size: bytes.len() as u64,
-                limit: plan.max_read_bytes,
-            });
+                return Err(ResolveError::TooLarge {
+                    size: bytes.len() as u64,
+                    limit: plan.max_read_bytes,
+                });
+            }
         }
         if file_identity::from_file(&file).as_ref() != Some(&identity) {
             self.state
@@ -733,7 +751,9 @@ impl ArtifactResolver {
             }
         }
         if missing.hashes.md5 || missing.hashes.sha1 || missing.hashes.sha256 {
-            let computed = crate::ioc::compute_hashes_from_bytes(&bytes, missing.hashes);
+            let computed = streamed
+                .take()
+                .unwrap_or_else(|| crate::ioc::compute_hashes_from_bytes(&bytes, missing.hashes));
             // Keep digests the store already had for algorithms not missing.
             artifact.hashes = Some(match artifact.hashes.take() {
                 Some(cached) => ComputedHashes {
@@ -826,6 +846,52 @@ impl ArtifactResolver {
         Ok(artifact)
     }
 
+    /// Digest the handle in fixed chunks, enforcing the same byte limit and
+    /// deadline as the buffered read without holding the file in memory.
+    fn stream_hashes(
+        &self,
+        file: &mut File,
+        requirements: HashRequirements,
+        plan: &ResolvePlan,
+        deadline_at: Instant,
+        deadline_recorded: &AtomicBool,
+    ) -> Result<ComputedHashes, ResolveError> {
+        let mut hasher = HashAccumulator::new(requirements);
+        let mut buf = vec![0u8; HASH_STREAM_CHUNK];
+        let mut total: u64 = 0;
+        loop {
+            if Instant::now() >= deadline_at {
+                self.record_deadline(deadline_recorded);
+                return Err(ResolveError::Deadline(plan.deadline));
+            }
+            let read = match file.read(&mut buf) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    self.state
+                        .counters
+                        .read_failed
+                        .fetch_add(1, Ordering::Relaxed);
+                    return Err(ResolveError::Read(error));
+                }
+            };
+            total += read as u64;
+            if total > plan.max_read_bytes {
+                self.state
+                    .counters
+                    .oversized
+                    .fetch_add(1, Ordering::Relaxed);
+                return Err(ResolveError::TooLarge {
+                    size: total,
+                    limit: plan.max_read_bytes,
+                });
+            }
+            hasher.update(&buf[..read]);
+        }
+        Ok(hasher.finish())
+    }
+
     fn record_deadline(&self, recorded: &AtomicBool) {
         if !recorded.swap(true, Ordering::Relaxed) {
             self.state
@@ -871,6 +937,139 @@ mod tests {
     use crate::sensor::Platform;
     use crate::state::HostState;
     use crate::utils::file_identity::{self};
+
+    fn hash_only_worker(
+        root: &Path,
+        bytes: &[u8],
+    ) -> (
+        ArtifactResolver,
+        ResolvePlan,
+        ResolvePlan,
+        ArtifactTarget,
+        Arc<ResolverState>,
+    ) {
+        let path = root.join("sample.bin");
+        std::fs::write(&path, bytes).unwrap();
+        let runtime = runtime_with_consumers(root, bytes);
+        let event = process_event(&path, Platform::Linux);
+        let target = ArtifactTarget::from_event(&event, None).unwrap();
+        let buffered = ResolvePlan::snapshot(&runtime, &event, &target);
+        assert!(buffered.needs.yara && buffered.needs.hashes.sha256);
+        let mut streaming = buffered.clone();
+        streaming.needs.yara = false;
+        streaming.yara = None;
+        let state = Arc::new(ResolverState::new());
+        let worker =
+            ArtifactResolver::new(Arc::new(HostState::default()), runtime, Arc::clone(&state));
+        (worker, buffered, streaming, target, state)
+    }
+
+    #[test]
+    fn streamed_digests_match_the_buffered_path_at_every_boundary() {
+        let all = HashRequirements {
+            md5: true,
+            sha1: true,
+            sha256: true,
+        };
+        for len in [0usize, 1, 65_535, 65_536, 65_537, 200_000] {
+            let temp = tempfile::tempdir().unwrap();
+            let bytes: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+            let (worker, _, plan, _, _) = hash_only_worker(temp.path(), &bytes);
+            let mut file = File::open(temp.path().join("sample.bin")).unwrap();
+            let streamed = worker
+                .stream_hashes(
+                    &mut file,
+                    all,
+                    &plan,
+                    Instant::now() + Duration::from_secs(30),
+                    &AtomicBool::new(false),
+                )
+                .unwrap();
+            assert_eq!(
+                streamed,
+                crate::ioc::compute_hashes_from_bytes(&bytes, all),
+                "{len} bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hash_only_resolution_streams_and_equals_the_buffered_digests() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = b"evil!!";
+        let (worker, buffered, streaming, target, state) = hash_only_worker(temp.path(), bytes);
+        let expected = worker
+            .resolve_with_opener(&target, &buffered, open_artifact)
+            .unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let (fresh, _, _, fresh_target, fresh_state) = hash_only_worker(other.path(), bytes);
+        let streamed = fresh
+            .resolve_with_opener(&fresh_target, &streaming, open_artifact)
+            .unwrap();
+        assert_eq!(streamed.hashes, expected.hashes);
+        assert!(streamed.yara.is_none());
+        assert_eq!(fresh_state.snapshot().cache_misses, 1);
+        assert_eq!(state.snapshot().cache_misses, 1);
+    }
+
+    #[test]
+    fn a_stream_past_the_byte_limit_is_too_large() {
+        let temp = tempfile::tempdir().unwrap();
+        let (worker, _, mut plan, _, state) = hash_only_worker(temp.path(), &[7u8; 70_000]);
+        let hashes = plan.needs.hashes;
+        let run = |plan: &ResolvePlan| {
+            let mut file = File::open(temp.path().join("sample.bin")).unwrap();
+            worker.stream_hashes(
+                &mut file,
+                hashes,
+                plan,
+                Instant::now() + Duration::from_secs(30),
+                &AtomicBool::new(false),
+            )
+        };
+        plan.max_read_bytes = 70_000;
+        assert!(run(&plan).is_ok());
+        plan.max_read_bytes = 69_999;
+        assert!(matches!(
+            run(&plan),
+            Err(ResolveError::TooLarge { limit: 69_999, .. })
+        ));
+        assert_eq!(state.snapshot().oversized, 1);
+    }
+
+    #[test]
+    fn a_stream_past_its_deadline_is_abandoned() {
+        let temp = tempfile::tempdir().unwrap();
+        let (worker, _, plan, _, state) = hash_only_worker(temp.path(), &[7u8; 70_000]);
+        let mut file = File::open(temp.path().join("sample.bin")).unwrap();
+        let result = worker.stream_hashes(
+            &mut file,
+            plan.needs.hashes,
+            &plan,
+            Instant::now(),
+            &AtomicBool::new(false),
+        );
+        assert!(matches!(result, Err(ResolveError::Deadline(_))));
+        assert_eq!(state.snapshot().deadline_exceeded, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stream_read_error_is_counted_and_returned() {
+        let temp = tempfile::tempdir().unwrap();
+        let (worker, _, plan, _, state) = hash_only_worker(temp.path(), b"x");
+        // Reading a directory handle fails with EISDIR.
+        let mut dir = File::open(temp.path()).unwrap();
+        let result = worker.stream_hashes(
+            &mut dir,
+            plan.needs.hashes,
+            &plan,
+            Instant::now() + Duration::from_secs(30),
+            &AtomicBool::new(false),
+        );
+        assert!(matches!(result, Err(ResolveError::Read(_))));
+        assert_eq!(state.snapshot().read_failed, 1);
+    }
 
     #[test]
     fn one_open_supplies_hash_and_yara_and_reload_invalidates_only_yara() {

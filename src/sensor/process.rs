@@ -114,6 +114,8 @@ pub struct RawProcessEvent {
     pub parent_command_line: Option<String>,
     pub current_directory: Option<String>,
     pub integrity_level: Option<String>,
+    /// Logon session, already in Sysmon notation. Filled by host enrichment.
+    pub logon_id: Option<String>,
     pub user: Option<RawUserId>,
     /// Source-populated compatibility metadata. Sensors leave these absent
     /// unless the native source itself supplied them; host enrichment may add
@@ -255,6 +257,7 @@ impl RawProcessEvent {
             parent_user: None,
             current_directory: self.current_directory.clone(),
             integrity_level: self.integrity_level.clone(),
+            logon_id: self.logon_id.clone(),
             user: self.user.as_ref().map(RawUserId::compatibility_value),
         }
     }
@@ -390,6 +393,7 @@ impl RawProcessEvent {
             parent_command_line: fields.parent_command_line,
             current_directory: fields.current_directory,
             integrity_level: fields.integrity_level,
+            logon_id: fields.logon_id,
             user,
             original_file_name: fields.original_file_name,
             product: fields.product,
