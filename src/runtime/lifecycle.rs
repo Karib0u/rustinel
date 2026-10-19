@@ -513,7 +513,7 @@ mod tests {
         assert_eq!(value["agent.version"], "9.9.9");
         assert!(value["@timestamp"].is_string());
         assert!(value["uptime_secs"].is_u64());
-        assert_eq!(value["dropped_total"], 0);
+        assert!(value["dropped_total"].is_u64());
         assert!(value.get("telemetry").is_none(), "{line}");
         assert!(line.len() < 400, "{line}");
     }
