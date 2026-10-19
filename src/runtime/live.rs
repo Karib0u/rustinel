@@ -16,6 +16,7 @@ use tracing::{error, info};
 use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::response::ResponseEngine;
+use crate::runtime::lifecycle::{write_stopping, StopReason};
 use crate::runtime::logging::TARGET_CONSOLE;
 use crate::runtime::pipeline::{LivePipeline, SharedState};
 use crate::runtime::sensors::{PlatformRuntime, RunMode, ShutdownFuture};
@@ -40,6 +41,7 @@ pub(super) async fn run_live(
         dedup_worker_handle,
         telemetry_reporter,
         loss_alerter,
+        lifecycle,
         probes,
         _guards,
     } = RuntimeLogging::start(&cfg, runtime.label, resolved_config_path.as_deref())?;
@@ -79,8 +81,12 @@ pub(super) async fn run_live(
     // The sensors hold their own senders; the channel closes once they stop.
     drop(sensor_tx);
 
+    let mut stop_reason = StopReason::Signal;
     let outcome = match started {
-        Err(failed) => Err(failed.error),
+        Err(failed) => {
+            stop_reason = StopReason::SensorFailure;
+            Err(failed.error)
+        }
         Ok(()) => {
             info!(
                 target: TARGET_CONSOLE,
@@ -90,15 +96,20 @@ pub(super) async fn run_live(
                 biased;
                 signal = &mut shutdown => match signal {
                     Some(signal) => {
+                        stop_reason = StopReason::from_signal(&signal);
                         info!(target: TARGET_CONSOLE, "Received {}, shutting down", signal);
                         Ok(())
                     }
                     None => Err(anyhow::anyhow!("Shutdown signal listener closed unexpectedly")),
                 },
                 (name, result) = pipeline.critical_worker_exit(&mut sensor_worker_handle, &mut response_worker_handle) => {
+                    write_stopping(&alert_sink, runtime.platform, StopReason::SensorFailure);
+                    lifecycle.mark_stopped();
                     exit_on_critical_worker_failure(name, result, _guards);
                 }
                 (name, reason) = sensors.first_ended() => {
+                    write_stopping(&alert_sink, runtime.platform, StopReason::SensorFailure);
+                    lifecycle.mark_stopped();
                     exit_on_sensor_end(name, &reason, _guards);
                 }
             }
@@ -116,6 +127,8 @@ pub(super) async fn run_live(
             &alert_sink,
             telemetry_reporter,
             loss_alerter,
+            lifecycle,
+            stop_reason,
         )
         .await;
 

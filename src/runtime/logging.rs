@@ -13,7 +13,7 @@ const STARTUP_BANNER_INNER_WIDTH: usize = 49;
 pub use crate::vocab::TARGET_CONSOLE;
 const DEFAULT_CONSOLE_FILTER: &str = "warn,console=info,engine=info,response=info";
 
-struct RestrictedFileAppender {
+pub(super) struct RestrictedFileAppender {
     inner: File,
     directory: PathBuf,
     filename_prefix: String,
@@ -327,7 +327,7 @@ fn build_daily_writer(
     )?))
 }
 
-fn open_daily_appender(
+pub(super) fn open_daily_appender(
     label: &str,
     directory: &Path,
     filename: &str,

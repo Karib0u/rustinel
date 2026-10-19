@@ -376,6 +376,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub agent: AgentConfig,
     pub telemetry: TelemetryConfig,
+    #[serde(default)]
+    pub heartbeat: HeartbeatConfig,
     pub windows: WindowsConfig,
 }
 
@@ -538,6 +540,16 @@ pub struct TelemetryConfig {
     pub loss_alert_interval_secs: u64,
 }
 
+/// Agent heartbeat configuration
+///
+/// The heartbeat itself is written whenever `telemetry.enabled` is, on the
+/// `telemetry.snapshot_interval_secs` timer.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct HeartbeatConfig {
+    /// Also send each heartbeat line to the configured alert webhooks.
+    pub webhooks: bool,
+}
+
 /// Windows telemetry configuration. It is present on every platform so one
 /// managed configuration can be distributed to a mixed fleet.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -689,6 +701,7 @@ impl AppConfig {
             .set_default("telemetry.enabled", true)?
             .set_default("telemetry.snapshot_interval_secs", 30i64)?
             .set_default("telemetry.loss_alert_interval_secs", 60i64)?
+            .set_default("heartbeat.webhooks", false)?
             // Windows ETW delivery latency
             .set_default("windows.etw_flush_interval_ms", 20i64)?
             .set_default("windows.etw_process_flush_interval_ms", 5i64)?
@@ -1175,6 +1188,7 @@ impl Default for AppConfig {
                 snapshot_interval_secs: 30,
                 loss_alert_interval_secs: 60,
             },
+            heartbeat: HeartbeatConfig::default(),
             windows: WindowsConfig {
                 etw_flush_interval_ms: 20,
                 etw_process_flush_interval_ms: 5,
