@@ -11,13 +11,14 @@
 | DNS answers | ✓ | ✓ ² | |
 | Registry | ✓ | | |
 | Image (DLL) load | ✓ ⁴ | | |
+| Driver (kernel image) load | ✓ ⁵ | | |
 | PowerShell script blocks and modules | ✓ ³ | | |
 | WMI activity | ✓ | | |
 | Service installs, scheduled tasks | ✓ | | |
 | Security audit events | ✓ ³ | | |
 | Microsoft Defender Operational events | ✓ | | |
 | Application channel events | ✓ | | |
-| Remote threads, process access, named pipes, drivers | | | |
+| Remote threads, process access, named pipes | | | |
 
 1. Captured from the network and matched to a process on a best-effort basis.
 2. Plain DNS on port 53 only.
@@ -25,6 +26,9 @@
 3. Needs host policy, see [Windows host logging](windows-logging.md).
 4. Image-load rules receive live DLL loads.
    This is a dense event stream, so enabling a broad rule corpus can increase CPU and memory use during DLL-heavy workloads.
+
+5. Driver loads are Kernel-Process image loads whose actor is the System or idle process.
+   They share the image-load provider, so they add no collection cost, and a driver's hashes are computed under the artifact queue's deadline like any loaded image.
 
 macOS support is experimental.
 Detailed gaps are in [Limitations](limitations.md).
@@ -66,7 +70,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
-| `sysmon` | windows | 203 | 932 | 67 |
+| `sysmon` | windows | 204 | 942 | 70 |
 | `sysmon` | linux | 19 | 46 | 15 |
 | `sysmon` | macos | 27 | 24 | 27 |
 

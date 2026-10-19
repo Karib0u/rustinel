@@ -60,6 +60,9 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `create_remote_thread` | `8` | `none` | `*` | no Rustinel sensor produces remote-thread creation telemetry |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `QueryTruncated` | ETW delivers whole DNS Client events |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `RecordType` | the subscribed DNS Client events do not expose the query record type |
+| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `Signature` | Kernel-Process image-load events contain no signer identity |
+| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `Signed` | Kernel-Process image-load events contain no Authenticode result |
+| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `CreationUtcTime` | Kernel-File reports the information class, not the new timestamp |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `PathTruncated` | ETW delivers a complete path or no attributable event |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `PreviousCreationUtcTime` | Kernel-File reports the information class, not the old timestamp |

@@ -54,7 +54,9 @@ impl EventFields {
             EventCategory::File => serde_json::from_value(payload).map(Self::FileEvent),
             EventCategory::Registry => serde_json::from_value(payload).map(Self::RegistryEvent),
             EventCategory::Dns => serde_json::from_value(payload).map(Self::DnsQuery),
-            EventCategory::ImageLoad => serde_json::from_value(payload).map(Self::ImageLoad),
+            EventCategory::ImageLoad | EventCategory::DriverLoad => {
+                serde_json::from_value(payload).map(Self::ImageLoad)
+            }
             EventCategory::Scripting => serde_json::from_value(payload).map(Self::PowerShellScript),
             EventCategory::PowerShellModule => {
                 serde_json::from_value(payload).map(Self::PowerShellModule)

@@ -124,7 +124,7 @@ where
             RawPayload::Registry(fields) => {
                 self.normalize_registry(event, fields.clone(), &mut provenance)
             }
-            RawPayload::ImageLoad(fields) => {
+            RawPayload::ImageLoad(fields) | RawPayload::DriverLoad(fields) => {
                 self.normalize_image_load(event, fields.clone(), &mut provenance)
             }
             RawPayload::Scripting(fields) => {
