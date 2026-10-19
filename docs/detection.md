@@ -61,6 +61,8 @@ Rules that select on either field run in a separate pass, once per event, as soo
   The fields are marked `derived`.
   Windows cannot cancel a verification, so one that takes 2 seconds or more is counted as slow and holds an I/O slot until it ends.
   Files over 128 MB are not verified.
+  Files under `WindowsApps` are signed by their AppX or MSIX package, which is not verified yet, so they report unknown rather than unsigned.
+  A certificate chain that cannot be built from cached certificates is also unknown, not invalid.
 - Recordings do not carry these fields, so replay cannot reproduce a match that needed them.
 
 ## YARA

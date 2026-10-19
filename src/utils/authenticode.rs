@@ -44,14 +44,28 @@ pub(crate) fn classify(result: i32) -> TrustOutcome {
         0x800B_010C | 0x8009_2010 => TrustOutcome::Fault(SignatureFault::Revoked),
         // TRUST_E_SUBJECT_NOT_TRUSTED, TRUST_E_FAIL, TRUST_E_EXPLICIT_DISTRUST,
         // TRUST_E_BAD_DIGEST, TRUST_E_CERT_SIGNATURE, CERT_E_UNTRUSTEDROOT,
-        // CERT_E_CHAINING, CERT_E_UNTRUSTEDTESTROOT, CERT_E_UNTRUSTEDCA,
+        // CERT_E_UNTRUSTEDTESTROOT, CERT_E_UNTRUSTEDCA,
         // CERT_E_PURPOSE, CERT_E_WRONG_USAGE, CERT_E_VALIDITYPERIODNESTING.
         0x800B_0004 | 0x800B_010B | 0x800B_0111 | 0x8009_6010 | 0x8009_6004 | 0x800B_0109
-        | 0x800B_010A | 0x800B_010D | 0x800B_0112 | 0x800B_0106 | 0x800B_0110 | 0x800B_0102 => {
+        | 0x800B_010D | 0x800B_0112 | 0x800B_0106 | 0x800B_0110 | 0x800B_0102 => {
             TrustOutcome::Fault(SignatureFault::Invalid)
         }
+        // CERT_E_CHAINING is deliberately inconclusive: with cache-only
+        // retrieval it also means an intermediate certificate was not cached,
+        // which says nothing about the file.
         _ => TrustOutcome::Inconclusive,
     }
+}
+
+/// Whether `path` is inside an AppX/MSIX install root. Their files are covered
+/// by the package signature, which verification does not read yet.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn is_packaged_app_path(path: &std::path::Path) -> bool {
+    let text = path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .replace('/', "\\");
+    text.contains("\\windowsapps\\")
 }
 
 #[cfg(windows)]
@@ -84,7 +98,7 @@ mod imp {
         WTD_UI_NONE,
     };
 
-    use super::{classify, TrustOutcome};
+    use super::{classify, is_packaged_app_path, TrustOutcome};
     use crate::vocab::SignatureVerdict;
 
     /// Catalogs tried per hash. A hash listed in more than a handful is
@@ -100,10 +114,17 @@ mod imp {
     pub(crate) fn verify_file(file: &File, path: &Path) -> SignatureVerdict {
         let wide_path = wide(path.as_os_str());
         let handle = HANDLE(file.as_raw_handle());
-        match verify_embedded(handle, &wide_path) {
+        let verdict = match verify_embedded(handle, &wide_path) {
             Verified::Done(verdict) => verdict,
             Verified::NotSigned => verify_catalog(file, handle, &wide_path),
+        };
+        // Packaged app files are signed by the package, not by a catalog, and
+        // package verification is not implemented, so "no signature found"
+        // says nothing about them.
+        if verdict == SignatureVerdict::Unsigned && is_packaged_app_path(path) {
+            return SignatureVerdict::Unknown;
         }
+        verdict
     }
 
     enum Verified {
@@ -353,6 +374,10 @@ mod imp {
         };
         // SAFETY: reads the calling thread's error code.
         let last_error = unsafe { GetLastError() }.0;
+        eprintln!(
+            "DBG trust result {:#010x} last_error {:#010x}",
+            result as u32, last_error
+        );
         let signer = signer_name(data);
         data.dwStateAction = WTD_STATEACTION_CLOSE;
         // SAFETY: closes the state the verify call opened.
@@ -503,6 +528,53 @@ mod imp {
             ));
         }
 
+        /// Verdicts over `RUSTINEL_SURVEY_DIR`, for measuring on a lab host.
+        #[test]
+        #[ignore = "reads a directory named by RUSTINEL_SURVEY_DIR"]
+        fn survey_directory_verdicts() {
+            let Ok(root) = std::env::var("RUSTINEL_SURVEY_DIR") else {
+                return;
+            };
+            let mut stack = vec![PathBuf::from(root)];
+            let mut counts = std::collections::BTreeMap::<String, usize>::new();
+            let mut seen = 0;
+            while let Some(dir) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                        continue;
+                    }
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if !ext.eq_ignore_ascii_case("dll") && !ext.eq_ignore_ascii_case("exe") {
+                        continue;
+                    }
+                    let Ok(file) = File::open(&path) else {
+                        continue;
+                    };
+                    seen += 1;
+                    let verdict = verify_file(&file, &path);
+                    let key = match &verdict {
+                        SignatureVerdict::Valid { .. } => "valid".to_string(),
+                        SignatureVerdict::Unsigned => "unsigned".to_string(),
+                        SignatureVerdict::Unknown => "unknown".to_string(),
+                        SignatureVerdict::Invalid { fault, .. } => format!("invalid {fault:?}"),
+                    };
+                    if key != "valid" && seen < 4000 {
+                        eprintln!("{key}: {}", path.display());
+                    }
+                    *counts.entry(key).or_default() += 1;
+                    if seen >= 4000 {
+                        break;
+                    }
+                }
+            }
+            eprintln!("survey: {counts:?}");
+        }
+
         #[test]
         fn survey_system32_verdicts() {
             let mut counts = std::collections::BTreeMap::<String, usize>::new();
@@ -557,9 +629,28 @@ mod tests {
     }
 
     #[test]
+    fn packaged_app_files_are_recognized_by_install_root() {
+        use std::path::Path;
+        assert!(is_packaged_app_path(Path::new(
+            r"C:\Program Files\WindowsApps\Microsoft.Paint_1_x64__8wekyb3d8bbwe\a.dll"
+        )));
+        assert!(is_packaged_app_path(Path::new(
+            r"c:\program files\windowsapps\x\a.dll"
+        )));
+        assert!(!is_packaged_app_path(Path::new(
+            r"C:\Windows\System32\a.dll"
+        )));
+        assert!(!is_packaged_app_path(Path::new(
+            r"C:\Users\a\WindowsApps.dll"
+        )));
+    }
+
+    #[test]
     fn unrecognized_codes_conclude_nothing() {
         // ERROR_FILE_NOT_FOUND as an HRESULT, and an arbitrary failure.
         assert_eq!(classify(0x8007_0002_u32 as i32), TrustOutcome::Inconclusive);
         assert_eq!(classify(-1), TrustOutcome::Inconclusive);
+        // A chain that could not be built offline is not a bad signature.
+        assert_eq!(classify(0x800B_010A_u32 as i32), TrustOutcome::Inconclusive);
     }
 }
