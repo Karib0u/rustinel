@@ -112,12 +112,12 @@ They are off in Rustinel by default because 4672 is written for every administra
 Their rate follows logon and file-server traffic, not attacker activity, so measure it on a representative host before enabling them fleet-wide.
 Account lockout (4740) is collected by default: it is written once when an account crosses the lockout threshold, on the domain controller or on the local machine that owns the account.
 
-Measured on a Windows 11 lab host (`lab-windows`, 2026-10-19, French locale), with the lockout threshold at 10:
+Measured on a quiet Windows 11 host with the lockout threshold at 10:
 
 | Event | Rate | How measured |
 | --- | --- | --- |
 | 4740 | One per lockout, none in 5 days of ordinary use | 12 bad network logons against a throwaway local account produced exactly 1 |
-| 4672 | About one per logon: 3,522 against 3,531 4624 events, with 81 to 1,821 per day (about 76 per hour at the 1,821 peak) | Counted in the existing Security log, 14 to 19 October |
+| 4672 | About one per logon: 3,522 against 3,531 4624 events, with 81 to 1,821 per day (about 76 per hour at the 1,821 peak) | Counted in the existing Security log over several days |
 | 5140 | One per new share session, not per file operation: 9 for 9 distinct tree connects, but 2 for 200 reconnects of the same loopback share | Audit enabled for the test, then restored |
 | 4799 | One per enumeration: 50 for 50 `net localgroup`, 307 in 5 days of lab work | Counted in the log and by test |
 
