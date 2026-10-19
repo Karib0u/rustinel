@@ -140,12 +140,10 @@ A file create, modify, delete, or rename stands for `SYSCALL` and `PATH`.
 | `nametype` | `CREATE`, `DELETE`, or `NORMAL` for a file event. A rename carries `DELETE` and `CREATE`. |
 
 `a0` to `a7` are argv entries, never raw syscall arguments, and are never split out of `CommandLine`.
-An argument that contains a space stays one argument.
 
 `key` and `unit` are not mapped.
 An audit key is a label an operator configures on an audit rule, so the view never invents one.
 A rule that selects on `key`, on `unit`, or on a syscall other than `execve` and `execveat` loads, and `rustinel sigma doctor` reports it as `can_never_fire` instead of leaving it silently inert.
-Against the pinned SigmaHQ corpus, 47 of the 54 `service: auditd` rules have a branch that can fire and 7 do not.
 
 File telemetry sees successful create, delete, rename, and write-intent operations.
 It does not see read-only opens, so `PATH` rules for read access can miss.
