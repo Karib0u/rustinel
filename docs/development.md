@@ -182,6 +182,28 @@ To record a new one on a disposable Windows machine, as Administrator:
 Recordings contain command lines, paths, and user names from the machine.
 Read them before committing, and delete or replace anything that identifies a real person.
 
+### Linux ring buffer fixtures
+
+The `drain_process_ring`, `drain_network_ring`, `drain_file_ring`, and `drain_dns_ring` functions in `src/sensor/linux/ebpf.rs` read records through the `RingSource` trait.
+The sensor implements it for the aya ring buffer, and the tests implement it for records saved as hex under `tests/fixtures/linux_ring`.
+`src/sensor/linux/ebpf/ring_fixture_tests.rs` feeds each fixture through the real drain functions, so `cargo test` on Linux covers decoding, the telemetry counters, and the file directory index without root or a loaded program.
+
+Each fixture file has a `provenance` block (kernel, date, host, and what the scenario did) and a list of `{"ring", "hex"}` records in arrival order.
+Keep a file's records in order: the file drain joins relative paths to earlier directory opens.
+The checked-in fixtures were recorded on lab-ubuntu (kernel 7.0.0-38) and cut by hand where a provenance note says so.
+
+To record a new one on a disposable Linux machine, as root:
+
+1. Set `RUSTINEL_EBPF_RECORD` to an output file and start the agent.
+   Every record any of the four drains reads is appended as one `{"ring":"process","hex":"..."}` line, before it is decoded, so short reads are kept.
+2. Run the activity, then stop the agent.
+3. Pick the lines the scenario needs and wrap them as `{"provenance": {...}, "records": [...]}`.
+4. Save the file and add a test in `ring_fixture_tests.rs` that asserts the canonical fields and the counters.
+
+Recordings contain command lines, paths, and user names from the machine.
+Read them before committing, and delete or replace anything that identifies a real person.
+Fixed-size path buffers also carry stale bytes after the terminating NUL, which can be a path the kernel handled earlier, so inspect the whole record (`strings` on the decoded hex) and zero what does not belong.
+
 ### macOS Endpoint Security fixtures
 
 The macOS decoders read a message through the `EsMessage` trait in `src/sensor/macos/esf/view.rs`.

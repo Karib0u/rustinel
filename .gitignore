@@ -58,6 +58,7 @@ tests/**/*
 # ETW records recorded on real Windows hosts, read by the decoder tests in
 # src/sensor/windows/etw/fixture_tests.rs. See docs/development.md.
 !tests/fixtures/etw/**
+!tests/fixtures/linux_ring/**
 
 *.exe
 *.pdb

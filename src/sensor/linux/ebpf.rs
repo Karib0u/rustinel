@@ -594,15 +594,63 @@ fn refresh_kernel_counters(
 
 // ── Ring-buffer drain helpers ────────────────────────────────────────────────
 
+/// A source of raw ring buffer records.
+///
+/// The drain functions read through this trait so tests can feed them recorded
+/// bytes without a loaded eBPF program.
+trait RingSource {
+    fn next_record(&mut self) -> Option<impl std::ops::Deref<Target = [u8]> + '_>;
+}
+
+impl RingSource for RingBuf<MapData> {
+    fn next_record(&mut self) -> Option<impl std::ops::Deref<Target = [u8]> + '_> {
+        self.next()
+    }
+}
+
+/// Append every record to the file named by `RUSTINEL_EBPF_RECORD`, one JSON
+/// object per line, so a live run can be turned into a test fixture.
+/// Costs one atomic load per record when unset.
+fn record_ring_bytes(ring: &str, bytes: &[u8]) {
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    static SINK: OnceLock<Option<Mutex<std::fs::File>>> = OnceLock::new();
+    let sink = SINK.get_or_init(|| {
+        let path = std::env::var_os("RUSTINEL_EBPF_RECORD")?;
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(file) => Some(Mutex::new(file)),
+            Err(err) => {
+                warn!(error = %err, "cannot open RUSTINEL_EBPF_RECORD file");
+                None
+            }
+        }
+    });
+    if let Some(file) = sink {
+        let line = format!(
+            "{{\"ring\":\"{ring}\",\"hex\":\"{}\"}}\n",
+            hex::encode(bytes)
+        );
+        let _ = file
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .write_all(line.as_bytes());
+    }
+}
+
 fn drain_process_ring(
-    rb: &mut RingBuf<MapData>,
+    rb: &mut impl RingSource,
     tx: &Sender<RawEvent>,
     telemetry: &LinuxEbpfCounters,
     time_converter: BootTimeConverter,
 ) {
-    while let Some(item) = rb.next() {
+    while let Some(item) = rb.next_record() {
         telemetry.record_received(LinuxEbpfFamily::Process);
         let bytes: &[u8] = &item;
+        record_ring_bytes("process", bytes);
         let Some(ev) = parse_event::<ProcessEvent>(bytes) else {
             telemetry.record_short_read(LinuxEbpfFamily::Process);
             debug!("process ring: short read ({} bytes)", bytes.len());
@@ -619,14 +667,15 @@ fn drain_process_ring(
 }
 
 fn drain_network_ring(
-    rb: &mut RingBuf<MapData>,
+    rb: &mut impl RingSource,
     tx: &Sender<RawEvent>,
     telemetry: &LinuxEbpfCounters,
     time_converter: BootTimeConverter,
 ) {
-    while let Some(item) = rb.next() {
+    while let Some(item) = rb.next_record() {
         telemetry.record_received(LinuxEbpfFamily::Network);
         let bytes: &[u8] = &item;
+        record_ring_bytes("network", bytes);
         let Some(ev) = parse_event::<NetworkEvent>(bytes) else {
             telemetry.record_short_read(LinuxEbpfFamily::Network);
             debug!("network ring: short read ({} bytes)", bytes.len());
@@ -649,7 +698,7 @@ fn drain_network_ring(
 /// size of that blind spot stays visible in the log. See
 /// [`super::paths`] for when resolution fails.
 fn drain_file_ring(
-    rb: &mut RingBuf<MapData>,
+    rb: &mut impl RingSource,
     tx: &Sender<RawEvent>,
     telemetry: &LinuxEbpfCounters,
     dir_fds: &mut DirFdIndex,
@@ -657,9 +706,10 @@ fn drain_file_ring(
     host: &crate::state::HostState,
     time_converter: BootTimeConverter,
 ) {
-    while let Some(item) = rb.next() {
+    while let Some(item) = rb.next_record() {
         telemetry.record_received(LinuxEbpfFamily::File);
         let bytes: &[u8] = &item;
+        record_ring_bytes("file", bytes);
         let Some(header) = parse_event::<FileEventHeader>(bytes) else {
             telemetry.record_short_read(LinuxEbpfFamily::File);
             debug!("file ring: short read ({} bytes)", bytes.len());
@@ -728,14 +778,15 @@ fn index_dir_open(ev: &FileEvent, dir_fds: &mut DirFdIndex) -> bool {
 }
 
 fn drain_dns_ring(
-    rb: &mut RingBuf<MapData>,
+    rb: &mut impl RingSource,
     tx: &Sender<RawEvent>,
     telemetry: &LinuxEbpfCounters,
     time_converter: BootTimeConverter,
 ) {
-    while let Some(item) = rb.next() {
+    while let Some(item) = rb.next_record() {
         telemetry.record_received(LinuxEbpfFamily::Dns);
         let bytes: &[u8] = &item;
+        record_ring_bytes("dns", bytes);
         let Some(ev) = parse_event::<DnsEvent>(bytes) else {
             telemetry.record_short_read(LinuxEbpfFamily::Dns);
             debug!("dns ring: short read ({} bytes)", bytes.len());
@@ -1457,6 +1508,9 @@ fn build_file_event(
 pub(crate) fn build_dns_event(ev: &DnsEvent) -> Option<RawEvent> {
     build_dns_event_with_clock(ev, BootTimeConverter::capture())
 }
+
+#[cfg(test)]
+mod ring_fixture_tests;
 
 #[cfg(test)]
 mod tests {
