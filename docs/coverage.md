@@ -66,9 +66,10 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
-| `sysmon` | windows | 217 | 1133 | 69 |
+| `sysmon` | windows | 217 | 1139 | 65 |
 | `sysmon` | linux | 19 | 51 | 15 |
 | `sysmon` | macos | 27 | 28 | 28 |
+| `auditd` | linux | 15 | 23 | 47 |
 
 The complete machine-readable baseline is [`compatibility/field-availability.json`](https://github.com/Karib0u/rustinel/blob/main/compatibility/field-availability.json).
 <!-- END GENERATED FIELD AVAILABILITY -->

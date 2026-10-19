@@ -3,6 +3,7 @@
 //! Path handling, process and user lookup, PE parsing, caching, and
 //! filesystem helpers shared across the sensor, engine, and runtime layers.
 
+pub(crate) mod authenticode;
 pub(crate) mod cache;
 pub(crate) mod file_identity;
 pub mod fs;

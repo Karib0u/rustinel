@@ -53,6 +53,11 @@ pub struct RawLinuxProcess {
     pub image_source: Option<String>,
     pub image_truncated: Option<bool>,
     pub parent_process_id_derived: bool,
+    /// Kernel argv snapshot with argument boundaries preserved. Empty when
+    /// the kernel captured nothing.
+    pub argv: Vec<String>,
+    /// `execve` or `execveat`, when an argv snapshot named its entry point.
+    pub exec_syscall: Option<&'static str>,
 }
 
 /// Native macOS exec metadata.
@@ -175,9 +180,14 @@ impl RawProcessEvent {
                         kernel_start_boottime: source.identity.kernel_start_boottime,
                     }),
                     source.cgroup_id.map(|value| value.to_string()),
-                    source.real_user_id.map(|value| {
+                    (source.real_user_id.is_some()
+                        || !source.argv.is_empty()
+                        || source.exec_syscall.is_some())
+                    .then(|| {
                         Box::new(ExecMetadata {
-                            real_user_id: Some(value.to_string()),
+                            real_user_id: source.real_user_id.map(|value| value.to_string()),
+                            argv: (!source.argv.is_empty()).then(|| source.argv.clone()),
+                            exec_syscall: source.exec_syscall.map(ToString::to_string),
                             ..Default::default()
                         })
                     }),
@@ -220,6 +230,8 @@ impl RawProcessEvent {
                             .codesigning_flags
                             .map(|value| value.to_string()),
                         is_platform_binary: metadata.is_platform_binary,
+                        argv: None,
+                        exec_syscall: None,
                         file_identity: metadata.file_identity.clone(),
                     })
                 }),
@@ -337,6 +349,20 @@ impl RawProcessEvent {
                     image_source: fields.image_source.clone(),
                     image_truncated: fields.image_truncated,
                     parent_process_id_derived: fields.parent_process_id_derived,
+                    argv: fields
+                        .exec
+                        .as_ref()
+                        .and_then(|metadata| metadata.argv.clone())
+                        .unwrap_or_default(),
+                    exec_syscall: fields
+                        .exec
+                        .as_ref()
+                        .and_then(|metadata| metadata.exec_syscall.as_deref())
+                        .and_then(|name| match name {
+                            "execve" => Some("execve"),
+                            "execveat" => Some("execveat"),
+                            _ => None,
+                        }),
                 })
             }
             crate::sensor::Platform::Windows => {

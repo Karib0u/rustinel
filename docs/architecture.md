@@ -95,7 +95,7 @@ Test modules are not part of the graph.
    View tables map external rule names to Rustinel semantic accessors, so adding a vocabulary does not change platform sensors.
    Only PE metadata, which Sigma can match, may hold an event, for at most a 100 ms admission budget; later events wait behind it.
    YARA file and IOC hash alerts come from the same resolver result after admission.
-   Sigma rules on `Hashes` or `Imphash` are left out of admission for events the resolver will hash; a deferred detection stage evaluates them once, in arrival order, when the resolver publishes those fields or a 2 second budget expires.
+   Sigma rules on `Hashes`, `Imphash`, `Signed`, `Signature`, or `SignatureStatus` are left out of admission for events the resolver will hash; a deferred detection stage evaluates them once, in arrival order, when the resolver publishes those fields or a 2 second budget expires.
    YARA memory scanning remains a separate worker by design: it reads a live process keyed by process identity, after a delay, under one budget shared across regions.
    Artifact selection checks loaded consumers before querying a Linux process.
    Linux binaries, including descriptor-path, memfd, and deleted executables, resolve through `/proc/<pid>/exe`, with an executable identity captured before queueing and process lifetime checks around the open.
@@ -148,7 +148,7 @@ Live detectors sit behind `engine::DetectorStore` (`src/engine/detectors.rs`).
 Readers keep the previous instance until they finish.
 Artifact stores are separate by consumer and keyed by the same `FileIdentity`, with one shared eviction policy.
 A YARA reload advances its generation and invalidates only YARA results; PE metadata, hashes, and imphashes remain valid for that identity.
-Signature revocation freshness can invalidate the signature store independently without reopening the file.
+Signature results are cached by file identity; revocation is not checked, so there is no freshness refresh yet, and an inconclusive verification is never cached.
 
 ## Path allowlists
 

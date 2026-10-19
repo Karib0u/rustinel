@@ -54,7 +54,7 @@ Pick a new name or remove the old report yourself.
 ## What replay skips
 
 - YARA and hash indicators, because a recording holds events, not files.
-- Windows `Hashes` and `Imphash`, see [Deferred pass](detection.md#deferred-pass).
+- Windows `Hashes`, `Imphash`, `Signed`, `Signature`, and `SignatureStatus`, see [Deferred pass](detection.md#deferred-pass).
 - Active response: replay never kills processes.
 
 Recordings contain command lines, paths, network destinations, and user names.

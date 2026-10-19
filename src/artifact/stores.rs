@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::job::ResolvePlan;
-use super::{Artifact, ArtifactNeeds, ArtifactSignature, PeMetadata};
+use super::{Artifact, ArtifactNeeds, PeMetadata, SignatureVerdict};
 use crate::ioc::{ComputedHashes, HashRequirements};
 use crate::models::{MatchDebugLevel, YaraRuleMatch};
 use crate::utils::file_identity::FileIdentity;
@@ -35,7 +35,7 @@ pub(super) struct ArtifactStores {
     pub(super) hashes: HashMap<FileIdentity, Cached<ComputedHashes>>,
     /// `None` records that the file has no imphash, so it is not re-read.
     pub(super) imphashes: HashMap<FileIdentity, Cached<Option<String>>>,
-    pub(super) signatures: HashMap<FileIdentity, Cached<ArtifactSignature>>,
+    pub(super) signatures: HashMap<FileIdentity, Cached<SignatureVerdict>>,
     pub(super) yara: HashMap<YaraCacheKey, Cached<Vec<YaraRuleMatch>>>,
     recency: HashMap<FileIdentity, u64>,
     pub(super) capacity: usize,
@@ -162,7 +162,12 @@ impl ArtifactStores {
                 },
             );
         }
-        if let Some(signature) = &artifact.signature {
+        // An inconclusive verification is retried, not remembered.
+        if let Some(signature) = artifact
+            .signature
+            .as_ref()
+            .filter(|signature| **signature != SignatureVerdict::Unknown)
+        {
             self.signatures.insert(
                 identity.clone(),
                 Cached {
@@ -200,7 +205,7 @@ impl ArtifactStores {
     }
 
     /// Revocation freshness is independent from immutable file-derived data.
-    #[allow(dead_code)] // Called by the Authenticode refresh path added in #320.
+    #[allow(dead_code)] // No refresh path yet: verification checks no revocation.
     fn invalidate_signatures(&mut self) {
         self.signatures.clear();
     }

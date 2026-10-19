@@ -111,12 +111,44 @@ Stable reason codes in schema version 1 are:
 | `service: security` | ✓ | | |
 | `service: windefend` | ✓ | | |
 | `category: antivirus` (no product) | ✓ | | |
+| `service: auditd` | | ✓ | |
 
 A rule whose `product` does not match the platform is skipped.
 A rule for a logsource the platform does not collect loads but never fires.
 On Linux and macOS, `service: sysmon` selects the Sysmon-compatible field view over native telemetry; it does not claim that Sysmon collected the event.
 
 `ps_module`, `ps_script`, and most `service: security` rules also need host logging to be enabled, see [Windows host logging](windows-logging.md).
+
+### Linux auditd rules
+
+Rustinel does not read auditd.
+It renders its own eBPF exec and file telemetry through an `auditd` field view, so `service: auditd` rules need no audit daemon, no audit rules, and no extra privileges.
+The view is a projection of what the sensor measured, not an audit log.
+
+An exec stands for the `SYSCALL`, `EXECVE`, and `PATH` records auditd would write.
+A file create, modify, delete, or rename stands for `SYSCALL` and `PATH`.
+
+| Field | Source |
+| --- | --- |
+| `type` | The record types of the event. A rule value matches when it equals any of them. |
+| `SYSCALL` | `execve` or `execveat` on an exec, taken from the argv snapshot at syscall entry. |
+| `a0` to `a7` | The captured argv entries of an `EXECVE` record, with their boundaries kept. |
+| `exe` | The executable path of the process. |
+| `comm` | The short task name. |
+| `euid` | The effective user ID. |
+| `name` | The executed path, or the file path of a file event. A rename carries its source and target. |
+| `nametype` | `CREATE`, `DELETE`, or `NORMAL` for a file event. A rename carries `DELETE` and `CREATE`. |
+
+`a0` to `a7` are argv entries, never raw syscall arguments, and are never split out of `CommandLine`.
+An argument that contains a space stays one argument.
+
+`key` and `unit` are not mapped.
+An audit key is a label an operator configures on an audit rule, so the view never invents one.
+A rule that selects on `key`, on `unit`, or on a syscall other than `execve` and `execveat` loads, and `rustinel sigma doctor` reports it as `can_never_fire` instead of leaving it silently inert.
+Against the pinned SigmaHQ corpus, 47 of the 54 `service: auditd` rules have a branch that can fire and 7 do not.
+
+File telemetry sees successful create, delete, rename, and write-intent operations.
+It does not see read-only opens, so `PATH` rules for read access can miss.
 
 ## Fields
 
@@ -127,7 +159,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | --- | --- |
 | Process | `Image`, `CommandLine`, `ProcessId`, `ParentImage`, `ParentCommandLine`, `ParentProcessId`, `User`, `CurrentDirectory`, `IntegrityLevel` |
 | Process, Windows only | `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash` |
-| Image load, Windows only | `ImageLoaded`, `Image`, `ProcessId`, `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash` |
+| Image load, Windows only | `ImageLoaded`, `Image`, `ProcessId`, `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash`, `Signed`, `Signature`, `SignatureStatus` |
 | Process, Linux only | `ImageTruncated`, `CgroupId`, `CgroupPath`, `ContainerId`, `ContainerRuntime` |
 | Process, macOS only | `PreExecImage`, `Script`, `Signed`, `SignatureStatus`, `SigningId`, `TeamId`, `CdHash`, `CodeSigningFlags`, `IsPlatformBinary` |
 | Network | `DestinationIp`, `DestinationPort`, `DestinationHostname`, `SourceIp`, `SourcePort`, `Protocol`, `Initiated` |
@@ -167,6 +199,8 @@ Things that differ from Sysmon:
   They are absent when Rustinel never saw the parent or has evicted it.
 - **`Hashes` and `Imphash`** are computed by Rustinel from the image file, not by the kernel, and rules on them run in a [deferred pass](detection.md#deferred-pass).
   `Hashes` lists only the algorithms loaded rules name, in Sysmon's order.
+- **`Signed`, `Signature`, and `SignatureStatus`** on Windows image loads are verified by Rustinel from the file, also in the [deferred pass](detection.md#deferred-pass).
+  They are absent when verification did not finish.
 - **`Provider_Name`** is the Windows provider that wrote an Event Log record, such as `Service Control Manager`.
   It is not the ECS `event.provider`.
 - **Application `Message`** is unavailable.

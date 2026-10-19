@@ -269,6 +269,8 @@ mod tests {
                 image_source: Some("execve".to_string()),
                 image_truncated: None,
                 parent_process_id_derived: false,
+                argv: Vec::new(),
+                exec_syscall: None,
             })),
         }
     }
@@ -787,6 +789,8 @@ mod canonicalization_tests {
                     image_source: Some("execve".into()),
                     image_truncated: None,
                     parent_process_id_derived: false,
+                    argv: Vec::new(),
+                    exec_syscall: None,
                 })),
             }),
         };
@@ -862,6 +866,8 @@ mod canonicalization_tests {
                     image_source: image.map(|_| "execve".into()),
                     image_truncated: None,
                     parent_process_id_derived: false,
+                    argv: Vec::new(),
+                    exec_syscall: None,
                 })),
             }),
         }

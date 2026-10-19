@@ -454,12 +454,11 @@ pub fn analyze_rules(
     let mut identities: HashMap<String, usize> = HashMap::new();
     let mut detection_contracts: HashMap<String, Vec<&'static EventFieldContract>> = HashMap::new();
     for (source, rule) in &detections {
-        let report = analyze_detection(source, rule, platform, field_view, config, &engine);
+        let report = analyze_detection(source, rule, platform, config, &engine);
         let index = reports.len();
         add_detection_identity(&mut identities, rule, index);
         let contracts = contracts_for_logsource(
             platform,
-            field_view,
             &LogSourceKey {
                 product: normalize(rule.logsource.product.as_deref()),
                 service: normalize(rule.logsource.service.as_deref()),
@@ -512,7 +511,6 @@ pub fn analyze_rules(
 
     let filter_context = FilterAnalysisContext {
         platform,
-        field_view,
         config,
         engine: &engine,
         reports: &reports,
@@ -610,7 +608,6 @@ fn analyze_detection(
     source: &str,
     rule: &SigmaRule,
     platform: Platform,
-    field_view: FieldViewName,
     config: &AppConfig,
     engine: &Engine,
 ) -> DocumentCompatibility {
@@ -679,7 +676,7 @@ fn analyze_detection(
         return report;
     }
 
-    let contracts = contracts_for_logsource(platform, field_view, &key);
+    let contracts = contracts_for_logsource(platform, &key);
     if contracts.is_empty() {
         report.reasons.push(CompatibilityReason::new(
             ReasonCode::NoPlatformTelemetry,
@@ -813,7 +810,6 @@ fn analyze_correlation(
 
 struct FilterAnalysisContext<'a> {
     platform: Platform,
-    field_view: FieldViewName,
     config: &'a AppConfig,
     engine: &'a Engine,
     reports: &'a [DocumentCompatibility],
@@ -888,7 +884,7 @@ fn analyze_filter(
                 .copied()
                 .collect::<Vec<_>>()
         },
-        |key| contracts_for_logsource(context.platform, context.field_view, key),
+        |key| contracts_for_logsource(context.platform, key),
     );
     let mut fields = BTreeMap::new();
     let mut viable = false;
@@ -1413,7 +1409,11 @@ fn availability_for_contract(contract: &EventFieldContract, field: &str) -> Avai
         .find(|candidate| candidate.field == field || candidate.field == "*")
         .map(|candidate| candidate.availability)
         .unwrap_or(Availability::Never(
-            "the field is not exposed by this event shape in the sysmon field view",
+            if contract.view == FieldViewName::AUDITD {
+                "the field is not exposed by this event shape in the auditd field view"
+            } else {
+                "the field is not exposed by this event shape in the sysmon field view"
+            },
         ))
 }
 
@@ -1429,11 +1429,18 @@ fn invariant_values(contract: &EventFieldContract, field: &str) -> Vec<String> {
     {
         return vec![contract.source.to_string()];
     }
-    contract
+    let Some(candidate) = contract
         .fields
         .iter()
         .find(|candidate| candidate.field == field)
-        .and_then(|candidate| candidate.value)
+    else {
+        return Vec::new();
+    };
+    if !candidate.values.is_empty() {
+        return candidate.values.iter().map(ToString::to_string).collect();
+    }
+    candidate
+        .value
         .map(ToString::to_string)
         .into_iter()
         .collect()
@@ -1453,16 +1460,16 @@ fn value_matches(value: &SigmaValue, invariant: &str) -> bool {
     }
 }
 
+/// The contracts a logsource routes to. A contract's routes name the view that
+/// evaluates it (`service: auditd` is the auditd view's), so no view is passed.
 fn contracts_for_logsource(
     platform: Platform,
-    field_view: FieldViewName,
     logsource: &LogSourceKey,
 ) -> Vec<&'static EventFieldContract> {
     FIELD_AVAILABILITY
         .iter()
         .zip(contract_routes())
         .filter(|(contract, _)| contract.platform == platform)
-        .filter(|(contract, _)| contract.view == field_view)
         .filter(|(_, routes)| routes.iter().any(|route| logsource.matches_tuple(route)))
         .map(|(contract, _)| contract)
         .collect()
@@ -1476,7 +1483,7 @@ fn contract_routes() -> &'static [Vec<LogSourceKey>] {
 
 /// Every route the runtime gives an event of this shape.
 ///
-/// This asks `Engine::concrete_logsource_aliases` rather than keeping a copy
+/// This asks `Engine::concrete_logsource_routes` rather than keeping a copy
 /// of its table, so the diagnostic cannot disagree with the runtime about which
 /// rules see which events. A shape no sensor can emit has no runtime route, so
 /// it keeps the Sysmon route its category would have, which lets rules for it
@@ -1500,7 +1507,10 @@ fn routes_for_contract(contract: &EventFieldContract) -> Vec<LogSourceKey> {
     let mut routes: Vec<LogSourceKey> = Vec::new();
     for event_id in event_ids {
         for route in
-            Engine::concrete_logsource_aliases(contract.platform, category, event_id, opcode)
+            Engine::concrete_logsource_routes(contract.platform, category, event_id, opcode)
+                .into_iter()
+                .filter(|route| route.view == contract.view)
+                .map(|route| route.key)
         {
             if !routes.contains(&route) {
                 routes.push(route);
@@ -1929,6 +1939,87 @@ detection:
         }
     }
 
+    fn auditd_rule(title: &str, detection: &str) -> String {
+        format!(
+            "title: {title}\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n{detection}"
+        )
+    }
+
+    #[test]
+    fn auditd_rules_the_view_can_satisfy_are_backed_by_an_active_collector() {
+        let report = report(
+            &auditd_rule(
+                "Clipboard",
+                "  selection:\n    type: EXECVE\n    a0: xclip\n    a1: '-sel'\n  condition: selection\n",
+            ),
+            Platform::Linux,
+        );
+        let document = &report.documents[0];
+        assert_ne!(
+            document.verdict,
+            CompatibilityVerdict::CanNeverFire,
+            "{:?}",
+            document.reasons
+        );
+        assert_eq!(
+            document.logsource.as_ref().map(|l| l.collector_active),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn auditd_rules_the_view_cannot_satisfy_are_reported_unsatisfiable() {
+        for (title, detection) in [
+            (
+                "Audit key",
+                "  selection:\n    key: susp_activity\n  condition: selection\n",
+            ),
+            (
+                "Service stop",
+                "  selection:\n    type: SERVICE_STOP\n    unit: ufw\n  condition: selection\n",
+            ),
+            (
+                "Sysinfo syscall",
+                "  selection:\n    type: SYSCALL\n    SYSCALL: sysinfo\n  condition: selection\n",
+            ),
+            (
+                "Mknod syscall",
+                "  selection:\n    type: SYSCALL\n    SYSCALL: mknod\n  condition: selection\n",
+            ),
+        ] {
+            let report = report(&auditd_rule(title, detection), Platform::Linux);
+            let document = &report.documents[0];
+            assert_eq!(
+                document.verdict,
+                CompatibilityVerdict::CanNeverFire,
+                "{title}"
+            );
+            assert!(
+                document
+                    .reasons
+                    .iter()
+                    .any(|reason| reason.code == ReasonCode::UnavailableField),
+                "{title}: {:?}",
+                document.reasons
+            );
+        }
+    }
+
+    #[test]
+    fn auditd_rule_with_one_satisfiable_branch_still_fires() {
+        let report = report(
+            &auditd_rule(
+                "Memfd or audio",
+                "  execve:\n    type: EXECVE\n    a0: arecord\n  syscall:\n    type: SYSCALL\n    SYSCALL: memfd_create\n  condition: 1 of *\n",
+            ),
+            Platform::Linux,
+        );
+        assert_ne!(
+            report.documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+    }
+
     #[test]
     fn dns_txt_rule_names_the_blocking_field_off_linux() {
         let rule = r#"title: DNS TXT Answer
@@ -2270,14 +2361,17 @@ detection:
                 contract.action
             );
             for event_id in contract.presented_event_ids() {
-                let runtime = Engine::concrete_logsource_aliases(
+                let runtime = Engine::concrete_logsource_routes(
                     contract.platform,
                     category,
                     event_id,
                     row.map_or(0, |row| row.action_code),
                 );
                 assert!(
-                    runtime.iter().all(|route| routes.contains(route)),
+                    runtime
+                        .iter()
+                        .filter(|route| route.view == contract.view)
+                        .all(|route| routes.contains(&route.key)),
                     "{} {event_id}",
                     contract.category
                 );

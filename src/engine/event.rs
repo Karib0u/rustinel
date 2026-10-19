@@ -60,6 +60,16 @@ impl<'a> RsigmaEvent<'a> {
                 CanonicalValue::String(value) => Value::String(value.to_string()),
                 CanonicalValue::Bool(value) => Value::Bool(value),
                 CanonicalValue::U64(value) => Value::Number(value.into()),
+                CanonicalValue::Strs(values) => Value::Array(
+                    values
+                        .iter()
+                        .map(|value| Value::String(value.to_string()))
+                        .collect(),
+                ),
+                CanonicalValue::Pair(first, second) => Value::Array(vec![
+                    Value::String(first.to_string()),
+                    Value::String(second.to_string()),
+                ]),
             };
             map.insert(mapping.name.to_string(), value);
         }
@@ -100,6 +110,16 @@ impl<'a> RsigmaEvent<'a> {
     }
 }
 
+/// The strings of a view value: the string itself, or each string of a
+/// multi-valued field.
+fn json_strings(value: &Value) -> Box<dyn Iterator<Item = &str> + '_> {
+    match value {
+        Value::String(text) => Box::new(std::iter::once(text.as_str())),
+        Value::Array(items) => Box::new(items.iter().filter_map(Value::as_str)),
+        _ => Box::new(std::iter::empty()),
+    }
+}
+
 impl Event for RsigmaEvent<'_> {
     fn get_field(&self, path: &str) -> Option<EventValue<'_>> {
         if path == "EventID" {
@@ -114,6 +134,16 @@ impl Event for RsigmaEvent<'_> {
                 "false"
             }))),
             CanonicalValue::U64(value) => Some(EventValue::Str(Cow::Owned(value.to_string()))),
+            CanonicalValue::Strs(values) => Some(EventValue::Array(
+                values
+                    .iter()
+                    .map(|value| EventValue::Str(Cow::Borrowed(*value)))
+                    .collect(),
+            )),
+            CanonicalValue::Pair(first, second) => Some(EventValue::Array(vec![
+                EventValue::Str(Cow::Borrowed(first)),
+                EventValue::Str(Cow::Borrowed(second)),
+            ])),
         }
     }
 
@@ -131,10 +161,7 @@ impl Event for RsigmaEvent<'_> {
         {
             return true;
         }
-        self.field_map()
-            .values()
-            .filter_map(Value::as_str)
-            .any(pred)
+        self.field_map().values().flat_map(json_strings).any(pred)
     }
 
     fn all_string_values(&self) -> Vec<Cow<'_, str>> {
@@ -152,9 +179,7 @@ impl Event for RsigmaEvent<'_> {
             values.push(Cow::Borrowed("22"));
         }
         for (_key, value) in self.field_map() {
-            if let Value::String(text) = value {
-                values.push(Cow::Owned(text));
-            }
+            values.extend(json_strings(&value).map(|text| Cow::Owned(text.to_string())));
         }
         values
     }
@@ -172,8 +197,14 @@ impl Event for RsigmaEvent<'_> {
         self.visit_dns_alias(visit);
         self.view.visit_mapped(self.contract, |mapping, value| {
             if mapping.enumerate && !matches!(mapping.name, "timestamp" | "EventID") {
-                if let CanonicalValue::String(value) = value {
-                    visit(value);
+                match value {
+                    CanonicalValue::String(value) => visit(value),
+                    CanonicalValue::Strs(values) => values.iter().for_each(|value| visit(value)),
+                    CanonicalValue::Pair(first, second) => {
+                        visit(first);
+                        visit(second);
+                    }
+                    CanonicalValue::Bool(_) | CanonicalValue::U64(_) => {}
                 }
             }
         });
@@ -278,9 +309,10 @@ mod tests {
             description: None,
             company: None,
             file_version: None,
-            signed: Some("true".to_string()),
-            signature: Some("Fake Signer".to_string()),
-            user: None,
+            signed: None,
+            signature: None,
+            signature_status: None,
+            user: Some("Fake User".to_string()),
         });
         event
     }
@@ -290,8 +322,7 @@ mod tests {
         let event = image_load_with_never_fields();
         let adapter = RsigmaEvent::new(&event);
         let fields = adapter.field_map();
-        assert!(!fields.contains_key("Signed"));
-        assert!(!fields.contains_key("Signature"));
+        assert!(!fields.contains_key("User"));
     }
 
     #[test]

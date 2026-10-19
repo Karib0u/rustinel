@@ -767,9 +767,10 @@ mod tests {
                 description: None,
                 company: None,
                 file_version: None,
-                signed: Some("true".into()),
+                signed: None,
                 signature: None,
-                user: None,
+                signature_status: None,
+                user: Some("Fake User".into()),
             }),
         };
         let host = Arc::new(HostState::default());
@@ -1822,6 +1823,7 @@ mod tests {
                 file_version: None,
                 signed: None,
                 signature: None,
+                signature_status: None,
                 user: None,
             }),
             RawPayload::Scripting(PowerShellScriptFields {

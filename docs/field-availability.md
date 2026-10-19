@@ -16,6 +16,20 @@ Edit that table and run `cargo run --bin generate-docs`.
 
 | View | Platform | Category | Event / action | Source | Unavailable field | Reason |
 | --- | --- | --- | --- | --- | --- | --- |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `SYSCALL` | the eBPF file probes do not retain which syscall produced the event |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a0` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a1` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a2` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a3` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a4` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a5` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a6` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `a7` | raw syscall arguments are not captured for file events |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `key` | an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one |
+| `auditd` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `unit` | no Rustinel sensor produces service start or stop records, which carry `unit` |
+| `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `key` | an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one |
+| `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `nametype` | exec telemetry does not model per-path name types |
+| `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `unit` | no Rustinel sensor produces service start or stop records, which carry `unit` |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |
@@ -61,15 +75,11 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `create_remote_thread` | `8` | `none` | `*` | no Rustinel sensor produces remote-thread creation telemetry |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `QueryTruncated` | ETW delivers whole DNS Client events |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `RecordType` | the subscribed DNS Client events do not expose the query record type |
-| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `Signature` | Kernel-Process image-load events contain no signer identity |
-| `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `Signed` | Kernel-Process image-load events contain no Authenticode result |
 | `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `CreationUtcTime` | Kernel-File reports the information class, not the new timestamp |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `PathTruncated` | ETW delivers a complete path or no attributable event |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `PreviousCreationUtcTime` | Kernel-File reports the information class, not the old timestamp |
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `SourceFilename` | Kernel-File does not provide the old name on emitted rename events |
-| `sysmon` | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `Signature` | Kernel-Process image-load events contain no signer identity |
-| `sysmon` | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `Signed` | Kernel-Process image-load events contain no Authenticode result |
 | `sysmon` | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |
 | `sysmon` | windows | `pipe_created` | `17` | `Microsoft-Windows-Kernel-File` | `*` | named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW |
 | `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `CgroupId` | Windows process events do not have a Linux kernel cgroup identifier |
