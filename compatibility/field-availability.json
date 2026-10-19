@@ -1501,6 +1501,70 @@
       "action": "query",
       "provider": "etw",
       "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryRegisteredDomain",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3006,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryLabelCount",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the label count of QueryName"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3006,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryLongestLabel",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3006,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryNameLength",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the length of QueryName in bytes"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3006,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
       "field": "QueryResults",
       "since": null,
       "availability": "conditional",
@@ -1617,6 +1681,70 @@
       "since": null,
       "availability": "conditional",
       "reason": "the DNS Client event template carries a query name"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryRegisteredDomain",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryLabelCount",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the label count of QueryName"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryLongestLabel",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes"
+    },
+    {
+      "view": "sysmon",
+      "platform": "windows",
+      "category": "dns_query",
+      "event_id": 3008,
+      "event_ids": [
+        22
+      ],
+      "action": "query",
+      "provider": "etw",
+      "source": "Microsoft-Windows-DNS-Client",
+      "field": "QueryNameLength",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the length of QueryName in bytes"
     },
     {
       "view": "sysmon",
@@ -16644,6 +16772,58 @@
       "action": "query",
       "provider": "ebpf",
       "source": "DNS socket syscall hooks",
+      "field": "QueryRegisteredDomain",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
+    },
+    {
+      "view": "sysmon",
+      "platform": "linux",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "ebpf",
+      "source": "DNS socket syscall hooks",
+      "field": "QueryLabelCount",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the label count of QueryName; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
+    },
+    {
+      "view": "sysmon",
+      "platform": "linux",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "ebpf",
+      "source": "DNS socket syscall hooks",
+      "field": "QueryLongestLabel",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
+    },
+    {
+      "view": "sysmon",
+      "platform": "linux",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "ebpf",
+      "source": "DNS socket syscall hooks",
+      "field": "QueryNameLength",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the length of QueryName in bytes; absent when the question cannot be parsed, which drops names with a label over 63 bytes; absent when QueryTruncated is true"
+    },
+    {
+      "view": "sysmon",
+      "platform": "linux",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "ebpf",
+      "source": "DNS socket syscall hooks",
       "field": "QueryResults",
       "since": "1.8.0",
       "availability": "conditional",
@@ -17577,6 +17757,58 @@
       "since": "1.1.0",
       "availability": "conditional",
       "reason": "the DNS qtype has a known Sysmon-compatible name"
+    },
+    {
+      "view": "sysmon",
+      "platform": "macos",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "bpf",
+      "source": "/dev/bpf",
+      "field": "QueryRegisteredDomain",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the public-suffix registered domain of QueryName; absent for a bare suffix or an unlisted suffix"
+    },
+    {
+      "view": "sysmon",
+      "platform": "macos",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "bpf",
+      "source": "/dev/bpf",
+      "field": "QueryLabelCount",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the label count of QueryName"
+    },
+    {
+      "view": "sysmon",
+      "platform": "macos",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "bpf",
+      "source": "/dev/bpf",
+      "field": "QueryLongestLabel",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the longest label length of QueryName in bytes"
+    },
+    {
+      "view": "sysmon",
+      "platform": "macos",
+      "category": "dns_query",
+      "event_id": 22,
+      "action": "query",
+      "provider": "bpf",
+      "source": "/dev/bpf",
+      "field": "QueryNameLength",
+      "since": "unreleased",
+      "availability": "conditional",
+      "reason": "derived read-only from QueryName: the length of QueryName in bytes"
     },
     {
       "view": "sysmon",
