@@ -1369,6 +1369,7 @@ fn availability_for_contract(contract: &EventFieldContract, field: &str) -> Avai
     if matches!(field, "EventID" | "timestamp" | "event_time") {
         return Availability::Always;
     }
+    let field = crate::models::field_view::contract_field_name(contract.view, field);
     contract
         .fields
         .iter()
@@ -1435,7 +1436,8 @@ fn contract_matches_logsource(contract: &EventFieldContract, logsource: &LogSour
             "network" if logsource.service.as_deref() == Some("connection") => {
                 ("network_connection", None)
             }
-            "network" | "dns" if logsource.service.as_deref() == Some("dns") => ("dns_query", None),
+            "network" if logsource.service.as_deref() == Some("dns") => ("dns_query", None),
+            "dns" => ("dns_query", None),
             other => (other, None),
         };
         if contract.category != mapped
@@ -1860,6 +1862,50 @@ mod tests {
         let dir = TempDir::new().expect("temporary rules directory");
         fs::write(dir.path().join("rules.yml"), yaml).expect("write fixture");
         analyze_rules(dir.path(), platform, &AppConfig::default()).expect("analyze rules")
+    }
+
+    #[test]
+    fn product_less_dns_rule_is_not_reported_inert_on_any_platform() {
+        let rule = r#"title: Telegram Bot API Request
+logsource:
+  category: dns
+detection:
+  selection:
+    query: api.telegram.org
+  condition: selection
+"#;
+        for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+            let report = report(rule, platform);
+            assert_ne!(
+                report.documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire,
+                "{platform:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dns_txt_rule_names_the_blocking_field_off_linux() {
+        let rule = r#"title: DNS TXT Answer
+logsource:
+  category: dns
+detection:
+  selection:
+    record_type: TXT
+    answer|contains: exec
+  condition: selection
+"#;
+        assert_ne!(
+            report(rule, Platform::Linux).documents[0].verdict,
+            CompatibilityVerdict::CanNeverFire
+        );
+        for platform in [Platform::Windows, Platform::MacOS] {
+            assert_eq!(
+                report(rule, platform).documents[0].verdict,
+                CompatibilityVerdict::CanNeverFire,
+                "{platform:?}"
+            );
+        }
     }
 
     #[test]
