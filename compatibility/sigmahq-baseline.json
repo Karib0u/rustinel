@@ -59,13 +59,13 @@
           "rule_file": 0
         },
         "loaded": {
-          "active_collector": 2719,
+          "active_collector": 2728,
           "inactive_collector": 0
         },
         "skipped": {
           "deferred_logsource": 0,
           "product_mismatch": 739,
-          "unknown_logsource": 335
+          "unknown_logsource": 326
         },
         "unsupported": {
           "unresolved_reference": 0
