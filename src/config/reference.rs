@@ -394,7 +394,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "heartbeat.webhooks",
         default_note: None,
-        description: "Also send each heartbeat line to the alert webhooks. The line is always written to `heartbeat.json.<date>` in the log directory. See [heartbeat](output.md#heartbeat).",
+        description: "Also send each heartbeat line to the alert webhooks. The line is always written to `heartbeat.json.<date>` in the log directory. See [heartbeat](agent-health.md#heartbeat).",
     },
     // windows
     ConfigOption {

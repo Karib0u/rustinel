@@ -212,11 +212,11 @@ The `telemetry.json` loss counters that `rustinel doctor` reads.
 
 ### `[heartbeat]`
 
-One line per `telemetry.snapshot_interval_secs` in `heartbeat.json.<date>` in the log directory, whether or not `telemetry.enabled` is on.
+The agent heartbeat file and whether it also goes to the alert webhooks.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `webhooks` | `false` | Also send each heartbeat line to the alert webhooks. See [heartbeat](output.md#heartbeat). |
+| `webhooks` | `false` | Also send each heartbeat line to the alert webhooks. The line is always written to `heartbeat.json.<date>` in the log directory. See [heartbeat](agent-health.md#heartbeat). |
 
 ### `[windows]`
 
