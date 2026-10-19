@@ -210,6 +210,14 @@ The `telemetry.json` loss counters that `rustinel doctor` reads.
 | `snapshot_interval_secs` | `30` | How often `telemetry.json` is rewritten. It is also written at shutdown. |
 | `loss_alert_interval_secs` | `60` | Window over which dropped sensor events are aggregated into one `agent::loss::sensor_events` alert per category. `0` disables the alert. See [sensor loss alerts](output.md#sensor-loss-alerts). |
 
+### `[heartbeat]`
+
+One line per `telemetry.snapshot_interval_secs` in `heartbeat.json.<date>`, while `telemetry.enabled` is on.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `webhooks` | `false` | Also send each heartbeat line to the alert webhooks. See [heartbeat](output.md#heartbeat). |
+
 ### `[windows]`
 
 ETW delivery. Read on every platform so one file can serve a mixed fleet, used only on Windows.

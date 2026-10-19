@@ -169,7 +169,7 @@ fn write_loss_alerts(alert_sink: &AlertSink, losses: Vec<(&'static str, u64)>, w
     }
 }
 
-fn host_platform() -> Platform {
+pub(super) fn host_platform() -> Platform {
     if cfg!(windows) {
         Platform::Windows
     } else if cfg!(target_os = "macos") {

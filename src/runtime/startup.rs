@@ -10,6 +10,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use crate::alerts::dedup::{spawn_flush_worker, Deduplicator};
 use crate::alerts::{AlertSink, WebhookDispatcher};
 use crate::config;
+use crate::runtime::lifecycle::Lifecycle;
 use crate::runtime::logging::{init_logging, log_startup_banner, TARGET_CONSOLE};
 use crate::runtime::telemetry::{SensorLossAlerter, TelemetryReporter};
 
@@ -49,6 +50,7 @@ pub(super) struct RuntimeLogging {
     pub dedup_worker_handle: Option<JoinHandle<()>>,
     pub telemetry_reporter: Option<TelemetryReporter>,
     pub loss_alerter: Option<SensorLossAlerter>,
+    pub lifecycle: Lifecycle,
     /// Where the pipeline attaches the stores the telemetry snapshot reads.
     pub probes: crate::telemetry::PipelineProbes,
     // Kept in the platform runtime until its final shutdown messages are written.
@@ -66,9 +68,8 @@ impl RuntimeLogging {
         let _guards = (app_guard, alert_guard);
 
         // 2.0 Host and agent identity, resolved once for every alert.
-        alert_sink = alert_sink.with_identity(Arc::new(crate::identity::Identity::resolve(
-            &cfg.agent.directory,
-        )));
+        let identity = Arc::new(crate::identity::Identity::resolve(&cfg.agent.directory));
+        alert_sink = alert_sink.with_identity(Arc::clone(&identity));
 
         // 2a. Webhook destinations, attached before the dedup worker takes its
         // copy of the sink so rollups are delivered as well.
@@ -100,10 +101,20 @@ impl RuntimeLogging {
         info!(target: TARGET_CONSOLE, "Logs: {}", cfg.logging.directory.display());
         info!(target: TARGET_CONSOLE, "Alerts: {}", cfg.alerts.directory.display());
 
-        // 2c. Pipeline drop counters, published for `rustinel doctor`
+        // 2c. Unclean-shutdown alert, run marker and heartbeat. Before the
+        // reporter below, which overwrites the snapshot the alert cites.
+        let lifecycle = Lifecycle::start(
+            cfg,
+            &alert_sink,
+            identity,
+            alert_sink.writer_metrics(),
+            probes.clone(),
+        );
+
+        // 2d. Pipeline drop counters, published for `rustinel doctor`
         let telemetry_reporter = TelemetryReporter::start(cfg, &alert_sink, probes.clone());
 
-        // 2d. Operational alert when sensor events were dropped
+        // 2e. Operational alert when sensor events were dropped
         let loss_alerter = SensorLossAlerter::start(cfg, &alert_sink);
 
         Ok(Self {
@@ -111,6 +122,7 @@ impl RuntimeLogging {
             dedup_worker_handle,
             telemetry_reporter,
             loss_alerter,
+            lifecycle,
             probes,
             _guards,
         })

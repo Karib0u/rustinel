@@ -134,7 +134,7 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | `edr.service` | Service installs (Windows) |
 | `edr.task` | Scheduled tasks (Windows) |
 | `edr.security` | Security audit events (Windows) |
-| `edr.agent` | Operational alerts about the agent itself, such as [sensor loss](#sensor-loss-alerts) |
+| `edr.agent` | Operational alerts about the agent itself: [sensor loss](#sensor-loss-alerts) and [start and stop](#lifecycle-alerts) |
 
 ### Sensor loss alerts
 
@@ -159,6 +159,48 @@ The count says how many events were lost, not how many would have matched.
 Loss alerts are written directly to the sink, so they bypass [deduplication](detection.md#deduplication) and active response never sees them.
 They use a path that does not touch the sensor queue, so a stalled alert file cannot cause more loss alerts.
 If the alert file's own queue is full, the loss alert is dropped like any other alert and counted in the `alert_writer` entry of [`telemetry.json`](telemetry.md), which is the only record in that case.
+
+### Heartbeat
+
+A stopped agent writes nothing, so a SIEM can only notice absence, and absence needs something regular to be absent.
+While `telemetry.enabled` is on, Rustinel writes one NDJSON line to `heartbeat.json.<date>` in the log directory every `telemetry.snapshot_interval_secs` (30 by default), starting as soon as the agent runs.
+The file rotates daily like the alert file, and it is separate so tools that count lines in `alerts.json` stay correct.
+It has its own writer, so it never waits behind alert output or the sensor queue.
+
+Each line carries `@timestamp`, `event.dataset` (`edr.agent.heartbeat`), the [host and agent identity](#host-and-agent-identity) (`host.name`, `agent.version`, and the rest), and the [`telemetry.json`](telemetry.md) snapshot under `telemetry`, unchanged.
+Set `heartbeat.webhooks = true` to send each line to the alert webhooks as well; it is off by default.
+
+To find a host that went quiet, alert when a `host.name` has no heartbeat for three intervals (90 seconds by default).
+In Elastic, with the file shipped to an index of your choosing:
+
+```
+FROM heartbeat-* | STATS last = MAX(@timestamp) BY host.name | WHERE last < NOW() - 90 seconds
+```
+
+### Lifecycle alerts
+
+Both are `Agent` alerts with `event.dataset` `edr.agent`, written directly to the sink like the loss alerts.
+They bypass [deduplication](detection.md#deduplication), active response never sees them, and `rustinel replay` never emits them.
+
+| `rule.name` | When | `edr.rule.severity` |
+| --- | --- | --- |
+| `agent::lifecycle::stopping` | Shutdown has drained the sensors and the alert sink is about to close | `Low`, `High` for `sensor_failure` |
+| `agent::lifecycle::unclean_shutdown` | At startup, the previous run never reached the end of its shutdown | `High` |
+
+`stopping` carries `edr.agent.lifecycle.reason`:
+
+| Reason | Meaning |
+| --- | --- |
+| `signal` | SIGINT, SIGTERM, SIGHUP, or Ctrl+C. A service stop on Linux and macOS arrives as SIGTERM, so `rustinel service restart` and the stop before an update also report `signal` |
+| `service_stop` | The Windows service manager stopped the service |
+| `sensor_failure` | A sensor failed to start or ended on its own, or a critical worker exited. The agent exits with status 1 so the service manager restarts it |
+
+The agent keeps a `run-state` file in `agent.directory`.
+It says `running` from startup and `stopped` once shutdown has finished.
+If startup finds `running`, the last run was killed or crashed, and `unclean_shutdown` is written with `edr.agent.lifecycle.last_snapshot_at`, the time of that run's last `telemetry.json` snapshot, when one exists.
+A graceful stop, `rustinel service restart`, and a restart after `rustinel update` leave `stopped` and do not alert.
+After a `sensor_failure` exit the file still says `running`, so the supervised restart also writes `unclean_shutdown`.
+A first run, with no file, writes nothing.
 
 ### Platform-specific fields
 

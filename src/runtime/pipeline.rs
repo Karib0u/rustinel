@@ -380,9 +380,11 @@ mod tests {
                 sensor_worker,
                 response_worker,
                 None,
-                &AlertSink::new(writer),
+                &AlertSink::new(writer.clone()),
                 None,
                 None,
+                crate::runtime::lifecycle::Lifecycle::disabled(&AlertSink::new(writer)),
+                crate::runtime::lifecycle::StopReason::Signal,
             ),
         )
         .await
