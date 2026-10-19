@@ -403,6 +403,7 @@ impl EtwRouting {
             }
             EventCategory::Process
             | EventCategory::ImageLoad
+            | EventCategory::DriverLoad
             | EventCategory::Scripting
             | EventCategory::PowerShellModule => unreachable!(),
         };
