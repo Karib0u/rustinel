@@ -4,8 +4,14 @@
 //!
 //! - Queries come from `sendto(2)`, `sendmsg(2)`, `sendmmsg(2)`, and
 //!   `write(2)`. `send(2)` is `sendto` with no address.
-//! - Responses come from `recvfrom(2)`, `recvmsg(2)`, and `read(2)`, captured
-//!   at syscall exit once the kernel has filled the buffer.
+//! - Responses come from `recvfrom(2)`, `recvmsg(2)`, `recvmmsg(2)`, and
+//!   `read(2)`, captured at syscall exit once the kernel has filled the buffer.
+//!
+//! DNS over TCP rides the same hooks. A TCP message starts with a two-byte
+//! length, which [`emit_dns_event`] recognises by its value (it equals the
+//! rest of the buffer) and reports in [`DNS_FLAG_TCP`]. Only a message that
+//! arrives in one buffer is seen; the callers that send the length and the
+//! message as two `sendmsg` iovecs are joined by [`capture_split_msghdr`].
 //!
 //! `read` and `write` are the busiest syscalls on any host, so they are hooked
 //! with `fentry`/`fexit` on `ksys_write`/`ksys_read` rather than syscall
@@ -33,7 +39,8 @@ use aya_ebpf::{
 };
 
 use crate::events::{
-    event_metadata, DnsEvent, DNS_EVENT_QUERY, DNS_EVENT_RESPONSE, DNS_PAYLOAD_CAPACITY,
+    event_metadata, DnsEvent, DNS_EVENT_QUERY, DNS_EVENT_RESPONSE, DNS_FLAG_TCP,
+    DNS_FLAG_TRUNCATED, DNS_PAYLOAD_CAPACITY,
 };
 use crate::process::current_process_start_time;
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, DNS_FAMILY};
@@ -59,6 +66,10 @@ pub struct DnsTracepointOffsets {
     pub recvmsg_fd: u32,
     pub recvmsg_msg: u32,
     pub recvmsg_ret: u32,
+    pub recvmmsg_fd: u32,
+    pub recvmmsg_msgvec: u32,
+    pub recvmmsg_vlen: u32,
+    pub recvmmsg_ret: u32,
 }
 
 #[no_mangle]
@@ -81,6 +92,10 @@ pub static DNS_TRACEPOINT_OFFSETS: DnsTracepointOffsets = DnsTracepointOffsets {
     recvmsg_fd: 0,
     recvmsg_msg: 0,
     recvmsg_ret: 0,
+    recvmmsg_fd: 0,
+    recvmmsg_msgvec: 0,
+    recvmmsg_vlen: 0,
+    recvmmsg_ret: 0,
 };
 
 #[inline(always)]
@@ -97,8 +112,11 @@ const DNS_PORT: u16 = 53;
 /// one gives the verifier a statically bounded destination range.
 const MAX_IOVEC_SEGMENTS: usize = 1;
 
-/// Maximum messages inspected from one sendmmsg call.
+/// Maximum messages inspected from one sendmmsg or recvmmsg call.
 const MAX_SENDMMSG_MESSAGES: usize = 4;
+
+/// Bytes of the length prefix that opens a DNS message on a TCP stream.
+const TCP_PREFIX_LEN: usize = 2;
 
 const AF_INET: u16 = 2;
 const AF_INET6: u16 = 10;
@@ -111,6 +129,8 @@ const DNS_SOCKET_ACTIVE: u8 = 1;
 const RECV_BUFFER: u32 = 1;
 /// Pending receive whose pointer is a `struct msghdr` (`recvmsg`).
 const RECV_MSGHDR: u32 = 2;
+/// Pending receive whose pointer is a `struct mmsghdr` vector (`recvmmsg`).
+const RECV_MMSGHDR: u32 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -170,9 +190,11 @@ struct UserMmsghdr {
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct PendingRecv {
-    /// Payload buffer for [`RECV_BUFFER`], `struct msghdr` for [`RECV_MSGHDR`].
+    /// Payload buffer for [`RECV_BUFFER`], `struct msghdr` for [`RECV_MSGHDR`],
+    /// `struct mmsghdr` vector for [`RECV_MMSGHDR`].
     ptr: u64,
-    /// Buffer capacity for [`RECV_BUFFER`]; unused for [`RECV_MSGHDR`].
+    /// Buffer capacity for [`RECV_BUFFER`], message count for
+    /// [`RECV_MMSGHDR`]; unused for [`RECV_MSGHDR`].
     len: u64,
     fd: i32,
     kind: u32,
@@ -205,6 +227,7 @@ static DNS_RECV_PENDING: LruHashMap<u32, PendingRecv> = LruHashMap::with_max_ent
 
 const SYSCALL_RECVFROM: u32 = 1;
 const SYSCALL_RECVMSG: u32 = 2;
+const SYSCALL_RECVMMSG: u32 = 3;
 
 #[tracepoint]
 pub fn handle_sendto(ctx: TracePointContext) -> u32 {
@@ -256,6 +279,7 @@ pub fn handle_dns_recvfrom(ctx: TracePointContext) -> u32 {
             tracepoint_offset(core::ptr::addr_of!(off.recvfrom_fd)),
             tracepoint_offset(core::ptr::addr_of!(off.recvfrom_buf)),
             Some(tracepoint_offset(core::ptr::addr_of!(off.recvfrom_size))),
+            RECV_BUFFER,
             SYSCALL_RECVFROM,
         )
     }
@@ -283,6 +307,7 @@ pub fn handle_dns_recvmsg(ctx: TracePointContext) -> u32 {
             tracepoint_offset(core::ptr::addr_of!(off.recvmsg_fd)),
             tracepoint_offset(core::ptr::addr_of!(off.recvmsg_msg)),
             None,
+            RECV_MSGHDR,
             SYSCALL_RECVMSG,
         )
     }
@@ -296,6 +321,34 @@ pub fn handle_dns_recvmsg_exit(ctx: TracePointContext) -> u32 {
             &ctx,
             tracepoint_offset(core::ptr::addr_of!(DNS_TRACEPOINT_OFFSETS.recvmsg_ret)),
             SYSCALL_RECVMSG,
+        )
+    }
+    .unwrap_or(1)
+}
+
+#[tracepoint]
+pub fn handle_dns_recvmmsg(ctx: TracePointContext) -> u32 {
+    unsafe {
+        let off = &DNS_TRACEPOINT_OFFSETS;
+        queue_recv(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(off.recvmmsg_fd)),
+            tracepoint_offset(core::ptr::addr_of!(off.recvmmsg_msgvec)),
+            Some(tracepoint_offset(core::ptr::addr_of!(off.recvmmsg_vlen))),
+            RECV_MMSGHDR,
+            SYSCALL_RECVMMSG,
+        )
+    }
+    .unwrap_or(1)
+}
+
+#[tracepoint]
+pub fn handle_dns_recvmmsg_exit(ctx: TracePointContext) -> u32 {
+    unsafe {
+        complete_recv(
+            &ctx,
+            tracepoint_offset(core::ptr::addr_of!(DNS_TRACEPOINT_OFFSETS.recvmmsg_ret)),
+            SYSCALL_RECVMMSG,
         )
     }
     .unwrap_or(1)
@@ -503,6 +556,7 @@ unsafe fn queue_recv(
     fd_offset: usize,
     ptr_offset: usize,
     len_offset: Option<usize>,
+    kind: u32,
     syscall: u32,
 ) -> Result<u32, i64> {
     let fd = ctx.read_at::<i64>(fd_offset)? as i32;
@@ -514,9 +568,9 @@ unsafe fn queue_recv(
     if ptr == 0 {
         return Ok(0);
     }
-    let (kind, len) = match len_offset {
-        Some(offset) => (RECV_BUFFER, ctx.read_at::<u64>(offset)?),
-        None => (RECV_MSGHDR, 0),
+    let len = match len_offset {
+        Some(offset) => ctx.read_at::<u64>(offset)?,
+        None => 0,
     };
     let pending = PendingRecv {
         ptr,
@@ -554,11 +608,39 @@ unsafe fn complete_recv(
     }
 
     let ret = ctx.read_at::<i64>(ret_offset)?;
-    if ret < DNS_HEADER_LEN as i64 {
+    // `recvmmsg` returns a message count, every other receive a byte count.
+    let floor = if pending.kind == RECV_MMSGHDR {
+        1
+    } else {
+        DNS_HEADER_LEN as i64
+    };
+    if ret < floor {
         return Ok(0);
     }
     let tgid = (pid_tgid >> 32) as u32;
-    if pending.kind == RECV_BUFFER {
+    if pending.kind == RECV_MMSGHDR {
+        let received = (ret as u64).min(pending.len) as usize;
+        let mut index = 0usize;
+        while index < MAX_SENDMMSG_MESSAGES {
+            if index >= received {
+                break;
+            }
+            let offset = index * core::mem::size_of::<UserMmsghdr>();
+            let slot = pending.ptr.wrapping_add(offset as u64);
+            let msg = match bpf_probe_read_user::<UserMmsghdr>(slot as *const _) {
+                Ok(value) => value,
+                Err(_) => break,
+            };
+            capture_msghdr(
+                tgid,
+                pending.fd,
+                &msg.msg_hdr,
+                u64::from(msg.msg_len),
+                DNS_EVENT_RESPONSE,
+            );
+            index += 1;
+        }
+    } else if pending.kind == RECV_BUFFER {
         capture_buffer(
             tgid,
             pending.fd,
@@ -595,7 +677,48 @@ unsafe fn capture_buffer(tgid: u32, fd: i32, buf_ptr: u64, len: u64, kind: u32) 
     {
         return;
     }
-    emit_dns_event(scratch, tgid, fd, read_len, kind);
+    emit_dns_event(scratch, tgid, fd, read_len, len, kind);
+}
+
+/// Join a TCP length prefix sent as its own iovec with the message that
+/// follows it, as BIND and `dig` send DNS over TCP, and emit the pair.
+#[inline(always)]
+unsafe fn capture_split_msghdr(
+    tgid: u32,
+    fd: i32,
+    prefix: &UserIovec,
+    body: &UserIovec,
+    kind: u32,
+) {
+    if prefix.iov_base == 0 || body.iov_base == 0 {
+        return;
+    }
+    let total = body.iov_len.saturating_add(TCP_PREFIX_LEN as u64);
+    if total < (TCP_PREFIX_LEN + DNS_HEADER_LEN) as u64 {
+        return;
+    }
+    let Some(scratch) = DNS_SCRATCH.get_ptr_mut(0) else {
+        return;
+    };
+    let body_len = (body.iov_len as usize).min(DNS_PAYLOAD_CAPACITY - TCP_PREFIX_LEN);
+    (*scratch).payload = [0u8; DNS_PAYLOAD_CAPACITY];
+    if bpf_probe_read_user_buf(
+        prefix.iov_base as *const u8,
+        &mut (&mut (*scratch).payload)[..TCP_PREFIX_LEN],
+    )
+    .is_err()
+    {
+        return;
+    }
+    if bpf_probe_read_user_buf(
+        body.iov_base as *const u8,
+        &mut (&mut (*scratch).payload)[TCP_PREFIX_LEN..TCP_PREFIX_LEN + body_len],
+    )
+    .is_err()
+    {
+        return;
+    }
+    emit_dns_event(scratch, tgid, fd, TCP_PREFIX_LEN + body_len, total, kind);
 }
 
 /// Copy the first iovec of a message, at most `limit` bytes, and emit it.
@@ -611,29 +734,72 @@ unsafe fn capture_msghdr(tgid: u32, fd: i32, msg: &UserMsghdr, limit: u64, kind:
     if iovec.iov_base == 0 {
         return;
     }
+    // A bare two-byte first iovec is a TCP length prefix; the message is the
+    // second one.
+    if kind == DNS_EVENT_QUERY && iovec.iov_len == TCP_PREFIX_LEN as u64 && msg.msg_iovlen >= 2 {
+        let next = msg.msg_iov.wrapping_add(core::mem::size_of::<UserIovec>() as u64);
+        if let Ok(body) = bpf_probe_read_user::<UserIovec>(next as *const _) {
+            capture_split_msghdr(tgid, fd, &iovec, &body, kind);
+        }
+        return;
+    }
     capture_buffer(tgid, fd, iovec.iov_base, iovec.iov_len.min(limit), kind);
 }
 
+/// Check the message in `scratch` and put it on the ring.
+///
+/// `total_len` is the size of the whole message as the syscall saw it, which
+/// can exceed the `read_len` bytes copied. A TCP message is recognised by its
+/// length prefix equalling the rest of the buffer; a UDP message begins with
+/// a transaction ID, which matches that by chance once in 65,536 buffers and
+/// then still has to pass the header check at the shifted offset.
 #[inline(always)]
-unsafe fn emit_dns_event(scratch: *mut DnsEvent, tgid: u32, fd: i32, read_len: usize, kind: u32) {
+unsafe fn emit_dns_event(
+    scratch: *mut DnsEvent,
+    tgid: u32,
+    fd: i32,
+    read_len: usize,
+    total_len: u64,
+    kind: u32,
+) {
     if read_len < DNS_HEADER_LEN || read_len > DNS_PAYLOAD_CAPACITY {
         return;
     }
 
+    let payload = &(*scratch).payload;
+    let prefix = ((payload[0] as u64) << 8) | (payload[1] as u64);
+    let tcp = read_len >= TCP_PREFIX_LEN + DNS_HEADER_LEN
+        && prefix + TCP_PREFIX_LEN as u64 == total_len;
     // Only the direction and a non-empty question are checked here; the
     // message itself is parsed in userspace.
-    let response = (*scratch).payload[2] & 0x80 != 0;
-    let qdcount = (((*scratch).payload[4] as u16) << 8) | ((*scratch).payload[5] as u16);
+    let (response, qdcount) = if tcp {
+        (
+            payload[4] & 0x80 != 0,
+            ((payload[6] as u16) << 8) | (payload[7] as u16),
+        )
+    } else {
+        (
+            payload[2] & 0x80 != 0,
+            ((payload[4] as u16) << 8) | (payload[5] as u16),
+        )
+    };
     if response != (kind == DNS_EVENT_RESPONSE) || qdcount == 0 {
         return;
     }
 
+    let mut flags = 0u16;
+    if tcp {
+        flags |= DNS_FLAG_TCP;
+    }
+    if total_len > read_len as u64 {
+        flags |= DNS_FLAG_TRUNCATED;
+    }
+    (*scratch).flags = flags;
     (*scratch).kind = kind;
     (*scratch).pid = tgid;
     (*scratch).uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
     (*scratch).fd = fd;
     (*scratch).payload_len = read_len as u16;
-    (*scratch)._pad0 = 0;
     (*scratch)._pad1 = 0;
     (*scratch).process_start_time = current_process_start_time(tgid);
 

@@ -45,6 +45,31 @@ pub(crate) fn parse_question(payload: &[u8]) -> Option<(String, u16)> {
     Some((name, qtype))
 }
 
+/// Read the labels of a question the capture cut short.
+///
+/// For a message longer than the sensor's capture limit whose name does not
+/// end inside the bytes kept. Returns the labels that survived, the last one
+/// possibly partial, or `None` when the bytes are not a plain label sequence.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn parse_truncated_question(payload: &[u8]) -> Option<String> {
+    if payload.len() <= HEADER_LEN || u16::from_be_bytes([payload[4], payload[5]]) == 0 {
+        return None;
+    }
+    let mut labels: Vec<String> = Vec::new();
+    let mut pos = HEADER_LEN;
+    while pos < payload.len() {
+        let label_len = payload[pos];
+        pos += 1;
+        if label_len == 0 || label_len & LABEL_POINTER_MASK != 0 {
+            return None;
+        }
+        let end = (pos + usize::from(label_len)).min(payload.len());
+        labels.push(String::from_utf8_lossy(&payload[pos..end]).into_owned());
+        pos = end;
+    }
+    (!labels.is_empty()).then(|| labels.join("."))
+}
+
 /// Map a DNS QTYPE to its record-type name, for the common types.
 pub(crate) fn record_type_name(qtype: u16) -> Option<&'static str> {
     let name = match qtype {
@@ -169,6 +194,25 @@ mod tests {
         payload.push(10); // claims a 10-byte label
         payload.extend_from_slice(b"abc"); // but only 3 bytes follow
         assert_eq!(parse_question(&payload), None);
+    }
+
+    #[test]
+    fn truncated_question_keeps_the_labels_that_survived() {
+        let mut payload = query_payload("first.second.third.test");
+        payload.truncate(HEADER_LEN + 6 + 3);
+        assert_eq!(
+            parse_truncated_question(&payload).as_deref(),
+            Some("first.se")
+        );
+    }
+
+    #[test]
+    fn truncated_question_rejects_a_name_that_is_not_plain_labels() {
+        let mut payload = vec![0u8; HEADER_LEN];
+        payload[5] = 1;
+        payload.extend_from_slice(&[LABEL_POINTER_MASK, 0x0c, 3]);
+        assert_eq!(parse_truncated_question(&payload), None);
+        assert_eq!(parse_truncated_question(&payload[..HEADER_LEN]), None);
     }
 
     #[test]
