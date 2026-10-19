@@ -223,6 +223,7 @@ fn process() -> CanonicalEvent {
             parent_user: None,
             current_directory: Some(r"C:\Users\alice\source\repo\".to_string()),
             integrity_level: None,
+            logon_id: None,
             user: None,
         }),
     )

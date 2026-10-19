@@ -209,6 +209,11 @@ const WINDOWS_PROCESS: &[FieldContract] = &[
         "available only on process-start templates with a MandatoryLabel SID",
     ),
     conditional(
+        "LogonId",
+        Some(UNRELEASED),
+        "derived from the live process token when the process still exists and its start time matches; counted in windows_process_correlation",
+    ),
+    conditional(
         "OriginalFileName",
         SINCE_BASELINE,
         "PE version-resource enrichment succeeds",
@@ -1512,6 +1517,11 @@ const LINUX_PROCESS: &[FieldContract] = &[
         SINCE_BASELINE,
         "Windows integrity levels do not exist on Linux",
     ),
+    conditional(
+        "LogonId",
+        Some(UNRELEASED),
+        "the audit login UID from /proc/<pid>/loginuid, read under the same identity check as CurrentDirectory; 4294967295 means the process has no login session",
+    ),
     never(
         "TargetImage",
         SINCE_BASELINE,
@@ -1691,6 +1701,11 @@ const MACOS_PROCESS: &[FieldContract] = &[
         "IntegrityLevel",
         SINCE_1_4_1,
         "Windows integrity levels do not exist on macOS",
+    ),
+    never(
+        "LogonId",
+        Some(UNRELEASED),
+        "Endpoint Security exec events do not carry a logon session",
     ),
     never(
         "TargetImage",
