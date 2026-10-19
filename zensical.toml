@@ -41,6 +41,7 @@ nav = [
         { "Telemetry loss" = "telemetry-loss.md" },
         { "Agent health" = "agent-health.md" },
         { "Security model" = "security.md" },
+        { "Code signing policy" = "code-signing-policy.md" },
     ] },
 
     { "Reference" = [

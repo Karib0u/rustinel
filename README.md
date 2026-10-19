@@ -102,6 +102,11 @@ Rustinel is built for endpoint monitoring, detection engineering, labs, and SIEM
 It is not a replacement for a commercial EDR: it has no anti-tamper, no pre-execution blocking, and no management console.
 See the [Security model](https://docs.rustinel.io/security/).
 
+## Code signing policy
+
+Free code signing for the Windows binary is provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+See the [Code signing policy](https://docs.rustinel.io/code-signing-policy/) for roles and privacy.
+
 ## Contribute
 
 Bug reports, detection tests, and platform work are welcome.

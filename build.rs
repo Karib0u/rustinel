@@ -4,6 +4,30 @@ fn main() {
     if target_os == "linux" {
         build_ebpf();
     }
+    if target_os == "windows" {
+        embed_version_info();
+    }
+}
+
+/// Stamps the Windows executable with its product name and version.
+///
+/// SignPath requires the product name to match the project and the product
+/// version to be identical across builds.
+/// The resource compiler only exists on a Windows host, so cross builds skip it.
+fn embed_version_info() {
+    #[cfg(windows)]
+    {
+        let mut resource = winresource::WindowsResource::new();
+        resource
+            .set("ProductName", "Rustinel")
+            .set("FileDescription", "Rustinel endpoint detection agent")
+            .set("InternalName", "rustinel")
+            .set("OriginalFilename", "rustinel.exe")
+            .set("LegalCopyright", "Apache-2.0");
+        if let Err(error) = resource.compile() {
+            panic!("failed to embed the Windows version resource: {error}");
+        }
+    }
 }
 
 // Not every item is used on every host OS the build script runs on.
