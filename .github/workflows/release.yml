@@ -144,6 +144,15 @@ jobs:
             Write-Error ("Expected SizeOfStackReserve 0x{0:X}, got 0x{1:X}" -f $expectedStackReserve, $stackReserve)
             exit 1
           }
+          # A dynamic CRT makes the exe exit silently on hosts without the
+          # Visual C++ Redistributable, so the import table must not name it.
+          $text = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($dll in @("VCRUNTIME140", "MSVCP140", "api-ms-win-crt-")) {
+            if ($text.IndexOf($dll, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              Write-Error "Binary imports $dll, so the CRT is not statically linked"
+              exit 1
+            }
+          }
 
       # SignPath fetches this exact upload to prove which workflow built it.
       - name: Upload unsigned binary for SignPath

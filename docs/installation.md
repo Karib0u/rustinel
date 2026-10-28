@@ -4,7 +4,7 @@
 
 | Platform | Version | Privileges | Also needs |
 | --- | --- | --- | --- |
-| Windows | 10, 11, Server 2016+ (x64) | Administrator | [Visual C++ Redistributable](https://aka.ms/vc14/vc_redist.x64.exe) (x64) |
+| Windows | 10, 11, Server 2016+ (x64) | Administrator | Nothing since 1.11.0; earlier releases need the [Visual C++ Redistributable](https://aka.ms/vc14/vc_redist.x64.exe) (x64) |
 | Linux | Kernel 5.8+ (x86_64, arm64) | root, or the [capabilities below](#linux-capabilities) | `tracefs` mounted; BTF for process identity and socket fields |
 | macOS | 11+ (Intel, Apple Silicon) | root | Full Disk Access, see [macOS permissions](macos-permissions.md) |
 

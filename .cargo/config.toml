@@ -6,7 +6,10 @@ YRX_REGENERATE_MODULES_RS = "false"
 [target.x86_64-pc-windows-msvc]
 # Increase stack size for large YARA rulesets.
 # Windows default is 1MB; we raise it to 16MB for large rule compilations.
-rustflags = ["-C", "link-args=/STACK:16777216"]
+# crt-static links the C runtime into the exe, so a clean Windows install runs
+# it without the Visual C++ Redistributable (otherwise it exits silently with
+# STATUS_DLL_NOT_FOUND, 0xC0000135).
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-args=/STACK:16777216"]
 
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-C", "link-args=-Wl,--stack,16777216"]
