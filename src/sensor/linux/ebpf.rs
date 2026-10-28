@@ -469,6 +469,12 @@ impl Sensor for EbpfSensor {
 
 // ── Ring-buffer polling ──────────────────────────────────────────────────────
 
+/// Registers a ring buffer with the tokio reactor.
+fn register_ring(ring: RingBuf<MapData>) -> std::io::Result<AsyncFd<RingBuf<MapData>>> {
+    // SAFETY: `RingBuf` owns its map file descriptor, which stays open and unchanged until the ring is dropped.
+    unsafe { AsyncFd::register(ring) }.map_err(|e| e.into_parts().1)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_ring_poll(
     process_ring: RingBuf<MapData>,
@@ -480,10 +486,10 @@ async fn run_ring_poll(
     shutdown: Arc<AtomicBool>,
     host: Arc<crate::state::HostState>,
 ) -> Result<()> {
-    let mut process_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(process_ring)?;
-    let mut network_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(network_ring)?;
-    let mut file_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(file_ring)?;
-    let mut dns_fd: AsyncFd<RingBuf<MapData>> = AsyncFd::new(dns_ring)?;
+    let mut process_fd: AsyncFd<RingBuf<MapData>> = register_ring(process_ring)?;
+    let mut network_fd: AsyncFd<RingBuf<MapData>> = register_ring(network_ring)?;
+    let mut file_fd: AsyncFd<RingBuf<MapData>> = register_ring(file_ring)?;
+    let mut dns_fd: AsyncFd<RingBuf<MapData>> = register_ring(dns_ring)?;
     let telemetry = &host.extension::<super::LinuxHostExtension>().ebpf;
     let mut unresolved_file_events: u64 = 0;
     let mut counter_tick = tokio::time::interval(std::time::Duration::from_secs(1));
