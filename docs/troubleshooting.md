@@ -15,8 +15,8 @@ From a release folder, use `./rustinel` or `.\rustinel.exe` instead.
 
 ### Windows exits with no output
 
-`$LASTEXITCODE` is `-1073741515`: the Visual C++ runtime is missing.
-Install it and retry:
+Releases before 1.11.0 need the Visual C++ runtime and exit silently without it, with `$LASTEXITCODE` set to `-1073741515`.
+Upgrade to 1.11.0 or later, which links the runtime statically, or install it and retry:
 
 ```powershell
 Invoke-WebRequest https://aka.ms/vc14/vc_redist.x64.exe -OutFile "$env:TEMP\vc_redist.x64.exe"
