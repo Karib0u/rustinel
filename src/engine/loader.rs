@@ -374,7 +374,11 @@ impl Engine {
         let content = fs::read_to_string(path).context("Failed to read rule file")?;
         let parsed = parse_sigma_yaml(&content).map_err(|err| anyhow::anyhow!("{err}"))?;
         let source_path = path.display().to_string();
-        let mut errors = parsed.errors.clone();
+        let mut errors = parsed
+            .diagnostics
+            .iter()
+            .map(|error| error.message.clone())
+            .collect::<Vec<_>>();
 
         errors.extend(sources.add_collection(&source_path, &content, &parsed)?);
         collection.rules.extend(parsed.rules);

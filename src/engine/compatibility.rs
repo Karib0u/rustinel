@@ -550,11 +550,11 @@ fn parse_documents(root: &Path) -> Result<Vec<ParsedDocument>> {
             .with_context(|| format!("read Sigma rule file {}", path.display()))?;
         match rsigma_parser::parse_sigma_yaml(&content) {
             Ok(collection) => {
-                for (index, error) in collection.errors.into_iter().enumerate() {
+                for (index, error) in collection.errors().enumerate() {
                     documents.push(ParsedDocument::Invalid {
                         source: source.clone(),
                         title: format!("Invalid document {}", index + 1),
-                        message: error,
+                        message: error.message.clone(),
                     });
                 }
                 documents.extend(collection.rules.into_iter().map(|rule| {
@@ -1326,7 +1326,7 @@ fn evaluate_condition_assignment(
             match quantifier {
                 Quantifier::Any => matches > 0,
                 Quantifier::All => matches == total,
-                Quantifier::Count(required) => matches >= *required,
+                Quantifier::Count(required) => matches >= required.get(),
             }
         }
     }
@@ -1370,8 +1370,8 @@ fn evaluate_selector(
             let minimum = values.iter().filter(|value| !value.can_be_false).count() as u64;
             let maximum = values.iter().filter(|value| value.can_be_true).count() as u64;
             Truth {
-                can_be_true: maximum >= *required,
-                can_be_false: minimum < *required,
+                can_be_true: maximum >= required.get(),
+                can_be_false: minimum < required.get(),
             }
         }
     }
