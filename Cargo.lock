@@ -3161,9 +3161,9 @@ dependencies = [
 
 [[package]]
 name = "rsigma-eval"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a5be12987e979e0989ac3a40a6410746a2cd8d6df10c42d25b254bb9c3e1cf4"
+checksum = "effe49e99e0f25366cff3ac27b5e91d98cf769922fb56d9fe455eb5b2d7c5adf"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3175,7 +3175,7 @@ dependencies = [
  "regex",
  "regex-syntax",
  "rsigma-ir",
- "rsigma-parser",
+ "rsigma-parser 0.25.0",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3184,13 +3184,13 @@ dependencies = [
 
 [[package]]
 name = "rsigma-ir"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac155166a25770b3b1161ac6ac0b18c8ddcc9b14d41d14195df6a201cf8db942"
+checksum = "b6aa2197b956489e1df48a3410789b2709fcea5e03a9759f65c766c02117d9c0"
 dependencies = [
  "base64 0.23.1",
  "ciborium",
- "rsigma-parser",
+ "rsigma-parser 0.25.0",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3215,6 +3215,24 @@ dependencies = [
  "yaml_serde",
  "yamlpatch",
  "yamlpath",
+]
+
+[[package]]
+name = "rsigma-parser"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38b9671197fa6e1634f9f00b30d1ea9f37a22981763bee519be72ae1d9771b2d"
+dependencies = [
+ "fancy-regex",
+ "globset",
+ "log",
+ "pest",
+ "pest_derive",
+ "regex-syntax",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -3296,7 +3314,7 @@ dependencies = [
  "reqwest",
  "roxmltree",
  "rsigma-eval",
- "rsigma-parser",
+ "rsigma-parser 0.24.0",
  "rustinel-ebpf-common",
  "self-replace",
  "semver",

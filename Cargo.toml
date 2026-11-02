@@ -29,7 +29,7 @@ panic = "abort"
 # and stateful correlation evaluation (rsigma-eval). Rustinel keeps ownership of
 # normalization, logsource routing, ECS alerts, hot reload, and IOC/YARA.
 rsigma-parser = "0.24"
-rsigma-eval = "0.24"
+rsigma-eval = "0.25"
 
 regex = "1.10"
 
