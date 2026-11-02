@@ -375,7 +375,8 @@ impl Engine {
         let parsed = parse_sigma_yaml(&content).map_err(|err| anyhow::anyhow!("{err}"))?;
         let source_path = path.display().to_string();
         let mut errors = parsed
-            .errors()
+            .diagnostics
+            .iter()
             .map(|error| error.message.clone())
             .collect::<Vec<_>>();
 
