@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+workspace="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 if [[ "${1:-}" == "--version" ]]; then
-  exec "$GITHUB_WORKSPACE/target/release/rustinel" --version
+  exec "$workspace/target/release/rustinel" --version
 fi
 
 # The atomic harness starts this wrapper in its prepared engine directory.
@@ -14,7 +16,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 0' TERM INT
 
-install -D -m 755 "$GITHUB_WORKSPACE/target/release/rustinel" /opt/rustinel/rustinel
+install -D -m 755 "$workspace/target/release/rustinel" /opt/rustinel/rustinel
 install -d -m 755 /etc/rustinel
 sed -E \
   -e 's# = "([^"]+/[^"]+)"# = "/opt/rustinel/\1"#' \
