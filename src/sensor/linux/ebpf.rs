@@ -196,7 +196,7 @@ impl Sensor for EbpfSensor {
                     .context("missing task identity offsets map")?,
             )?;
         for (index, plan) in task_plans.plans.iter().enumerate() {
-            offsets.set(index as u32, *plan, 0)?;
+            offsets.set(index as u32, plan, 0)?;
         }
 
         let file_identity_layout = match super::task_btf::FileIdentityLayout::load() {
@@ -205,7 +205,7 @@ impl Sensor for EbpfSensor {
                     bpf.map_mut("FILE_IDENTITY_OFFSETS")
                         .context("missing file identity offsets map")?,
                 )?
-                .set(0, layout.offsets, 0)?;
+                .set(0, &layout.offsets, 0)?;
                 Some(layout)
             }
             Err(error) => {
@@ -1251,7 +1251,7 @@ fn attach_socket_tuple(bpf: &mut LoadedEbpf) -> Result<bool> {
             bpf.map_mut("SOCKET_OFFSETS")
                 .context("missing socket offsets map")?,
         )?
-        .set(0, layout.offsets, 0)?;
+        .set(0, &layout.offsets, 0)?;
         for (name, target) in [
             ("handle_stream_connect", "inet_stream_connect"),
             ("handle_dgram_connect", "inet_dgram_connect"),
