@@ -23,5 +23,5 @@ opt-level = 2
 warnings = "deny"
 
 [dependencies]
-aya-ebpf = "0.2"
+aya-ebpf = "0.3"
 rustinel-ebpf-common = { version = "1.0.2", path = "../ebpf-common" }
