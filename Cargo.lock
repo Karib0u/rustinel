@@ -234,30 +234,12 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "aya"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66e644424fada9fff4fdc63848db1732fb69b626e8328202ef55c03df1f4d939"
-dependencies = [
- "assert_matches",
- "aya-obj 0.3.0",
- "bitflags 2.13.2",
- "hashbrown 0.17.1",
- "libc",
- "log",
- "object 0.39.1",
- "once_cell",
- "scopeguard",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "aya"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c193744eaa31250fd29ceb101a85219ae3cc26ea595a2cdb848df5a866cf19e"
 dependencies = [
  "assert_matches",
- "aya-obj 0.6.0",
+ "aya-obj",
  "bitflags 2.13.2",
  "hashbrown 0.17.1",
  "libc",
@@ -265,18 +247,6 @@ dependencies = [
  "object 0.40.0",
  "once_cell",
  "scopeguard",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "aya-obj"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c76b9c75d9cdc155ff8f6a06d61e873f67bf47be8cfa92a3b5aaea43f4b4077"
-dependencies = [
- "bytes",
- "log",
- "object 0.39.1",
  "thiserror 2.0.21",
 ]
 
@@ -3313,7 +3283,7 @@ version = "1.11.0"
 dependencies = [
  "anyhow",
  "arc-swap",
- "aya 0.16.0",
+ "aya",
  "chrono",
  "clap",
  "config",
@@ -3370,7 +3340,7 @@ dependencies = [
 name = "rustinel-ebpf-common"
 version = "1.0.2"
 dependencies = [
- "aya 0.14.0",
+ "aya",
 ]
 
 [[package]]
