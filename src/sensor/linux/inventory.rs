@@ -86,7 +86,7 @@ fn seed_inner(bpf: &mut Ebpf, host: &HostState, snapshot: &mut InventorySnapshot
             clock_ticks_per_second: hz as u64,
             identity_time,
         };
-        inventory.insert(pid, row, 0)?;
+        inventory.insert(&pid, &row, 0)?;
         cache.add(
             pid,
             identity_time,

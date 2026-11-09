@@ -18,4 +18,4 @@ warnings = "deny"
 aya = ["dep:aya"]
 
 [dependencies]
-aya = { version = "0.14", default-features = false, optional = true }
+aya = { version = "0.16", default-features = false, optional = true }
