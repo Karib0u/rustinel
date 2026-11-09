@@ -184,7 +184,7 @@ jobs:
             --rules-dir "$GITHUB_WORKSPACE/rules/sigma"
       - name: Load and exercise eBPF on Linux 5.10
         if: matrix.kernel == '5.10'
-        uses: cilium/little-vm-helper@f86d344aca812dda5aef167867a9a0a90ca6cca5 # v0.0.31
+        uses: cilium/little-vm-helper@c8b0bfbae3bdda7bc69fb9cd370e4b74ce84986d # v0.0.33
         with:
           test-name: rustinel-ebpf-load
           image: kind
