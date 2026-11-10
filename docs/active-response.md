@@ -18,7 +18,12 @@ Rustinel never kills:
 
 - processes under an allowlisted path or with an allowlisted name,
 - PIDs 0 to 4, or Rustinel itself,
+- critical system images, even when the response allowlist is overridden,
 - a process whose PID or executable path is unknown.
+
+The built-in image guard protects Windows session and security processes in the system directory, Linux init and system `sshd` images, and macOS `/sbin/launchd`.
+It compares full paths, so a program with the same name elsewhere is still eligible for response.
+Classic PowerShell engine-start and Application Event Log records do not identify an actor and never trigger termination through an enriched emitter PID.
 
 macOS refuses to kill SIP-protected processes even as root.
 The failure is logged and the alert is still written.
@@ -89,12 +94,21 @@ The log now shows `Active response terminated process`.
 
 ## Allowlists
 
+`allowlist_paths` starts as a copy of the global `allowlist.paths`.
+Setting it replaces that list for response only; it does not append to the defaults.
+To add a trusted path, copy the effective defaults for your platform and add the new prefix.
+For example, on Linux:
+
 ```toml
 [response]
-allowlist_images = ["backup-agent", "/opt/tools/scanner"]   # names or full paths
-allowlist_paths = ["/opt/trusted/"]                         # path prefixes
+allowlist_images = ["backup-agent", "/opt/tools/scanner"]
+allowlist_paths = [
+    "/usr/bin/", "/usr/sbin/", "/usr/lib/", "/usr/lib64/", "/usr/libexec/",
+    "/bin/", "/sbin/", "/lib/", "/lib64/",
+    "/opt/trusted/",
+]
 ```
 
-`allowlist_paths` starts as a copy of the global `allowlist.paths`.
-Setting it replaces that list for response only.
+Retain any additional paths from your global allowlist when setting this override.
+Startup and `doctor` warn when the effective response allowlist omits default system paths.
 See [Configuration](configuration.md#response).

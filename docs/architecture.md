@@ -144,7 +144,7 @@ The inventory reports scanned, seeded, skipped, duration, and failure informatio
 ## Detectors and reload
 
 Live detectors sit behind `engine::DetectorStore` (`src/engine/detectors.rs`).
-`reload/watcher.rs` watches files, falling back to polling; `reload/worker.rs` debounces, rebuilds only the changed detector, validates it, and swaps it atomically.
+`reload/watcher.rs` watches files and polls for missed changes even while the watcher is active; `reload/worker.rs` debounces, rebuilds only the changed detector, validates it, and swaps it atomically.
 Readers keep the previous instance until they finish.
 Artifact stores are separate by consumer and keyed by the same `FileIdentity`, with one shared eviction policy.
 A YARA reload advances its generation and invalidates only YARA results; PE metadata, hashes, and imphashes remain valid for that identity.
