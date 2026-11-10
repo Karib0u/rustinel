@@ -24,9 +24,20 @@ const POLLER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct ReloadPoller {
     handle: tokio::task::JoinHandle<()>,
     shutdown: watch::Sender<bool>,
+    ready: watch::Receiver<bool>,
 }
 
 impl ReloadPoller {
+    /// Wait until registration and the initial fingerprint comparison finish.
+    pub async fn ready(&mut self) -> bool {
+        while !*self.ready.borrow_and_update() {
+            if self.ready.changed().await.is_err() {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Signal the poller to stop and wait for it to finish.
     ///
     /// Aborts the task if it does not observe the signal within
@@ -35,6 +46,7 @@ impl ReloadPoller {
         let ReloadPoller {
             mut handle,
             shutdown,
+            ..
         } = self;
         let _ = shutdown.send(true);
         if tokio::time::timeout(POLLER_SHUTDOWN_TIMEOUT, &mut handle)
@@ -186,6 +198,22 @@ impl EventFilter {
     }
 }
 
+fn wake_reload(
+    result: Result<notify::Event, notify::Error>,
+    filter: &EventFilter,
+    tx: &mpsc::Sender<()>,
+) {
+    match result {
+        Ok(event) if !should_wake_reload(&event.kind) || !filter.matches(&event) => return,
+        Ok(_) => {}
+        // An error can mean notifications were lost. Recheck fingerprints.
+        Err(error) => warn!(target: "reload", %error, "Filesystem watcher error"),
+    }
+    // Never block the watcher's event thread: watch() waits on this thread
+    // during recursive registration. A full channel already holds a wake-up.
+    let _ = tx.try_send(());
+}
+
 fn build_watcher(
     targets: &[(PathBuf, notify::RecursiveMode)],
     filter: EventFilter,
@@ -193,33 +221,13 @@ fn build_watcher(
 ) -> Option<notify::RecommendedWatcher> {
     use notify::Watcher;
 
-    let mut watcher =
-        match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            let Ok(event) = res else {
-                return;
-            };
-            if !should_wake_reload(&event.kind) || !filter.matches(&event) {
-                return;
-            }
-            // Must not block: this runs on the watcher's event thread, the same
-            // thread `watch()` waits on for its acknowledgement. A recursive
-            // registration over a large tree emits an event per directory, which
-            // would fill the channel before the receive loop starts and deadlock
-            // setup. A full channel already means a wake-up is pending, and the
-            // loop re-fingerprints everything after debouncing, so dropping the
-            // signal costs nothing.
-            let _ = tx.try_send(());
-        }) {
-            Ok(w) => w,
-            Err(e) => {
-                warn!(
-                    target: "reload",
-                    error = %e,
-                    "Failed to initialize recommended watcher"
-                );
-                return None;
-            }
-        };
+    let mut watcher = match notify::recommended_watcher(move |res| wake_reload(res, &filter, &tx)) {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            warn!(target: "reload", %error, "Failed to initialize recommended watcher");
+            return None;
+        }
+    };
 
     for (path, mode) in targets {
         if let Err(e) = watcher.watch(path, *mode) {
@@ -243,7 +251,32 @@ pub fn spawn_reload_poller(
     config_path: Option<PathBuf>,
     reload_tx: mpsc::UnboundedSender<ReloadTarget>,
 ) -> ReloadPoller {
+    spawn_reload_poller_with_setup(
+        scanner_cfg,
+        ioc_cfg,
+        reload_cfg,
+        config_path,
+        reload_tx,
+        build_watcher,
+    )
+}
+
+fn spawn_reload_poller_with_setup(
+    scanner_cfg: ScannerConfig,
+    ioc_cfg: IocConfig,
+    reload_cfg: ReloadConfig,
+    config_path: Option<PathBuf>,
+    reload_tx: mpsc::UnboundedSender<ReloadTarget>,
+    setup_watcher: impl FnOnce(
+            &[(PathBuf, notify::RecursiveMode)],
+            EventFilter,
+            mpsc::Sender<()>,
+        ) -> Option<notify::RecommendedWatcher>
+        + Send
+        + 'static,
+) -> ReloadPoller {
     let (shutdown, mut shutdown_rx) = watch::channel(false);
+    let (ready_tx, ready) = watch::channel(false);
 
     let handle = tokio::spawn(async move {
         if !reload_cfg.enabled {
@@ -263,7 +296,7 @@ pub fn spawn_reload_poller(
 
         let targets = watch_targets(&scanner_cfg, &ioc_cfg, config_path.as_ref());
         let filter = EventFilter::new(&scanner_cfg, &ioc_cfg, config_path.as_ref());
-        let setup = tokio::task::spawn_blocking(move || build_watcher(&targets, filter, tx));
+        let setup = tokio::task::spawn_blocking(move || setup_watcher(&targets, filter, tx));
         let watcher = tokio::select! {
             res = setup => res.ok().flatten(),
             _ = shutdown_rx.changed() => {
@@ -278,7 +311,7 @@ pub fn spawn_reload_poller(
         }
 
         let debounce_interval = Duration::from_millis(reload_cfg.debounce_ms);
-        let poll_interval = Duration::from_millis(reload_cfg.fallback_poll_interval_ms);
+        let poll_interval = Duration::from_millis(reload_cfg.fallback_poll_interval_ms.max(1));
 
         info!(
             target: "reload",
@@ -286,22 +319,26 @@ pub fn spawn_reload_poller(
             "Hot-reload poller/watcher started"
         );
 
+        // Registration can take seconds. Compare immediately after it, before
+        // waiting, to catch changes made before watch() attached.
+        let mut initial_check = true;
         loop {
-            if watcher_setup_ok {
+            if !initial_check && watcher_setup_ok {
                 // Wait for a filesystem event, or for shutdown
                 tokio::select! {
                     _ = shutdown_rx.changed() => break,
-                    event = rx.recv() => {
-                        if event.is_none() {
-                            break; // channel closed
-                        }
-                    }
+                    _ = tokio::time::sleep(poll_interval) => {}
+                    // A dead notification thread must not disable the safety poll.
+                    _ = rx.recv(), if !rx.is_closed() => {}
                 }
                 // Debounce: sleep to let multiple events coalesce
-                tokio::time::sleep(debounce_interval).await;
+                tokio::select! {
+                    _ = shutdown_rx.changed() => break,
+                    _ = tokio::time::sleep(debounce_interval) => {}
+                }
                 // Drain extra events
                 while rx.try_recv().is_ok() {}
-            } else {
+            } else if !initial_check {
                 // Fallback: poll on the configured interval
                 tokio::select! {
                     _ = shutdown_rx.changed() => break,
@@ -348,13 +385,21 @@ pub fn spawn_reload_poller(
                     }
                 }
             }
+            if initial_check {
+                initial_check = false;
+                let _ = ready_tx.send(true);
+            }
         }
 
         drop(watcher);
         info!(target: "reload", "Hot-reload poller shutting down");
     });
 
-    ReloadPoller { handle, shutdown }
+    ReloadPoller {
+        handle,
+        shutdown,
+        ready,
+    }
 }
 
 #[cfg(test)]
@@ -365,6 +410,74 @@ mod watcher_tests {
 
     use super::{should_wake_reload, EventFilter};
     use crate::config::AppConfig;
+
+    #[test]
+    fn watcher_errors_wake_reload_even_without_a_matching_path() {
+        let app = AppConfig::default();
+        let filter = EventFilter::new(&app.scanner, &app.ioc, None);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        super::wake_reload(
+            Err(notify::Error::generic("notifications lost")),
+            &filter,
+            &tx,
+        );
+        assert!(rx.try_recv().is_ok());
+    }
+
+    async fn assert_change_detected(change_during_setup: bool) {
+        use std::time::Duration;
+
+        let temp = tempfile::tempdir().unwrap();
+        let config = temp.path().join("config.toml");
+        std::fs::write(&config, "initial").unwrap();
+        let mut cfg = AppConfig::default();
+        cfg.scanner.sigma_enabled = false;
+        cfg.scanner.yara_enabled = false;
+        cfg.ioc.enabled = false;
+        cfg.reload.enabled = true;
+        cfg.reload.debounce_ms = 1;
+        cfg.reload.fallback_poll_interval_ms = if change_during_setup { 3_600_000 } else { 20 };
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let setup_path = config.clone();
+        let mut poller = super::spawn_reload_poller_with_setup(
+            cfg.scanner,
+            cfg.ioc,
+            cfg.reload,
+            Some(config.clone()),
+            tx,
+            move |_, _, _| {
+                if change_during_setup {
+                    std::fs::write(setup_path, "changed while registering").unwrap();
+                }
+                // A live watcher with no paths deliberately delivers no events.
+                // Neither test can pass by receiving a native notification.
+                Some(notify::recommended_watcher(|_| {}).unwrap())
+            },
+        );
+        assert!(tokio::time::timeout(Duration::from_secs(5), poller.ready())
+            .await
+            .unwrap());
+        if !change_during_setup {
+            std::fs::write(config, "changed without notification").unwrap();
+        }
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .unwrap(),
+            Some(super::ReloadTarget::Config)
+        );
+        poller.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn changes_during_watcher_setup_are_checked_before_waiting() {
+        assert_change_detected(true).await;
+    }
+
+    #[tokio::test]
+    async fn active_watcher_polls_to_recover_missed_notifications() {
+        assert_change_detected(false).await;
+    }
 
     fn event(path: &str) -> notify::Event {
         notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))

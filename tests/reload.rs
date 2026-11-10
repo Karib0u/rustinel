@@ -602,7 +602,7 @@ async fn test_reload_poller_handles_rule_tree_with_many_directories() {
     };
 
     let (reload_tx, mut reload_rx) = mpsc::unbounded_channel();
-    let poller = rustinel::reload::spawn_reload_poller(
+    let mut poller = rustinel::reload::spawn_reload_poller(
         scanner_cfg,
         ioc_cfg,
         reload_cfg,
@@ -610,8 +610,11 @@ async fn test_reload_poller_handles_rule_tree_with_many_directories() {
         reload_tx,
     );
 
-    // Let watcher setup finish before touching the tree.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(30), poller.ready())
+            .await
+            .expect("watcher setup timed out")
+    );
 
     std::fs::write(
         sigma_dir.join("category_000").join("added.yml"),

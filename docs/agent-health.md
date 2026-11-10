@@ -41,8 +41,9 @@ They bypass [deduplication](detection.md#deduplication), active response never s
 | `sensor_failure` | A sensor failed to start or ended on its own, or a critical worker exited. The agent exits with status 1 so the service manager restarts it |
 
 The agent keeps a `run-state` file in `agent.directory`.
-It says `running` and the agent's pid from startup, and `stopped` once shutdown has finished.
-If startup finds `running` and that pid is gone, the last run was killed or crashed, and `unclean_shutdown` is written with `edr.agent.lifecycle.last_snapshot_at`, the time of that run's last `telemetry.json` snapshot, when one exists.
+It says `running` with the agent's PID and process start time, and `stopped` once shutdown has finished.
+If startup finds `running` and that process lifetime has ended, even if another process reused the PID, `unclean_shutdown` is written with `edr.agent.lifecycle.last_snapshot_at`, the time of that run's last `telemetry.json` snapshot, when one exists.
+Markers without a process start time are preserved only when the PID still belongs to the same agent executable.
 A graceful stop, `rustinel service restart`, and a restart after `rustinel update` leave `stopped` and do not alert.
 A `sensor_failure` exit writes `stopping` and marks the run `stopped`, so the supervised restart does not raise a second alert for the same incident.
 A first run, with no file, writes nothing.

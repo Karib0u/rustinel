@@ -1,4 +1,4 @@
-use crate::alerts::{AlertByteBudget, AlertSink, BudgetedWriter, DEFAULT_ALERT_QUEUE_BYTES};
+use crate::alerts::{AlertByteBudget, AlertSink, DEFAULT_ALERT_QUEUE_BYTES};
 use crate::config;
 use crate::utils::fs::{ensure_output_directory, open_output_file};
 use anyhow::{bail, Context};
@@ -306,10 +306,7 @@ fn build_alert_writer(
         &cfg.alerts.filename,
         cfg.security.log_group(),
     )?;
-    let (writer, guard) = tracing_appender::non_blocking(BudgetedWriter::new(
-        appender,
-        std::sync::Arc::clone(&budget),
-    ));
+    let (writer, guard) = budget.non_blocking(appender);
     Ok((writer, guard, budget))
 }
 

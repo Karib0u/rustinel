@@ -341,6 +341,18 @@ fn default_allowlist_paths() -> Vec<String> {
     }
 }
 
+impl ResponseConfig {
+    pub(crate) fn missing_system_paths(&self) -> Vec<String> {
+        use crate::utils::path_allowlist::{matches_normalized, PathAllowlistPolicy};
+        let policy = PathAllowlistPolicy::ResponseDirectory;
+        let paths = policy.normalize_prefixes(&self.allowlist_paths);
+        default_allowlist_paths()
+            .into_iter()
+            .filter(|path| !matches_normalized(&policy.normalize_path(path), &paths))
+            .collect()
+    }
+}
+
 fn default_allowlist_excluded_paths() -> Vec<String> {
     #[cfg(windows)]
     {
