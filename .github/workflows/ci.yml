@@ -320,6 +320,8 @@ jobs:
       - run: cargo test --locked --verbose
       - name: Test the eBPF smoke test's degradation detection
         run: python3 tests/test_ebpf_load_smoke.py
+      - name: Test native capture contract assertions
+        run: python3 tests/test_native_capture_contract.py
 
       - name: Test process termination against a spawned child
         run: |

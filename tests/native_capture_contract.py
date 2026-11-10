@@ -124,15 +124,18 @@ def process_event(events, pid):
     return matches[-1]
 
 
-def run_linux_cases(events_expected):
-    sleep = Path(shutil.which("sleep") or "/usr/bin/sleep").resolve()
+def run_linux_cases(events_expected, root):
+    # Keep the utility name: multicall coreutils can reject renamed invocations.
+    sleep = Path(shutil.which("sleep") or "/usr/bin/sleep").absolute()
     absolute_cwd = Path.cwd().resolve()
     absolute = subprocess.Popen([str(sleep), "3"])
 
-    relative_cwd = Path(tempfile.mkdtemp(prefix="rustinel-relative-"))
-    relative_probe = relative_cwd / "relative-probe"
+    # Leave the symlink alive until assertions resolve captured relative paths.
+    relative_cwd = root / "relative"
+    relative_cwd.mkdir()
+    relative_probe = relative_cwd / "sleep"
     relative_probe.symlink_to(sleep)
-    relative = subprocess.Popen(["./relative-probe", "3"], cwd=relative_cwd)
+    relative = subprocess.Popen(["./sleep", "3"], cwd=relative_cwd)
 
     read_fd, write_fd = os.pipe()
     worker = os.fork()
@@ -144,23 +147,24 @@ def run_linux_cases(events_expected):
             os.execl(str(sleep), str(sleep), "3")
         os.write(write_fd, str(grandchild).encode("ascii"))
         os.close(write_fd)
-        os.waitpid(grandchild, 0)
-        os._exit(0)
+        _, status = os.waitpid(grandchild, 0)
+        code = os.waitstatus_to_exitcode(status)
+        os._exit(code if code >= 0 else 1)
 
     os.close(write_fd)
     grandchild = int(os.read(read_fd, 32).decode("ascii"))
     os.close(read_fd)
     events_expected.update(
         {
-            "absolute": (absolute.pid, sleep, absolute_cwd),
-            "relative": (relative.pid, sleep, relative_cwd.resolve()),
+            "absolute": (absolute.pid, sleep.resolve(), absolute_cwd),
+            "relative": (relative.pid, sleep.resolve(), relative_cwd.resolve()),
             "fork": (grandchild, worker, Path(sys.executable).resolve()),
         }
     )
-    absolute.wait(timeout=10)
-    relative.wait(timeout=10)
-    os.waitpid(worker, 0)
-    shutil.rmtree(relative_cwd)
+    assert absolute.wait(timeout=10) == 0, "absolute sleep fixture failed"
+    assert relative.wait(timeout=10) == 0, "relative sleep fixture failed"
+    _, status = os.waitpid(worker, 0)
+    assert os.waitstatus_to_exitcode(status) == 0, "fork sleep fixture failed"
 
 
 def assert_linux(events, expected):
@@ -168,8 +172,11 @@ def assert_linux(events, expected):
         pid, image, cwd = expected[name]
         event = process_event(events, pid)
         fields = event["fields"]
-        assert Path(fields["Image"]).resolve() == image, (name, event)
         assert Path(fields["CurrentDirectory"]).resolve() == cwd, (name, event)
+        captured_image = Path(fields["Image"])
+        if not captured_image.is_absolute():
+            captured_image = cwd / captured_image
+        assert captured_image.resolve(strict=True) == image, (name, event)
 
     grandchild, worker, parent_image = expected["fork"]
     event = process_event(events, grandchild)
@@ -237,7 +244,7 @@ def main():
         expected = {}
         try:
             if sys.platform == "linux":
-                run_linux_cases(expected)
+                run_linux_cases(expected, root)
             else:
                 run_windows_case(expected)
             time.sleep(3)
