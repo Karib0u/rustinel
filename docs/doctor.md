@@ -49,6 +49,7 @@ See [Sigma compatibility diagnostics](sigma.md#compatibility-diagnostics).
 | `active_response_mode` | Whether response is off, dry run, or killing |
 | `active_response_safety` | `response.min_severity` is a valid severity |
 | `active_response_allowlist` | Prevention has a trusted path allowlist |
+| `active_response_system_paths` | The effective response allowlist retains default system paths |
 
 ## Platform prerequisites
 

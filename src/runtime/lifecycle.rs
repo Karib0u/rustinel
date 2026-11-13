@@ -25,11 +25,12 @@ use crate::models::ecs::{AgentLifecycle, EcsAlert, LifecycleKind};
 use crate::runtime::logging::open_daily_appender;
 use crate::runtime::telemetry::host_platform;
 use crate::telemetry::{snapshot_path, PipelineProbes, TelemetrySnapshot, HEARTBEAT_FILE_NAME};
+use crate::utils::query_process_identity;
 use crate::vocab::Platform;
 
 /// Records whether the last run reached the end of its shutdown.
 const RUN_STATE_FILE_NAME: &str = "run-state";
-/// `running <pid>` while a run is in progress.
+/// `running <pid> <start_time>` while a run is in progress.
 const STATE_RUNNING: &str = "running";
 const STATE_STOPPED: &str = "stopped";
 
@@ -115,17 +116,14 @@ impl Lifecycle {
         let marker = cfg.agent.directory.join(RUN_STATE_FILE_NAME);
 
         let previous = read_state(&marker);
-        let other_instance = previous
-            .as_deref()
-            .and_then(running_pid)
-            .is_some_and(|pid| pid != std::process::id() && process_alive(pid));
+        let other_instance = previous.as_deref().is_some_and(marker_has_live_owner);
         let marker = if other_instance {
             // Another agent owns the marker (a console run beside the service,
             // for example). Reporting or rewriting it would be wrong either way.
             info!("Another agent instance is running; this run does not track its stop");
             None
         } else {
-            if previous.as_deref().and_then(running_pid).is_some() {
+            if previous.as_deref().and_then(running_process).is_some() {
                 let last_snapshot_at =
                     TelemetrySnapshot::read_from(&snapshot_path(&cfg.logging.directory))
                         .map(|snapshot| snapshot.captured_at);
@@ -143,7 +141,12 @@ impl Lifecycle {
                     },
                 ));
             }
-            match write_state(&marker, &format!("{STATE_RUNNING} {}", std::process::id())) {
+            let pid = std::process::id();
+            let state = match query_process_identity(pid).and_then(|identity| identity.start_time) {
+                Some(start_time) => format!("{STATE_RUNNING} {pid} {start_time}"),
+                None => format!("{STATE_RUNNING} {pid}"),
+            };
+            match write_state(&marker, &state) {
                 Ok(()) => Some(marker),
                 Err(err) => {
                     warn!(
@@ -286,41 +289,37 @@ fn start_heartbeat(
     })
 }
 
-/// The pid in a `running <pid>` marker. A bare `running` yields pid 0.
-fn running_pid(state: &str) -> Option<u32> {
-    let rest = state.strip_prefix(STATE_RUNNING)?;
-    Some(rest.trim().parse().unwrap_or(0))
-}
-
-#[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
+/// Accept markers written before process birth times were recorded as well.
+fn running_process(state: &str) -> Option<(u32, Option<u64>)> {
+    let mut fields = state.split_whitespace();
+    if fields.next()? != STATE_RUNNING {
+        return None;
     }
-    // SAFETY: signal 0 only checks that the process exists.
-    let found = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
-    found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    let pid = fields
+        .next()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let start_time = fields.next().and_then(|value| value.parse().ok());
+    Some((pid, start_time))
 }
 
-#[cfg(windows)]
-fn process_alive(pid: u32) -> bool {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+fn marker_has_live_owner(state: &str) -> bool {
+    let Some((pid, start_time)) = running_process(state) else {
+        return false;
     };
-    const STILL_ACTIVE: u32 = 259;
-    if pid == 0 {
+    if pid == 0 || pid == std::process::id() {
         return false;
     }
-    // SAFETY: the handle is opened, queried and closed within this block.
-    unsafe {
-        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
-            return false;
-        };
-        let mut code = 0u32;
-        let alive = GetExitCodeProcess(handle, &mut code).is_ok() && code == STILL_ACTIVE;
-        let _ = CloseHandle(handle);
-        alive
+    let Some(current) = query_process_identity(pid) else {
+        return false;
+    };
+    match start_time {
+        Some(expected) => current.start_time == Some(expected),
+        // An old marker has no birth time. Only preserve it if its PID still
+        // names this executable, rather than any process that reused the PID.
+        None => {
+            query_process_identity(std::process::id()).is_some_and(|own| own.image == current.image)
+        }
     }
 }
 
@@ -449,7 +448,24 @@ mod tests {
         run(0);
     }
 
-    #[cfg(unix)]
+    #[test]
+    fn marker_owner_child() {
+        if std::env::var_os("RUSTINEL_MARKER_OWNER_CHILD").is_some() {
+            // Hold this process lifetime until the parent closes its stdin.
+            std::io::Read::read_to_end(&mut std::io::stdin(), &mut Vec::new()).unwrap();
+        }
+    }
+
+    fn spawn_marker_owner() -> std::process::Child {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "runtime::lifecycle::tests::marker_owner_child"])
+            .env("RUSTINEL_MARKER_OWNER_CHILD", "1")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn a_live_foreign_marker_is_neither_reported_nor_overwritten() {
         let temp = tempfile::tempdir().unwrap();
@@ -458,21 +474,91 @@ mod tests {
         cfg.logging.directory = temp.path().join("logs");
         let identity = Arc::new(Identity::resolve(&cfg.agent.directory));
         let marker = cfg.agent.directory.join(RUN_STATE_FILE_NAME);
-        // Pid 1 is always alive and is not this test.
-        write_state(&marker, "running 1").unwrap();
+        let mut child = spawn_marker_owner();
+        let pid = child.id();
+        let start_time = query_process_identity(pid).unwrap().start_time.unwrap();
+        // Both a new marker and a legacy marker preserve the live agent.
+        for state in [
+            format!("running {pid} {start_time}"),
+            format!("running {pid}"),
+        ] {
+            write_state(&marker, &state).unwrap();
+            let alerts = alerts_written(|sink| {
+                let lifecycle = Lifecycle::start(
+                    &cfg,
+                    sink,
+                    identity.clone(),
+                    sink.writer_metrics(),
+                    PipelineProbes::default(),
+                );
+                assert!(lifecycle.marker.is_none());
+            });
+            assert!(alerts.is_empty(), "{alerts:?}");
+            assert_eq!(read_state(&marker).as_deref(), Some(state.as_str()));
+        }
+        drop(child.stdin.take());
+        assert!(child.wait().unwrap().success());
+    }
 
-        let alerts = alerts_written(|sink| {
-            let lifecycle = Lifecycle::start(
-                &cfg,
-                sink,
-                identity.clone(),
-                sink.writer_metrics(),
-                PipelineProbes::default(),
-            );
-            assert!(lifecycle.marker.is_none());
-        });
-        assert!(alerts.is_empty(), "{alerts:?}");
-        assert_eq!(read_state(&marker).as_deref(), Some("running 1"));
+    #[tokio::test]
+    async fn reused_live_pid_and_old_markers_are_reported_and_rewritten() {
+        let mut child = spawn_marker_owner();
+        let pid = child.id();
+        let start_time = query_process_identity(pid).unwrap().start_time.unwrap();
+        for state in [
+            format!("running {pid} {}", start_time + 1),
+            format!("running {}", u32::MAX),
+            "running".to_string(),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut cfg = AppConfig::default();
+            cfg.agent.directory = temp.path().join("state");
+            cfg.logging.directory = temp.path().join("logs");
+            let identity = Arc::new(Identity::resolve(&cfg.agent.directory));
+            let marker = cfg.agent.directory.join(RUN_STATE_FILE_NAME);
+            write_state(&marker, &state).unwrap();
+
+            let alerts = alerts_written(|sink| {
+                let lifecycle = Lifecycle::start(
+                    &cfg,
+                    sink,
+                    identity.clone(),
+                    sink.writer_metrics(),
+                    PipelineProbes::default(),
+                );
+                assert!(lifecycle.marker.is_some());
+            });
+            assert_eq!(alerts.len(), 1, "{state}: {alerts:?}");
+            assert_eq!(alerts[0]["rule.name"], "agent::lifecycle::unclean_shutdown");
+            let rewritten = read_state(&marker).unwrap();
+            let (owner, birth) = running_process(&rewritten).unwrap();
+            assert_eq!(owner, std::process::id());
+            assert_eq!(birth, query_process_identity(owner).unwrap().start_time);
+            // A clean stop prevents a second unclean-shutdown report.
+            write_state(&marker, STATE_STOPPED).unwrap();
+            let alerts = alerts_written(|sink| {
+                Lifecycle::start(
+                    &cfg,
+                    sink,
+                    identity.clone(),
+                    sink.writer_metrics(),
+                    PipelineProbes::default(),
+                )
+                .mark_stopped();
+            });
+            assert!(alerts.is_empty());
+        }
+        drop(child.stdin.take());
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn running_marker_parser_accepts_legacy_and_birth_time_formats() {
+        assert_eq!(running_process("running 42 1234"), Some((42, Some(1234))));
+        assert_eq!(running_process("running 42"), Some((42, None)));
+        assert_eq!(running_process("running"), Some((0, None)));
+        assert_eq!(running_process("runningaway 42"), None);
+        assert_eq!(running_process("stopped"), None);
     }
 
     #[tokio::test]

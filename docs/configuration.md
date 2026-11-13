@@ -113,7 +113,7 @@ Hot reload of rules, indicators, and the `[response]` section.
 | --- | --- | --- |
 | `enabled` | `true` | Reload rules, indicators, and the `[response]` section when their files change. |
 | `debounce_ms` | `2000` | Wait this long after the last change before reloading. |
-| `fallback_poll_interval_ms` | `60000` | Poll interval, used only when the file watcher cannot start. |
+| `fallback_poll_interval_ms` | `60000` | Safety poll interval, also used while the file watcher is active to recover missed changes. |
 
 ### `[logging]`
 

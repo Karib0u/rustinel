@@ -580,6 +580,17 @@ fn config_safety_results(cfg: &AppConfig) -> Vec<DiagnosticResult> {
         .iter()
         .filter(|path| !path.starts_with('!'))
         .count();
+    let missing = cfg.response.missing_system_paths();
+    if cfg.response.enabled && !missing.is_empty() {
+        results.push(
+            DiagnosticResult::warn(
+                "active_response_system_paths",
+                "Response allowlist override omits default system paths",
+                missing.join(", "),
+            )
+            .with_fix("Extend the default system paths when setting response.allowlist_paths"),
+        );
+    }
     if cfg.response.enabled && trusted_path_count == 0 {
         results.push(
             DiagnosticResult::fail(
@@ -680,6 +691,24 @@ impl ResolvedPaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn doctor_warns_when_response_override_omits_default_system_paths() {
+        let mut cfg = AppConfig::default();
+        cfg.response.enabled = true;
+        cfg.response.allowlist_paths = vec!["/opt/trusted/".into()];
+        let result = config_safety_results(&cfg)
+            .into_iter()
+            .find(|result| result.id == "active_response_system_paths")
+            .unwrap();
+        assert_eq!(result.status, DiagnosticStatus::Warn);
+        assert!(!cfg.response.missing_system_paths().is_empty());
+        cfg.response.allowlist_paths = cfg.allowlist.paths.clone();
+        assert!(cfg.response.missing_system_paths().is_empty());
+        assert!(config_safety_results(&cfg)
+            .iter()
+            .all(|result| result.id != "active_response_system_paths"));
+    }
 
     #[test]
     fn doctor_reports_effective_path_exclusions() {

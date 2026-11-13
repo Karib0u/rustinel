@@ -219,7 +219,7 @@ pub const CONFIG_OPTIONS: &[ConfigOption] = &[
     ConfigOption {
         key: "reload.fallback_poll_interval_ms",
         default_note: None,
-        description: "Poll interval, used only when the file watcher cannot start.",
+        description: "Safety poll interval, also used while the file watcher is active to recover missed changes.",
     },
     // logging
     ConfigOption {

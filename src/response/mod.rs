@@ -62,6 +62,10 @@ pub enum ResponseDecision {
     ProtectedPid {
         pid: u32,
     },
+    ProtectedProcess {
+        pid: u32,
+        image: String,
+    },
     MissingImage {
         pid: u32,
     },
@@ -204,6 +208,14 @@ struct PreparedConfig {
 
 impl PreparedConfig {
     fn from_raw(raw: &Arc<ResponseConfig>) -> Self {
+        let missing = raw.missing_system_paths();
+        if raw.enabled && !missing.is_empty() {
+            warn!(
+                target: TARGET_RESPONSE,
+                missing_paths = ?missing,
+                "Response allowlist override omits default system paths; built-in protected processes remain guarded"
+            );
+        }
         Self {
             source: Arc::clone(raw),
             enabled: raw.enabled,
@@ -242,6 +254,13 @@ fn decide_response(
         Some(image) => image,
         None => return ResponseDecision::MissingImage { pid },
     };
+
+    if is_protected_process(image) {
+        return ResponseDecision::ProtectedProcess {
+            pid,
+            image: image.to_string(),
+        };
+    }
 
     if is_allowlisted(image, allowlist_images, allowlist_paths) {
         return ResponseDecision::Allowlisted {
@@ -318,6 +337,15 @@ fn handle_task_with_hook(
                 engine = ?task.engine,
                 severity = ?task.severity,
                 "Active response skipped: protected pid"
+            );
+        }
+        ResponseDecision::ProtectedProcess { pid, image } => {
+            info!(
+                target: TARGET_RESPONSE,
+                pid,
+                image = %image,
+                rule = %task.rule_name,
+                "Active response skipped: protected process"
             );
         }
         ResponseDecision::MissingImage { pid } => {
@@ -486,7 +514,11 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();
         }
-        EventFields::PowerShellClassicStart(_) => {}
+        // These records do not identify an actor. An enriched context can
+        // name the Event Log emitter, which must never become a kill target.
+        EventFields::PowerShellClassicStart(_) | EventFields::ApplicationEvent(_) => {
+            return (None, None);
+        }
         EventFields::WmiEvent(f) => {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();
@@ -503,7 +535,6 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
             pid = f.process_id();
             image = f.get_non_placeholder("ProcessName").map(str::to_string);
         }
-        EventFields::ApplicationEvent(_) => {}
         EventFields::Generic(_) => {}
     }
 
@@ -582,6 +613,75 @@ fn normalize_allowlist_paths(values: &[String]) -> Vec<String> {
     crate::utils::path_allowlist::PathAllowlistPolicy::ResponseDirectory.normalize_prefixes(values)
 }
 
+#[cfg(windows)]
+fn windows_system_directory() -> Option<&'static str> {
+    static DIRECTORY: LazyLock<Option<String>> = LazyLock::new(|| {
+        let mut buffer = vec![0u16; 32_768];
+        // SAFETY: the API writes within the supplied live UTF-16 buffer.
+        let len = unsafe {
+            windows::Win32::System::SystemInformation::GetSystemDirectoryW(Some(&mut buffer))
+        } as usize;
+        if len == 0 || len >= buffer.len() {
+            return None;
+        }
+        Some(format!(
+            "{}\\",
+            normalize_path_for_comparison(&String::from_utf16_lossy(&buffer[..len]))
+        ))
+    });
+    DIRECTORY.as_deref()
+}
+
+/// Exact system image paths, independent of configurable allowlists.
+fn is_protected_process(image: &str) -> bool {
+    let image = normalize_path_for_comparison(image);
+    #[cfg(windows)]
+    {
+        // If the OS directory cannot be resolved, do not risk terminating a
+        // critical image. Environment/config overrides never select this path.
+        let Some(system32) = windows_system_directory() else {
+            return true;
+        };
+        image.strip_prefix(system32).is_some_and(|name| {
+            matches!(
+                name,
+                "lsass.exe"
+                    | "csrss.exe"
+                    | "wininit.exe"
+                    | "services.exe"
+                    | "smss.exe"
+                    | "winlogon.exe"
+            )
+        })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        matches!(
+            image.as_str(),
+            "/sbin/init"
+                | "/usr/sbin/init"
+                | "/lib/systemd/systemd"
+                | "/usr/lib/systemd/systemd"
+                | "/sbin/sshd"
+                | "/usr/sbin/sshd"
+                | "/bin/sshd"
+                | "/usr/bin/sshd"
+                | "/usr/lib/ssh/sshd-session"
+                | "/usr/lib/ssh/sshd-auth"
+                | "/usr/lib/openssh/sshd-session"
+                | "/usr/lib/openssh/sshd-auth"
+                | "/usr/libexec/sshd-session"
+                | "/usr/libexec/sshd-auth"
+                | "/usr/libexec/openssh/sshd-session"
+                | "/usr/libexec/openssh/sshd-auth"
+        )
+    }
+    #[cfg(target_os = "macos")]
+    {
+        image == "/sbin/launchd"
+    }
+}
+
 fn normalize_allowlist_images(values: &[String]) -> Vec<String> {
     values
         .iter()
@@ -635,6 +735,111 @@ mod tests {
         sync::{Arc, Mutex},
     };
     use tracing_subscriber::fmt::MakeWriter;
+
+    fn protected_images() -> Vec<String> {
+        #[cfg(windows)]
+        {
+            let directory = windows_system_directory().expect("Windows system directory");
+            ["lsass", "csrss", "wininit", "services", "smss", "winlogon"]
+                .into_iter()
+                .map(|name| format!("{directory}{name}.exe"))
+                .collect()
+        }
+        #[cfg(target_os = "linux")]
+        {
+            ["/usr/sbin/sshd", "/sbin/init", "/usr/lib/systemd/systemd"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            vec!["/sbin/launchd".into()]
+        }
+    }
+
+    #[test]
+    fn critical_images_are_protected_with_empty_or_excluding_allowlists() {
+        for image in protected_images() {
+            for paths in [vec![], normalize_allowlist_paths(&["!/".into()])] {
+                assert_eq!(
+                    decide_response(Some(4242), Some(&image), true, 9999, &[], &paths),
+                    ResponseDecision::ProtectedProcess {
+                        pid: 4242,
+                        image: image.clone()
+                    }
+                );
+            }
+            let imitation = format!("/tmp/{}", image_basename(&image));
+            assert!(matches!(
+                decide_response(Some(4242), Some(&imitation), true, 9999, &[], &[]),
+                ResponseDecision::Terminate { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn critical_image_logs_protected_process_without_opening_a_target() {
+        let logs = LogBuffer::default();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(logs.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            handle_task(
+                ResponseTask {
+                    severity: AlertSeverity::Critical,
+                    rule_name: "critical-system-image".into(),
+                    engine: DetectionEngine::Sigma,
+                    pid: Some(4242),
+                    image: Some(protected_images().remove(0)),
+                    identity: None,
+                },
+                true,
+                9999,
+                &[],
+                &[],
+            );
+        });
+        let output = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+        assert!(
+            output.contains("Active response skipped: protected process"),
+            "{output}"
+        );
+        assert!(!output.contains("process identity mismatch"), "{output}");
+    }
+
+    #[test]
+    fn emitter_context_never_becomes_an_event_log_response_target() {
+        for fields in [
+            EventFields::PowerShellClassicStart(crate::models::PowerShellClassicStartFields {
+                data: None,
+            }),
+            EventFields::ApplicationEvent(Default::default()),
+        ] {
+            let mut alert = test_process_alert(None, None);
+            alert.event.provider = "windows_event_log".into();
+            alert.event.fields = fields;
+            alert.event.process_context = Some(
+                serde_json::from_value(serde_json::json!({
+                    "ProcessId": "4242", "Image": "/tmp/emitter"
+                }))
+                .unwrap(),
+            );
+            assert_eq!(extract_process_info(&alert), (None, None));
+        }
+        let mut alert = test_process_alert(None, None);
+        let mut fields = crate::models::SecurityAuditFields::default();
+        fields.insert("ProcessId", "0x1092");
+        fields.insert("ProcessName", "C:\\Temp\\actor.exe");
+        alert.event.provider = "windows_event_log".into();
+        alert.event.fields = EventFields::SecurityAudit(fields);
+        assert_eq!(
+            extract_process_info(&alert),
+            (Some(4242), Some("C:\\Temp\\actor.exe".into()))
+        );
+    }
 
     // Spawn this test in a separate copy of the test executable. It needs no
     // example build, shell, privileges, or platform-specific external program.
@@ -1131,6 +1336,7 @@ mod tests {
         );
         assert!(output.contains("pid=4242"));
         assert!(output.contains("image=/usr/bin/sleep"));
+        assert!(output.contains("Response allowlist override omits default system paths"));
     }
 
     #[cfg(any(windows, target_os = "linux"))]

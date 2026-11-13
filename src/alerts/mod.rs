@@ -18,7 +18,9 @@ use std::io::{self, Write};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{error, info};
-use tracing_appender::non_blocking::{ErrorCounter, NonBlocking};
+use tracing_appender::non_blocking::{
+    ErrorCounter, NonBlocking, NonBlockingBuilder, WorkerGuard, DEFAULT_BUFFERED_LINES_LIMIT,
+};
 
 pub use dedup::Deduplicator;
 pub use webhook::WebhookDispatcher;
@@ -38,22 +40,53 @@ pub const DEFAULT_ALERT_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 pub struct AlertByteBudget {
     limit: usize,
     pending: AtomicUsize,
+    record_limit: usize,
+    pending_records: AtomicUsize,
     dropped_records: AtomicU64,
     dropped_bytes: AtomicU64,
 }
 
 impl AlertByteBudget {
     pub fn new(limit: usize) -> Arc<Self> {
+        Self::with_record_limit(limit, DEFAULT_BUFFERED_LINES_LIMIT)
+    }
+
+    fn with_record_limit(limit: usize, record_limit: usize) -> Arc<Self> {
         Arc::new(Self {
             limit,
             pending: AtomicUsize::new(0),
+            record_limit,
+            pending_records: AtomicUsize::new(0),
             dropped_records: AtomicU64::new(0),
             dropped_bytes: AtomicU64::new(0),
         })
     }
 
+    /// Build the matching writer. Admission reserves a record slot as well as
+    /// bytes, including in-flight writes, so the queue cannot fill after a
+    /// reservation succeeds. Only enqueue records after reserving them.
+    pub fn non_blocking<W: Write + Send + 'static>(
+        self: &Arc<Self>,
+        writer: W,
+    ) -> (NonBlocking, WorkerGuard) {
+        NonBlockingBuilder::default()
+            .buffered_lines_limit(self.record_limit)
+            .lossy(false)
+            .finish(BudgetedWriter::new(writer, Arc::clone(self)))
+    }
+
     /// Reserve `len` bytes, or count the record as dropped when it would exceed the limit.
     fn try_reserve(&self, len: usize) -> bool {
+        if self
+            .pending_records
+            .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |pending| {
+                (pending < self.record_limit).then_some(pending + 1)
+            })
+            .is_err()
+        {
+            self.record_drop(len);
+            return false;
+        }
         let mut current = self.pending.load(Ordering::Relaxed);
         loop {
             match current.checked_add(len) {
@@ -69,8 +102,8 @@ impl AlertByteBudget {
                     }
                 }
                 _ => {
-                    self.dropped_records.fetch_add(1, Ordering::Relaxed);
-                    self.dropped_bytes.fetch_add(len as u64, Ordering::Relaxed);
+                    self.pending_records.fetch_sub(1, Ordering::AcqRel);
+                    self.record_drop(len);
                     return false;
                 }
             }
@@ -79,6 +112,12 @@ impl AlertByteBudget {
 
     fn release(&self, len: usize) {
         self.pending.fetch_sub(len, Ordering::AcqRel);
+        self.pending_records.fetch_sub(1, Ordering::AcqRel);
+    }
+
+    fn record_drop(&self, len: usize) {
+        self.dropped_records.fetch_add(1, Ordering::Relaxed);
+        self.dropped_bytes.fetch_add(len as u64, Ordering::Relaxed);
     }
 
     /// Bytes currently queued or in flight.
@@ -181,8 +220,9 @@ impl AlertSink {
         }
     }
 
-    /// Bound queued alert bytes. `budget` must be the one the writer was
-    /// wrapped with via [`BudgetedWriter`], or reservations are never released.
+    /// Bound queued alert bytes and records. The writer must come from
+    /// [`AlertByteBudget::non_blocking`] with this same budget so admission
+    /// and queue capacities agree and reservations are released after writing.
     pub fn with_byte_budget(mut self, budget: Arc<AlertByteBudget>) -> Self {
         self.writer_metrics.budget = Some(Arc::clone(&budget));
         self.budget = Some(budget);
@@ -254,6 +294,10 @@ impl AlertSink {
                     webhooks.dispatch(&line.as_bytes()[..line.len() - 1]);
                 }
                 if let Err(err) = written {
+                    if let Some(budget) = &self.budget {
+                        budget.release(line.len());
+                        budget.record_drop(line.len());
+                    }
                     error!(error = %err, "Failed to write ECS alert");
                     return;
                 }
@@ -408,14 +452,11 @@ mod tests {
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let budget = AlertByteBudget::new(1000);
-        let (writer, guard) = tracing_appender::non_blocking(BudgetedWriter::new(
-            SlowWriter {
-                started: started_tx,
-                release: release_rx,
-                blocked: false,
-            },
-            Arc::clone(&budget),
-        ));
+        let (writer, guard) = budget.non_blocking(SlowWriter {
+            started: started_tx,
+            release: release_rx,
+            blocked: false,
+        });
         let sink = AlertSink::new(writer).with_byte_budget(Arc::clone(&budget));
         let metrics = sink.writer_metrics();
 
@@ -447,6 +488,52 @@ mod tests {
     }
 
     #[test]
+    fn small_alert_queue_saturation_does_not_leak_reserved_bytes() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let budget = AlertByteBudget::with_record_limit(DEFAULT_ALERT_QUEUE_BYTES, 8);
+        let (writer, guard) = budget.non_blocking(SlowWriter {
+            started: started_tx,
+            release: release_rx,
+            blocked: false,
+        });
+        let sink = AlertSink::new(writer).with_byte_budget(Arc::clone(&budget));
+        let event: NormalizedEvent = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-09-13T20:29:41Z",
+            "platform": "linux", "provider": "ebpf", "category": "Process",
+            "event_id": 1, "opcode": 1,
+            "fields": { "Image": "/bin/true", "ProcessId": "3051" }
+        }))
+        .unwrap();
+        let alert = Alert {
+            severity: AlertSeverity::High,
+            rule_name: "probe".into(),
+            rule_description: None,
+            rule_id: None,
+            sigma_metadata: None,
+            engine: DetectionEngine::Sigma,
+            event,
+            match_details: None,
+        };
+        let ecs = EcsAlert::from(&alert);
+        sink.write_ecs(&ecs);
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        for _ in 1..1000 {
+            sink.write_ecs(&ecs);
+        }
+        assert_eq!(budget.dropped_records(), 992);
+        assert_eq!(sink.writer_metrics().accepted(), 8);
+        assert_eq!(sink.writer.error_counter().dropped_lines(), 0);
+        release_tx.send(()).unwrap();
+        drop(sink);
+        drop(guard);
+        assert_eq!(budget.pending_bytes(), 0);
+        assert_eq!(budget.pending_records.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
     fn byte_budget_is_released_when_the_sink_fails() {
         struct FailingWriter;
         impl Write for FailingWriter {
@@ -458,8 +545,7 @@ mod tests {
             }
         }
         let budget = AlertByteBudget::new(1000);
-        let (writer, guard) =
-            tracing_appender::non_blocking(BudgetedWriter::new(FailingWriter, Arc::clone(&budget)));
+        let (writer, guard) = budget.non_blocking(FailingWriter);
         for _ in 0..10 {
             assert!(budget.try_reserve(300));
             writer.clone().write_all(&[b'x'; 300]).unwrap();
