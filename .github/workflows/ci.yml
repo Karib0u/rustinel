@@ -63,7 +63,7 @@ jobs:
 
   supply-chain:
     name: Supply Chain
-    uses: ./.github/workflows/supply-chain.yml
+    uses: $/.github/workflows/supply-chain.yml
 
   ebpf-build:
     name: Linux eBPF Build
