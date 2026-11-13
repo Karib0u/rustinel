@@ -1,0 +1,42 @@
+name: Supply Chain
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 * * *"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  check:
+    name: Dependency checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          cache: false
+          rustflags: ""
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.23.0
+      # Audit the entire lockfiles, including disabled optional dependencies.
+      # Keep exceptions in deny.toml rather than maintaining a second list.
+      - name: Audit all locked dependencies
+        run: python3 scripts/audit-lockfiles.py
+      - name: Check root dependencies
+        if: ${{ !cancelled() }}
+        run: cargo deny --locked check
+      - name: Check eBPF dependencies
+        if: ${{ !cancelled() }}
+        working-directory: ebpf
+        run: cargo deny --locked check

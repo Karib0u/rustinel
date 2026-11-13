@@ -1,3 +1,7 @@
+[advisories]
+unsound = "all"
+yanked = "deny"
+
 [licenses]
 allow = [
     "Apache-2.0",

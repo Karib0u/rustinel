@@ -1,4 +1,7 @@
 [advisories]
+# Include memory-safety advisories in transitive dependencies.
+unsound = "all"
+yanked = "deny"
 ignore = [
     { id = "RUSTSEC-2023-0071", reason = "rsa is pulled transitively by yara-x. No fixed rsa release is available, and rustinel does not use yara-x for attacker observable private key RSA operations." },
     { id = "RUSTSEC-2025-0141", reason = "bincode is pulled transitively by yara-x. This is tracked as an upstream maintenance advisory until yara-x removes or replaces it." },
