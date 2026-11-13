@@ -9,6 +9,22 @@
 | macOS | Xcode Command Line Tools |
 | Linux eBPF object | nightly Rust, `rust-src`, and `bpf-linker` |
 
+## Dependency security
+
+```bash
+cargo install cargo-deny --version 0.20.2 --locked
+cargo install cargo-audit --version 0.23.0 --locked
+python3 scripts/audit-lockfiles.py
+cargo deny --locked check
+(cd ebpf && cargo deny --locked check)
+```
+
+The Supply Chain workflow runs these checks in CI and daily at 06:23 UTC, and supports manual runs.
+The audit scans both complete lockfiles, including disabled optional dependencies, and fails on vulnerabilities, unsoundness, unmaintained crates, and yanked releases.
+Each workspace's `deny.toml` supplies its advisory exceptions and their reasons for both tools.
+The deny checks also enforce licenses, sources, and dependency bans, with transitive unsoundness and yanked releases treated as errors.
+Make the CI `Supply Chain / Dependency checks` check required in branch protection to block merges when dependency checks fail.
+
 ## Build and run
 
 ```bash
