@@ -1253,17 +1253,6 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "fancy-regex"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d301f5bf187b3c295fce6468d3875037a0bccc5f6b151c63cac2f85babf21912"
-dependencies = [
- "bit-set",
- "regex-automata",
- "regex-syntax",
-]
-
-[[package]]
-name = "fancy-regex"
 version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0a2e16b9a584b602f1e0e5e22c30ca0906786088c27500653e432d086def8b53"
@@ -3205,9 +3194,9 @@ dependencies = [
 
 [[package]]
 name = "rsigma-eval"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "effe49e99e0f25366cff3ac27b5e91d98cf769922fb56d9fe455eb5b2d7c5adf"
+checksum = "424720c1494689388408057dc3bfa86b21f3ecb06c5ba27a7c1e96a7be574308"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3219,7 +3208,7 @@ dependencies = [
  "regex",
  "regex-syntax",
  "rsigma-ir",
- "rsigma-parser 0.25.0",
+ "rsigma-parser",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3228,31 +3217,13 @@ dependencies = [
 
 [[package]]
 name = "rsigma-ir"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aa2197b956489e1df48a3410789b2709fcea5e03a9759f65c766c02117d9c0"
+checksum = "1f861de52817d6934abb88d3a234b6715406313040a800fc8a5f4fc458067475"
 dependencies = [
  "base64 0.23.1",
  "ciborium",
- "rsigma-parser 0.25.0",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "yaml_serde",
-]
-
-[[package]]
-name = "rsigma-parser"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38b9671197fa6e1634f9f00b30d1ea9f37a22981763bee519be72ae1d9771b2d"
-dependencies = [
- "fancy-regex 0.19.2",
- "globset",
- "log",
- "pest",
- "pest_derive",
- "regex-syntax",
+ "rsigma-parser",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3265,7 +3236,7 @@ version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6521f3931158b9180e58b1cef37c3df3ad5e41144b3248ee3715361e549fd642"
 dependencies = [
- "fancy-regex 0.20.2",
+ "fancy-regex",
  "globset",
  "log",
  "pest",
@@ -3359,7 +3330,7 @@ dependencies = [
  "reqwest",
  "roxmltree",
  "rsigma-eval",
- "rsigma-parser 0.26.0",
+ "rsigma-parser",
  "rustinel-ebpf-common",
  "self-replace",
  "semver",
