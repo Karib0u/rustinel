@@ -1,8 +1,11 @@
 <p align="center">
-  <img src="docs/images/logo-rustinel.png" alt="Rustinel" width="240">
+  <a href="#gh-dark-mode-only">
+    <img src="docs/images/logo-rustinel-dark.png" alt="Rustinel" width="240">
+  </a>
+  <a href="#gh-light-mode-only">
+    <img src="docs/images/logo-rustinel.png" alt="Rustinel" width="240">
+  </a>
 </p>
-
-<h1 align="center">Rustinel</h1>
 
 <p align="center">
   <b>Open-source endpoint detection. Three platforms. Your rules.</b><br>
