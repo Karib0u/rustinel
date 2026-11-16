@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/images/logo-rustinel.png" alt="Rustinel" width="240">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-rustinel-dark.png">
+    <img src="docs/images/logo-rustinel.png" alt="Rustinel" width="240">
+  </picture>
 </p>
 
 <h1 align="center">Rustinel</h1>
