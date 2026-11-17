@@ -1,9 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Karib0u/rustinel/main/docs/images/logo-rustinel-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Karib0u/rustinel/main/docs/images/logo-rustinel.png">
-    <img src="https://raw.githubusercontent.com/Karib0u/rustinel/main/docs/images/logo-rustinel.png" alt="Rustinel" width="240">
-  </picture>
+  <img src="docs/images/logo-rustinel-universal.png" alt="Rustinel" width="240">
 </p>
 
 <p align="center">
