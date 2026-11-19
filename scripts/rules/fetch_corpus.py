@@ -37,9 +37,8 @@ URLHAUS_RECENT_CSV_URL = "https://urlhaus-api.abuse.ch/v2/files/exports/{auth_ke
 ET_COMPROMISED_IPS_URL = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
 IPSUM_URL = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
 SPAMHAUS_DROP_URL = "https://www.spamhaus.org/drop/drop.txt"
-URLHAUS_TEXT_ONLINE_URL = "https://urlhaus.abuse.ch/downloads/text_online/"
+NETAPI_HONEYPOT_IPS_URL = "https://netapi.com/api2/?method=compromised&dataset_type=ip&header=0"
 PHISHING_ARMY_URL = "https://phishing.army/download/phishing_army_blocklist.txt"
-MALWAREBAZAAR_SHA256_URL = "https://bazaar.abuse.ch/export/txt/sha256/recent/"
 
 USER_AGENT = "rustinel-bench-corpus/1.0"
 
@@ -354,22 +353,12 @@ def fetch_public_iocs(metadata: dict[str, object]) -> tuple[set[str], set[str], 
         ips |= found
         report["spamhaus_drop_cidrs"] = len(found)
 
-    body = text(URLHAUS_TEXT_ONLINE_URL)
+    body = text(NETAPI_HONEYPOT_IPS_URL)
     if body is not None:
-        found = set()
-        for line in body.splitlines():
-            if line.startswith("#") or not line.strip():
-                continue
-            host = urllib.parse.urlparse(line.strip()).hostname or ""
-            if _is_ip(host):
-                found_ip = f"{host};urlhaus:online"
-                ips.add(found_ip)
-                continue
-            domain = clean_domain(host)
-            if domain:
-                found.add(f"{domain};urlhaus:online")
-        domains |= found
-        report["urlhaus_online_domains"] = len(found)
+        # IPv4 addresses that attacked NetAPI's honeypot sensors in the last 48 hours.
+        found = {f"{line.strip()};netapi:honeypot" for line in body.splitlines() if _is_ip(line.strip())}
+        ips |= found
+        report["netapi_honeypot_ips"] = len(found)
 
     body = text(PHISHING_ARMY_URL)
     if body is not None:
@@ -380,16 +369,6 @@ def fetch_public_iocs(metadata: dict[str, object]) -> tuple[set[str], set[str], 
                 found.add(f"{domain};phishing-army")
         domains |= found
         report["phishing_army_domains"] = len(found)
-
-    body = text(MALWAREBAZAAR_SHA256_URL)
-    if body is not None:
-        found = set()
-        for line in body.splitlines():
-            digest = clean_hash(line) if not line.startswith("#") else None
-            if digest:
-                found.add(f"{digest};malwarebazaar:recent")
-        hashes |= found
-        report["malwarebazaar_sha256"] = len(found)
 
     metadata["public_iocs"] = report
     log(f"Public IOC feeds: {report}")
@@ -473,7 +452,7 @@ def main() -> int:
         "--public-iocs",
         action="store_true",
         help="Also fetch no-authentication IOC feeds: ET compromised IPs, ipsum (3+ lists), Spamhaus DROP, "
-        "URLhaus online hosts, Phishing Army domains, MalwareBazaar recent SHA-256.",
+        "NetAPI honeypot attacker IPs, Phishing Army domains.",
     )
     parser.add_argument(
         "--synthetic-ioc",

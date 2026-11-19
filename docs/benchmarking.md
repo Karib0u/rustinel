@@ -72,7 +72,8 @@ It uses only the Python standard library and runs the same way on Windows, Linux
       --public-iocs --synthetic-ioc 100000
     ```
 
-    `--public-iocs` adds feeds that need no key: ET compromised IPs, ipsum (three or more lists), Spamhaus DROP, URLhaus online hosts, Phishing Army domains, and recent MalwareBazaar SHA-256.
+    `--public-iocs` adds feeds that need no key: ET compromised IPs, ipsum (three or more lists), Spamhaus DROP, NetAPI honeypot attacker IPs, and Phishing Army domains.
+    URLhaus domains need a key (`--include-urlhaus` with `URLHAUS_AUTH_KEY`).
     `--synthetic-ioc N` pads IPs, domains, and hashes up to `N` each with values that cannot match real traffic (198.18.0.0/15, `.invalid`, hashes of a fixed label), to stress the lookup tables.
     Add `--yara-forge-set extended` for a heavier YARA set.
 
