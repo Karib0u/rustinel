@@ -13,6 +13,8 @@ import subprocess
 import sys
 import time
 
+from fixtures.linux_file_coverage import activity
+
 
 STARTUP_TIMEOUT = 30
 SHUTDOWN_TIMEOUT = 30
@@ -298,6 +300,8 @@ def main():
     parser.add_argument("--ebpf-object", type=Path, required=True)
     parser.add_argument("--rules-dir", type=Path, required=True)
     parser.add_argument("--artifacts-dir", type=Path, required=True)
+    parser.add_argument("--fio", type=Path, help="fio executable for live activity counts")
+    parser.add_argument("--busybox-i386", type=Path, help="static i386 BusyBox for live activity counts")
     parser.add_argument(
         "--expected-degradations",
         type=Path,
@@ -307,6 +311,8 @@ def main():
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("the eBPF load smoke test only supports Linux")
+    if bool(args.fio) != bool(args.busybox_i386):
+        parser.error("--fio and --busybox-i386 must be provided together")
 
     binary = args.binary.resolve()
     ebpf_object = args.ebpf_object.resolve()
@@ -337,6 +343,8 @@ def main():
             wait_for_startup(process, logs_dir)
             generate_events(run_dir)
             wait_for_event_families(logs_dir)
+            if args.fio:
+                activity.check(args.fio.resolve(), args.busybox_i386.resolve(), logs_dir, run_dir)
             stop_agent(process)
         assert_results(logs_dir, expected_degradations, run_dir)
     except BaseException:

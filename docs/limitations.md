@@ -103,7 +103,8 @@ Fields each platform never fills are listed in [Field availability](field-availa
   On x86-64 kernels with IA32 emulation, kernel BTF and the raw syscall exit tracepoint, Linux eBPF telemetry counts successful IA32 open, create, unlink, rename, mkdir and rmdir calls by process.
   The count includes read-only opens.
   File paths and file identity are unavailable on this signal.
-  IA32 connect, DNS, and `CommandLine` coverage is unverified.
+  Live x86-64 validation captured an IA32 TCP connection and the arguments of an IA32 exec.
+  The tested IA32 DNS exchange completed without a DNS event.
 - **Silent: file operations submitted through `io_uring` have no file event.**
   File-based Sigma rules, file IOC path matching, and written-file YARA scanning miss them.
   When the submission tracepoint is available, Linux eBPF telemetry counts observed submissions by process.
