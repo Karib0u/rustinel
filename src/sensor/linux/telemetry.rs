@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use super::abi::LINUX_EBPF_ABI_VERSION;
-use crate::telemetry::{LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot};
+use crate::telemetry::{
+    LinuxActivitySnapshot, LinuxEbpfFamilySnapshot, LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot,
+};
 
 /// Linux ring-buffer program families, in snapshot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +95,7 @@ pub struct LinuxEbpfCounters {
     active: AtomicBool,
     families: [LinuxEbpfFamilyCounters; 4],
     features: Mutex<Vec<LinuxEbpfFeatureSnapshot>>,
+    activity: Mutex<Vec<LinuxActivitySnapshot>>,
 }
 
 impl LinuxEbpfCounters {
@@ -106,6 +109,7 @@ impl LinuxEbpfCounters {
                 LinuxEbpfFamilyCounters::new(),
             ],
             features: Mutex::new(Vec::new()),
+            activity: Mutex::new(Vec::new()),
         }
     }
 
@@ -216,6 +220,13 @@ impl LinuxEbpfCounters {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn set_activity(&self, activity: Vec<LinuxActivitySnapshot>) {
+        *self
+            .activity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = activity;
+    }
+
     pub fn snapshot(&self) -> Option<LinuxEbpfSnapshot> {
         if !self.active.load(Ordering::Acquire) {
             return None;
@@ -225,6 +236,11 @@ impl LinuxEbpfCounters {
             abi_version: LINUX_EBPF_ABI_VERSION,
             features: self
                 .features
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
+            activity: self
+                .activity
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone(),
@@ -262,6 +278,7 @@ fn linux_feature_is_active(feature: &LinuxEbpfFeatureSnapshot) -> bool {
     let attached = |hook: &str| feature.attached_hooks.iter().any(|value| value == hook);
     match feature.feature.as_str() {
         "process" => attached("handle_exec"),
+        "io_uring_activity" => attached("handle_io_uring_submit"),
         "network" => {
             (attached("handle_connect") && attached("handle_connect_exit"))
                 || (attached("handle_stream_connect") && attached("handle_dgram_connect"))

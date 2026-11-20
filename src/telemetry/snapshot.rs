@@ -438,6 +438,24 @@ pub struct LinuxEbpfSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<LinuxEbpfFeatureSnapshot>,
     pub families: Vec<LinuxEbpfFamilySnapshot>,
+    /// Observations from activity hooks, outside the normalized event pipeline.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub activity: Vec<LinuxActivitySnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxActivitySnapshot {
+    pub kind: String,
+    pub unattributed: u64,
+    pub map_full: u64,
+    pub processes: Vec<LinuxActivityProcessSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinuxActivityProcessSnapshot {
+    pub pid: u32,
+    pub process_start_time: u64,
+    pub count: u64,
 }
 
 /// Runtime capability state for one Linux telemetry family.
@@ -949,6 +967,7 @@ mod tests {
                 unavailable_hooks: vec!["handle_sendmmsg: unavailable".to_string()],
             }],
             families: Vec::new(),
+            activity: Vec::new(),
         };
 
         let json = serde_json::to_value(snapshot).unwrap();

@@ -30,8 +30,8 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `key` | an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one |
 | `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `nametype` | exec telemetry does not model per-path name types |
 | `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `unit` | no Rustinel sensor produces service start or stop records, which carry `unit` |
-| `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
-| `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `file syscall tracepoints` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
+| `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring exposes submission counts only)` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
+| `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring exposes submission counts only)` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Description` | PE version resources are Windows-only |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `FileVersion` | PE version resources are Windows-only |

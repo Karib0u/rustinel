@@ -806,6 +806,19 @@ fn linux_ebpf_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
         })
         .collect::<Vec<_>>();
 
+    for activity in &ebpf.activity {
+        if activity.map_full > 0 {
+            results.push(DiagnosticResult::warn(
+                format!("linux_ebpf_{}_loss", activity.kind),
+                "Linux eBPF activity map is full",
+                format!(
+                    "{} observations could not be counted by process",
+                    activity.map_full
+                ),
+            ));
+        }
+    }
+
     let mut findings = Vec::new();
     for family in &ebpf.families {
         if family.kernel_ring_full > 0 {
@@ -1414,6 +1427,7 @@ mod tests {
             abi_version: 1,
             features: Vec::new(),
             families: vec![process],
+            activity: Vec::new(),
         });
 
         let results = linux_ebpf_results(&snap);
@@ -1430,6 +1444,7 @@ mod tests {
             abi_version: 1,
             features: Vec::new(),
             families: vec![linux_ring("process")],
+            activity: Vec::new(),
         });
 
         let results = linux_ebpf_results(&snap);
@@ -1453,6 +1468,7 @@ mod tests {
                 ],
             }],
             families: vec![linux_ring("dns")],
+            activity: Vec::new(),
         });
 
         let results = linux_ebpf_results(&snap);

@@ -133,6 +133,12 @@ Its `high_water_mark` is zero because the writer does not expose queue depth.
 
 `abi_version` and `features` list which kernel hooks are active or degraded.
 
+When the submission tracepoint is available and the counters can be read, `activity` contains an `io_uring_submissions` row.
+Each `processes` entry carries the submitter TGID as `pid`, Rustinel's lifetime key as `process_start_time`, and the cumulative `count`.
+`unattributed` counts SQPOLL submissions and submissions whose process lifetime could not be resolved.
+`map_full` counts observations whose process could not be admitted to the 4,096-entry map. Existing process counts still advance. Counts and admission capacity reset when the agent restarts.
+These counters are outside normalized events and capture source loss. They include no opcode, path, or completion result.
+
 ## `macos_collectors`
 
 | Field | Meaning |

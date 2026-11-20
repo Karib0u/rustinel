@@ -3315,7 +3315,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Create,
         "ebpf",
-        "file syscall tracepoints",
+        "native file syscall tracepoints (io_uring exposes submission counts only)",
         LINUX_FILE
     ),
     contract!(
@@ -3324,7 +3324,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Modify,
         "ebpf",
-        "file syscall tracepoints",
+        "native file syscall tracepoints (io_uring exposes submission counts only)",
         LINUX_FILE
     ),
     contract!(
@@ -3333,7 +3333,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Delete,
         "ebpf",
-        "file syscall tracepoints",
+        "native file syscall tracepoints (io_uring exposes submission counts only)",
         LINUX_FILE
     ),
     contract!(
@@ -3342,7 +3342,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Rename,
         "ebpf",
-        "file syscall tracepoints",
+        "native file syscall tracepoints (io_uring exposes submission counts only)",
         LINUX_FILE
     ),
     contract!(

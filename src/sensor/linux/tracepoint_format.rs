@@ -632,6 +632,17 @@ pub(super) fn tracepoint_exists(category: &str, name: &str) -> bool {
     find_file(category, name, "id").is_some()
 }
 
+pub(super) fn io_uring_submission() -> Result<(&'static str, u32)> {
+    for name in ["io_uring_submit_req", "io_uring_submit_sqe"] {
+        if tracepoint_exists("io_uring", name) {
+            let fields = resolve_fields("io_uring", name, &[FieldSpec::one("sq_thread", 1)])
+                .with_context(|| format!("reading io_uring/{name} layout"))?;
+            return Ok((name, fields[0]));
+        }
+    }
+    bail!("io_uring submission tracepoint is unavailable")
+}
+
 /// The tracefs id of a tracepoint, as `perf_event_open` takes it.
 pub(super) fn tracepoint_id(category: &str, name: &str) -> Result<u64> {
     let path = find_file(category, name, "id").context("tracepoint is unavailable")?;
