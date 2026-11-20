@@ -50,7 +50,8 @@ One JSON object per line, following ECS 9.5.0.
 | `event.kind` | Always `alert` |
 | `event.code` | Sysmon-style or native event ID |
 | `event.dataset` | `edr.<family>`, see below |
-| `event.provider` | The originating Rustinel sensor: `etw`, `windows_event_log`, `ebpf`, `esf`, or `bpf` |
+| `event.provider` | The originating Rustinel sensor: `etw`, `windows_event_log`, `ebpf`, `journald`, `esf`, or `bpf` |
+| `event.outcome` | `success` or `failure`, on [Linux authentication](linux-auth-log.md) records that report one |
 | `event.sequence` | Native sequence number, when the source has one |
 | `event.count` | Rollup alerts only: repeats suppressed by [deduplication](detection.md#deduplication) |
 | `rule.name` | Rule title |
@@ -134,6 +135,7 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | `edr.service` | Service installs (Windows) |
 | `edr.task` | Scheduled tasks (Windows) |
 | `edr.security` | Security audit events (Windows) |
+| `edr.auth_log` | Authentication log records (Linux) |
 | `edr.agent` | Operational alerts about the agent itself: [sensor loss](#sensor-loss-alerts), [ETW provider tamper](#etw-provider-tamper-alerts), and [start and stop](agent-health.md#lifecycle-alerts) |
 
 ### Sensor loss alerts
@@ -221,6 +223,7 @@ The agent writes a [heartbeat file](agent-health.md#heartbeat) and [`agent::life
 | `edr.event_log.provider_name` | Windows | The provider that wrote an Event Log record. Sigma sees it as `Provider_Name` |
 | `edr.powershell.data` | Windows | Raw classic Windows PowerShell event 400 engine-start description. Sigma sees it as `Data` |
 | `edr.security` | Windows | The full decoded Security event, with Windows field names. Identity, address, process, and service values are also copied to ECS fields |
+| `edr.auth_log` | Linux | The full [authentication record](linux-auth-log.md), with its Sigma field names. User, address, process, and service values are also copied to ECS fields. `user.name` is the person acting for sudo and su, and the account logged into otherwise |
 | `edr.process.windows_metadata` | Windows | Where the command line came from, the raw SID, and the session ID |
 | `edr.process.image_source` | Linux | `execve`: the path as passed to `execve()` |
 | `edr.process.image_truncated` | Linux | `true` when the executable path was cut |

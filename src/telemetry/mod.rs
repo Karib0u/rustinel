@@ -17,6 +17,10 @@ pub(crate) mod macos;
 #[cfg(windows)]
 pub use event_log::EventLogHealth;
 pub use event_log::EventLogSnapshot;
+pub(crate) mod journal;
+#[cfg(target_os = "linux")]
+pub use journal::JournalHealth;
+pub use journal::LinuxJournalSnapshot;
 mod probes;
 mod process_correlation;
 pub(crate) mod provenance;
@@ -194,7 +198,9 @@ impl SensorEventCategoryCounters {
 
 /// Static for the same reason as [`CHANNELS`]: `try_send_sensor_event` is
 /// called from sensor callbacks that hold no pipeline handle.
-static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 15] = [
+static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 17] = [
+    SensorEventCategoryCounters::new(),
+    SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
@@ -228,8 +234,9 @@ fn sensor_event_category(category: EventCategory) -> (usize, &'static str) {
         EventCategory::Security => (11, "security"),
         EventCategory::PowerShellClassicStart => (12, "powershell_classic_start"),
         EventCategory::Defender => (13, "windefend"),
-        EventCategory::Application => (13, "application"),
-        EventCategory::DriverLoad => (14, "driver_load"),
+        EventCategory::Application => (14, "application"),
+        EventCategory::DriverLoad => (15, "driver_load"),
+        EventCategory::AuthLog => (16, "auth_log"),
     }
 }
 
@@ -251,6 +258,7 @@ fn sensor_event_category_snapshots() -> Vec<SensorEventCategorySnapshot> {
         EventCategory::PowerShellClassicStart,
         EventCategory::Defender,
         EventCategory::Application,
+        EventCategory::AuthLog,
     ]
     .into_iter()
     .filter_map(|category| {
@@ -486,6 +494,18 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    #[test]
+    fn every_category_has_its_own_ingress_counter() {
+        let mut seen = std::collections::BTreeMap::new();
+        for category in EventCategory::ALL {
+            let (index, name) = sensor_event_category(category);
+            assert!(index < SENSOR_EVENT_CATEGORIES.len(), "{name}");
+            if let Some(other) = seen.insert(index, name) {
+                panic!("{name} and {other} share ingress counter {index}");
+            }
+        }
+    }
 
     #[test]
     fn process_command_line_fidelity_counts_hits_and_misses() {

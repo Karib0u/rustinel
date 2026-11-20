@@ -274,15 +274,7 @@ impl Engine {
     pub(crate) fn is_deferred_linux_service(service: &str) -> bool {
         matches!(
             service,
-            "auth"
-                | "sudo"
-                | "sshd"
-                | "cron"
-                | "syslog"
-                | "clamav"
-                | "vsftpd"
-                | "guacamole"
-                | "builtin"
+            "cron" | "syslog" | "clamav" | "vsftpd" | "guacamole" | "builtin"
         )
     }
 
@@ -304,6 +296,9 @@ impl Engine {
                 LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("file_delete")),
                 LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("file_rename")),
                 LogSourceKey::from_parts(Some("linux"), Some(SYSMON_VIEW), Some("dns_query")),
+                LogSourceKey::from_parts(Some("linux"), Some("auth"), None),
+                LogSourceKey::from_parts(Some("linux"), Some("sshd"), None),
+                LogSourceKey::from_parts(Some("linux"), Some("sudo"), None),
             ],
             // macOS telemetry comes from ESF (process, file) and /dev/bpf
             // (network, DNS); mirror the Linux collector coverage.
@@ -782,6 +777,17 @@ impl Engine {
                     Some("application"),
                     None,
                 ));
+            }
+            // Every record in the auth and authpriv facilities is `auth`;
+            // sshd and sudo records are also their own service. The opcode
+            // carries the program family because routing sees no fields.
+            EventCategory::AuthLog => {
+                aliases.push(LogSourceKey::from_parts(Some("linux"), Some("auth"), None));
+                if let Some(service) = crate::models::auth_log::Program::from_code(opcode)
+                    .and_then(crate::models::auth_log::Program::sigma_service)
+                {
+                    aliases.push(LogSourceKey::from_parts(Some("linux"), Some(service), None));
+                }
             }
         }
 

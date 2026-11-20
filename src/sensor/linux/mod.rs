@@ -4,6 +4,7 @@ pub(crate) mod abi;
 pub mod ebpf;
 pub mod events;
 mod inventory;
+pub mod journal;
 pub mod paths;
 mod syscall_cpus;
 pub mod task_btf;
@@ -11,6 +12,7 @@ pub(crate) mod telemetry;
 mod tracepoint_format;
 
 pub use ebpf::EbpfSensor;
+pub use journal::JournalAuthSensor;
 pub(crate) use paths::LinuxHostExtension;
 pub use rustinel_ebpf_common::{file_identity_abi, socket_tuple_abi};
 

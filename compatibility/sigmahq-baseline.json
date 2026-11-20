@@ -19,11 +19,11 @@
           "rule_file": 0
         },
         "loaded": {
-          "active_collector": 232,
+          "active_collector": 237,
           "inactive_collector": 0
         },
         "skipped": {
-          "deferred_logsource": 27,
+          "deferred_logsource": 22,
           "product_mismatch": 3376,
           "unknown_logsource": 158
         },

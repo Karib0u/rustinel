@@ -516,7 +516,11 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
         }
         // These records do not identify an actor. An enriched context can
         // name the Event Log emitter, which must never become a kill target.
-        EventFields::PowerShellClassicStart(_) | EventFields::ApplicationEvent(_) => {
+        // An auth log record names the sshd, sudo or su process that wrote
+        // it, which is the logger, not necessarily the actor.
+        EventFields::PowerShellClassicStart(_)
+        | EventFields::ApplicationEvent(_)
+        | EventFields::AuthLog(_) => {
             return (None, None);
         }
         EventFields::WmiEvent(f) => {

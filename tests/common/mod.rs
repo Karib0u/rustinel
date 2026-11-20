@@ -794,6 +794,7 @@ pub fn event_fields_from_payload(event: RawEvent) -> EventFields {
         RawPayload::Security(fields) => EventFields::SecurityAudit(fields),
         RawPayload::Defender(fields) => EventFields::SecurityAudit(fields),
         RawPayload::Application(fields) => EventFields::ApplicationEvent(fields),
+        RawPayload::AuthLog(fields) => EventFields::AuthLog(fields),
     }
 }
 

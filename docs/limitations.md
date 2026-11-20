@@ -99,6 +99,12 @@ Fields each platform never fills are listed in [Field availability](field-availa
 
 - **Kernel 5.8 or later.**
   Many restricted containers cannot load eBPF.
+- **Authentication events need systemd-journald.**
+  A host that logs only through rsyslog files has none.
+  Only `pam_unix` and the sshd, sudo, and su outcome lines are parsed; other lines keep only `Message`.
+  Ubuntu 26.04's default sudo, sudo-rs, logs no refusal, and sshd logs no rejected public key below `LogLevel VERBOSE`.
+  A session-closed line proves a logoff, and a missing one proves nothing.
+  See [Linux authentication events](linux-auth-log.md#what-is-not-covered).
 - **Silent: IA32 file operations can be absent from path-bearing file telemetry.**
   On x86-64 kernels with IA32 emulation, kernel BTF and the raw syscall exit tracepoint, Linux eBPF telemetry counts successful IA32 open, create, unlink, rename, mkdir and rmdir calls by process.
   The count includes read-only opens.

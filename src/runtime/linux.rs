@@ -1,20 +1,54 @@
 use crate::config::AppConfig;
 use crate::runtime::capture::{run_capture as capture, CaptureOptions};
 use crate::runtime::live::run_live;
-use crate::runtime::sensors::{Direct, Member, PlatformRuntime, RunMode, SensorSet, StartFailure};
+use crate::runtime::sensors::{
+    BoxFuture, Direct, LiveSensor, Member, PlatformRuntime, RunMode, SensorSet, StartFailure,
+};
 use crate::runtime::signals::ShutdownSignals;
-use crate::sensor::linux::EbpfSensor;
-use crate::sensor::Platform;
+use crate::sensor::linux::{EbpfSensor, JournalAuthSensor};
+use crate::sensor::{Platform, RawEvent, Sensor};
 use crate::state::HostState;
 use std::sync::Arc;
 use tokio::runtime::Builder;
+use tokio::sync::mpsc::Sender;
 
-fn sensors(_config: &AppConfig, host: &Arc<HostState>, _mode: RunMode) -> SensorSet {
+fn sensors(config: &AppConfig, host: &Arc<HostState>, mode: RunMode) -> SensorSet {
     let ebpf = EbpfSensor::with_host_state(Arc::clone(host));
-    SensorSet::new(vec![Member::required(
-        "eBPF sensor",
-        Arc::new(Direct(Arc::new(ebpf))),
-    )])
+    // Live and capture keep separate cursors, so a capture never moves the
+    // position the agent resumes from.
+    let journal = match mode {
+        RunMode::Live => "journal",
+        RunMode::Capture => "journal-capture",
+    };
+    let journal = JournalAuthSensor::new(host, config.logging.directory.join(journal));
+    SensorSet::new(vec![
+        Member::required("eBPF sensor", Arc::new(Direct(Arc::new(ebpf)))),
+        Member::best_effort(
+            "Linux auth journal reader",
+            "continuing without sshd, sudo and su authentication events",
+            Arc::new(JournalLive(Arc::new(journal))),
+        ),
+    ])
+}
+
+/// Runs the journal reader and waits, on stop, for its last cursor write.
+struct JournalLive(Arc<JournalAuthSensor>);
+
+impl LiveSensor for JournalLive {
+    fn start(&self, tx: Sender<RawEvent>) -> BoxFuture<'_, anyhow::Result<()>> {
+        Box::pin(std::future::ready(self.0.start(tx)))
+    }
+
+    fn shutdown(&self) {
+        self.0.shutdown();
+    }
+
+    fn stopped(&self) -> BoxFuture<'_, ()> {
+        let sensor = Arc::clone(&self.0);
+        Box::pin(async move {
+            let _ = tokio::task::spawn_blocking(move || sensor.join()).await;
+        })
+    }
 }
 
 const RUNTIME: PlatformRuntime = PlatformRuntime {

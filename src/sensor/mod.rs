@@ -4,6 +4,7 @@
 //! `HostState` converts that input into the cross-platform canonical boundary;
 //! process is the first payload category migrated to typed raw fields.
 
+pub mod auth_log;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod dns;
 #[cfg(any(windows, test))]
@@ -31,10 +32,10 @@ use anyhow::Result;
 use tokio::sync::mpsc::Sender;
 
 use crate::models::{
-    ApplicationEventFields, DnsQueryFields, EventCategory, EventFields, FileEventFields,
-    ImageLoadFields, NetworkConnectionFields, PowerShellClassicStartFields, PowerShellModuleFields,
-    PowerShellScriptFields, RegistryEventFields, SecurityAuditFields, ServiceCreationFields,
-    TaskCreationFields, WmiEventFields,
+    ApplicationEventFields, AuthLogFields, DnsQueryFields, EventCategory, EventFields,
+    FileEventFields, ImageLoadFields, NetworkConnectionFields, PowerShellClassicStartFields,
+    PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields, SecurityAuditFields,
+    ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
 
 /// Cross-platform sensor interface.
@@ -140,6 +141,7 @@ pub enum RawPayload {
     Security(SecurityAuditFields),
     Defender(SecurityAuditFields),
     Application(ApplicationEventFields),
+    AuthLog(AuthLogFields),
 }
 
 impl RawPayload {
@@ -162,6 +164,7 @@ impl RawPayload {
             Self::Security(_) => EventCategory::Security,
             Self::Defender(_) => EventCategory::Defender,
             Self::Application(_) => EventCategory::Application,
+            Self::AuthLog(_) => EventCategory::AuthLog,
         }
     }
 
@@ -184,6 +187,7 @@ impl RawPayload {
             Self::Security(fields) => EventFields::SecurityAudit(fields),
             Self::Defender(fields) => EventFields::SecurityAudit(fields),
             Self::Application(fields) => EventFields::ApplicationEvent(fields),
+            Self::AuthLog(fields) => EventFields::AuthLog(fields),
         }
     }
 }
@@ -206,6 +210,7 @@ impl TryFrom<EventFields> for RawPayload {
             EventFields::TaskCreation(fields) => Ok(Self::Task(fields)),
             EventFields::SecurityAudit(fields) => Ok(Self::Security(fields)),
             EventFields::ApplicationEvent(fields) => Ok(Self::Application(fields)),
+            EventFields::AuthLog(fields) => Ok(Self::AuthLog(fields)),
             other => Err(other),
         }
     }

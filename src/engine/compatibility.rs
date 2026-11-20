@@ -1499,7 +1499,14 @@ fn routes_for_contract(contract: &EventFieldContract) -> Vec<LogSourceKey> {
     let row = contract
         .action
         .and_then(|action| event_actions::row_for_action(category, action));
-    let opcode = row.map_or(0, |row| row.action_code);
+    // An auth log shape's opcode is its program family, which its contract
+    // names as the source.
+    let opcode = if category == crate::models::EventCategory::AuthLog {
+        crate::models::auth_log::Program::from_contract_source(contract.source)
+            .map_or(0, crate::models::auth_log::Program::code)
+    } else {
+        row.map_or(0, |row| row.action_code)
+    };
     let mut event_ids = contract.presented_event_ids().collect::<Vec<_>>();
     if event_ids.is_empty() {
         event_ids.push(row.map_or(0, |row| row.event_id));

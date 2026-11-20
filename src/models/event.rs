@@ -759,6 +759,7 @@ impl NormalizedEvent {
             },
             EventFields::SecurityAudit(_)
             | EventFields::ApplicationEvent(_)
+            | EventFields::AuthLog(_)
             | EventFields::Generic(_) => None,
         }
     }
@@ -784,11 +785,15 @@ pub enum EventCategory {
     Security,
     Defender,
     Application,
+    /// One Linux `auth`/`authpriv` journal record. Carries [`AuthLogFields`].
+    ///
+    /// [`AuthLogFields`]: super::AuthLogFields
+    AuthLog,
 }
 
 impl EventCategory {
     /// Every category, for tables that must cover each one.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Process,
         Self::Network,
         Self::File,
@@ -805,6 +810,7 @@ impl EventCategory {
         Self::Security,
         Self::Defender,
         Self::Application,
+        Self::AuthLog,
     ];
 }
 

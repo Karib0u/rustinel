@@ -144,6 +144,7 @@ where
             RawPayload::Security(fields) => Some(EventFields::SecurityAudit(fields.clone())),
             RawPayload::Defender(fields) => Some(EventFields::SecurityAudit(fields.clone())),
             RawPayload::Application(fields) => Some(EventFields::ApplicationEvent(fields.clone())),
+            RawPayload::AuthLog(fields) => Some(EventFields::AuthLog(fields.clone())),
         }?;
 
         let normalized = NormalizedEvent {

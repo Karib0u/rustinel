@@ -28,6 +28,7 @@ pub enum EventFields {
     TaskCreation(TaskCreationFields),
     SecurityAudit(SecurityAuditFields),
     ApplicationEvent(ApplicationEventFields),
+    AuthLog(AuthLogFields),
     Generic(HashMap<String, String>),
 }
 
@@ -72,6 +73,7 @@ impl EventFields {
             EventCategory::Application => {
                 serde_json::from_value(payload).map(Self::ApplicationEvent)
             }
+            EventCategory::AuthLog => serde_json::from_value(payload).map(Self::AuthLog),
         }
     }
 }
@@ -708,6 +710,30 @@ pub struct SecurityAuditFields {
 #[serde(transparent)]
 pub struct ApplicationEventFields {
     pub fields: BTreeMap<String, String>,
+}
+
+/// Fields of one Linux authentication log record (`auth_log`).
+///
+/// Keys are the Sigma field names the parsers in `sensor::auth_log` write.
+/// Every record has `Message`; parsed records add the rest.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AuthLogFields {
+    pub fields: BTreeMap<String, String>,
+}
+
+impl AuthLogFields {
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.fields.get(name).map(String::as_str)
+    }
+
+    /// Record a field, ignoring empty values: an absent field and an empty
+    /// one are the same thing in an auth log line.
+    pub fn insert(&mut self, name: &str, value: &str) {
+        if !value.is_empty() {
+            self.fields.insert(name.to_string(), value.to_string());
+        }
+    }
 }
 
 impl ApplicationEventFields {
