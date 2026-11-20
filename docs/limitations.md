@@ -99,13 +99,17 @@ Fields each platform never fills are listed in [Field availability](field-availa
 
 - **Kernel 5.8 or later.**
   Many restricted containers cannot load eBPF.
-- **Silent: 32-bit compat syscalls can bypass file telemetry.**
-  File hooks use `syscalls:sys_enter_*` tracepoints, which can be skipped by `int $0x80` and 32-bit binaries on x86-64 kernels with IA32 emulation.
-  This gap does not increment source-loss counters: `0 source lost` does not mean all syscall paths were observed.
-  Compat connect, DNS, and `CommandLine` coverage is not established.
-- **Silent: file operations submitted through `io_uring` bypass file telemetry.**
-  They do not enter the file syscalls watched by the sensor, so file-based Sigma rules, file IOC path matching, and written-file YARA scanning miss them.
-  Socket hooks can still capture network connections submitted through `io_uring`; that does not establish compat-syscall coverage.
+- **Silent: IA32 file operations can be absent from path-bearing file telemetry.**
+  On x86-64 kernels with IA32 emulation, kernel BTF and the raw syscall exit tracepoint, Linux eBPF telemetry counts successful IA32 open, create, unlink, rename, mkdir and rmdir calls by process.
+  The count includes read-only opens.
+  File paths and file identity are unavailable on this signal.
+  IA32 connect, DNS, and `CommandLine` coverage is unverified.
+- **Silent: file operations submitted through `io_uring` have no file event.**
+  File-based Sigma rules, file IOC path matching, and written-file YARA scanning miss them.
+  When the submission tracepoint is available, Linux eBPF telemetry counts observed submissions by process.
+  The count includes requests of any opcode that reach the tracepoint, regardless of completion result.
+  It carries no path or result.
+  Socket hooks can still capture network connections submitted through `io_uring`.
 - **Some stable kernels run syscall hooks on CPU 0 only.**
   Ubuntu `7.0.0-38` and 7.1.y kernels from 7.1.6 carry a backport that skips eBPF programs on syscall tracepoints that copy user memory, such as `openat` and `unlink`, on any CPU without a perf event.
   Rustinel opens a counting perf event on every online CPU for those tracepoints, so file events are seen on all CPUs.

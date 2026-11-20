@@ -18,6 +18,10 @@ Every drop is counted, so you can tell whether a quiet endpoint is quiet or blin
 A rule can also miss events that were never produced, because the platform or host policy does not provide them.
 That is a coverage question, see [Platform coverage](coverage.md).
 
+The Linux io_uring and IA32 activity maps report unattributed observations and admission failures in [telemetry.json](telemetry.md#linux_ebpf).
+Capture source loss covers the recorded event pipeline.
+File operations outside the available path-bearing hooks remain a coverage gap even when source loss is zero.
+
 ## Check an endpoint
 
 ```bash

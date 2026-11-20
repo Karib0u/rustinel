@@ -7,7 +7,7 @@ use object::{Object, ObjectSection, ObjectSymbol};
 ///
 /// Bump this whenever a ring-buffer event layout or loader-patched global
 /// changes.
-pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 7;
+pub(crate) const LINUX_EBPF_ABI_VERSION: u32 = 9;
 
 const ABI_SYMBOL: &str = "RUSTINEL_ABI_VERSION";
 

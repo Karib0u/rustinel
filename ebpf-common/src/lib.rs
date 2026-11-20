@@ -7,6 +7,7 @@
 
 #![no_std]
 
+pub mod activity_abi;
 pub mod events;
 pub mod file_identity_abi;
 pub mod socket_tuple_abi;

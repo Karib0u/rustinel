@@ -1813,7 +1813,7 @@ const LINUX_PROCESS: &[FieldContract] = &[
     conditional(
         "CommandLine",
         SINCE_BASELINE,
-        "kernel argv capture or the live /proc entry is available",
+        "kernel argv capture or the live /proc entry is available. IA32 exec argument coverage is unverified",
     ),
     conditional(
         "ParentProcessId",
@@ -1933,6 +1933,9 @@ const LINUX_NETWORK: &[FieldContract] = &[
         "the socket fexit tier measures the bound source port",
     ),
 ];
+
+const LINUX_FILE_SOURCE: &str =
+    "native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)";
 
 const LINUX_FILE: &[FieldContract] = &[
     always("TargetFilename", SINCE_BASELINE),
@@ -2391,7 +2394,7 @@ auditd_file_fields!(AUDITD_FILE_DELETE, &["DELETE"]);
 auditd_file_fields!(AUDITD_FILE_RENAME, &["DELETE", "CREATE"]);
 
 macro_rules! auditd_contract {
-    ($category:literal, $event:expr, $action:ident, $source:literal, $fields:ident) => {
+    ($category:literal, $event:expr, $action:ident, $source:expr, $fields:ident) => {
         EventFieldContract {
             view: FieldViewName::AUDITD,
             platform: Platform::Linux,
@@ -2407,7 +2410,7 @@ macro_rules! auditd_contract {
 }
 
 macro_rules! contract {
-    ($platform:ident, $category:literal, $event:expr, $action:ident, $provider:expr, $source:literal, $fields:ident) => {
+    ($platform:ident, $category:literal, $event:expr, $action:ident, $provider:expr, $source:expr, $fields:ident) => {
         EventFieldContract {
             view: FieldViewName::SYSMON,
             platform: Platform::$platform,
@@ -3407,7 +3410,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         Some(3),
         Connect,
         "ebpf",
-        "socket fexit or connect tracepoints",
+        "socket fexit or connect tracepoints (IA32 connect coverage unverified)",
         LINUX_NETWORK
     ),
     contract!(
@@ -3416,7 +3419,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Create,
         "ebpf",
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         LINUX_FILE
     ),
     contract!(
@@ -3425,7 +3428,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Modify,
         "ebpf",
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         LINUX_FILE
     ),
     contract!(
@@ -3434,7 +3437,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Delete,
         "ebpf",
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         LINUX_FILE
     ),
     contract!(
@@ -3443,7 +3446,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         None,
         Rename,
         "ebpf",
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         LINUX_FILE
     ),
     contract!(
@@ -3452,42 +3455,42 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         Some(22),
         Query,
         "ebpf",
-        "DNS socket syscall hooks",
+        "DNS socket syscall hooks (IA32 DNS coverage unverified)",
         LINUX_DNS
     ),
     auditd_contract!(
         "process_creation",
         Some(1),
         Start,
-        "execve tracepoints",
+        "execve tracepoints (IA32 exec argument coverage unverified)",
         AUDITD_PROCESS
     ),
     auditd_contract!(
         "file_event",
         None,
         Create,
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         AUDITD_FILE_CREATE
     ),
     auditd_contract!(
         "file_event",
         None,
         Modify,
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         AUDITD_FILE_MODIFY
     ),
     auditd_contract!(
         "file_event",
         None,
         Delete,
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         AUDITD_FILE_DELETE
     ),
     auditd_contract!(
         "file_event",
         None,
         Rename,
-        "file syscall tracepoints",
+        LINUX_FILE_SOURCE,
         AUDITD_FILE_RENAME
     ),
     contract!(

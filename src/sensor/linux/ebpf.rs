@@ -19,6 +19,7 @@ use anyhow::{Context, Result};
 use aya::maps::{Array, MapData, PerCpuArray, RingBuf};
 use aya::programs::{FEntry, FExit, KProbe, TracePoint};
 use aya::{Ebpf, EbpfLoader};
+use rustinel_ebpf_common::activity_abi::ActivityOffsets;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, warn};
@@ -38,6 +39,8 @@ use super::events::{
 };
 use super::paths::{resolve_at_path, resolve_indexable_dir_path, truncation_marker, DirFdIndex};
 use super::tracepoint_format::{tracepoint_exists, TracepointLayouts};
+
+mod activity;
 
 /// Sysmon-compatible event IDs emitted for Linux events.
 const EVENT_ID_PROCESS_CREATE: u16 = 1;
@@ -171,12 +174,25 @@ impl Sensor for EbpfSensor {
 
         validate_object_abi(bytes).context("refusing to load incompatible eBPF object")?;
         let layouts = TracepointLayouts::probe();
+        let task_plans = super::task_btf::TaskPlans::load();
+        let io_uring = super::tracepoint_format::io_uring_submission();
+        let ia32 = task_plans
+            .ia32_status_offset
+            .and_then(|status| Ok((status, super::tracepoint_format::raw_syscall_exit()?)));
+        let (ia32_status, (syscall_id, syscall_ret)) = ia32.as_ref().copied().unwrap_or_default();
+        let activity_offsets = ActivityOffsets {
+            io_uring_sq_thread: io_uring.as_ref().map_or(0, |(_, offset)| *offset),
+            ia32_status,
+            syscall_id,
+            syscall_ret,
+        };
         let mut loader = EbpfLoader::new();
         loader
             .override_global("PROCESS_TRACEPOINT_OFFSETS", &layouts.process, true)
             .override_global("NETWORK_TRACEPOINT_OFFSETS", &layouts.network, true)
             .override_global("FILE_TRACEPOINT_OFFSETS", &layouts.file, true)
-            .override_global("DNS_TRACEPOINT_OFFSETS", &layouts.dns, true);
+            .override_global("DNS_TRACEPOINT_OFFSETS", &layouts.dns, true)
+            .override_global("ACTIVITY_OFFSETS", &activity_offsets, true);
         let mut bpf = LoadedEbpf {
             bpf: loader
                 .load(bytes)
@@ -186,7 +202,6 @@ impl Sensor for EbpfSensor {
         };
         super::syscall_cpus::raise_open_file_limit();
 
-        let task_plans = super::task_btf::TaskPlans::load();
         for (diagnostic, reason) in &task_plans.warnings {
             warn!(%diagnostic, %reason, "kernel process identity field disabled");
         }
@@ -432,6 +447,11 @@ impl Sensor for EbpfSensor {
             bpf.take_map("LINUX_EBPF_COUNTERS")
                 .context("LINUX_EBPF_COUNTERS map not found in eBPF object")?,
         )?;
+        let activity = activity::ActivityMonitor::attach(
+            &mut bpf,
+            io_uring.map(|(name, _)| name),
+            ia32.map(|_| ()),
+        )?;
         bpf.counters().activate();
 
         // ── Spawn polling task ───────────────────────────────────────────────
@@ -449,6 +469,7 @@ impl Sensor for EbpfSensor {
                 file_ring,
                 dns_ring,
                 kernel_counters,
+                activity,
                 tx,
                 shutdown,
                 host,
@@ -482,6 +503,7 @@ async fn run_ring_poll(
     file_ring: RingBuf<MapData>,
     dns_ring: RingBuf<MapData>,
     kernel_counters: PerCpuArray<MapData, KernelCounterRow>,
+    activity: activity::ActivityMonitor,
     tx: Sender<RawEvent>,
     shutdown: Arc<AtomicBool>,
     host: Arc<crate::state::HostState>,
@@ -494,18 +516,23 @@ async fn run_ring_poll(
     let mut unresolved_file_events: u64 = 0;
     let mut counter_tick = tokio::time::interval(std::time::Duration::from_secs(1));
     counter_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut activity_tick = tokio::time::interval(std::time::Duration::from_secs(10));
+    activity_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut counter_read_failed = false;
     let mut time_converter = BootTimeConverter::capture();
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
             let _ = refresh_kernel_counters(&kernel_counters, telemetry);
+            activity.refresh(telemetry);
             info!("eBPF sensor shutting down");
             break;
         }
 
         tokio::select! {
             biased;
+
+            _ = activity_tick.tick() => activity.refresh(telemetry),
 
             _ = counter_tick.tick() => {
                 time_converter.refresh();
