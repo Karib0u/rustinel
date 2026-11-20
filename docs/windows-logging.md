@@ -179,13 +179,15 @@ Enable *Turn on PowerShell Script Block Logging* in the Group Policy folder for 
 Set `EnableScriptBlockLogging` to DWORD `1` in the matching key, then start a new session of that engine.
 PowerShell 7 also accepts the setting in `powershell.config.json`.
 If the PowerShell Core event provider is missing, run `& "$PSHOME\RegisterManifest.ps1"` in an elevated PowerShell 7 session.
-Check registration with `Get-WinEvent -ListProvider PowerShellCore`. [Microsoft PowerShell logging documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_windows)
+Check registration with `Get-WinEvent -ListProvider PowerShellCore`.
+[Microsoft PowerShell logging documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_windows)
 
 Both channels carry `ScriptBlockText`, `ScriptBlockId`, `MessageNumber`, and `MessageTotal`.
 `Path` is available for file-backed blocks.
 Rustinel evaluates each fragment separately when the provider splits a long block.
 Protected Event Logging can encrypt the content of `ScriptBlockText`.
-Use `Channel` to select an engine family in a Sigma rule. Normalized captures label the Windows PowerShell provider as `etw` and PowerShellCore as `etw_powershell_core`.
+Use `Channel` to select an engine family in a Sigma rule.
+Normalized captures label the Windows PowerShell provider as `etw` and PowerShellCore as `etw_powershell_core`.
 For PowerShell 7, `ProcessId` comes from the ETW header, `Image` depends on process identity enrichment, and `User` is unavailable.
 
 ## Limits
