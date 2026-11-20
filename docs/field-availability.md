@@ -84,6 +84,8 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `pipe_created` | `17` | `Microsoft-Windows-Kernel-File` | `*` | named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW |
 | `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `CgroupId` | Windows process events do not have a Linux kernel cgroup identifier |
 | `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `TargetImage` | a process-creation event has no target process |
+| `sysmon` | windows | `ps_module` | `4103 / execute` | `PowerShellCore` | `User` | the PowerShellCore 4103 payload has no standalone user field |
+| `sysmon` | windows | `ps_script` | `4104 / execute` | `PowerShellCore` | `User` | the PowerShellCore 4104 payload does not carry a user |
 | `sysmon` | windows | `service_creation` | `7045 / register` | `Service Control Manager` | `Image` | System event 7045 does not carry a creating process image |
 | `sysmon` | windows | `service_creation` | `7045 / register` | `Service Control Manager` | `ProcessId` | System event 7045 does not carry process identity |
 | `sysmon` | windows | `task_creation` | `106 / register` | `Microsoft-Windows-TaskScheduler` | `Image` | TaskScheduler event 106 does not carry a process image |
