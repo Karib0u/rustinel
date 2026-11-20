@@ -147,6 +147,20 @@ jobs:
           cp .ci/ebpf-object/rustinel-ebpf.o ebpf/rustinel-ebpf.o
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-feature=+crt-static" \
             cargo build --locked --release --target x86_64-unknown-linux-gnu
+      - name: Prepare live activity workloads
+        if: matrix.kernel == 'runner'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fio
+          mkdir -p .ci/activity-tools
+          # Debian trixie busybox-static 1:1.37.0-6+b9, i386.
+          curl --fail --silent --show-error --location --retry 3 \
+            https://snapshot.debian.org/file/9277ea7dddbaa26742189c8f1e57065bd3887658 \
+            -o .ci/activity-tools/busybox.deb
+          printf '%s  %s\n' \
+            51b776a4cee36361aa2f367a3195f495c191f1c7b26033f0d9c6271ca74c7843 \
+            .ci/activity-tools/busybox.deb | sha256sum --check
+          dpkg-deb --extract .ci/activity-tools/busybox.deb .ci/activity-tools
       - name: Load and exercise eBPF on runner kernel
         if: matrix.kernel == 'runner'
         run: |
@@ -154,11 +168,14 @@ jobs:
             --binary target/x86_64-unknown-linux-gnu/release/rustinel \
             --ebpf-object .ci/ebpf-object/rustinel-ebpf.o \
             --rules-dir rules/sigma \
+            --fio /usr/bin/fio \
+            --busybox-i386 .ci/activity-tools/usr/bin/busybox \
             --artifacts-dir .ci/ebpf-load-runner
           sudo -E python3 tests/native_capture_contract.py \
             --binary "$GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/release/rustinel"
           sudo -E python3 tests/linux_file_capture_contract.py \
             --binary "$GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/release/rustinel" \
+            --busybox-i386 .ci/activity-tools/usr/bin/busybox \
             --artifacts-dir .ci/ebpf-load-runner/file-coverage
       - name: Run live eBPF tests on runner kernel
         if: matrix.kernel == 'runner'

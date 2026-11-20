@@ -1813,7 +1813,7 @@ const LINUX_PROCESS: &[FieldContract] = &[
     conditional(
         "CommandLine",
         SINCE_BASELINE,
-        "kernel argv capture or the live /proc entry is available. IA32 exec argument coverage is unverified",
+        "kernel argv capture or the live /proc entry is available. Observed for an IA32 exec on x86-64",
     ),
     conditional(
         "ParentProcessId",
@@ -3410,7 +3410,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         Some(3),
         Connect,
         "ebpf",
-        "socket fexit or connect tracepoints (IA32 connect coverage unverified)",
+        "socket fexit or connect tracepoints (IA32 TCP connect observed on x86-64)",
         LINUX_NETWORK
     ),
     contract!(
@@ -3455,14 +3455,14 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         Some(22),
         Query,
         "ebpf",
-        "DNS socket syscall hooks (IA32 DNS coverage unverified)",
+        "DNS socket syscall hooks (the tested IA32 DNS exchange produced no DNS event)",
         LINUX_DNS
     ),
     auditd_contract!(
         "process_creation",
         Some(1),
         Start,
-        "execve tracepoints (IA32 exec argument coverage unverified)",
+        "execve tracepoints (IA32 CommandLine observed on x86-64)",
         AUDITD_PROCESS
     ),
     auditd_contract!(
