@@ -40,6 +40,7 @@ tests/**/*
 !tests/**/
 !tests/**/*.rs
 !tests/native_capture_contract.py
+!tests/linux_file_capture_contract.py
 !tests/ebpf_load_smoke.py
 !tests/test_ebpf_load_smoke.py
 !tests/ebpf_live_tests.sh
@@ -59,6 +60,7 @@ tests/**/*
 # src/sensor/windows/etw/fixture_tests.rs. See docs/development.md.
 !tests/fixtures/etw/**
 !tests/fixtures/linux_ring/**
+!tests/fixtures/linux_file_coverage/**
 
 *.exe
 *.pdb
