@@ -207,7 +207,11 @@ pub(super) fn decode_routed(
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Windows,
-        provider: "etw",
+        provider: if record.provider_id() == state.routing.powershell_core_guid {
+            crate::field_availability::POWERSHELL_CORE_ETW_PROVIDER
+        } else {
+            "etw"
+        },
         action,
         normalization,
         pid: decoded.pid,

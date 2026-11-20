@@ -153,7 +153,7 @@ It is written when a process reads a stored credential, and it is collected by d
 
 ## PowerShell module logging
 
-Without Module Logging, PowerShell never writes event 4103.
+Rustinel collects event 4103 from Windows PowerShell 5.1 when Module Logging is enabled.
 Enable it for all modules:
 
 ```powershell
@@ -168,18 +168,28 @@ Or in Group Policy: *Windows Components > Windows PowerShell > Turn on Module Lo
 
 ## PowerShell script block logging
 
-Windows logs suspicious script blocks (4104) on its own.
-To log every script block, enable *Turn on PowerShell Script Block Logging* in the same Group Policy folder.
-Check the current value:
+Rustinel collects event 4104 as `ps_script` from Windows PowerShell 5.1 and PowerShell 7 on Windows.
+Enable *Turn on PowerShell Script Block Logging* in the Group Policy folder for each engine to log ordinary script blocks.
 
-```powershell
-Get-ItemProperty HKLM:\Software\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging -Name EnableScriptBlockLogging
-```
+| Engine | Administrative Templates folder | Registry key under `HKLM:\Software\Policies\Microsoft` | Channel |
+| --- | --- | --- | --- |
+| Windows PowerShell 5.1 | Windows Components > Windows PowerShell | `Windows\PowerShell\ScriptBlockLogging` | `Microsoft-Windows-PowerShell/Operational` |
+| PowerShell 7 | PowerShell Core | `PowerShellCore\ScriptBlockLogging` | `PowerShellCore/Operational` |
+
+Set `EnableScriptBlockLogging` to DWORD `1` in the matching key, then start a new session of that engine.
+PowerShell 7 also accepts the setting in `powershell.config.json`.
+If the PowerShell Core event provider is missing, run `& "$PSHOME\RegisterManifest.ps1"` in an elevated PowerShell 7 session.
+Check registration with `Get-WinEvent -ListProvider PowerShellCore`. [Microsoft PowerShell logging documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_windows)
+
+Both channels carry `ScriptBlockText`, `ScriptBlockId`, `MessageNumber`, and `MessageTotal`.
+`Path` is available for file-backed blocks.
+Rustinel evaluates each fragment separately when the provider splits a long block.
+Protected Event Logging can encrypt the content of `ScriptBlockText`.
+Use `Channel` to select an engine family in a Sigma rule. Normalized captures label the Windows PowerShell provider as `etw` and PowerShellCore as `etw_powershell_core`.
+For PowerShell 7, `ProcessId` comes from the ETW header, `Image` depends on process identity enrichment, and `User` is unavailable.
 
 ## Limits
 
-- Script block and module content is collected from Windows PowerShell 5.1.
-  Classic engine starts also include version 2 through event 400.
-  PowerShell 7 (`pwsh`) uses a different provider and is not collected.
+- Classic engine starts also include version 2 through event 400.
 - `ContextInfo` and `Payload` (4103) are written in the host's display language.
   A rule that matches an English label such as `Host Application =` fires only on English hosts.

@@ -321,6 +321,7 @@ pub(super) struct EtwRouting {
     pub(super) kernel_file_guid: GUID,
     pub(super) kernel_registry_guid: GUID,
     pub(super) powershell_guid: GUID,
+    pub(super) powershell_core_guid: GUID,
     pub(super) guid_to_category: HashMap<GUID, EventCategory>,
     /// Subscribed provider GUIDs to their manifest names. Decode failures are
     /// labelled from this table rather than from a rendered GUID, so the label
@@ -351,6 +352,7 @@ impl EtwRouting {
             kernel_file_guid: EtwProviders::kernel_file().guid,
             kernel_registry_guid: EtwProviders::kernel_registry().guid,
             powershell_guid: EtwProviders::powershell().guid,
+            powershell_core_guid: EtwProviders::powershell_core().guid,
             guid_to_category,
             guid_to_name,
         }
@@ -378,6 +380,12 @@ impl EtwRouting {
 
         if provider_guid == self.powershell_guid {
             return powershell_route(record.event_id());
+        }
+
+        if provider_guid == self.powershell_core_guid {
+            return EtwProviders::POWERSHELL_CORE_EVENT_IDS
+                .contains(&record.event_id())
+                .then_some((EventCategory::Scripting, SensorAction::Execute));
         }
 
         let category = *self.guid_to_category.get(&provider_guid)?;

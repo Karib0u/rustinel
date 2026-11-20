@@ -25,6 +25,7 @@ impl EtwProviders {
     pub(super) const KERNEL_REGISTRY_GUID: &'static str = "70eb4f03-c1de-4f73-a051-33d13d5413bd";
     pub(super) const DNS_CLIENT_GUID: &'static str = "1c95126e-7eea-49a9-a3fe-a378b03ddb4d";
     pub(super) const POWERSHELL_GUID: &'static str = "A0C1853B-5C40-4B15-8766-3CF1C58F985A";
+    const POWERSHELL_CORE_GUID: &'static str = "F90714A8-5509-434A-BF6D-B1624C8A19A2";
     pub(super) const WMI_ACTIVITY_GUID: &'static str = "1418EF04-B0B4-4623-BF7E-D74AB47BBDAA";
     pub(super) const TASK_SCHEDULER_GUID: &'static str = "de7b24ea-73c8-4a09-985d-5bdadcfa9017";
 
@@ -102,6 +103,7 @@ impl EtwProviders {
         POWERSHELL_EVENT_MODULE_LOGGING,
         POWERSHELL_EVENT_SCRIPT_BLOCK,
     ];
+    pub(super) const POWERSHELL_CORE_EVENT_IDS: &'static [u16] = &[POWERSHELL_EVENT_SCRIPT_BLOCK];
     // Trace events keep their existing wmi_event route. Operational events
     // 5857-5861 use the service: wmi route and the Operational keyword below.
     // Neither family aliases Sysmon's wmi_event IDs 19, 20, or 21 (#291).
@@ -174,6 +176,16 @@ impl EtwProviders {
         }
     }
 
+    pub(super) fn powershell_core() -> EtwProvider {
+        EtwProvider {
+            guid: GUID::from(Self::POWERSHELL_CORE_GUID),
+            name: "PowerShellCore",
+            level: 5,
+            keywords: Self::POWERSHELL_RUNSPACE_KEYWORD,
+            event_ids: Self::POWERSHELL_CORE_EVENT_IDS,
+        }
+    }
+
     pub(super) fn wmi_activity() -> EtwProvider {
         EtwProvider {
             guid: GUID::from(Self::WMI_ACTIVITY_GUID),
@@ -214,6 +226,7 @@ impl EtwProviders {
             Self::kernel_registry(),
             Self::dns_client(),
             Self::powershell(),
+            Self::powershell_core(),
             Self::wmi_activity(),
             Self::task_scheduler(),
         ]
@@ -231,6 +244,7 @@ impl EtwProviders {
             Self::kernel_registry(),
             Self::dns_client(),
             Self::powershell(),
+            Self::powershell_core(),
             Self::wmi_activity(),
             Self::task_scheduler(),
         ]
@@ -328,6 +342,14 @@ mod tests {
         );
         assert_eq!(powershell.level, 5);
         assert_eq!(powershell.event_ids, &[4103, 4104]);
+
+        let powershell_core = EtwProviders::powershell_core();
+        assert_eq!(powershell_core.level, 5);
+        assert_eq!(
+            powershell_core.keywords,
+            EtwProviders::POWERSHELL_RUNSPACE_KEYWORD
+        );
+        assert_eq!(powershell_core.event_ids, &[4104]);
 
         assert_eq!(EtwProviders::task_scheduler().event_ids, &[106]);
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));

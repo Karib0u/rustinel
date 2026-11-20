@@ -500,39 +500,54 @@ fn powershell_module_rule_matches_a_module_event() {
 }
 
 #[test]
-fn hayabusa_powershell_channel_rule_matches_script_block_event() {
+fn powershell_channel_rules_match_their_script_block_source() {
     let fixture = SigmaFixture::new();
-    fixture.write_rule(
-        "powershell_channel.yml",
-        r#"title: PowerShell Operational Script Block
+    let sources = [
+        ("etw", "Microsoft-Windows-PowerShell/Operational"),
+        ("etw_powershell_core", "PowerShellCore/Operational"),
+    ];
+    for (provider, channel) in sources {
+        fixture.write_rule(
+            &format!("{provider}.yml"),
+            &format!(
+                r#"title: Script Block from {channel}
 logsource:
   product: windows
   category: ps_script
 detection:
   selection:
-    Channel: Microsoft-Windows-PowerShell/Operational
+    Channel: {channel}
     EventID: 4104
     ScriptBlockText|contains: Get-Process
   condition: selection
 level: high
-"#,
-    );
-    let normalized = TestNormalizer::new()
-        .normalizer
-        .normalize(&powershell_script_event())
-        .expect("script block event should normalize");
+"#
+            ),
+        );
+    }
 
-    assert_eq!(
-        normalized.get_field("Channel"),
-        Some("Microsoft-Windows-PowerShell/Operational")
-    );
     let engine = engine_with(&fixture, Platform::Windows);
-    let alert = engine
-        .check_event(&normalized)
-        .into_iter()
-        .next()
-        .expect("Channel and EventID must match the PowerShell event");
-    assert_eq!(alert.rule_name, "PowerShell Operational Script Block");
+    let harness = TestNormalizer::new();
+    for (provider, channel) in sources {
+        let mut raw = powershell_script_event();
+        if provider == "etw_powershell_core" {
+            let RawPayload::Scripting(fields) = &mut raw.payload else {
+                panic!("expected a script block fixture");
+            };
+            fields.image = None;
+            fields.user = None;
+        }
+        raw.provider = provider;
+        let normalized = harness
+            .normalizer
+            .normalize(&raw)
+            .expect("script block event should normalize");
+        assert_eq!(normalized.get_field("Channel"), Some(channel));
+
+        let alerts = engine.check_event(&normalized);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].rule_name, format!("Script Block from {channel}"));
+    }
 }
 
 /// A rule whose logsource values carry stray whitespace or case must still

@@ -98,7 +98,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
-| `sysmon` | windows | 217 | 1139 | 65 |
+| `sysmon` | windows | 218 | 1146 | 66 |
 | `sysmon` | linux | 19 | 51 | 15 |
 | `sysmon` | macos | 27 | 28 | 28 |
 | `auditd` | linux | 15 | 23 | 47 |

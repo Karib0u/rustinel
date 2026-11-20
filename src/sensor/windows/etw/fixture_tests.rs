@@ -130,6 +130,7 @@ fn fixtures_carry_provenance() {
         fixture!("network_connect"),
         fixture!("powershell_module_logging"),
         fixture!("powershell_script_block"),
+        fixture!("powershell_core_script_block"),
         fixture!("wmi_activity"),
         fixture!("task_registered"),
     ] {
@@ -487,6 +488,37 @@ fn powershell_script_block_is_a_separate_logsource() {
     );
     assert_eq!(f.message_number.as_deref(), Some("1"));
     assert_eq!(f.message_total.as_deref(), Some("1"));
+}
+
+#[test]
+fn powershell_core_4104_normalizes_as_a_script_block() {
+    let file = fixture!("powershell_core_script_block");
+    let events = run(&file);
+    assert_eq!(events.len(), 1);
+    let normalizer =
+        crate::normalizer::Normalizer::new(Arc::new(crate::state::HostState::default()));
+    let event = normalizer
+        .normalize(&events[0])
+        .expect("PowerShellCore 4104");
+
+    assert_eq!(event.category, crate::models::EventCategory::Scripting);
+    assert_eq!(event.event_id, 4104);
+    assert_eq!(event.provider, "etw_powershell_core");
+    assert_eq!(
+        event.get_field("Channel"),
+        Some("PowerShellCore/Operational")
+    );
+    assert_eq!(
+        event.get_field("ScriptBlockText"),
+        Some("Write-Output 'rustinel-pwsh-649'")
+    );
+    assert!(event.get_field("ScriptBlockId").is_some());
+    assert_eq!(event.get_field("MessageNumber"), Some("1"));
+    assert_eq!(event.get_field("MessageTotal"), Some("1"));
+    let pid = file.records[0].header.process_id.to_string();
+    assert_eq!(event.get_field("ProcessId"), Some(pid.as_str()));
+    assert_eq!(event.get_field("Path"), None);
+    assert_eq!(event.get_field("User"), None);
 }
 
 #[test]
