@@ -215,6 +215,7 @@ impl From<&Alert> for EcsAlert {
             event_type,
             event_action,
             event_code,
+            event_outcome: None,
             event_severity: Some(alert_severity_to_event_severity(alert.severity)),
             event_module: EVENT_MODULE.to_string(),
             event_dataset: event_dataset(alert.event.category),
@@ -353,6 +354,7 @@ impl From<&Alert> for EcsAlert {
             edr_wmi_event_type: None,
             edr_process_target_image: None,
             edr_security: None,
+            edr_auth_log: None,
             related_ip: None,
             related_user: None,
             edr_match: alert.match_details.clone(),
@@ -611,6 +613,29 @@ impl From<&Alert> for EcsAlert {
             }
             EventFields::ApplicationEvent(f) => {
                 ecs.edr_event_log_provider_name = f.get("Provider_Name").map(str::to_string);
+            }
+            EventFields::AuthLog(f) => {
+                // sudo and su name the person acting in `SubjectUserName` and
+                // the account they became in `TargetUserName`; every other
+                // record names only the account that authenticated.
+                use crate::models::auth_log::AuthKind;
+                let user = match AuthKind::from_event_id(event_id) {
+                    Some(
+                        AuthKind::SudoCommand
+                        | AuthKind::SudoRefused
+                        | AuthKind::SuSuccess
+                        | AuthKind::SuFailed,
+                    ) => f.get("SubjectUserName").or_else(|| f.get("TargetUserName")),
+                    _ => f.get("TargetUserName"),
+                };
+                apply_user_fields(&mut ecs, user);
+                ecs.event_outcome = f.get("Outcome").map(str::to_string);
+                ecs.source_ip = f.get("SourceIp").map(str::to_string);
+                ecs.source_port = parse_u16(&f.get("SourcePort").map(str::to_string));
+                ecs.process_executable = f.get("Image").map(str::to_string);
+                ecs.process_pid = f.get("ProcessId").and_then(|pid| pid.parse().ok());
+                ecs.service_name = f.get("Service").map(str::to_string);
+                ecs.edr_auth_log = Some(f.fields.clone());
             }
             EventFields::Generic(_) => {
                 // Generic events don't have structured field mapping

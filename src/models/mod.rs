@@ -2,6 +2,7 @@
 //!
 //! Defines core data structures like NormalizedEvent and Alert.
 
+pub mod auth_log;
 pub mod ecs;
 
 pub mod event_actions;

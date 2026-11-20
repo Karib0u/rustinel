@@ -63,6 +63,8 @@ const SINCE_SECURITY_LONG_TAIL: Option<&str> = Some("1.11.0");
 const SINCE_SECURITY_DOMAIN_CONTROLLER: Option<&str> = Some("1.11.0");
 /// DNS messages cut at the capture limit keep the name they have (#804).
 const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
+/// Linux auth and authpriv journal records (#644).
+const SINCE_AUTH_LOG: Option<&str> = Some(UNRELEASED);
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1972,6 +1974,198 @@ const LINUX_FILE: &[FieldContract] = &[
     ),
 ];
 
+const AUTH_PROGRAM: &str = "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`";
+const AUTH_IMAGE: &str =
+    "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt";
+const AUTH_SOURCE_IP: &str = "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead";
+const AUTH_SOURCE_HOSTNAME: &str =
+    "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`";
+const AUTH_NO_SOURCE: &str = "the line names no remote address";
+const AUTH_NO_OUTCOME: &str =
+    "the line reports no authentication outcome: a session boundary or an unparsed line";
+const AUTH_SUDO_KEYS: &str = "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent";
+
+/// Fields every trusted auth log record carries.
+macro_rules! auth_common {
+    ($($field:expr),* $(,)?) => {
+        &[
+            always("Message", SINCE_AUTH_LOG),
+            conditional("Program", SINCE_AUTH_LOG, AUTH_PROGRAM),
+            conditional("Image", SINCE_AUTH_LOG, AUTH_IMAGE),
+            always("ProcessId", SINCE_AUTH_LOG),
+            $($field,)*
+        ]
+    };
+}
+
+const AUTH_OTHER: &[FieldContract] = auth_common!(
+    never("Outcome", SINCE_AUTH_LOG, AUTH_NO_OUTCOME),
+    never(
+        "TargetUserName",
+        SINCE_AUTH_LOG,
+        "no parser claimed the line; match its text through `Message`"
+    ),
+);
+const AUTH_SSH_ACCEPTED: &[FieldContract] = auth_common!(
+    always_value("Outcome", SINCE_AUTH_LOG, "success"),
+    always_value("Service", SINCE_AUTH_LOG, "sshd"),
+    always("TargetUserName", SINCE_AUTH_LOG),
+    always("AuthenticationMethod", SINCE_AUTH_LOG),
+    conditional("SourceIp", SINCE_AUTH_LOG, AUTH_SOURCE_IP),
+    conditional("SourceHostname", SINCE_AUTH_LOG, AUTH_SOURCE_HOSTNAME),
+    always("SourcePort", SINCE_AUTH_LOG),
+    conditional(
+        "KeyType",
+        SINCE_AUTH_LOG,
+        "the login used a public key or certificate"
+    ),
+    conditional(
+        "KeyFingerprint",
+        SINCE_AUTH_LOG,
+        "the login used a public key or certificate"
+    ),
+);
+const AUTH_SSH_FAILED: &[FieldContract] = auth_common!(
+    always_value("Outcome", SINCE_AUTH_LOG, "failure"),
+    always_value("Service", SINCE_AUTH_LOG, "sshd"),
+    always("TargetUserName", SINCE_AUTH_LOG),
+    always("AuthenticationMethod", SINCE_AUTH_LOG),
+    conditional_values(
+        "InvalidUser",
+        SINCE_AUTH_LOG,
+        &["true"],
+        "the account does not exist"
+    ),
+    conditional("SourceIp", SINCE_AUTH_LOG, AUTH_SOURCE_IP),
+    conditional("SourceHostname", SINCE_AUTH_LOG, AUTH_SOURCE_HOSTNAME),
+    always("SourcePort", SINCE_AUTH_LOG),
+);
+const AUTH_SSH_INVALID_USER: &[FieldContract] = auth_common!(
+    always_value("Outcome", SINCE_AUTH_LOG, "failure"),
+    always_value("Service", SINCE_AUTH_LOG, "sshd"),
+    always("TargetUserName", SINCE_AUTH_LOG),
+    always_value("InvalidUser", SINCE_AUTH_LOG, "true"),
+    conditional("SourceIp", SINCE_AUTH_LOG, AUTH_SOURCE_IP),
+    conditional("SourceHostname", SINCE_AUTH_LOG, AUTH_SOURCE_HOSTNAME),
+    always("SourcePort", SINCE_AUTH_LOG),
+);
+const AUTH_PAM_FAILURE: &[FieldContract] = auth_common!(
+    always_value("Outcome", SINCE_AUTH_LOG, "failure"),
+    always("Service", SINCE_AUTH_LOG),
+    conditional(
+        "TargetUserName",
+        SINCE_AUTH_LOG,
+        "pam_unix names the account (`user=`) only when it exists"
+    ),
+    conditional(
+        "SubjectUserName",
+        SINCE_AUTH_LOG,
+        "the PAM caller set a requesting user (`ruser=`), as sudo and su do"
+    ),
+    conditional(
+        "SubjectUserId",
+        SINCE_AUTH_LOG,
+        "pam_unix printed the caller's `uid=`"
+    ),
+    conditional(
+        "Terminal",
+        SINCE_AUTH_LOG,
+        "the PAM caller set a terminal (`tty=`)"
+    ),
+    conditional("SourceIp", SINCE_AUTH_LOG, AUTH_SOURCE_IP),
+    conditional("SourceHostname", SINCE_AUTH_LOG, AUTH_SOURCE_HOSTNAME),
+);
+const AUTH_PAM_SESSION_OPENED: &[FieldContract] = auth_common!(
+    never("Outcome", SINCE_AUTH_LOG, AUTH_NO_OUTCOME),
+    always("Service", SINCE_AUTH_LOG),
+    always("TargetUserName", SINCE_AUTH_LOG),
+    always("TargetUserId", SINCE_AUTH_LOG),
+    conditional(
+        "SubjectUserName",
+        SINCE_AUTH_LOG,
+        "the opening process has a login name; pam_unix prints `by (uid=1001)` when it has none"
+    ),
+    always("SubjectUserId", SINCE_AUTH_LOG),
+    never("SourceIp", SINCE_AUTH_LOG, AUTH_NO_SOURCE),
+);
+const AUTH_PAM_SESSION_CLOSED: &[FieldContract] = auth_common!(
+    never("Outcome", SINCE_AUTH_LOG, AUTH_NO_OUTCOME),
+    always("Service", SINCE_AUTH_LOG),
+    always("TargetUserName", SINCE_AUTH_LOG),
+    never(
+        "TargetUserId",
+        SINCE_AUTH_LOG,
+        "pam_unix names only the user when a session closes"
+    ),
+    never("SourceIp", SINCE_AUTH_LOG, AUTH_NO_SOURCE),
+);
+macro_rules! auth_sudo {
+    ($outcome:literal $(, $field:expr)* $(,)?) => {
+        auth_common!(
+            always_value("Outcome", SINCE_AUTH_LOG, $outcome),
+            always_value("Service", SINCE_AUTH_LOG, "sudo"),
+            always("SubjectUserName", SINCE_AUTH_LOG),
+            conditional("TargetUserName", SINCE_AUTH_LOG, AUTH_SUDO_KEYS),
+            conditional("USER", SINCE_AUTH_LOG, AUTH_SUDO_KEYS),
+            conditional("PWD", SINCE_AUTH_LOG, AUTH_SUDO_KEYS),
+            conditional("COMMAND", SINCE_AUTH_LOG, AUTH_SUDO_KEYS),
+            conditional(
+                "TTY",
+                SINCE_AUTH_LOG,
+                "sudo ran on a terminal and the line is unambiguous"
+            ),
+            conditional(
+                "GROUP",
+                SINCE_AUTH_LOG,
+                "the caller asked for a group (`-g`) and the line is unambiguous"
+            ),
+            conditional(
+                "ENV",
+                SINCE_AUTH_LOG,
+                "the caller set environment variables and the line is unambiguous"
+            ),
+            never("SourceIp", SINCE_AUTH_LOG, AUTH_NO_SOURCE),
+            $($field,)*
+        )
+    };
+}
+const AUTH_SUDO_COMMAND: &[FieldContract] = auth_sudo!("success");
+const AUTH_SUDO_REFUSED: &[FieldContract] = auth_sudo!("failure", always("Reason", SINCE_AUTH_LOG));
+macro_rules! auth_su {
+    ($outcome:literal) => {
+        auth_common!(
+            always_value("Outcome", SINCE_AUTH_LOG, $outcome),
+            always_value("Service", SINCE_AUTH_LOG, "su"),
+            always("TargetUserName", SINCE_AUTH_LOG),
+            always("SubjectUserName", SINCE_AUTH_LOG),
+            always("Terminal", SINCE_AUTH_LOG),
+            never("SourceIp", SINCE_AUTH_LOG, AUTH_NO_SOURCE),
+        )
+    };
+}
+const AUTH_SU_SUCCESS: &[FieldContract] = auth_su!("success");
+const AUTH_SU_FAILED: &[FieldContract] = auth_su!("failure");
+
+/// One auth log shape: a record kind written by one program family.
+///
+/// The program family rides in the event opcode, so it is the contract's
+/// `source` and not its action.
+macro_rules! auth_contract {
+    ($kind:ident, $program:ident, $fields:ident) => {
+        EventFieldContract {
+            view: FieldViewName::SYSMON,
+            platform: Platform::Linux,
+            category: "auth_log",
+            event_id: Some(crate::models::auth_log::AuthKind::$kind.event_id()),
+            event_ids: &[],
+            action: None,
+            provider: crate::models::auth_log::PROVIDER,
+            source: crate::models::auth_log::Program::$program.contract_source(),
+            fields: $fields,
+        }
+    };
+}
+
 const LINUX_DNS: &[FieldContract] = &[
     conditional(
         "QueryTruncated",
@@ -3458,6 +3652,30 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "DNS socket syscall hooks (the tested IA32 DNS exchange produced no DNS event)",
         LINUX_DNS
     ),
+    auth_contract!(Other, Other, AUTH_OTHER),
+    auth_contract!(Other, Sshd, AUTH_OTHER),
+    auth_contract!(Other, Sudo, AUTH_OTHER),
+    auth_contract!(Other, Su, AUTH_OTHER),
+    auth_contract!(SshAccepted, Sshd, AUTH_SSH_ACCEPTED),
+    auth_contract!(SshFailed, Sshd, AUTH_SSH_FAILED),
+    auth_contract!(SshInvalidUser, Sshd, AUTH_SSH_INVALID_USER),
+    // PAM modules log through whichever program called them.
+    auth_contract!(PamAuthFailure, Other, AUTH_PAM_FAILURE),
+    auth_contract!(PamAuthFailure, Sshd, AUTH_PAM_FAILURE),
+    auth_contract!(PamAuthFailure, Sudo, AUTH_PAM_FAILURE),
+    auth_contract!(PamAuthFailure, Su, AUTH_PAM_FAILURE),
+    auth_contract!(PamSessionOpened, Other, AUTH_PAM_SESSION_OPENED),
+    auth_contract!(PamSessionOpened, Sshd, AUTH_PAM_SESSION_OPENED),
+    auth_contract!(PamSessionOpened, Sudo, AUTH_PAM_SESSION_OPENED),
+    auth_contract!(PamSessionOpened, Su, AUTH_PAM_SESSION_OPENED),
+    auth_contract!(PamSessionClosed, Other, AUTH_PAM_SESSION_CLOSED),
+    auth_contract!(PamSessionClosed, Sshd, AUTH_PAM_SESSION_CLOSED),
+    auth_contract!(PamSessionClosed, Sudo, AUTH_PAM_SESSION_CLOSED),
+    auth_contract!(PamSessionClosed, Su, AUTH_PAM_SESSION_CLOSED),
+    auth_contract!(SudoCommand, Sudo, AUTH_SUDO_COMMAND),
+    auth_contract!(SudoRefused, Sudo, AUTH_SUDO_REFUSED),
+    auth_contract!(SuSuccess, Su, AUTH_SU_SUCCESS),
+    auth_contract!(SuFailed, Su, AUTH_SU_FAILED),
     auditd_contract!(
         "process_creation",
         Some(1),
@@ -3577,6 +3795,7 @@ pub const fn category_name(category: EventCategory) -> &'static str {
         EventCategory::Security => "security",
         EventCategory::Defender => "windefend",
         EventCategory::Application => "application",
+        EventCategory::AuthLog => "auth_log",
     }
 }
 
@@ -3709,6 +3928,9 @@ pub(crate) fn event_contract(
             && contract.category == category_name(event.category)
             && contract.provider == event.provider
             && contract.presents_event_id(event.event_id)
+            && (event.category != EventCategory::AuthLog
+                || crate::models::auth_log::Program::from_code(event.opcode)
+                    .is_some_and(|program| program.contract_source() == contract.source))
             && (event.category != EventCategory::Application
                 || match &event.fields {
                     crate::models::EventFields::ApplicationEvent(fields) => fields

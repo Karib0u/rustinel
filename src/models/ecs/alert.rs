@@ -65,6 +65,10 @@ pub struct EcsAlert {
     #[serde(rename = "event.code", skip_serializing_if = "Option::is_none")]
     pub event_code: Option<String>,
 
+    /// `success` or `failure`, for events that report one, such as a login.
+    #[serde(rename = "event.outcome", skip_serializing_if = "Option::is_none")]
+    pub event_outcome: Option<String>,
+
     /// Event severity (numeric)
     #[serde(rename = "event.severity", skip_serializing_if = "Option::is_none")]
     pub event_severity: Option<u8>,
@@ -677,6 +681,11 @@ pub struct EcsAlert {
     /// Windows field name can never collide with an ECS one.
     #[serde(rename = "edr.security", skip_serializing_if = "Option::is_none")]
     pub edr_security: Option<BTreeMap<String, String>>,
+
+    /// The parsed Linux auth log record (`auth_log`), under its Sigma field
+    /// names. Users, address and process are also copied to ECS fields.
+    #[serde(rename = "edr.auth_log", skip_serializing_if = "Option::is_none")]
+    pub edr_auth_log: Option<BTreeMap<String, String>>,
 
     // ========================================================================
     // Related Fields

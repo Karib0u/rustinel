@@ -50,6 +50,7 @@ nav = [
         { "Alert and recording format" = "output.md" },
         { "Sigma support" = "sigma.md" },
         { "Windows Security events" = "windows-security-events.md" },
+        { "Linux authentication events" = "linux-auth-log.md" },
         { "Field availability" = "field-availability.md" },
         { "Doctor checks" = "doctor.md" },
         { "telemetry.json" = "telemetry.md" },

@@ -79,6 +79,8 @@ The informational `field_fidelity` result lists counts of populated fields with 
 | `linux_ebpf` | A kernel ring or map filled, records were short or unusable, file paths could not be rebuilt, or counters do not add up |
 | `linux_ebpf_<feature>_capability` | A kernel hook is missing, so that feature is degraded. The rest keeps working |
 | `linux_task_<field>` | A process identity field is unavailable on this kernel |
+| `linux_journal_auth` | The auth journal reader stopped, restarted, dropped events, or could not resume, see [`linux_journal`](telemetry.md#linux_journal) |
+| `linux_journal_auth_retention` | Journal retention removed records after the saved cursor while Rustinel was stopped |
 | `macos_esf_kernel_loss`, `macos_bpf_kernel_loss` | Endpoint Security or packet capture dropped events |
 | `macos_bpf_interface_<name>` | Capture on that interface failed or dropped packets |
 | `registry_path_resolution` | Fewer than 99.9% of registry writes had a key path (Windows) |

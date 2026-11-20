@@ -17,6 +17,7 @@
 | Security audit events | ✓ ³ | | |
 | Microsoft Defender Operational events | ✓ | | |
 | Application channel events | ✓ | | |
+| Authentication: sshd, sudo, su, PAM | ✓ ³ | ✓ ⁵ | |
 | Driver loads | ✓ | | |
 
 1. Captured from the network and matched to a process on a best-effort basis.
@@ -25,6 +26,8 @@
 3. Needs host policy, see [Windows host logging](windows-logging.md).
 4. Image-load rules receive live DLL loads.
    This is a dense event stream, so enabling a broad rule corpus can increase CPU and memory use during DLL-heavy workloads.
+5. Read from the systemd journal, see [Linux authentication events](linux-auth-log.md).
+   Hosts without journald have none.
 
 macOS support is experimental.
 Detailed gaps are in [Limitations](limitations.md).
@@ -72,7 +75,7 @@ Rules that load against a collector on each platform:
 | Linux | 178 |
 | macOS | 86 |
 
-The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `auditd`.
+The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `cron` or `syslog`.
 
 ## Rules that load but never fire
 
@@ -99,7 +102,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
 | `sysmon` | windows | 219 | 1150 | 67 |
-| `sysmon` | linux | 19 | 51 | 15 |
+| `sysmon` | linux | 129 | 148 | 47 |
 | `sysmon` | macos | 27 | 28 | 28 |
 | `auditd` | linux | 15 | 23 | 47 |
 

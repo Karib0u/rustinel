@@ -337,6 +337,7 @@ fn pipeline_results(snapshot: TelemetrySnapshot) -> Vec<DiagnosticResult> {
     results.extend(file_attribution_results(&snapshot));
     results.extend(etw_decode_results(&snapshot));
     results.extend(event_log_results(&snapshot));
+    results.extend(linux_journal_results(&snapshot));
 
     results.extend(process_correlation_results(&snapshot));
     results.extend(field_contract_results(&snapshot));
@@ -743,6 +744,52 @@ fn event_log_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
     results
 }
 
+fn linux_journal_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
+    let Some(journal) = &snapshot.linux_journal else {
+        return Vec::new();
+    };
+    let id = "linux_journal_auth";
+    let detail = format!(
+        "active={}, read={}, delivered={}, dropped={}, untrusted={}, same_user={}, \
+         decode_errors={}, reader_restarts={}, resume_failures={}, checkpoint_errors={}, \
+         last_error={}",
+        journal.active,
+        journal.read,
+        journal.delivered,
+        journal.dropped,
+        journal.untrusted,
+        journal.same_user,
+        journal.decode_errors,
+        journal.reader_restarts,
+        journal.resume_failures,
+        journal.checkpoint_errors,
+        journal.last_error.as_deref().unwrap_or("none"),
+    );
+    let mut results = vec![if journal.degraded() {
+        DiagnosticResult::warn(
+            id,
+            "Linux auth journal reader is stopped or degraded",
+            detail,
+        )
+    } else {
+        DiagnosticResult::pass(id, detail)
+    }];
+    let retention_id = format!("{id}_retention");
+    results.push(if journal.retention_wraps > 0 {
+        DiagnosticResult::warn(
+            retention_id,
+            "Journal retention passed the saved auth cursor",
+            format!(
+                "{} downtime retention incidents; auth records lost is unknown",
+                journal.retention_wraps
+            ),
+        )
+    } else {
+        DiagnosticResult::pass(retention_id, "No downtime retention wrap detected")
+    });
+    results
+}
+
 fn process_correlation_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
     let mut results = Vec::new();
     let correlation = &snapshot.windows_process_correlation;
@@ -1139,6 +1186,46 @@ mod tests {
     };
 
     #[test]
+    fn linux_journal_health_and_retention_are_reported() {
+        let mut report = snapshot(Vec::new());
+        assert!(linux_journal_results(&report).is_empty());
+        report.linux_journal = Some(crate::telemetry::LinuxJournalSnapshot {
+            source: "auth".into(),
+            active: true,
+            read: 10,
+            delivered: 9,
+            untrusted: 1,
+            last_seqnum: Some(362_063),
+            ..Default::default()
+        });
+        // A forged line dropped by the trust gate is expected, not degraded.
+        assert!(linux_journal_results(&report)
+            .iter()
+            .all(|r| r.status == DiagnosticStatus::Pass));
+        let journal = report.linux_journal.as_mut().unwrap();
+        journal.reader_restarts = 1;
+        journal.last_error = Some("journalctl exited with status 1".into());
+        let results = linux_journal_results(&report);
+        assert_eq!(results[0].status, DiagnosticStatus::Warn);
+        assert!(results[0]
+            .detail
+            .as_ref()
+            .unwrap()
+            .contains("journalctl exited"));
+        assert_eq!(results[1].status, DiagnosticStatus::Pass);
+        report.linux_journal.as_mut().unwrap().retention_wraps = 1;
+        assert_eq!(
+            linux_journal_results(&report)[1].status,
+            DiagnosticStatus::Warn
+        );
+        let json = serde_json::to_string(&report).unwrap();
+        assert_eq!(
+            serde_json::from_str::<TelemetrySnapshot>(&json).unwrap(),
+            report
+        );
+    }
+
+    #[test]
     fn event_log_health_and_retention_are_separate_from_shedding() {
         let mut report = snapshot(Vec::new());
         assert!(event_log_results(&report).is_empty());
@@ -1272,6 +1359,7 @@ mod tests {
             linux_ebpf: None,
             macos_collectors: None,
             windows_event_log: Vec::new(),
+            linux_journal: None,
             windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,

@@ -17,6 +17,7 @@ All counters start at zero when the agent starts.
 | `linux_ebpf` | Linux kernel and userspace counters |
 | `macos_collectors` | macOS Endpoint Security and packet capture loss |
 | `windows_event_log` | Windows Event Log subscription health, one entry per channel |
+| `linux_journal` | Linux auth journal reader health |
 | `field_fidelity` | Counts by populated field and [fidelity limitation](output.md#field-provenance) at normalization |
 | `field_contract_violations` | Count of populated canonical fields declared `Never` by the matching field-availability contract |
 | `windows_process_command_line` | Windows process starts with and without a command line |
@@ -182,6 +183,29 @@ At startup, a missing channel is retried the same way instead of stopping startu
 
 The read position is saved under `event-log/` in the log directory.
 Keep it when rotating logs, or Rustinel restarts from the oldest record.
+
+## `linux_journal`
+
+The reader of the `auth` and `authpriv` facilities in the systemd journal, see [Linux authentication events](linux-auth-log.md).
+
+| Field | Meaning |
+| --- | --- |
+| `active` | A journalctl reader is running |
+| `read` | Records journalctl printed |
+| `delivered` | Events handed to the pipeline |
+| `dropped` | Events refused because the sensor queue was full |
+| `untrusted` | Records whose sender was not shown to be privileged, such as a `logger` line from an ordinary user. Expected, not loss |
+| `same_user` | sudo and su records kept because the invoker they name is the sender's own user ID. Included in `delivered` |
+| `reader_restarts` | Times journalctl exited and was restarted from the saved cursor |
+| `resume_failures` | Starts whose saved cursor belonged to another journal, such as after a reboot with a volatile journal |
+| `retention_wraps` | Starts at which journal retention had removed records after the saved cursor |
+| `checkpoint_errors`, `decode_errors` | Failures reading or saving the cursor, or reading a record |
+| `last_seqnum` | journald sequence number of the last record read |
+| `last_error` | The most recent error |
+
+The reader restarts after 1 second, doubling up to 60 seconds, and never stops the agent.
+The cursor is saved under `journal/` in the log directory.
+Keep it when rotating logs, or Rustinel restarts at the end of the journal and misses what happened while it was stopped.
 
 ## Windows process sections
 

@@ -61,6 +61,8 @@ fn action_code_for_record(
         EventCategory::Security => 0,
         EventCategory::Defender => 0,
         EventCategory::Application => 0,
+        // Linux journal records never reach the ETW mapping.
+        EventCategory::AuthLog => 0,
     }
 }
 
@@ -101,6 +103,7 @@ fn raw_event_id_for_record(
         EventCategory::Security => record.event_id(),
         EventCategory::Defender => record.event_id(),
         EventCategory::Application => record.event_id(),
+        EventCategory::AuthLog => record.event_id(),
     }
 }
 
@@ -145,7 +148,8 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
         | EventCategory::Task
         | EventCategory::Security
         | EventCategory::Defender
-        | EventCategory::Application => raw_event_id,
+        | EventCategory::Application
+        | EventCategory::AuthLog => raw_event_id,
     }
 }
 

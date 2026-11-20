@@ -407,6 +407,7 @@ impl EtwRouting {
             | EventCategory::DriverLoad
             | EventCategory::Scripting
             | EventCategory::PowerShellModule => unreachable!(),
+            EventCategory::AuthLog => unreachable!("auth log records come from the Linux journal"),
         };
 
         Some((category, action))

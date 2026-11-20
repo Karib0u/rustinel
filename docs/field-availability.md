@@ -30,6 +30,22 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints (IA32 CommandLine observed on x86-64)` | `key` | an audit key is a label an operator configures on an audit rule; it is not a fact about the event, so the view never manufactures one |
 | `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints (IA32 CommandLine observed on x86-64)` | `nametype` | exec telemetry does not model per-path name types |
 | `auditd` | linux | `process_creation` | `1 / start` | `execve tracepoints (IA32 CommandLine observed on x86-64)` | `unit` | no Rustinel sensor produces service start or stop records, which carry `unit` |
+| `sysmon` | linux | `auth_log` | `0, 5, 6` | `other privileged auth facility writers` | `Outcome` | the line reports no authentication outcome: a session boundary or an unparsed line |
+| `sysmon` | linux | `auth_log` | `5, 6` | `other privileged auth facility writers` | `SourceIp` | the line names no remote address |
+| `sysmon` | linux | `auth_log` | `6` | `other privileged auth facility writers` | `TargetUserId` | pam_unix names only the user when a session closes |
+| `sysmon` | linux | `auth_log` | `0` | `other privileged auth facility writers` | `TargetUserName` | no parser claimed the line; match its text through `Message` |
+| `sysmon` | linux | `auth_log` | `0, 5, 6` | `sshd` | `Outcome` | the line reports no authentication outcome: a session boundary or an unparsed line |
+| `sysmon` | linux | `auth_log` | `5, 6` | `sshd` | `SourceIp` | the line names no remote address |
+| `sysmon` | linux | `auth_log` | `6` | `sshd` | `TargetUserId` | pam_unix names only the user when a session closes |
+| `sysmon` | linux | `auth_log` | `0` | `sshd` | `TargetUserName` | no parser claimed the line; match its text through `Message` |
+| `sysmon` | linux | `auth_log` | `0, 5, 6` | `su` | `Outcome` | the line reports no authentication outcome: a session boundary or an unparsed line |
+| `sysmon` | linux | `auth_log` | `10, 5, 6, 9` | `su` | `SourceIp` | the line names no remote address |
+| `sysmon` | linux | `auth_log` | `6` | `su` | `TargetUserId` | pam_unix names only the user when a session closes |
+| `sysmon` | linux | `auth_log` | `0` | `su` | `TargetUserName` | no parser claimed the line; match its text through `Message` |
+| `sysmon` | linux | `auth_log` | `0, 5, 6` | `sudo` | `Outcome` | the line reports no authentication outcome: a session boundary or an unparsed line |
+| `sysmon` | linux | `auth_log` | `5, 6, 7, 8` | `sudo` | `SourceIp` | the line names no remote address |
+| `sysmon` | linux | `auth_log` | `6` | `sudo` | `TargetUserId` | pam_unix names only the user when a session closes |
+| `sysmon` | linux | `auth_log` | `0` | `sudo` | `TargetUserName` | no parser claimed the line; match its text through `Message` |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |

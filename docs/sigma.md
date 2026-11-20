@@ -112,6 +112,7 @@ Stable reason codes in schema version 1 are:
 | `service: windefend` | ✓ | | |
 | `category: antivirus` (no product) | ✓ | | |
 | `service: auditd` | | ✓ | |
+| `service: auth`, `service: sshd`, `service: sudo` | | ✓ | |
 
 A rule whose `product` does not match the platform is skipped.
 A rule for a logsource the platform does not collect loads but never fires.
@@ -167,6 +168,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | Service (7045) | `ServiceName`, `ImagePath` (also `ServiceFileName`), `ServiceType`, `StartType`, `AccountName`, `Provider_Name` |
 | Defender Operational | `Provider_Name` and the native fields for each event ID, including `Old Value`, `New Value`, `Feature Name`, `Threat Name`, and `Path`. Rule aliases such as `OldValue`, `NewValue`, `Feature_Name`, and `ThreatName` are also available. Detections (1116 and 1117) also carry `Signature` (the threat name) and `Filename` (the first `file:_` resource of `Path`, without the prefix), which is what SigmaHQ's `category: antivirus` rules select on. |
 | Application channel | `Provider_Name`, `Level`, `Data`; Application Error 1000 also has `AppName`, `AppVersion`, `ModuleName`, `ExceptionCode` when present |
+| Linux auth log | `Message`, `Program`, `Outcome`, `Service`, `TargetUserName`, `SubjectUserName`, `SourceIp`, `SourcePort`, `AuthenticationMethod`, and sudo's `USER`, `COMMAND`, `PWD`, see [Linux authentication events](linux-auth-log.md) |
 | PowerShell | `ScriptBlockText`, `ScriptBlockId`, `Path` (`ps_script`); `ContextInfo`, `Payload` (`ps_module`); `Data` (`ps_classic_start`) |
 | WMI Operational | `EventNamespace`, `Query`, `User`, `ProcessId`, `PossibleCause`; 5857 has `ProviderName`, `ProviderPath`, `HostProcess`, and `Code`; 5861 also has `FilterName`, `ConsumerClass`, `ConsumerName`, `ConsumerText`, and `Destination` |
 
@@ -206,6 +208,12 @@ Things that differ from Sysmon:
 - **Security events** keep Windows' formatting: `SubjectLogonId` is `0x3e4`, not `996`, and `AccessList` holds `%%4417`-style codes.
 - **PowerShell `ContextInfo` and `Payload`** are free text in the host's display language.
 - **Classic PowerShell `Data`** is the raw event 400 engine-start description from the `Windows PowerShell` channel.
+
+## Linux authentication events
+
+Rules with `service: auth`, `sshd`, or `sudo` match records from the systemd journal.
+`EventID` names what the line reports, and keyword rules match the full `Message`.
+The IDs, fields, and limits are in [Linux authentication events](linux-auth-log.md).
 
 ## Windows Security events
 

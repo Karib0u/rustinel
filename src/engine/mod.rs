@@ -811,12 +811,34 @@ detection:
     fn deferred_linux_logsource_is_reported() {
         let classification = linux_engine().classify_logsource(&logsource(
             Some("linux"),
-            Some("sshd"),
+            Some("cron"),
             Some("process_creation"),
         ));
 
         assert_eq!(classification.status, LogSourceStatus::Deferred);
         assert_eq!(classification.collector_active, None);
+    }
+
+    #[test]
+    fn linux_auth_services_are_backed_by_the_journal() {
+        for service in ["auth", "sshd", "sudo"] {
+            let classification =
+                linux_engine().classify_logsource(&logsource(Some("linux"), Some(service), None));
+            assert_eq!(
+                classification.status,
+                LogSourceStatus::Supported,
+                "{service}"
+            );
+            assert_eq!(classification.collector_active, Some(true), "{service}");
+        }
+        // Journal records carry no Sigma category, so no collector produces
+        // an sshd process creation.
+        let classification = linux_engine().classify_logsource(&logsource(
+            Some("linux"),
+            Some("sshd"),
+            Some("process_creation"),
+        ));
+        assert_eq!(classification.status, LogSourceStatus::Unknown);
     }
 
     #[test]

@@ -565,6 +565,10 @@ pub struct TelemetrySnapshot {
     /// Per-channel Event Log health, separate from ETW and queue shedding.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub windows_event_log: Vec<super::EventLogSnapshot>,
+    /// Linux auth journal reader health. Absent on other platforms, when the
+    /// reader never started, and on snapshots written before #644.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linux_journal: Option<super::LinuxJournalSnapshot>,
     /// Classic/manifest source correlation outcomes.
     #[serde(default)]
     pub windows_process_correlation: super::ProcessCorrelationSnapshot,
@@ -613,6 +617,7 @@ impl TelemetrySnapshot {
             linux_ebpf: sensors.linux_ebpf,
             macos_collectors: sensors.macos_collectors,
             windows_event_log: sensors.windows_event_log,
+            linux_journal: sensors.linux_journal,
             windows_process_correlation: sensors.process_correlation,
             windows_process_command_line: sensors.process_command_line,
             registry: sensors.registry,
@@ -735,6 +740,7 @@ pub struct SensorTelemetry {
     pub field_contract_violations: u64,
     pub macos_collectors: Option<super::MacosCollectorSnapshot>,
     pub windows_event_log: Vec<super::EventLogSnapshot>,
+    pub linux_journal: Option<super::LinuxJournalSnapshot>,
 }
 
 /// Outcome of reading the snapshot file.
@@ -871,6 +877,7 @@ mod tests {
             linux_ebpf: None,
             macos_collectors: None,
             windows_event_log: Vec::new(),
+            linux_journal: None,
             windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,

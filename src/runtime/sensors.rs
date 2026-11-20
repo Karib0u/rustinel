@@ -97,7 +97,7 @@ impl Member {
         }
     }
 
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(windows, allow(dead_code))]
     pub fn best_effort(
         name: &'static str,
         consequence: &'static str,

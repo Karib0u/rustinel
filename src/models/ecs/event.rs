@@ -1,4 +1,5 @@
 use super::EVENT_MODULE;
+use crate::models::auth_log::AuthKind;
 use crate::models::event_actions;
 use crate::models::{Alert, AlertSeverity, EventCategory};
 use crate::vocab::Platform;
@@ -44,6 +45,12 @@ pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<
             }
         }
         EventCategory::Application => vec!["configuration".to_string()],
+        EventCategory::AuthLog => match AuthKind::from_event_id(event_id) {
+            Some(AuthKind::PamSessionOpened | AuthKind::PamSessionClosed) => {
+                vec!["session".to_string()]
+            }
+            _ => vec!["authentication".to_string()],
+        },
     }
 }
 
@@ -231,6 +238,19 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
             }
         }
         EventCategory::Application => vec!["info".to_string()],
+        EventCategory::AuthLog => match AuthKind::from_event_id(event_id) {
+            Some(
+                AuthKind::SshAccepted
+                | AuthKind::SshFailed
+                | AuthKind::SshInvalidUser
+                | AuthKind::PamAuthFailure
+                | AuthKind::SuSuccess
+                | AuthKind::SuFailed
+                | AuthKind::PamSessionOpened,
+            ) => vec!["start".to_string()],
+            Some(AuthKind::PamSessionClosed) => vec!["end".to_string()],
+            _ => vec!["info".to_string()],
+        },
     }
 }
 
@@ -271,6 +291,9 @@ pub(super) fn ecs_event_action(
         EventCategory::Security => security_event_shape(event_id).action,
         EventCategory::Defender => "defender-event",
         EventCategory::Application => "application-event",
+        EventCategory::AuthLog => {
+            AuthKind::from_event_id(event_id).map_or("auth-log", AuthKind::ecs_action)
+        }
     };
     Some(action.to_string())
 }
@@ -293,6 +316,7 @@ pub(super) fn event_dataset(category: EventCategory) -> String {
         EventCategory::Security => "security",
         EventCategory::Defender => "windefend",
         EventCategory::Application => "application",
+        EventCategory::AuthLog => "auth_log",
     };
     format!("{}.{}", EVENT_MODULE, suffix)
 }
