@@ -174,9 +174,17 @@ impl Sensor for EbpfSensor {
 
         validate_object_abi(bytes).context("refusing to load incompatible eBPF object")?;
         let layouts = TracepointLayouts::probe();
+        let task_plans = super::task_btf::TaskPlans::load();
         let io_uring = super::tracepoint_format::io_uring_submission();
+        let ia32 = task_plans
+            .ia32_status_offset
+            .and_then(|status| Ok((status, super::tracepoint_format::raw_syscall_exit()?)));
+        let (ia32_status, (syscall_id, syscall_ret)) = ia32.as_ref().copied().unwrap_or_default();
         let activity_offsets = ActivityOffsets {
             io_uring_sq_thread: io_uring.as_ref().map_or(0, |(_, offset)| *offset),
+            ia32_status,
+            syscall_id,
+            syscall_ret,
         };
         let mut loader = EbpfLoader::new();
         loader
@@ -194,7 +202,6 @@ impl Sensor for EbpfSensor {
         };
         super::syscall_cpus::raise_open_file_limit();
 
-        let task_plans = super::task_btf::TaskPlans::load();
         for (diagnostic, reason) in &task_plans.warnings {
             warn!(%diagnostic, %reason, "kernel process identity field disabled");
         }
@@ -440,7 +447,11 @@ impl Sensor for EbpfSensor {
             bpf.take_map("LINUX_EBPF_COUNTERS")
                 .context("LINUX_EBPF_COUNTERS map not found in eBPF object")?,
         )?;
-        let activity = activity::ActivityMonitor::attach(&mut bpf, io_uring)?;
+        let activity = activity::ActivityMonitor::attach(
+            &mut bpf,
+            io_uring.map(|(name, _)| name),
+            ia32.map(|_| ()),
+        )?;
         bpf.counters().activate();
 
         // ── Spawn polling task ───────────────────────────────────────────────
@@ -513,6 +524,7 @@ async fn run_ring_poll(
     loop {
         if shutdown.load(Ordering::Relaxed) {
             let _ = refresh_kernel_counters(&kernel_counters, telemetry);
+            activity.refresh(telemetry);
             info!("eBPF sensor shutting down");
             break;
         }

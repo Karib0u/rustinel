@@ -62,7 +62,7 @@ pub use rustinel_ebpf_common::{file_identity_abi, socket_tuple_abi, task_identit
 /// program. Keep it in sync with `LINUX_EBPF_ABI_VERSION` in the loader.
 #[used]
 #[no_mangle]
-pub static RUSTINEL_ABI_VERSION: u32 = 8;
+pub static RUSTINEL_ABI_VERSION: u32 = 9;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

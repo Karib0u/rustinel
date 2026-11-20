@@ -1,0 +1,12 @@
+[
+  {"name": "openat success", "id": 295, "status": 2, "result": 3, "counted": true},
+  {"name": "creat success", "id": 8, "status": 2, "result": 3, "counted": true},
+  {"name": "unlinkat success", "id": 301, "status": 2, "result": 0, "counted": true},
+  {"name": "renameat2 success", "id": 353, "status": 2, "result": 0, "counted": true},
+  {"name": "mkdirat success", "id": 296, "status": 2, "result": 0, "counted": true},
+  {"name": "rmdir success", "id": 40, "status": 2, "result": 0, "counted": true},
+  {"name": "operation failed", "id": 301, "status": 2, "result": -2, "counted": false},
+  {"name": "native number overlap", "id": 5, "status": 0, "result": 0, "counted": false},
+  {"name": "unrelated thread status", "id": 8, "status": 4, "result": 0, "counted": false},
+  {"name": "unrelated IA32 syscall", "id": 20, "status": 2, "result": 0, "counted": false}
+]

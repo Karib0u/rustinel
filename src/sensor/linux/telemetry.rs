@@ -279,6 +279,7 @@ fn linux_feature_is_active(feature: &LinuxEbpfFeatureSnapshot) -> bool {
     match feature.feature.as_str() {
         "process" => attached("handle_exec"),
         "io_uring_activity" => attached("handle_io_uring_submit"),
+        "ia32_file_activity" => attached("handle_ia32_file_exit"),
         "network" => {
             (attached("handle_connect") && attached("handle_connect_exit"))
                 || (attached("handle_stream_connect") && attached("handle_dgram_connect"))

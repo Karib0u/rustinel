@@ -643,6 +643,16 @@ pub(super) fn io_uring_submission() -> Result<(&'static str, u32)> {
     bail!("io_uring submission tracepoint is unavailable")
 }
 
+pub(super) fn raw_syscall_exit() -> Result<(u32, u32)> {
+    let fields = resolve_fields(
+        "raw_syscalls",
+        "sys_exit",
+        &[FieldSpec::one("id", 8), FieldSpec::one("ret", 8)],
+    )
+    .context("reading raw_syscalls/sys_exit layout")?;
+    Ok((fields[0], fields[1]))
+}
+
 /// The tracefs id of a tracepoint, as `perf_event_open` takes it.
 pub(super) fn tracepoint_id(category: &str, name: &str) -> Result<u64> {
     let path = find_file(category, name, "id").context("tracepoint is unavailable")?;

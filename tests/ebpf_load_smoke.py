@@ -208,14 +208,30 @@ def assert_activity_capability(ebpf, feature_name, sample_kind, supported):
     print(f"{feature_name}: {'active' if supported else 'prerequisites unavailable'}")
 
 
+def tracepoint_format(category, name):
+    for mount in ("/sys/kernel/tracing", "/sys/kernel/debug/tracing"):
+        event = Path(mount) / "events" / category / name
+        if (event / "id").exists():
+            return (event / "format").read_text(encoding="utf-8")
+    return ""
+
+
 def io_uring_submission_available():
     for name in ("io_uring_submit_req", "io_uring_submit_sqe"):
-        for mount in ("/sys/kernel/tracing", "/sys/kernel/debug/tracing"):
-            event = Path(mount) / "events" / "io_uring" / name
-            if (event / "id").exists():
-                layout = (event / "format").read_text(encoding="utf-8")
-                return re.search(r"\bsq_thread;\s*offset:\d+;\s*size:1;", layout) is not None
+        layout = tracepoint_format("io_uring", name)
+        if layout:
+            return re.search(r"\bsq_thread;\s*offset:\d+;\s*size:1;", layout) is not None
     return False
+
+
+def ia32_file_activity_available():
+    if os.uname().machine != "x86_64" or not Path("/sys/kernel/btf/vmlinux").is_file():
+        return False
+    layout = tracepoint_format("raw_syscalls", "sys_exit")
+    if not all(re.search(rf"\b{field};\s*offset:\d+;\s*size:8;", layout) for field in ("id", "ret")):
+        return False
+    with Path("/proc/kallsyms").open(encoding="utf-8") as symbols:
+        return any(line.rstrip().endswith(" __ia32_sys_openat") for line in symbols)
 
 
 def assert_results(logs_dir, expected_degradations, run_dir):
@@ -230,6 +246,10 @@ def assert_results(logs_dir, expected_degradations, run_dir):
     assert_activity_capability(
         telemetry["linux_ebpf"], "io_uring_activity", "io_uring_submissions",
         io_uring_submission_available(),
+    )
+    assert_activity_capability(
+        telemetry["linux_ebpf"], "ia32_file_activity", "ia32_file_syscalls",
+        ia32_file_activity_available(),
     )
 
     alerts = []

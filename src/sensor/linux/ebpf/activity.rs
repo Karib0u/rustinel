@@ -3,15 +3,12 @@
 use anyhow::{Context, Result};
 use aya::maps::{HashMap, MapData, PerCpuArray};
 use rustinel_ebpf_common::activity_abi::{
-    ActivityLoss, ActivityProcessKey, IO_URING_ACTIVITY_INDEX,
+    ActivityLoss, ActivityProcessKey, IA32_FILE_ACTIVITY_INDEX, IO_URING_ACTIVITY_INDEX,
 };
 use tracing::warn;
 
 use super::{try_attach_tracepoint, LinuxEbpfCounters, LoadedEbpf};
 use crate::telemetry::{LinuxActivityProcessSnapshot, LinuxActivitySnapshot};
-
-const IO_URING_FEATURE: &str = "io_uring_activity";
-const IO_URING_PROGRAM: &str = "handle_io_uring_submit";
 
 pub(super) struct ActivityMonitor {
     sources: Vec<ActivitySource>,
@@ -24,34 +21,62 @@ struct ActivitySource {
     counts: HashMap<MapData, ActivityProcessKey, u64>,
 }
 
+struct SourceSpec {
+    feature: &'static str,
+    program: &'static str,
+    map: &'static str,
+    kind: &'static str,
+    index: u32,
+}
+
+const IO_URING: SourceSpec = SourceSpec {
+    feature: "io_uring_activity",
+    program: "handle_io_uring_submit",
+    map: "IO_URING_ACTIVITY",
+    kind: "io_uring_submissions",
+    index: IO_URING_ACTIVITY_INDEX,
+};
+
+const IA32_FILE: SourceSpec = SourceSpec {
+    feature: "ia32_file_activity",
+    program: "handle_ia32_file_exit",
+    map: "IA32_FILE_ACTIVITY",
+    kind: "ia32_file_syscalls",
+    index: IA32_FILE_ACTIVITY_INDEX,
+};
+
 impl ActivityMonitor {
-    pub(super) fn attach(bpf: &mut LoadedEbpf, io_uring: Result<(&str, u32)>) -> Result<Self> {
+    pub(super) fn attach(
+        bpf: &mut LoadedEbpf,
+        io_uring: Result<&str>,
+        ia32: Result<()>,
+    ) -> Result<Self> {
         let mut sources = Vec::new();
-        let attached = io_uring.and_then(|(tracepoint, _)| {
-            try_attach_tracepoint(bpf, IO_URING_PROGRAM, "io_uring", tracepoint)
-        });
-        match attached {
-            Ok(()) => {
-                bpf.counters()
-                    .record_hook(IO_URING_FEATURE, IO_URING_PROGRAM, true, None);
-                sources.push(ActivitySource {
-                    kind: "io_uring_submissions",
-                    index: IO_URING_ACTIVITY_INDEX,
-                    counts: HashMap::try_from(
-                        bpf.take_map("IO_URING_ACTIVITY")
-                            .context("missing io_uring activity map")?,
-                    )?,
-                });
-            }
-            Err(error) => {
-                let reason = format!("{error:#}");
-                bpf.counters().record_hook(
-                    IO_URING_FEATURE,
-                    IO_URING_PROGRAM,
-                    false,
-                    Some(&reason),
-                );
-                warn!(feature = IO_URING_FEATURE, %reason, "Linux activity hook unavailable");
+        for (spec, tracepoint) in [
+            (IO_URING, io_uring.map(|name| ("io_uring", name))),
+            (IA32_FILE, ia32.map(|()| ("raw_syscalls", "sys_exit"))),
+        ] {
+            let attached = tracepoint.and_then(|(category, name)| {
+                try_attach_tracepoint(bpf, spec.program, category, name)
+            });
+            match attached {
+                Ok(()) => {
+                    bpf.counters()
+                        .record_hook(spec.feature, spec.program, true, None);
+                    sources.push(ActivitySource {
+                        kind: spec.kind,
+                        index: spec.index,
+                        counts: HashMap::try_from(bpf.take_map(spec.map).with_context(|| {
+                            format!("missing Linux activity map {}", spec.map)
+                        })?)?,
+                    });
+                }
+                Err(error) => {
+                    let reason = format!("{error:#}");
+                    bpf.counters()
+                        .record_hook(spec.feature, spec.program, false, Some(&reason));
+                    warn!(feature = spec.feature, %reason, "Linux activity hook unavailable");
+                }
             }
         }
         let loss = PerCpuArray::try_from(
@@ -140,5 +165,31 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(serde_json::to_value(row).unwrap(), expected);
+    }
+
+    #[test]
+    fn ia32_file_activity_classifies_synthetic_syscall_exits() {
+        use rustinel_ebpf_common::activity_abi::{ia32_file_syscall, ia32_successful_exit};
+
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            id: i64,
+            status: u32,
+            result: i64,
+            counted: bool,
+        }
+        let cases: Vec<Case> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/linux_file_coverage/ia32_file_exit.json"
+        ))
+        .unwrap();
+        for case in cases {
+            assert_eq!(
+                ia32_file_syscall(case.id) && ia32_successful_exit(case.status, case.result),
+                case.counted,
+                "{}",
+                case.name
+            );
+        }
     }
 }

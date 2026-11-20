@@ -21,6 +21,7 @@ pub const FIELD_NAMES: [&str; FIELD_COUNT] = [
 pub struct TaskPlans {
     pub plans: [ReadPlan; FIELD_COUNT],
     pub warnings: Vec<(String, String)>,
+    pub ia32_status_offset: Result<u32>,
 }
 
 impl TaskPlans {
@@ -36,6 +37,14 @@ impl TaskPlans {
         let mut result = Self {
             plans: [ReadPlan::default(); FIELD_COUNT],
             warnings: Vec::new(),
+            ia32_status_offset: if !cfg!(target_arch = "x86_64") {
+                Err(anyhow!("IA32 activity requires an x86-64 host"))
+            } else {
+                match &btf {
+                    Ok(btf) => btf.ia32_status_offset(),
+                    Err(error) => Err(anyhow!("{error:#}")),
+                }
+            },
         };
         for (index, name) in FIELD_NAMES.iter().enumerate() {
             let plan = match &btf {
@@ -227,6 +236,31 @@ impl Btf {
             }
         }
         bail!("missing or unsupported member {}.{name}", ty.name)
+    }
+
+    fn ia32_status_offset(&self) -> Result<u32> {
+        ensure!(
+            self.types
+                .iter()
+                .any(|ty| ty.kind == 12 && ty.name == "__ia32_sys_openat"),
+            "kernel BTF has no IA32 emulation syscall"
+        );
+        let task = self
+            .types
+            .iter()
+            .find(|ty| ty.kind == 4 && ty.name == "task_struct")
+            .context("missing task_struct")?;
+        let (thread_offset, thread_ty) = self.member(task, "thread_info", 0)?;
+        let (status_offset, status_ty) = self.member(self.ty(thread_ty)?, "status", 0)?;
+        self.scalar(self.ty(status_ty)?, 4)?;
+        let offset = thread_offset
+            .checked_add(status_offset)
+            .context("IA32 status offset overflow")?;
+        ensure!(
+            offset <= task.size_type.saturating_sub(4),
+            "IA32 status outside task_struct"
+        );
+        Ok(offset)
     }
 
     fn plan(&self, field: usize) -> Result<ReadPlan> {
@@ -577,6 +611,26 @@ fn dentry_program(prefix: &'static str, index: usize) -> Result<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn ia32_status_offset_on_running_kernel() {
+        let symbols = std::fs::read_to_string("/proc/kallsyms").unwrap_or_default();
+        if !std::path::Path::new(BTF_PATH).exists()
+            || !symbols
+                .lines()
+                .any(|line| line.ends_with(" __ia32_sys_openat"))
+        {
+            eprintln!("RUSTINEL_TEST_SKIPPED ia32_status_offset_on_running_kernel: IA32 kernel BTF unavailable");
+            return;
+        }
+        let plans = TaskPlans::load();
+        assert!(
+            plans.ia32_status_offset.is_ok(),
+            "{:?}",
+            plans.ia32_status_offset
+        );
+    }
 
     fn fixture(cred_offset: u32, euid_offset: u32, euid_name: &str, width: u32) -> Vec<u8> {
         let mut strings = vec![0];
