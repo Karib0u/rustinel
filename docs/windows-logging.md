@@ -153,8 +153,16 @@ It is written when a process reads a stored credential, and it is collected by d
 
 ## PowerShell module logging
 
-Rustinel collects event 4103 from Windows PowerShell 5.1 when Module Logging is enabled.
-Enable it for all modules:
+Rustinel collects event 4103 as `ps_module` from Windows PowerShell 5.1 and PowerShell 7 on Windows when Module Logging is enabled.
+Enable *Turn on Module Logging* in the Group Policy folder for each engine.
+
+| Engine | Group Policy folder | Registry key under `HKLM:\SOFTWARE\Policies\Microsoft\` |
+| --- | --- | --- |
+| Windows PowerShell 5.1 | Windows Components > Windows PowerShell | `Windows\PowerShell\ModuleLogging` |
+| PowerShell 7 | PowerShell Core | `PowerShellCore\ModuleLogging` |
+
+Set `EnableModuleLogging` to DWORD `1` and list the required modules under `ModuleNames`.
+Use `*` to log all modules, as in this Windows PowerShell 5.1 example.
 
 ```powershell
 $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging'
@@ -163,8 +171,11 @@ New-ItemProperty -Path $key -Name EnableModuleLogging -Value 1 -PropertyType DWo
 New-ItemProperty -Path "$key\ModuleNames" -Name '*' -Value '*' -PropertyType String -Force
 ```
 
-Or in Group Policy: *Windows Components > Windows PowerShell > Turn on Module Logging*, with module names set to `*`.
 `ModuleNames` must not be empty.
+PowerShell 7 also accepts `ModuleLogging` in `powershell.config.json`.
+[Microsoft PowerShell configuration documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_config#modulelogging)
+
+PowerShell 7 reports `Channel` as `PowerShellCore/Operational` for both module and script block events.
 
 ## PowerShell script block logging
 

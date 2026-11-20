@@ -19,7 +19,7 @@ use std::collections::HashMap;
 /// `filter_matches_routing_allowlist`; a drift would silently delete detections.
 pub(super) const KERNEL_FILE_ROUTED_EVENT_IDS: [u16; 9] = [10, 11, 12, 14, 16, 17, 26, 27, 28];
 
-/// Microsoft-Windows-PowerShell manifest event IDs.
+/// Manifest event IDs shared by Windows PowerShell and PowerShell Core.
 ///
 /// The two carry different Sigma logsources - 4104 is `ps_script`, 4103 is
 /// `ps_module` - and different templates, so they are routed apart before
@@ -44,9 +44,8 @@ fn kernel_process_route(event_id: u16, opcode: u8) -> Option<(EventCategory, Sen
     }
 }
 
-/// One provider, two Sigma logsources: the event ID is the only thing that
-/// separates script block logging from module logging, so the PowerShell
-/// provider cannot be routed on its GUID like the others. Kept in sync with
+/// Both PowerShell providers use event IDs to distinguish the script block
+/// and module logsources. Kept in sync with
 /// [`EtwProviders::POWERSHELL_EVENT_IDS`] by
 /// `powershell_filter_matches_routing_allowlist`.
 pub(super) fn powershell_route(event_id: u16) -> Option<(EventCategory, SensorAction)> {
@@ -378,14 +377,8 @@ impl EtwRouting {
             return kernel_process_route(record.event_id(), record.opcode());
         }
 
-        if provider_guid == self.powershell_guid {
+        if provider_guid == self.powershell_guid || provider_guid == self.powershell_core_guid {
             return powershell_route(record.event_id());
-        }
-
-        if provider_guid == self.powershell_core_guid {
-            return EtwProviders::POWERSHELL_CORE_EVENT_IDS
-                .contains(&record.event_id())
-                .then_some((EventCategory::Scripting, SensorAction::Execute));
         }
 
         let category = *self.guid_to_category.get(&provider_guid)?;

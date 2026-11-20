@@ -84,7 +84,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Existing subscriptions are not enumerated at startup, and removing a binding does not emit another 5861 event.
 - **PowerShell:** script blocks (4104) cover Windows PowerShell 5.1 and PowerShell 7 on Windows, with [separate logging policies](windows-logging.md#powershell-script-block-logging).
   Long script blocks are evaluated one fragment at a time.
-  Module logging (4103) covers Windows PowerShell 5.1, needs host policy, and emits text in the host's language.
+  Module logging (4103) covers both engines, needs [module logging policy](windows-logging.md#powershell-module-logging), and emits text in the host's language.
   Classic engine starts include version 2 through event 400.
 - **No telemetry** for named pipes, process tampering, or network data volume, and not yet for remote threads, process access, or file reads.
   Named pipes and process tampering need a kernel driver.

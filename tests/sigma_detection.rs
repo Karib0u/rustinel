@@ -485,18 +485,23 @@ fn powershell_module_rule_matches_a_module_event() {
     let fixture = SigmaFixture::new();
     fixture.write_ps_module_rule();
     let harness = TestNormalizer::new();
-    let normalized = harness
-        .normalizer
-        .normalize(&powershell_module_event())
-        .expect("module logging event should normalize");
-
     let engine = engine_with(&fixture, Platform::Windows);
-    let alert = engine
-        .check_event(&normalized)
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| panic!("ps_module rule should match"));
-    assert_eq!(alert.rule_name, "Test PowerShell Module Download");
+    for (provider, channel) in [
+        ("etw", "Microsoft-Windows-PowerShell/Operational"),
+        ("etw_powershell_core", "PowerShellCore/Operational"),
+    ] {
+        let mut raw = powershell_module_event();
+        raw.provider = provider;
+        let normalized = harness
+            .normalizer
+            .normalize(&raw)
+            .expect("module logging event should normalize");
+        assert_eq!(normalized.get_field("Channel"), Some(channel));
+
+        let alerts = engine.check_event(&normalized);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].rule_name, "Test PowerShell Module Download");
+    }
 }
 
 #[test]

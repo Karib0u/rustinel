@@ -221,6 +221,12 @@ fn windows_shapes_record_the_verified_channel_names() {
             "Microsoft-Windows-PowerShell/Operational",
         ),
         (
+            "ps_module",
+            4103,
+            "PowerShellCore",
+            "PowerShellCore/Operational",
+        ),
+        (
             "ps_script",
             4104,
             "Microsoft-Windows-PowerShell",

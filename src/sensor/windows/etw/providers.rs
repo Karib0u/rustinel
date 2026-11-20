@@ -103,7 +103,6 @@ impl EtwProviders {
         POWERSHELL_EVENT_MODULE_LOGGING,
         POWERSHELL_EVENT_SCRIPT_BLOCK,
     ];
-    pub(super) const POWERSHELL_CORE_EVENT_IDS: &'static [u16] = &[POWERSHELL_EVENT_SCRIPT_BLOCK];
     // Trace events keep their existing wmi_event route. Operational events
     // 5857-5861 use the service: wmi route and the Operational keyword below.
     // Neither family aliases Sysmon's wmi_event IDs 19, 20, or 21 (#291).
@@ -181,8 +180,8 @@ impl EtwProviders {
             guid: GUID::from(Self::POWERSHELL_CORE_GUID),
             name: "PowerShellCore",
             level: 5,
-            keywords: Self::POWERSHELL_RUNSPACE_KEYWORD,
-            event_ids: Self::POWERSHELL_CORE_EVENT_IDS,
+            keywords: Self::POWERSHELL_KEYWORDS,
+            event_ids: Self::POWERSHELL_EVENT_IDS,
         }
     }
 
@@ -345,11 +344,8 @@ mod tests {
 
         let powershell_core = EtwProviders::powershell_core();
         assert_eq!(powershell_core.level, 5);
-        assert_eq!(
-            powershell_core.keywords,
-            EtwProviders::POWERSHELL_RUNSPACE_KEYWORD
-        );
-        assert_eq!(powershell_core.event_ids, &[4104]);
+        assert_eq!(powershell_core.keywords, powershell.keywords);
+        assert_eq!(powershell_core.event_ids, powershell.event_ids);
 
         assert_eq!(EtwProviders::task_scheduler().event_ids, &[106]);
         assert!(!EtwProviders::WMI_EVENT_IDS.contains(&3));

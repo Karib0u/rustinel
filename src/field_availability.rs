@@ -823,6 +823,39 @@ const WINDOWS_POWERSHELL_MODULE: &[FieldContract] = &[
     ),
 ];
 
+const WINDOWS_POWERSHELL_CORE_MODULE: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_POWERSHELL_CORE,
+        "PowerShellCore/Operational",
+    ),
+    conditional(
+        "ContextInfo",
+        SINCE_POWERSHELL_CORE,
+        "Module Logging is enabled and event 4103 carries context",
+    ),
+    conditional(
+        "Payload",
+        SINCE_POWERSHELL_CORE,
+        "Module Logging is enabled and event 4103 carries a payload",
+    ),
+    conditional(
+        "ProcessId",
+        SINCE_POWERSHELL_CORE,
+        "the ETW header contains a process ID",
+    ),
+    conditional(
+        "Image",
+        SINCE_POWERSHELL_CORE,
+        "derived from the process cache when the process identity is known",
+    ),
+    never(
+        "User",
+        SINCE_POWERSHELL_CORE,
+        "the PowerShellCore 4103 payload has no standalone user field",
+    ),
+];
+
 const WINDOWS_POWERSHELL_CLASSIC_START: &[FieldContract] = &[
     always_value(
         "Channel",
@@ -2587,6 +2620,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         "etw",
         "Microsoft-Windows-PowerShell",
         WINDOWS_POWERSHELL_MODULE
+    ),
+    contract!(
+        Windows,
+        "ps_module",
+        Some(4103),
+        Execute,
+        POWERSHELL_CORE_ETW_PROVIDER,
+        "PowerShellCore",
+        WINDOWS_POWERSHELL_CORE_MODULE
     ),
     contract!(
         Windows,
