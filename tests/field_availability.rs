@@ -213,38 +213,66 @@ fn every_windows_shape_declares_its_real_channel_or_a_permanent_gap() {
 
 #[test]
 fn windows_shapes_record_the_verified_channel_names() {
-    for (category, event_id, expected) in [
+    for (category, event_id, source, expected) in [
         (
             "ps_module",
             4103,
+            "Microsoft-Windows-PowerShell",
+            "Microsoft-Windows-PowerShell/Operational",
+        ),
+        (
+            "ps_module",
+            4103,
+            "PowerShellCore",
+            "PowerShellCore/Operational",
+        ),
+        (
+            "ps_script",
+            4104,
+            "Microsoft-Windows-PowerShell",
             "Microsoft-Windows-PowerShell/Operational",
         ),
         (
             "ps_script",
             4104,
-            "Microsoft-Windows-PowerShell/Operational",
+            "PowerShellCore",
+            "PowerShellCore/Operational",
         ),
-        ("ps_classic_start", 400, "Windows PowerShell"),
+        ("ps_classic_start", 400, "PowerShell", "Windows PowerShell"),
         (
             "dns_query",
             3006,
+            "Microsoft-Windows-DNS-Client",
             "Microsoft-Windows-DNS-Client/Operational",
         ),
         (
             "dns_query",
             3008,
+            "Microsoft-Windows-DNS-Client",
             "Microsoft-Windows-DNS-Client/Operational",
         ),
         (
             "task_creation",
             106,
+            "Microsoft-Windows-TaskScheduler",
             "Microsoft-Windows-TaskScheduler/Operational",
         ),
-        ("service_creation", 7045, "System"),
-        ("security", 4624, "Security"),
+        (
+            "service_creation",
+            7045,
+            "Service Control Manager",
+            "System",
+        ),
+        (
+            "security",
+            4624,
+            "Microsoft-Windows-Security-Auditing",
+            "Security",
+        ),
         (
             "windefend",
             5007,
+            "Microsoft-Windows-Windows Defender",
             "Microsoft-Windows-Windows Defender/Operational",
         ),
     ] {
@@ -255,14 +283,19 @@ fn windows_shapes_record_the_verified_channel_names() {
                     && contract.platform == Platform::Windows
                     && contract.category == category
                     && contract.event_id == Some(event_id)
+                    && contract.source == source
             })
-            .unwrap_or_else(|| panic!("missing {category} event {event_id} contract"));
+            .unwrap_or_else(|| panic!("missing {source} {category} event {event_id} contract"));
         let channel = contract
             .fields
             .iter()
             .find(|field| field.field == "Channel")
             .and_then(|field| field.value);
-        assert_eq!(channel, Some(expected), "{category} event {event_id}");
+        assert_eq!(
+            channel,
+            Some(expected),
+            "{source} {category} event {event_id}"
+        );
     }
 }
 

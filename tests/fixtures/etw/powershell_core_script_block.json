@@ -1,0 +1,37 @@
+{
+  "provenance": {
+    "windows_build": "Windows 11 (10.0.26300)",
+    "recorded": "2026-11-20",
+    "host": "lab-windows",
+    "scenario": "PowerShell 7.6.10 PowerShellCore event 4104 for a harmless pwsh -Command with Script Block Logging enabled."
+  },
+  "records": [
+    {
+      "header": {
+        "provider": "f90714a8-5509-434a-bf6d-b1624c8a19a2",
+        "event_id": 4104,
+        "opcode": 15,
+        "version": 1,
+        "process_id": 5908,
+        "timestamp": 134396370792806871
+      },
+      "properties": {
+        "MessageNumber": {
+          "u32": 1
+        },
+        "MessageTotal": {
+          "u32": 1
+        },
+        "Path": {
+          "string": ""
+        },
+        "ScriptBlockId": {
+          "string": "2447e2a2-03b5-4b1e-81ad-7252b340be4e"
+        },
+        "ScriptBlockText": {
+          "string": "Write-Output 'rustinel-pwsh-649'"
+        }
+      }
+    }
+  ]
+}

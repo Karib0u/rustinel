@@ -47,6 +47,8 @@ const SINCE_PROCESS_USER: Option<&str> = Some("1.8.0");
 const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.8.0");
 /// Classic Windows PowerShell event 400 collection (#323).
 const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.9.0");
+const SINCE_POWERSHELL_CORE: Option<&str> = Some(UNRELEASED);
+pub(crate) const POWERSHELL_CORE_ETW_PROVIDER: &str = "etw_powershell_core";
 /// Defender Operational event collection (#483).
 const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 /// WMI-Activity Operational events (#481).
@@ -740,6 +742,54 @@ const WINDOWS_POWERSHELL_SCRIPT: &[FieldContract] = &[
     ),
 ];
 
+const WINDOWS_POWERSHELL_CORE_SCRIPT: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_POWERSHELL_CORE,
+        "PowerShellCore/Operational",
+    ),
+    conditional(
+        "ScriptBlockText",
+        SINCE_POWERSHELL_CORE,
+        "event 4104 contains script block text",
+    ),
+    conditional(
+        "ScriptBlockId",
+        SINCE_POWERSHELL_CORE,
+        "event 4104 contains a script-block identifier",
+    ),
+    conditional(
+        "MessageNumber",
+        SINCE_POWERSHELL_CORE,
+        "event 4104 carries the fragment number",
+    ),
+    conditional(
+        "MessageTotal",
+        SINCE_POWERSHELL_CORE,
+        "event 4104 carries the fragment count",
+    ),
+    conditional(
+        "Path",
+        SINCE_POWERSHELL_CORE,
+        "the script block is associated with a file",
+    ),
+    conditional(
+        "ProcessId",
+        SINCE_POWERSHELL_CORE,
+        "the ETW header contains a process ID",
+    ),
+    conditional(
+        "Image",
+        SINCE_POWERSHELL_CORE,
+        "derived from the process cache when the process identity is known",
+    ),
+    never(
+        "User",
+        SINCE_POWERSHELL_CORE,
+        "the PowerShellCore 4104 payload does not carry a user",
+    ),
+];
+
 const WINDOWS_POWERSHELL_MODULE: &[FieldContract] = &[
     always_value(
         "Channel",
@@ -770,6 +820,39 @@ const WINDOWS_POWERSHELL_MODULE: &[FieldContract] = &[
         "User",
         SINCE_1_4_1,
         "the provider event template carries user identity",
+    ),
+];
+
+const WINDOWS_POWERSHELL_CORE_MODULE: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_POWERSHELL_CORE,
+        "PowerShellCore/Operational",
+    ),
+    conditional(
+        "ContextInfo",
+        SINCE_POWERSHELL_CORE,
+        "Module Logging is enabled and event 4103 carries context",
+    ),
+    conditional(
+        "Payload",
+        SINCE_POWERSHELL_CORE,
+        "Module Logging is enabled and event 4103 carries a payload",
+    ),
+    conditional(
+        "ProcessId",
+        SINCE_POWERSHELL_CORE,
+        "the ETW header contains a process ID",
+    ),
+    conditional(
+        "Image",
+        SINCE_POWERSHELL_CORE,
+        "derived from the process cache when the process identity is known",
+    ),
+    never(
+        "User",
+        SINCE_POWERSHELL_CORE,
+        "the PowerShellCore 4103 payload has no standalone user field",
     ),
 ];
 
@@ -2327,7 +2410,7 @@ macro_rules! auditd_contract {
 }
 
 macro_rules! contract {
-    ($platform:ident, $category:literal, $event:expr, $action:ident, $provider:literal, $source:expr, $fields:ident) => {
+    ($platform:ident, $category:literal, $event:expr, $action:ident, $provider:expr, $source:expr, $fields:ident) => {
         EventFieldContract {
             view: FieldViewName::SYSMON,
             platform: Platform::$platform,
@@ -2525,12 +2608,30 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     ),
     contract!(
         Windows,
+        "ps_script",
+        Some(4104),
+        Execute,
+        POWERSHELL_CORE_ETW_PROVIDER,
+        "PowerShellCore",
+        WINDOWS_POWERSHELL_CORE_SCRIPT
+    ),
+    contract!(
+        Windows,
         "ps_module",
         Some(4103),
         Execute,
         "etw",
         "Microsoft-Windows-PowerShell",
         WINDOWS_POWERSHELL_MODULE
+    ),
+    contract!(
+        Windows,
+        "ps_module",
+        Some(4103),
+        Execute,
+        POWERSHELL_CORE_ETW_PROVIDER,
+        "PowerShellCore",
+        WINDOWS_POWERSHELL_CORE_MODULE
     ),
     contract!(
         Windows,

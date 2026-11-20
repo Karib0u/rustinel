@@ -130,6 +130,7 @@ fn fixtures_carry_provenance() {
         fixture!("network_connect"),
         fixture!("powershell_module_logging"),
         fixture!("powershell_script_block"),
+        fixture!("powershell_core_script_block"),
         fixture!("wmi_activity"),
         fixture!("task_registered"),
     ] {
@@ -487,6 +488,53 @@ fn powershell_script_block_is_a_separate_logsource() {
     );
     assert_eq!(f.message_number.as_deref(), Some("1"));
     assert_eq!(f.message_total.as_deref(), Some("1"));
+}
+
+#[test]
+fn powershell_core_4104_decodes_as_a_script_block() {
+    let file = fixture!("powershell_core_script_block");
+    let events = run(&file);
+    assert_eq!(events.len(), 1);
+    let event = &events[0];
+    let RawPayload::Scripting(fields) = &event.payload else {
+        panic!("PowerShellCore 4104 must decode as a script block");
+    };
+    assert_eq!(event.normalization.event_id, 4104);
+    assert_eq!(event.provider, "etw_powershell_core");
+    assert_eq!(
+        fields.script_block_text.as_deref(),
+        Some("Write-Output 'rustinel-pwsh-649'")
+    );
+    assert!(fields.script_block_id.is_some());
+    assert_eq!(fields.message_number.as_deref(), Some("1"));
+    assert_eq!(fields.message_total.as_deref(), Some("1"));
+    assert_eq!(event.pid, Some(file.records[0].header.process_id));
+    assert_eq!(fields.path, None);
+    assert_eq!(fields.user, None);
+}
+
+#[test]
+fn powershell_core_4103_decodes_as_module_logging() {
+    let file = fixture!("powershell_core_module_logging");
+    let events = run(&file);
+    assert_eq!(events.len(), 1);
+    let event = &events[0];
+    let RawPayload::PowerShellModule(fields) = &event.payload else {
+        panic!("PowerShellCore 4103 must decode as module logging");
+    };
+
+    assert_eq!(event.normalization.event_id, 4103);
+    assert_eq!(event.provider, "etw_powershell_core");
+    assert_eq!(
+        fields.context_info.as_deref(),
+        Some("Host Version = 7.6.10")
+    );
+    assert_eq!(
+        fields.payload.as_deref(),
+        Some("CommandInvocation(Write-Output): rustinel-module-4103")
+    );
+    assert_eq!(event.pid, Some(file.records[0].header.process_id));
+    assert_eq!(fields.user, None);
 }
 
 #[test]

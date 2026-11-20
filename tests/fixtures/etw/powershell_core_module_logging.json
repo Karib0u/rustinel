@@ -1,0 +1,31 @@
+{
+  "provenance": {
+    "windows_build": "Windows 11 (10.0.26300)",
+    "recorded": "2026-11-20",
+    "host": "lab-windows",
+    "scenario": "Synthetic payload based on PowerShell 7.6.10 event 4103 with Module Logging enabled."
+  },
+  "records": [
+    {
+      "header": {
+        "provider": "f90714a8-5509-434a-bf6d-b1624c8a19a2",
+        "event_id": 4103,
+        "opcode": 20,
+        "version": 1,
+        "process_id": 5932,
+        "timestamp": 134396370792806871
+      },
+      "properties": {
+        "ContextInfo": {
+          "string": "Host Version = 7.6.10"
+        },
+        "Payload": {
+          "string": "CommandInvocation(Write-Output): rustinel-module-4103"
+        },
+        "UserData": {
+          "string": ""
+        }
+      }
+    }
+  ]
+}
