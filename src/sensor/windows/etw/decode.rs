@@ -180,6 +180,7 @@ pub(super) fn decode_routed(
             unreachable!("event log categories use the event log sources")
         }
         EventCategory::Task => decode_task(parser, record),
+        EventCategory::AuthLog => unreachable!("auth log records come from the Linux journal"),
     };
 
     // A payload the template could not fill is a template this build does not
