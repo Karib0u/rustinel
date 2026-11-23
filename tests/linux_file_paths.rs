@@ -53,16 +53,18 @@ fn stop_capture(mut child: Child) {
             .is_some()),
         "capture did not stop"
     );
-    assert!(child.wait().expect("capture exits").success());
+    let status = child.wait().expect("capture exits");
+    assert!(status.success(), "capture exited with {status}");
 }
 
 fn wait_for_readiness(child: &mut Child, deadline: Duration) -> bool {
     let stderr = child.stderr.take().expect("capture stderr is piped");
     let (line_tx, line_rx) = mpsc::channel();
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines() {
-            if line_tx.send(line).is_err() {
-                break;
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            // Keep stderr open after the readiness receiver is dropped.
+            if let Err(mpsc::SendError(line)) = line_tx.send(line) {
+                eprintln!("{line}");
             }
         }
     });
@@ -70,9 +72,9 @@ fn wait_for_readiness(child: &mut Child, deadline: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < deadline {
         match line_rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(line)) if line == READINESS_LINE => return true,
-            Ok(Ok(_)) => {}
-            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+            Ok(line) if line == READINESS_LINE => return true,
+            Ok(_) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return false,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if child.try_wait().expect("poll capture process").is_some() {
                     return false;
