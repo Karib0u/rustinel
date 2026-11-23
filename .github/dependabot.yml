@@ -9,6 +9,10 @@ updates:
     labels:
       - dependencies
     groups:
+      rsigma:
+        patterns:
+          - rsigma-parser
+          - rsigma-eval
       patch-updates:
         update-types:
           - patch

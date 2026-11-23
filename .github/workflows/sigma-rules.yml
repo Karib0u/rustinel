@@ -42,5 +42,5 @@ jobs:
         with:
           # Pinned to the rsigma release whose library crates back the engine
           # integration; bump alongside the rsigma-parser/rsigma-eval dependency.
-          version: v0.18.0
+          version: v0.27.0
           rules: rules/sigma
