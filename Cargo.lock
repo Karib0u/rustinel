@@ -1241,7 +1241,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2923,7 +2923,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3207,7 +3207,7 @@ dependencies = [
  "regex",
  "regex-syntax",
  "rsigma-ir",
- "rsigma-parser 0.27.0",
+ "rsigma-parser",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3222,32 +3222,11 @@ checksum = "672b59eb31c5d99ba477a3bc2ac134d1e715340631863fbc77c7dfdcecf4a3db"
 dependencies = [
  "base64 0.23.1",
  "ciborium",
- "rsigma-parser 0.27.0",
+ "rsigma-parser",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "yaml_serde",
-]
-
-[[package]]
-name = "rsigma-parser"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6521f3931158b9180e58b1cef37c3df3ad5e41144b3248ee3715361e549fd642"
-dependencies = [
- "fancy-regex",
- "globset",
- "log",
- "pest",
- "pest_derive",
- "regex-syntax",
- "serde",
- "serde_json",
- "stacker",
- "thiserror 2.0.21",
- "yaml_serde",
- "yamlpatch",
- "yamlpath",
 ]
 
 [[package]]
@@ -3266,7 +3245,11 @@ dependencies = [
  "serde_json",
  "stacker",
  "thiserror 2.0.21",
+ "tree-sitter",
+ "tree-sitter-yaml",
  "yaml_serde",
+ "yamlpatch",
+ "yamlpath",
 ]
 
 [[package]]
@@ -3348,7 +3331,7 @@ dependencies = [
  "reqwest",
  "roxmltree",
  "rsigma-eval",
- "rsigma-parser 0.26.0",
+ "rsigma-parser",
  "rustinel-ebpf-common",
  "self-replace",
  "semver",
@@ -3404,7 +3387,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3555,7 +3538,7 @@ checksum = "609c5606d9d357b26e4ee1a7a01beac396628d0fa01ebbade2a09cefb88e65af"
 dependencies = [
  "fastrand",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3838,13 +3821,14 @@ dependencies = [
 
 [[package]]
 name = "subfeature"
-version = "1.26.1"
+version = "1.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e685ca3f1f2cd09b04ada9642ea26a0dd7bcf52f963ace408b0279f192f7465f"
+checksum = "814d68b91393720fbd278cf00d5942972ccce4a0e6b8f54824b11a3518c1f67f"
 dependencies = [
  "memchr",
  "regex",
  "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -3934,7 +3918,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4291,13 +4275,12 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
-version = "0.26.10"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c343ed63e3f5c64d1acdecb5d2c13d4e169cb5fde0052106ebaa6c6f27f9e55"
+checksum = "37b2bed8f39a73439f3b0b7ed8f452be5d2911b5e9da69d352ef113bb7448fb8"
 dependencies = [
  "cc",
  "regex",
- "regex-syntax",
  "serde_json",
  "streaming-iterator",
  "tree-sitter-language",
@@ -4305,18 +4288,18 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-iter"
-version = "1.30.1"
+version = "1.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ec40618be69571d6487d2ef96a84a2749c98a279a12346375cbf19b871420eb"
+checksum = "0b991e8d7322ce6919b18b61730646910dbdb8497152dc3127a71fc09218a1ad"
 dependencies = [
  "tree-sitter",
 ]
 
 [[package]]
 name = "tree-sitter-language"
-version = "0.1.7"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
 
 [[package]]
 name = "tree-sitter-yaml"
@@ -4845,7 +4828,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5214,9 +5197,9 @@ dependencies = [
 
 [[package]]
 name = "yamlpatch"
-version = "1.26.1"
+version = "1.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "919764173d845c2b685a44ca9a028534ef1127bcf713edc6b69787430f18b030"
+checksum = "3e500240370366791296f1bc722d03ec935f9db098f3d0c8b9b235e6df8a1df9"
 dependencies = [
  "indexmap",
  "line-index",
@@ -5229,9 +5212,9 @@ dependencies = [
 
 [[package]]
 name = "yamlpath"
-version = "1.30.1"
+version = "1.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a2ea2334936adb60c891686760016e723e220caee5c5b581a16b575ba85b2f0"
+checksum = "62ce3b0b612d1d72bbc8a6c125cf593125d4d1da202a277fd5c42e80396a1205"
 dependencies = [
  "line-index",
  "self_cell",
