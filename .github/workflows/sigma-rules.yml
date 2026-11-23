@@ -38,7 +38,7 @@ jobs:
           # Full history so the action can diff rule fields against the PR merge-base.
           fetch-depth: 0
           persist-credentials: false
-      - uses: timescale/rsigma-action@73ef3bcf8dfea1bb771877e4b8724ce80704660f # v1.0.0
+      - uses: timescale/rsigma-action@70afa79ef56c4002689f7364966fa8c1de0e3747 # v1.1.0
         with:
           # Pinned to the rsigma release whose library crates back the engine
           # integration; bump alongside the rsigma-parser/rsigma-eval dependency.
