@@ -2496,6 +2496,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11dbdb66876026054e4ffc8d757d862bdf5df5aebd5c0b95a41f17832a94f7d2"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "oid-registry"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3323,7 +3332,7 @@ dependencies = [
  "memmap2",
  "minisign-verify",
  "notify",
- "object 0.40.0",
+ "object 0.41.0",
  "psl",
  "regex",
  "reqwest",
