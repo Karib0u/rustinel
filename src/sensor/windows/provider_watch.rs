@@ -105,9 +105,11 @@ pub(super) fn compare(expected: &ExpectedProvider, observed: Observed) -> Option
             detail: "the provider is no longer enabled on the session".to_string(),
         }),
         Observed::Enabled { level, keywords } => {
+            // For manifest providers, both 0 and u64::MAX enable all keywords.
+            let normalize = |mask| if mask == 0 { u64::MAX } else { mask };
             // The keyword mask is the stronger signal, so it is named first
             // when both moved.
-            let kind = if keywords != expected.keywords {
+            let kind = if normalize(keywords) != normalize(expected.keywords) {
                 "keywords_changed"
             } else if level != expected.level {
                 "level_changed"
@@ -573,6 +575,34 @@ mod tests {
             keywords: 0x7101,
         };
         assert_eq!(compare(&expected(), observed), None);
+    }
+
+    #[test]
+    fn equivalent_all_keyword_masks_are_not_a_change() {
+        let mut provider = expected();
+        for (configured, reported) in [(0, u64::MAX), (u64::MAX, 0)] {
+            provider.keywords = configured;
+            let observed = Observed::Enabled {
+                level: provider.level,
+                keywords: reported,
+            };
+            assert_eq!(compare(&provider, observed), None);
+        }
+    }
+
+    #[test]
+    fn narrowing_an_all_keyword_mask_is_a_change() {
+        let mut provider = expected();
+        for configured in [0, u64::MAX] {
+            provider.keywords = configured;
+            let observed = Observed::Enabled {
+                level: provider.level,
+                keywords: 0x10,
+            };
+            let change = compare(&provider, observed).unwrap();
+            assert_eq!(change.kind, "keywords_changed");
+            assert_eq!(change.observed, "level 4, keywords 0x10");
+        }
     }
 
     #[test]
