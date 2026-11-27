@@ -56,8 +56,8 @@ pub(super) struct LossCounters {
     warnings: Mutex<LogRateLimiter>,
 }
 
-impl LossCounters {
-    pub(super) fn new() -> Self {
+impl Default for LossCounters {
+    fn default() -> Self {
         Self {
             main: AtomicU64::new(0),
             process: AtomicU64::new(0),
@@ -65,11 +65,17 @@ impl LossCounters {
             warnings: Mutex::new(LogRateLimiter::new(LOSS_LOG_WINDOW)),
         }
     }
+}
+
+impl LossCounters {
+    pub(super) fn process_total(&self) -> u64 {
+        self.process.load(Ordering::Relaxed)
+    }
 
     pub(super) fn total(&self) -> u64 {
         self.main
             .load(Ordering::Relaxed)
-            .saturating_add(self.process.load(Ordering::Relaxed))
+            .saturating_add(self.process_total())
             .saturating_add(self.classic.load(Ordering::Relaxed))
     }
 
@@ -216,7 +222,7 @@ mod tests {
 
     #[test]
     fn totals_are_monotonic_and_sum_all_sessions() {
-        let counters = LossCounters::new();
+        let counters = LossCounters::default();
         counters.record(Session::Main, "main", 3);
         counters.record(Session::Process, "process", 5);
         counters.record(Session::Main, "main", 2);

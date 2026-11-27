@@ -25,6 +25,7 @@ All counters start at zero when the agent starts.
 | `registry` | Windows registry key-path resolution |
 | `file_attribution` | Windows file path resolution |
 | `etw_decode` | Windows ETW decoding outcomes |
+| `windows_thread_starts` | Windows ETW thread-start volume, latency, enrichment and session loss |
 | `etw_provider_watch` | Windows ETW provider enablement checks, see [tamper alerts](output.md#etw-provider-tamper-alerts) |
 | `alert_webhooks` | Delivery outcomes per [webhook](output.md#webhooks), present when one is configured |
 
@@ -267,3 +268,19 @@ A healthy host shows `mismatches` and `alerts` at zero.
 
 `records_filtered` through `fieldless_payloads` add up to `records_received`.
 A difference is reported as `etw_decode_reconciliation`.
+
+## `windows_thread_starts`
+
+| Field | Meaning |
+| --- | --- |
+| `records_received` | Kernel-Process thread starts delivered to the decoder |
+| `same_process_filtered` | Starts with equal source and target PIDs |
+| `decode_failures` | Starts whose schema or required PIDs could not be read |
+| `remote_events` | Cross-process events produced before channel admission |
+| `missing_source_image`, `missing_target_image` | Cross-process events missing the corresponding process image |
+| `missing_start_address`, `missing_start_module` | Cross-process events missing the raw address or an observed module mapping |
+| `processing_total_ns`, `processing_max_ns` | Cumulative and maximum decoder and enrichment time in nanoseconds |
+| `process_session_events_lost` | Kernel-buffer losses for the shared Kernel-Process session. ETW reports them for the whole session |
+
+Divide `processing_total_ns` by `records_received` for the mean processing time per start.
+For queue shedding, read the `create_remote_thread` entry under `sensor_events_by_category`.

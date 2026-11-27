@@ -47,6 +47,7 @@ const SINCE_PROCESS_USER: Option<&str> = Some("1.8.0");
 const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.8.0");
 /// Classic Windows PowerShell event 400 collection (#323).
 const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.9.0");
+const SINCE_REMOTE_THREAD: Option<&str> = Some(UNRELEASED);
 const SINCE_POWERSHELL_CORE: Option<&str> = Some(UNRELEASED);
 pub(crate) const POWERSHELL_CORE_ETW_PROVIDER: &str = "etw_powershell_core";
 /// Defender Operational event collection (#483).
@@ -2448,11 +2449,81 @@ const PIPE_CREATED: &[FieldContract] = &[never(
     "named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW",
 )];
 
-const CREATE_REMOTE_THREAD: &[FieldContract] = &[never(
-    "*",
-    SINCE_BASELINE,
-    "no Rustinel sensor produces remote-thread creation telemetry",
-)];
+const CREATE_REMOTE_THREAD: &[FieldContract] = &[
+    always_value(
+        "Channel",
+        SINCE_REMOTE_THREAD,
+        "Microsoft-Windows-Kernel-Process/Analytic",
+    ),
+    always("SourceProcessId", SINCE_REMOTE_THREAD),
+    always("TargetProcessId", SINCE_REMOTE_THREAD),
+    conditional(
+        "NewThreadId",
+        SINCE_REMOTE_THREAD,
+        "ThreadID is present in the thread start",
+    ),
+    conditional(
+        "StartAddress",
+        SINCE_REMOTE_THREAD,
+        "Win32StartAddr is present in the thread start",
+    ),
+    conditional(
+        "StartModule",
+        SINCE_REMOTE_THREAD,
+        "the start address resolves to an observed image range in the target process lifetime",
+    ),
+    never("StartFunction", None, "PE export resolution is unavailable"),
+    conditional(
+        "SourceImage",
+        SINCE_REMOTE_THREAD,
+        "image is known for the source process lifetime",
+    ),
+    conditional(
+        "TargetImage",
+        SINCE_REMOTE_THREAD,
+        "image is known for the target process lifetime",
+    ),
+    conditional(
+        "SourceCommandLine",
+        SINCE_REMOTE_THREAD,
+        "command line is known for the source process lifetime",
+    ),
+    conditional(
+        "TargetCommandLine",
+        SINCE_REMOTE_THREAD,
+        "command line is known for the target process lifetime",
+    ),
+    conditional(
+        "SourceParentProcessId",
+        SINCE_REMOTE_THREAD,
+        "parent PID is known for the source process lifetime",
+    ),
+    conditional(
+        "TargetParentProcessId",
+        SINCE_REMOTE_THREAD,
+        "parent PID is known for the target process lifetime",
+    ),
+    conditional(
+        "SourceParentImage",
+        SINCE_REMOTE_THREAD,
+        "parent image is known for the source process lifetime",
+    ),
+    conditional(
+        "TargetParentImage",
+        SINCE_REMOTE_THREAD,
+        "parent image is known for the target process lifetime",
+    ),
+    conditional(
+        "SourceParentCommandLine",
+        SINCE_REMOTE_THREAD,
+        "parent command line is known for the source process lifetime",
+    ),
+    conditional(
+        "TargetParentCommandLine",
+        SINCE_REMOTE_THREAD,
+        "parent command line is known for the target process lifetime",
+    ),
+];
 
 /// The auditd view (#321). Linux eBPF telemetry stands for the audit records
 /// auditd would write; nothing here is read from auditd.
@@ -3578,17 +3649,15 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
         source: "Microsoft-Windows-Kernel-File",
         fields: PIPE_CREATED,
     },
-    EventFieldContract {
-        view: FieldViewName::SYSMON,
-        platform: Platform::Windows,
-        category: "create_remote_thread",
-        event_id: Some(8),
-        event_ids: &[],
-        action: None,
-        provider: "none",
-        source: "none",
-        fields: CREATE_REMOTE_THREAD,
-    },
+    contract!(
+        Windows,
+        "create_remote_thread",
+        Some(8),
+        Start,
+        "etw",
+        "Microsoft-Windows-Kernel-Process",
+        CREATE_REMOTE_THREAD
+    ),
     contract!(
         Linux,
         "process_creation",
@@ -3786,6 +3855,7 @@ pub const fn category_name(category: EventCategory) -> &'static str {
         EventCategory::Dns => "dns_query",
         EventCategory::ImageLoad => "image_load",
         EventCategory::DriverLoad => "driver_load",
+        EventCategory::RemoteThread => "create_remote_thread",
         EventCategory::Scripting => "ps_script",
         EventCategory::PowerShellModule => "ps_module",
         EventCategory::PowerShellClassicStart => "ps_classic_start",

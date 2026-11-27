@@ -17,7 +17,8 @@ pub use etw::EtwSensor;
 pub(crate) struct WindowsHostExtension {
     pub(crate) file_paths: std::sync::Mutex<file_paths::FilePathCache>,
     pub(crate) registry_paths: std::sync::Mutex<registry_paths::RegistryPathCache>,
-    pub(crate) process_identities: std::sync::Mutex<etw::state::ProcessIdentityIndex>,
+    pub(crate) process_identities:
+        std::sync::Mutex<super::windows_process_identity::ProcessIdentityIndex>,
     pub(crate) counters: telemetry::WindowsCounters,
 }
 
@@ -31,7 +32,9 @@ impl crate::state::HostExtension for WindowsHostExtension {
                 registry_paths::RegistryPathCache::with_capacity(limits.paths),
             ),
             process_identities: std::sync::Mutex::new(
-                etw::state::ProcessIdentityIndex::with_max_entries(limits.processes),
+                super::windows_process_identity::ProcessIdentityIndex::with_max_entries(
+                    limits.processes,
+                ),
             ),
             counters: telemetry::WindowsCounters::default(),
         }

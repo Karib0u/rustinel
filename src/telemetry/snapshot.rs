@@ -587,6 +587,9 @@ pub struct TelemetrySnapshot {
     /// on snapshots written before #394.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub etw_decode: Option<EtwDecodeSnapshot>,
+    /// Kernel-Process thread-start accounting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_thread_starts: Option<ThreadStartSnapshot>,
     /// ETW provider enablement checks. Absent on platforms without the ETW
     /// sensor, and before the first check has run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -623,6 +626,7 @@ impl TelemetrySnapshot {
             registry: sensors.registry,
             file_attribution: sensors.file_attribution,
             etw_decode: sensors.etw_decode,
+            windows_thread_starts: sensors.windows_thread_starts,
             etw_provider_watch: sensors.etw_provider_watch,
             alert_webhooks: probes.webhook_snapshots(),
         }
@@ -723,6 +727,24 @@ impl TelemetrySnapshot {
     }
 }
 
+/// Kernel-Process thread start volume, callback time, and enrichment gaps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadStartSnapshot {
+    pub records_received: u64,
+    pub same_process_filtered: u64,
+    pub decode_failures: u64,
+    pub remote_events: u64,
+    pub missing_source_image: u64,
+    pub missing_target_image: u64,
+    pub missing_start_address: u64,
+    pub missing_start_module: u64,
+    pub processing_total_ns: u64,
+    pub processing_max_ns: u64,
+    /// Kernel losses for the entire Kernel-Process session. ETW does not
+    /// attribute these losses to an event ID.
+    pub process_session_events_lost: u64,
+}
+
 /// The platform-owned sections of a snapshot, filled by the host's extension.
 ///
 /// Each field stays `None` until the sensor that owns it has something to
@@ -733,6 +755,7 @@ pub struct SensorTelemetry {
     pub registry: Option<RegistrySnapshot>,
     pub file_attribution: Option<FileAttributionSnapshot>,
     pub etw_decode: Option<EtwDecodeSnapshot>,
+    pub windows_thread_starts: Option<ThreadStartSnapshot>,
     pub etw_provider_watch: Option<EtwProviderWatchSnapshot>,
     pub process_correlation: super::ProcessCorrelationSnapshot,
     pub process_command_line: Option<ProcessCommandLineSnapshot>,
@@ -883,6 +906,7 @@ mod tests {
             registry: None,
             file_attribution: None,
             etw_decode: None,
+            windows_thread_starts: None,
             etw_provider_watch: None,
             alert_webhooks: Vec::new(),
         }
