@@ -90,7 +90,8 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Kernel-Audit-API-Calls event 5 records OpenProcess attempts, including failures.
   Source and target images and users depend on the matching process lifetime being present in the cache.
   An invalid target has no target PID or image.
-  Issue #302 validated an elevated, unprotected real-time consumer on Windows 11 build 26200. Other supported builds and session modes still need live validation.
+  Collection requires an elevated real-time ETW session.
+  Provider availability across supported Windows builds and session modes is still being validated.
 - **No telemetry** for named pipes, process tampering, or network data volume, and not yet for remote threads or file reads.
   Named pipes and process tampering need a kernel driver.
   The rest are planned, see [Platform coverage](coverage.md#telemetry-that-is-missing).

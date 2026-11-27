@@ -29,7 +29,8 @@
    This is a dense event stream, so enabling a broad rule corpus can increase CPU and memory use during DLL-heavy workloads.
 5. Read from the systemd journal, see [Linux authentication events](linux-auth-log.md).
    Hosts without journald have none.
-6. Set `windows.etw_process_access = true` to collect OpenProcess attempts. See the [process access field contract](field-availability.md#process-access).
+6. Set `windows.etw_process_access = true` to collect OpenProcess attempts.
+   See the [process access field contract](field-availability.md#process-access).
 
 macOS support is experimental.
 Detailed gaps are in [Limitations](limitations.md).
@@ -78,7 +79,9 @@ These counts show which rules route to a collector on each platform.
 
 The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `cron` or `syslog`.
 
-The Windows total includes 29 `process_access` rules. With `windows.etw_process_access` enabled, `sigma doctor` rated four degraded because their viable branches depend on cached process identities. It rated the other 25 unsatisfiable under the available field contract.
+The Windows total includes 29 `process_access` rules.
+With `windows.etw_process_access` enabled, `sigma doctor` rated four degraded because their viable branches depend on cached process identities.
+It rated the other 25 unsatisfiable under the available field contract.
 
 ## Rules that load but never fire
 

@@ -12,9 +12,12 @@ If availability narrows, `since` records the release that introduced the narrowe
 
 ## Process access
 
-The shared `ProcessAccess` event describes a subject attempting to access another process. It carries the source and target identity when available, the requested access in the collector's vocabulary, an outcome (`success`, `failure`, or `unknown`), and the native result code if the collector observed it. Future producers can leave fields absent when their source cannot measure them.
+The shared `ProcessAccess` event describes a subject attempting to access another process.
+It carries the source and target identity when available, the requested access in the collector's vocabulary, an outcome (`success`, `failure`, or `unknown`), and the native result code if the collector observed it.
+Future producers can leave fields absent when their source cannot measure them.
 
-The Windows collector routes `Microsoft-Windows-Kernel-Audit-API-Calls` event 5 to Sigma `product: windows`, `category: process_access`. `EventID` remains `5`. The fields are:
+The Windows collector routes `Microsoft-Windows-Kernel-Audit-API-Calls` event 5 to Sigma `product: windows`, `category: process_access`.
+`EventID` remains `5`.
 
 | Field | Meaning |
 | --- | --- |
@@ -24,11 +27,14 @@ The Windows collector routes `Microsoft-Windows-Kernel-Audit-API-Calls` event 5 
 | `ReturnCode` | Native `NTSTATUS` bit pattern in unsigned decimal, such as `0` for success or `3221225506` for access denied. |
 | `AccessOutcome` | `success` or `failure` based on `NT_SUCCESS`. A rule can select `success` if it requires a handle to have been opened. |
 
-`GrantedAccess` stays absent for every event. A successful explicit `0x1000` request opened a handle with `0x1000` granted. A successful `MAXIMUM_ALLOWED` request for `0x2000000` opened a handle with `0x1fffff` granted. [Issue #302 validation](https://github.com/Karib0u/rustinel/issues/302)
-
+`GrantedAccess` stays absent for every event.
+`MAXIMUM_ALLOWED` asks Windows to determine which rights to grant, so the resulting rights can differ from the requested mask even on success.
 Sigma doctor reports a rule that requires `GrantedAccess` as unsatisfiable.
 
-The `windows_process_access` telemetry snapshot reports received and decoded records. It counts missing images and invalid targets for records that reach normalization. The per-category ingress counters report accepted records and queue drops. ETW reports kernel-buffer loss for the shared session and cannot attribute it to individual providers.
+The `windows_process_access` telemetry snapshot reports received and decoded records.
+It counts missing images and invalid targets for records that reach normalization.
+The per-category ingress counters report accepted records and queue drops.
+ETW reports kernel-buffer loss for the shared session and cannot attribute it to individual providers.
 
 <!-- BEGIN GENERATED FIELD AVAILABILITY -->
 This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.
