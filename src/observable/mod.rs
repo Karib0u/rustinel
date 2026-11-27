@@ -144,7 +144,8 @@ pub fn extract(event: &NormalizedEvent) -> Observables<'_> {
         EventFields::AuthLog(f) => {
             push_ip(&mut out, f.get("SourceIp"));
         }
-        EventFields::PowerShellModule(_)
+        EventFields::RemoteThread(_)
+        | EventFields::PowerShellModule(_)
         | EventFields::TaskCreation(_)
         | EventFields::SecurityAudit(_)
         | EventFields::ApplicationEvent(_)

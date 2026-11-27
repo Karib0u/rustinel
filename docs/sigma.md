@@ -100,6 +100,7 @@ Stable reason codes in schema version 1 are:
 | `file_change` | ✓ | | |
 | `registry_event`, `registry_*` | ✓ | | |
 | `image_load` | ✓ | | |
+| `create_remote_thread` | ✓ | | |
 | `driver_load` | ✓ | | |
 | `ps_script` | ✓ | | |
 | `ps_module` | ✓ | | |
@@ -119,6 +120,20 @@ A rule for a logsource the platform does not collect loads but never fires.
 On Linux and macOS, `service: sysmon` selects the Sysmon-compatible field view over native telemetry; it does not claim that Sysmon collected the event.
 
 `ps_module`, `ps_script`, and most `service: security` rules also need host logging to be enabled, see [Windows host logging](windows-logging.md).
+
+### Windows cross-process thread starts
+
+The `create_remote_thread` category uses Kernel-Process thread-start event 3 (keyword `0x20`) and presents it as Sysmon-compatible `EventID: 8`.
+Rustinel emits the event when the ETW header's source PID differs from the thread's payload target PID.
+Ordinary process creation can also produce cross-process starts.
+Use the source and target fields to narrow a selection.
+
+`NewThreadId` and the hexadecimal `StartAddress` come from the payload's `ThreadID` and `Win32StartAddr`.
+Process images, command lines and parent fields are populated from the process lifetimes active at the event timestamp, when that state is available.
+`StartModule` is the path of an observed target image mapping that contains the start address.
+Modules loaded before collection began, evicted ranges, and unmapped addresses can leave this field absent.
+Missing fields are omitted.
+`StartFunction` has no PE export resolution.
 
 ### Linux auditd rules
 

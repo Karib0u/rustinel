@@ -21,6 +21,7 @@ pub enum EventFields {
     NetworkConnection(NetworkConnectionFields),
     DnsQuery(DnsQueryFields),
     ImageLoad(ImageLoadFields),
+    RemoteThread(RemoteThreadFields),
     PowerShellScript(PowerShellScriptFields),
     PowerShellModule(PowerShellModuleFields),
     PowerShellClassicStart(PowerShellClassicStartFields),
@@ -62,6 +63,7 @@ impl EventFields {
             EventCategory::ImageLoad | EventCategory::DriverLoad => {
                 serde_json::from_value(payload).map(Self::ImageLoad)
             }
+            EventCategory::RemoteThread => serde_json::from_value(payload).map(Self::RemoteThread),
             EventCategory::Scripting => serde_json::from_value(payload).map(Self::PowerShellScript),
             EventCategory::PowerShellModule => {
                 serde_json::from_value(payload).map(Self::PowerShellModule)
@@ -477,6 +479,53 @@ impl DnsQueryFields {
             .as_deref()
             .filter(|_| self.query_truncated.as_deref() != Some("true"))
     }
+}
+
+/// Cross-process thread start (Sigma: create_remote_thread).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteThreadFields {
+    #[serde(rename = "SourceProcessId")]
+    pub source_process_id: u32,
+    #[serde(rename = "TargetProcessId")]
+    pub target_process_id: u32,
+    #[serde(rename = "NewThreadId", skip_serializing_if = "Option::is_none")]
+    pub new_thread_id: Option<u32>,
+    #[serde(rename = "StartAddress", skip_serializing_if = "Option::is_none")]
+    pub start_address: Option<String>,
+    #[serde(rename = "StartModule", skip_serializing_if = "Option::is_none")]
+    pub start_module: Option<String>,
+    #[serde(rename = "SourceImage", skip_serializing_if = "Option::is_none")]
+    pub source_image: Option<String>,
+    #[serde(rename = "SourceCommandLine", skip_serializing_if = "Option::is_none")]
+    pub source_command_line: Option<String>,
+    #[serde(
+        rename = "SourceParentProcessId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_parent_process_id: Option<u32>,
+    #[serde(rename = "SourceParentImage", skip_serializing_if = "Option::is_none")]
+    pub source_parent_image: Option<String>,
+    #[serde(
+        rename = "SourceParentCommandLine",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_parent_command_line: Option<String>,
+    #[serde(rename = "TargetImage", skip_serializing_if = "Option::is_none")]
+    pub target_image: Option<String>,
+    #[serde(rename = "TargetCommandLine", skip_serializing_if = "Option::is_none")]
+    pub target_command_line: Option<String>,
+    #[serde(
+        rename = "TargetParentProcessId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub target_parent_process_id: Option<u32>,
+    #[serde(rename = "TargetParentImage", skip_serializing_if = "Option::is_none")]
+    pub target_parent_image: Option<String>,
+    #[serde(
+        rename = "TargetParentCommandLine",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub target_parent_command_line: Option<String>,
 }
 
 /// Image load event fields (Sigma: image_load)

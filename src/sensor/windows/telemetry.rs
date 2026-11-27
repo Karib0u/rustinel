@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use super::registry_paths::PathSource;
 use crate::telemetry::{
     EtwDecodeFailureSnapshot, EtwDecodeSnapshot, FileAttributionSnapshot, FileRundownSnapshot,
-    ProcessAccessSnapshot, RegistrySnapshot, SensorTelemetry,
+    ProcessAccessSnapshot, RegistrySnapshot, SensorTelemetry, ThreadStartSnapshot,
 };
 
 /// Every Windows counter set, one per runtime.
@@ -22,6 +22,8 @@ pub(crate) struct WindowsCounters {
     pub(crate) file_attribution: FileAttributionCounters,
     pub(crate) etw_decode: EtwDecodeCounters,
     pub(crate) process_access: ProcessAccessCounters,
+    pub(crate) thread_starts: ThreadStartCounters,
+    pub(super) loss: std::sync::Arc<super::loss::LossCounters>,
     pub(crate) provider_watch: std::sync::Arc<super::provider_watch::ProviderWatchCounters>,
     pub(crate) event_log: std::sync::Arc<crate::telemetry::EventLogHealth>,
 }
@@ -32,8 +34,78 @@ impl WindowsCounters {
         out.file_attribution = self.file_attribution.snapshot();
         out.etw_decode = self.etw_decode.snapshot();
         out.windows_process_access = self.process_access.snapshot();
+        out.windows_thread_starts = self.thread_starts.snapshot(self.loss.process_total());
         out.etw_provider_watch = self.provider_watch.snapshot();
         out.windows_event_log = self.event_log.snapshot();
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ThreadStartCounters {
+    records_received: AtomicU64,
+    same_process_filtered: AtomicU64,
+    decode_failures: AtomicU64,
+    remote_events: AtomicU64,
+    missing_source_image: AtomicU64,
+    missing_target_image: AtomicU64,
+    missing_start_address: AtomicU64,
+    missing_start_module: AtomicU64,
+    processing_total_ns: AtomicU64,
+    processing_max_ns: AtomicU64,
+}
+
+impl ThreadStartCounters {
+    pub(crate) fn record_same_process(&self) {
+        self.same_process_filtered.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_failure(&self) {
+        self.decode_failures.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record(
+        &self,
+        elapsed: std::time::Duration,
+        event: Option<&crate::models::RemoteThreadFields>,
+    ) {
+        let ns = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+        self.processing_total_ns.fetch_add(ns, Ordering::Relaxed);
+        self.processing_max_ns.fetch_max(ns, Ordering::Relaxed);
+        if let Some(fields) = event {
+            self.remote_events.fetch_add(1, Ordering::Relaxed);
+            for (counter, missing) in [
+                (&self.missing_source_image, fields.source_image.is_none()),
+                (&self.missing_target_image, fields.target_image.is_none()),
+                (&self.missing_start_address, fields.start_address.is_none()),
+                (&self.missing_start_module, fields.start_module.is_none()),
+            ] {
+                if missing {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+        self.records_received.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self, process_session_events_lost: u64) -> Option<ThreadStartSnapshot> {
+        let load = |count: &AtomicU64| count.load(Ordering::Relaxed);
+        let records_received = load(&self.records_received);
+        if records_received == 0 && process_session_events_lost == 0 {
+            return None;
+        }
+        Some(ThreadStartSnapshot {
+            records_received,
+            same_process_filtered: load(&self.same_process_filtered),
+            decode_failures: load(&self.decode_failures),
+            remote_events: load(&self.remote_events),
+            missing_source_image: load(&self.missing_source_image),
+            missing_target_image: load(&self.missing_target_image),
+            missing_start_address: load(&self.missing_start_address),
+            missing_start_module: load(&self.missing_start_module),
+            processing_total_ns: load(&self.processing_total_ns),
+            processing_max_ns: load(&self.processing_max_ns),
+            process_session_events_lost,
+        })
     }
 }
 

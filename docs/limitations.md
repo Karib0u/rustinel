@@ -92,7 +92,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
   An invalid target has no target PID or image.
   Collection requires an elevated real-time ETW session.
   Provider availability across supported Windows builds and session modes is still being validated.
-- **No telemetry** for named pipes, process tampering, or network data volume, and not yet for remote threads or file reads.
+- **No telemetry** for named pipes, process tampering, or network data volume, and not yet for file reads.
   Named pipes and process tampering need a kernel driver.
   The rest are planned, see [Platform coverage](coverage.md#telemetry-that-is-missing).
 - **Injection needs a driver or a protected process.**

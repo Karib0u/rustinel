@@ -29,7 +29,12 @@ fn action_code_for_record(
     record: &impl EtwHeader,
 ) -> u8 {
     match category {
-        EventCategory::Process => record.opcode(),
+        EventCategory::Process => match action {
+            SensorAction::Start => 1,
+            SensorAction::Stop => 2,
+            _ => record.opcode(),
+        },
+        EventCategory::RemoteThread => 1,
         // Manifest Kernel-Process event 5 carries opcode 0. Normalize both it
         // and the classic opcode-10 shape to the established `7 / load` key.
         EventCategory::ImageLoad => 10,
@@ -90,7 +95,7 @@ fn raw_event_id_for_record(
         EventCategory::Process | EventCategory::ImageLoad | EventCategory::DriverLoad => {
             record.event_id()
         }
-        EventCategory::Network => record.event_id(),
+        EventCategory::Network | EventCategory::RemoteThread => record.event_id(),
         EventCategory::File => u16::from(action_code),
         EventCategory::Registry => u16::from(action_code),
         EventCategory::Dns | EventCategory::ProcessAccess => record.event_id(),
@@ -121,6 +126,7 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
             10 => 7,
             _ => raw_event_id,
         },
+        EventCategory::RemoteThread => 8,
         EventCategory::ImageLoad => match action_code {
             10 => 7,
             _ => raw_event_id,

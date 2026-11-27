@@ -82,7 +82,6 @@ pub struct EtwSensor {
     host: Arc<crate::state::HostState>,
     shutdown: Arc<AtomicBool>,
     event_log_directory: std::path::PathBuf,
-    loss_counters: Arc<super::loss::LossCounters>,
     flush_interval_ms: u64,
     process_flush_interval_ms: u64,
     process_access: bool,
@@ -110,7 +109,6 @@ impl EtwSensor {
             )
             .logs_dir
             .join("event-log"),
-            loss_counters: Arc::new(super::loss::LossCounters::new()),
             flush_interval_ms,
             process_flush_interval_ms,
             process_access: false,
@@ -158,9 +156,17 @@ impl EtwSensor {
         self.shutdown.load(Ordering::Relaxed)
     }
 
+    fn loss_counters(&self) -> &Arc<super::loss::LossCounters> {
+        &self
+            .host
+            .extension::<super::WindowsHostExtension>()
+            .counters
+            .loss
+    }
+
     /// Cumulative kernel-buffer loss across all ETW sessions.
     pub fn events_lost(&self) -> u64 {
-        self.loss_counters.total()
+        self.loss_counters().total()
     }
 
     /// Start ETW and report when every required collector can admit events.
@@ -186,7 +192,7 @@ impl EtwSensor {
         info!("Starting ETW sensor...");
 
         self.shutdown.store(false, Ordering::Relaxed);
-        self.loss_counters.reset();
+        self.loss_counters().reset();
         let result = (|| {
             let event_logs = EventLogSubscriptions::start(
                 tx.clone(),
@@ -244,7 +250,7 @@ impl Sensor for EtwSensor {
             } else {
                 super::loss::Session::Process
             };
-            if let Err(err) = super::loss::stop_and_record(session, kind, &self.loss_counters) {
+            if let Err(err) = super::loss::stop_and_record(session, kind, self.loss_counters()) {
                 warn!("Failed to stop trace session '{session}': {err:?}");
             }
         }

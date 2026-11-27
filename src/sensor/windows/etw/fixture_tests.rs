@@ -252,6 +252,85 @@ fn audit_api_calls_routes_and_attributes_only_open_process_records() {
     }
 }
 
+#[test]
+fn synthetic_thread_start_uses_header_source_and_win32_payload_address() {
+    use super::props::{GuidText, RecordedHeader, RecordedProperties, RecordedValue};
+
+    let state = state();
+    let mut thread = RecordedRecord {
+        header: RecordedHeader {
+            provider: GuidText(state.routing.kernel_process_guid),
+            event_id: 3,
+            opcode: 1,
+            version: 1,
+            process_id: 10,
+            timestamp: 133_800_000_000_000_000,
+        },
+        properties: RecordedProperties(
+            [
+                ("ProcessID".into(), RecordedValue::U32(10)),
+                ("ThreadID".into(), RecordedValue::U32(42)),
+                ("StartAddr".into(), RecordedValue::U64(0x0100)),
+                (
+                    "Win32StartAddr".into(),
+                    RecordedValue::U64(0x7ffc_9b11_0b80),
+                ),
+            ]
+            .into(),
+        ),
+    };
+    assert!(feed(&state, &thread).primary.is_none());
+    thread
+        .properties
+        .0
+        .insert("ProcessID".into(), RecordedValue::U32(20));
+    state
+        .process_identities()
+        .observe_start(crate::sensor::ProcessStartKey {
+            pid: 20,
+            start_time: thread.header.timestamp as u64 - 10,
+        });
+    let mut image = thread.clone();
+    image.header.event_id = 5;
+    image.header.opcode = 0;
+    image.header.timestamp -= 1;
+    image.properties = RecordedProperties(
+        [
+            ("ProcessID".into(), RecordedValue::U32(20)),
+            ("ImageBase".into(), RecordedValue::U64(0x7ffc_9b11_0000)),
+            ("ImageSize".into(), RecordedValue::U64(0x1000)),
+            (
+                "ImageName".into(),
+                RecordedValue::String(r"C:\test\module.dll".into()),
+            ),
+        ]
+        .into(),
+    );
+    assert!(feed(&state, &image).primary.is_some());
+    let mut event = feed(&state, &thread).primary.unwrap();
+    state.attribute_process_identity(&mut event);
+    assert_eq!(event.pid, Some(10));
+    assert_eq!(event.normalization.event_id, 8);
+    let RawPayload::RemoteThread(fields) = event.payload else {
+        panic!("thread event")
+    };
+    assert_eq!(fields.target_process_id, 20);
+    assert_eq!(fields.new_thread_id, Some(42));
+    assert_eq!(fields.start_address.as_deref(), Some("0x00007FFC9B110B80"));
+
+    assert_eq!(fields.start_module.as_deref(), Some(r"C:\test\module.dll"));
+
+    thread.properties.0.remove("Win32StartAddr");
+    let event = feed(&state, &thread).primary.unwrap();
+    let RawPayload::RemoteThread(fields) = event.payload else {
+        panic!("thread event")
+    };
+    assert!(fields.start_address.is_none());
+    thread.header.event_id = 4;
+    thread.header.opcode = 2;
+    assert!(feed(&state, &thread).primary.is_none());
+}
+
 /// Windows 11 reports an image load as Kernel-Process event 5 with opcode 0.
 /// Routing on the opcode alone dropped them all (fixed in #547).
 #[test]

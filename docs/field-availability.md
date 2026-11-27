@@ -114,7 +114,7 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `application` | `200 / access, 201 / access` | `ScreenConnect` | `Message` | formatted, localized messages are not rendered by the XML subscription |
 | `sysmon` | windows | `application` | `1001 / access` | `Windows Error Reporting` | `Message` | formatted, localized messages are not rendered by the XML subscription |
 | `sysmon` | windows | `application` | `7053 / access` | `Windows Server Update Services` | `Message` | formatted, localized messages are not rendered by the XML subscription |
-| `sysmon` | windows | `create_remote_thread` | `8` | `none` | `*` | no Rustinel sensor produces remote-thread creation telemetry |
+| `sysmon` | windows | `create_remote_thread` | `8 / start` | `Microsoft-Windows-Kernel-Process` | `StartFunction` | PE export resolution is unavailable |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `QueryTruncated` | ETW delivers whole DNS Client events |
 | `sysmon` | windows | `dns_query` | `3006 / query, 3008 / query` | `Microsoft-Windows-DNS-Client` | `RecordType` | the subscribed DNS Client events do not expose the query record type |
 | `sysmon` | windows | `driver_load` | `6 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |

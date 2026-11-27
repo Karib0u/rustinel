@@ -10,16 +10,19 @@ use super::props::{EtwHeader, EtwProperties, LiveProperties};
 use super::routing::{
     kernel_file_route, kernel_registry_route, refine_file_create_action,
     refine_registry_create_action, set_information_action, KernelFileRoute, KernelRegistryRoute,
+    KERNEL_PROCESS_EVENT_IMAGE_LOAD, KERNEL_PROCESS_EVENT_IMAGE_UNLOAD,
+    KERNEL_PROCESS_EVENT_THREAD_START,
 };
 use super::state::{EtwState, PendingRegistryEvent};
 use crate::models::{
     DnsQueryFields, EventCategory, FileEventFields, ImageLoadFields, NetworkConnectionFields,
-    PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields, TaskCreationFields,
-    WmiEventFields,
+    PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields, RemoteThreadFields,
+    TaskCreationFields, WmiEventFields,
 };
 use crate::sensor::integrity_level::integrity_level_from_sid;
 use crate::sensor::network_events::classify_kernel_network_event;
 use crate::sensor::windows::telemetry::{EtwDecodeFailure, EtwDecodeFailureKey};
+use crate::sensor::windows_thread::ThreadStart;
 use crate::sensor::{
     Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, RawProcessPlatform,
     RawWindowsProcess, SensorAction,
@@ -28,6 +31,7 @@ use crate::utils::convert_nt_to_dos;
 use ferrisetw::parser::Parser;
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::EventRecord;
+use std::time::Instant;
 use tracing::{debug, trace};
 
 /// How many unresolved registry writes are logged individually before the
@@ -66,6 +70,9 @@ pub(super) struct DecodedEtwEvent {
 /// GUID, so the key space is bounded by what this build enables; see
 /// [`crate::telemetry::EtwDecodeFailureKey`].
 fn record_failure(record: &impl EtwHeader, state: &EtwState, failure: EtwDecodeFailure) {
+    if is_thread_start(record, state) {
+        state.counters().thread_starts.record_failure();
+    }
     state
         .counters()
         .etw_decode
@@ -95,6 +102,7 @@ pub(super) fn decode_record(
     {
         state.counters().process_access.record_received();
     }
+    let thread_started = is_thread_start(record, state).then(Instant::now);
 
     let mut decoded = if record.provider_id() == state.routing.kernel_registry_guid {
         decode_kernel_registry_record(record, schema_locator, state)
@@ -114,7 +122,25 @@ pub(super) fn decode_record(
     if produced > 0 {
         state.counters().etw_decode.record_decoded(produced);
     }
+    if let Some(started) = thread_started {
+        let thread = decoded
+            .primary
+            .as_ref()
+            .and_then(|event| match &event.payload {
+                RawPayload::RemoteThread(fields) => Some(fields),
+                _ => None,
+            });
+        state
+            .counters()
+            .thread_starts
+            .record(started.elapsed(), thread);
+    }
     decoded
+}
+
+fn is_thread_start(record: &impl EtwHeader, state: &EtwState) -> bool {
+    record.provider_id() == state.routing.kernel_process_guid
+        && record.event_id() == KERNEL_PROCESS_EVENT_THREAD_START
 }
 
 pub(super) fn decode_single_record(
@@ -126,12 +152,15 @@ pub(super) fn decode_single_record(
         return decode_kernel_file_record(record, schema_locator, state);
     }
 
-    let Some((category, action)) = state.routing.route(record) else {
+    let unload = record.provider_id() == state.routing.kernel_process_guid
+        && record.event_id() == KERNEL_PROCESS_EVENT_IMAGE_UNLOAD;
+    let route = state.routing.route(record);
+    if route.is_none() && !unload {
         // Intentional: the router declined this record. Volume here is the
         // provider allowlist working, not a gap, so it is never a failure.
         state.counters().etw_decode.record_filtered();
         return None;
-    };
+    }
     let schema = match schema_locator.event_schema(record) {
         Ok(schema) => schema,
         Err(err) => {
@@ -147,8 +176,20 @@ pub(super) fn decode_single_record(
     };
     let parser = Parser::create(record, &schema);
     let props = LiveProperties::new(&parser);
-    let event = decode_routed(&props, record, category, action, state);
-    if category == EventCategory::ProcessAccess && event.is_some() {
+    let event = if unload {
+        if observe_module(&props, record, state, None) {
+            state.counters().etw_decode.record_indexed();
+        } else {
+            record_failure(record, state, EtwDecodeFailure::UnsupportedLayout);
+        }
+        None
+    } else {
+        route.and_then(|(category, action)| decode_routed(&props, record, category, action, state))
+    };
+    if event
+        .as_ref()
+        .is_some_and(|event| matches!(event.payload, RawPayload::ProcessAccess(_)))
+    {
         state.counters().process_access.record_decoded();
     }
     props.finish(record);
@@ -181,13 +222,41 @@ pub(super) fn decode_routed(
                 payload: RawPayload::ProcessAccess(access),
             })
         }
+        EventCategory::RemoteThread => {
+            let target = parser.get_u32("ProcessID");
+            match ThreadStart::classify(record.process_id(), target) {
+                ThreadStart::SameProcess => {
+                    state.counters().thread_starts.record_same_process();
+                    state.counters().etw_decode.record_filtered();
+                    return None;
+                }
+                ThreadStart::MissingProcess => None,
+                ThreadStart::Remote { source, target } => Some(DecodedEtwEvent {
+                    pid: Some(source),
+                    process_start_key: None,
+                    payload: RawPayload::RemoteThread(RemoteThreadFields::from_thread_start(
+                        source,
+                        target,
+                        parser.get_u32("ThreadID"),
+                        try_get_uint_as_u64(parser, "Win32StartAddr"),
+                    )),
+                }),
+            }
+        }
         EventCategory::Network => decode_network(parser, record),
         EventCategory::File => unreachable!("kernel-file records are diverted above"),
         EventCategory::Registry => unreachable!("kernel-registry records are diverted above"),
         EventCategory::Dns => decode_dns(parser, record),
         // `DriverLoad` is never routed: `decode_image_load` splits it off an
         // image load once the loading process is known.
-        EventCategory::ImageLoad | EventCategory::DriverLoad => decode_image_load(parser, record),
+        EventCategory::ImageLoad | EventCategory::DriverLoad => decode_image_load(parser, record)
+            .inspect(|event| {
+                if record.event_id() == KERNEL_PROCESS_EVENT_IMAGE_LOAD {
+                    if let RawPayload::ImageLoad(fields) = &event.payload {
+                        observe_module(parser, record, state, fields.image_loaded.as_deref());
+                    }
+                }
+            }),
         EventCategory::Scripting => decode_powershell(parser, record),
         EventCategory::PowerShellModule => decode_powershell_module(parser, record),
         EventCategory::PowerShellClassicStart => {
@@ -243,6 +312,39 @@ pub(super) fn decode_routed(
         parent_process_start_key: None,
         payload: decoded.payload,
     })
+}
+
+/// Keep a module range only when the payload names its process and base.
+fn observe_module(
+    parser: &impl EtwProperties,
+    record: &impl EtwHeader,
+    state: &EtwState,
+    load_path: Option<&str>,
+) -> bool {
+    let (Some(pid), Some(base), Ok(at)) = (
+        parser.get_u32("ProcessID"),
+        try_get_uint_as_u64(parser, "ImageBase"),
+        u64::try_from(record.raw_timestamp()),
+    ) else {
+        return false;
+    };
+
+    let process = state.process_identities().resolve(pid, at);
+    if let Some(process) = process {
+        let mut index = state.modules();
+        if record.event_id() == KERNEL_PROCESS_EVENT_IMAGE_UNLOAD {
+            index.unload(process, at, base);
+        } else {
+            index.load(
+                process,
+                at,
+                base,
+                try_get_uint_as_u64(parser, "ImageSize"),
+                load_path.map(str::to_owned),
+            );
+        }
+    }
+    true
 }
 
 /// The actor PID the event header names, when it names one.

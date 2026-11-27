@@ -1,7 +1,7 @@
 //! ETW provider GUIDs, keywords, and subscription filters.
 
 use super::routing::{
-    KERNEL_FILE_ROUTED_EVENT_IDS, KERNEL_REGISTRY_ROUTED_EVENT_IDS,
+    KERNEL_FILE_ROUTED_EVENT_IDS, KERNEL_PROCESS_EVENT_IDS, KERNEL_REGISTRY_ROUTED_EVENT_IDS,
     POWERSHELL_EVENT_MODULE_LOGGING, POWERSHELL_EVENT_SCRIPT_BLOCK,
 };
 use crate::sensor::windows_process_access::{OPEN_PROCESS_ID, PROVIDER};
@@ -77,9 +77,11 @@ impl EtwProviders {
         | Self::REG_KEYWORD_DELETE_KEY;
 
     pub(super) const WINEVENT_KEYWORD_PROCESS: u64 = 0x0010;
+    pub(super) const WINEVENT_KEYWORD_THREAD: u64 = 0x0020;
     pub(super) const WINEVENT_KEYWORD_IMAGE: u64 = 0x0040;
-    pub(super) const PROCESS_KEYWORDS: u64 =
-        Self::WINEVENT_KEYWORD_PROCESS | Self::WINEVENT_KEYWORD_IMAGE;
+    pub(super) const PROCESS_KEYWORDS: u64 = Self::WINEVENT_KEYWORD_PROCESS
+        | Self::WINEVENT_KEYWORD_THREAD
+        | Self::WINEVENT_KEYWORD_IMAGE;
 
     pub(super) const NETWORK_KEYWORD_TCPIP: u64 = 0x10;
     pub(super) const NETWORK_KEYWORD_UDP: u64 = 0x20;
@@ -121,7 +123,7 @@ impl EtwProviders {
             name: "Microsoft-Windows-Kernel-Process",
             level: 4,
             keywords: Self::PROCESS_KEYWORDS,
-            event_ids: &[],
+            event_ids: KERNEL_PROCESS_EVENT_IDS,
         }
     }
 

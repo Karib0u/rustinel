@@ -244,6 +244,7 @@ impl Engine {
                 | "dns"
                 | "image_load"
                 | "driver_load"
+                | "create_remote_thread"
                 | "ps_script"
                 | "ps_module"
                 | "ps_classic_start"
@@ -351,6 +352,11 @@ impl Engine {
                 ),
                 LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("image_load")),
                 LogSourceKey::from_parts(Some("windows"), Some(SYSMON_VIEW), Some("driver_load")),
+                LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some(SYSMON_VIEW),
+                    Some("create_remote_thread"),
+                ),
                 LogSourceKey::from_parts(Some("windows"), Some("dns-client"), Some("dns_query")),
                 LogSourceKey::from_parts(Some("windows"), Some("dns"), Some("dns_query")),
                 LogSourceKey::from_parts(Some("windows"), Some("powershell"), Some("ps_script")),
@@ -688,6 +694,13 @@ impl Engine {
                     Some(platform_product(platform)),
                     Some(SYSMON_VIEW),
                     Some("driver_load"),
+                ));
+            }
+            EventCategory::RemoteThread => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some("windows"),
+                    Some(SYSMON_VIEW),
+                    Some("create_remote_thread"),
                 ));
             }
             EventCategory::Scripting => {

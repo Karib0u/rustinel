@@ -752,3 +752,88 @@ jobs:
               --repo Karib0u/rustinel \
               --signer-workflow Karib0u/rustinel/.github/workflows/release.yml
             ```
+
+  update-nix-pin:
+    name: Open Nix Pin Update PR
+    runs-on: ubuntu-latest
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-') }}
+    concurrency:
+      group: nix-release-pin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Update Nix pin from published archives
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Expected a stable release tag of the form vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+
+          version="${tag#v}"
+          assets="$(mktemp -d)"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$assets" \
+            --pattern "rustinel-$version-x86_64-unknown-linux-musl.tar.gz" \
+            --pattern "rustinel-$version-aarch64-unknown-linux-musl.tar.gz"
+
+          python3 - "$version" "$assets" <<'PY'
+          import base64
+          import hashlib
+          import re
+          import sys
+          from pathlib import Path
+
+          version, assets = sys.argv[1:]
+          package = Path("nix/package.nix")
+          text = package.read_text()
+          replacements = [(r'  version = "[^"]+";', f'  version = "{version}";')]
+          for arch in ("x86_64", "aarch64"):
+              archive = Path(assets) / f"rustinel-{version}-{arch}-unknown-linux-musl.tar.gz"
+              with archive.open("rb") as source:
+                  digest = hashlib.file_digest(source, "sha256").digest()
+              sri = "sha256-" + base64.b64encode(digest).decode("ascii")
+              replacements.append((
+                  rf'    {arch}-linux = "sha256-[^"]+";',
+                  f'    {arch}-linux = "{sri}";',
+              ))
+
+          for pattern, replacement in replacements:
+              text, count = re.subn(f"^{pattern}$", replacement, text, flags=re.MULTILINE)
+              if count != 1:
+                  sys.exit(f"Expected exactly one match in {package} for {pattern}")
+          package.write_text(text)
+          PY
+
+          if ! git diff --quiet -- nix/package.nix; then
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check Nix PR credential
+        if: steps.pin.outputs.tag != ''
+        env:
+          NIX_PIN_PR_TOKEN: ${{ secrets.NIX_PIN_PR_TOKEN }}
+        run: |
+          if [[ -z "$NIX_PIN_PR_TOKEN" ]]; then
+            echo "::error::Set NIX_PIN_PR_TOKEN as described in CONTRIBUTING.md."
+            exit 1
+          fi
+
+      - name: Open or update Nix pin PR
+        if: steps.pin.outputs.tag != ''
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          token: ${{ secrets.NIX_PIN_PR_TOKEN }}
+          branch: automation/nix-release-pin
+          delete-branch: true
+          add-paths: nix/package.nix
+          commit-message: "chore(nix): pin Rustinel ${{ steps.pin.outputs.tag }}"
+          title: "chore(nix): pin Rustinel ${{ steps.pin.outputs.tag }}"
+          body: Update the Nix version and both Linux archive hashes from the published stable release.
+          labels: skip-changelog
