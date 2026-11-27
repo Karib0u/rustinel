@@ -239,6 +239,9 @@ pub struct ProcessCreationFields {
     #[serde(rename = "ParentCommandLine", skip_serializing_if = "Option::is_none")]
     pub parent_command_line: Option<String>,
 
+    #[serde(flatten, default, skip_serializing_if = "Option::is_none")]
+    pub ancestry: Option<Box<ProcessAncestry>>,
+
     #[serde(rename = "ParentUser", skip_serializing_if = "Option::is_none")]
     pub parent_user: Option<String>,
 
@@ -265,6 +268,24 @@ pub struct ProcessCreationFields {
         skip_serializing_if = "Option::is_none"
     )]
     pub windows: Option<Box<WindowsProcessMetadata>>,
+}
+
+/// A bounded projection of the process cache onto a process creation event.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProcessAncestry {
+    #[serde(rename = "GrandparentImage", skip_serializing_if = "Option::is_none")]
+    pub grandparent_image: Option<String>,
+    #[serde(
+        rename = "GrandparentCommandLine",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub grandparent_command_line: Option<String>,
+    #[serde(
+        rename = "AncestorImages",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub images: Vec<String>,
 }
 
 /// Sensor-measured identity of a filesystem object.

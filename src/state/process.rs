@@ -1,11 +1,17 @@
 use std::collections::{BTreeSet, HashMap};
+use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::vocab::ProcessStartKey;
+
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+    epoch_secs(SystemTime::now())
+}
+
+fn epoch_secs(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
 }
@@ -21,6 +27,8 @@ pub struct ProcessMetadata {
     pub creation_time: u64,
     /// Parent process ID
     pub parent_pid: Option<u32>,
+    /// Start key of the observed parent, paired with `parent_pid`.
+    pub parent_start_time: Option<NonZeroU64>,
     /// Parent process image name (enriched at creation time)
     pub parent_image: Option<String>,
     /// Parent process command line (enriched at creation time)
@@ -148,7 +156,33 @@ impl ProcessCache {
         integrity_level: Option<String>,
         provenance: crate::models::Provenance,
     ) {
-        let now = now_secs();
+        self.insert(
+            pid,
+            ProcessMetadata {
+                provenance,
+                image_name: image,
+                command_line: cmd,
+                user,
+                creation_time,
+                parent_pid,
+                parent_start_time: None,
+                parent_image,
+                parent_command_line,
+                original_filename,
+                product,
+                description,
+                company,
+                file_version,
+                current_directory,
+                integrity_level,
+            },
+            SystemTime::now(),
+        );
+    }
+
+    pub(crate) fn insert(&self, pid: u32, metadata: ProcessMetadata, observed_at: SystemTime) {
+        let now = epoch_secs(observed_at);
+        let creation_time = metadata.creation_time;
         {
             let mut cache = self.cache.write().unwrap();
             let previous = cache
@@ -158,26 +192,7 @@ impl ProcessCache {
                 .filter(|previous| *previous != creation_time)
                 .and_then(|previous| cache.remove(pid, previous));
 
-            cache.entries.insert(
-                (pid, creation_time),
-                ProcessMetadata {
-                    provenance,
-                    image_name: image,
-                    command_line: cmd,
-                    user,
-                    creation_time,
-                    parent_pid,
-                    parent_image,
-                    parent_command_line,
-                    original_filename,
-                    product,
-                    description,
-                    company,
-                    file_version,
-                    current_directory,
-                    integrity_level,
-                },
-            );
+            cache.entries.insert((pid, creation_time), metadata);
             cache.by_pid.insert(pid, creation_time);
             cache.eviction_order.insert((creation_time, pid));
 
@@ -221,25 +236,63 @@ impl ProcessCache {
             provenance.mark_derived("CommandLine");
         }
 
-        self.add_with_provenance(
+        self.insert(
             child_pid,
-            child_creation_time,
-            parent.image_name,
-            parent.command_line,
-            parent.user,
-            Some(parent_pid),
-            Some(parent_image),
-            parent_command_line,
-            parent.original_filename,
-            parent.product,
-            parent.description,
-            parent.company,
-            parent.file_version,
-            parent.current_directory,
-            parent.integrity_level,
-            provenance,
+            ProcessMetadata {
+                creation_time: child_creation_time,
+                parent_pid: Some(parent_pid),
+                parent_start_time: NonZeroU64::new(parent_creation_time),
+                parent_image: Some(parent_image),
+                parent_command_line,
+                provenance,
+                ..parent
+            },
+            SystemTime::now(),
         );
         true
+    }
+
+    /// Follow exact parent identities with both tables locked in lifecycle order.
+    /// The visitor receives zero-based depth (zero is the direct parent).
+    pub(crate) fn visit_ancestors(
+        &self,
+        child: ProcessStartKey,
+        parent: ProcessStartKey,
+        observed_at: SystemTime,
+        mut visit: impl FnMut(usize, &ProcessMetadata),
+    ) {
+        let now = epoch_secs(observed_at);
+        let cache = self.cache.read().unwrap();
+        let mut graveyard = None;
+        let mut seen = [child; MAX_ANCESTORS + 1];
+        let mut key = parent;
+        for depth in 0..MAX_ANCESTORS {
+            if seen[..=depth].contains(&key) {
+                break;
+            }
+            let identity = (key.pid, key.start_time);
+            let ancestor = cache.entries.get(&identity).or_else(|| {
+                graveyard
+                    .get_or_insert_with(|| self.graveyard.read().unwrap())
+                    .entries
+                    .get(&identity)
+                    .filter(|entry| now.saturating_sub(entry.death_time) <= GRAVEYARD_TTL_SECS)
+                    .map(|entry| &entry.metadata)
+            });
+            let Some(ancestor) = ancestor else {
+                break;
+            };
+            visit(depth, ancestor);
+            seen[depth + 1] = key;
+            let (Some(pid), Some(start_time)) = (ancestor.parent_pid, ancestor.parent_start_time)
+            else {
+                break;
+            };
+            key = ProcessStartKey {
+                pid,
+                start_time: start_time.get(),
+            };
+        }
     }
 
     /// Remove a process from the cache (called on process exit)
@@ -420,6 +473,7 @@ struct GraveyardEntry {
 const GRAVEYARD_TTL_SECS: u64 = 60;
 const GRAVEYARD_CLEANUP_INTERVAL_SECS: u64 = 10;
 const PROCESS_CACHE_MAX_ENTRIES: usize = 65_536;
+const MAX_ANCESTORS: usize = 8;
 
 #[cfg(test)]
 mod tests {
@@ -442,6 +496,74 @@ mod tests {
             None,
             None,
             None,
+        );
+    }
+
+    fn key(pid: u32, start_time: u64) -> ProcessStartKey {
+        ProcessStartKey { pid, start_time }
+    }
+
+    fn ancestor_times(
+        cache: &ProcessCache,
+        child: ProcessStartKey,
+        parent: ProcessStartKey,
+        observed_at: SystemTime,
+    ) -> Vec<u64> {
+        let mut times = Vec::new();
+        cache.visit_ancestors(child, parent, observed_at, |_, ancestor| {
+            times.push(ancestor.creation_time);
+        });
+        times
+    }
+
+    #[test]
+    fn ancestry_stops_at_eight_even_with_more_cached_forks() {
+        let cache = ProcessCache::new();
+        add_process(&cache, 1, 1);
+        for pid in 2..=12 {
+            assert!(cache.inherit(pid, pid.into(), pid - 1, (pid - 1).into()));
+        }
+        assert_eq!(
+            ancestor_times(&cache, key(13, 13), key(12, 12), SystemTime::now()),
+            (5..=12).rev().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ancestry_stops_before_revisiting_an_identity() {
+        let cache = ProcessCache::new();
+        add_process(&cache, 1, 100);
+        assert!(cache.inherit(2, 200, 1, 100));
+        assert!(cache.inherit(1, 100, 2, 200)); // Malformed linkage.
+        let now = SystemTime::now();
+        assert_eq!(
+            ancestor_times(&cache, key(3, 300), key(2, 200), now),
+            [200, 100]
+        );
+        assert_eq!(ancestor_times(&cache, key(1, 100), key(2, 200), now), [200]);
+        assert!(ancestor_times(&cache, key(2, 200), key(2, 200), now).is_empty());
+    }
+
+    #[test]
+    fn ancestry_uses_retired_generations_until_ttl_then_stops_at_the_gap() {
+        let cache = ProcessCache::new();
+        let observed_at = UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+        add_process(&cache, 1, 100);
+        assert!(cache.inherit(2, 200, 1, 100));
+        let mut replacement = cache.get_metadata_by_key(1, 100).unwrap();
+        replacement.creation_time = 300;
+        cache.insert(1, replacement, observed_at);
+
+        // The same PID at a different generation can also be the descendant.
+        let at_ttl = observed_at + std::time::Duration::from_secs(GRAVEYARD_TTL_SECS);
+        assert_eq!(
+            ancestor_times(&cache, key(1, 300), key(2, 200), at_ttl),
+            [200, 100]
+        );
+        let past_ttl = at_ttl + std::time::Duration::from_secs(1);
+        assert_eq!(
+            ancestor_times(&cache, key(1, 300), key(2, 200), past_ttl),
+            [200]
         );
     }
 
