@@ -52,6 +52,15 @@ It places those reviewed notes before downloads and installation instructions, t
 Refactoring, CI, and chores are grouped under Maintenance.
 Keep notes for previous versions in place.
 
+### Nix pin after a stable release
+
+Before tagging a stable release, ensure the `NIX_PIN_PR_TOKEN` Actions secret holds a valid fine-grained personal access token scoped to this repository with read and write access to Contents and Pull requests.
+The release workflow uses this token to open or refresh the Nix pin PR and trigger its checks.
+
+After publication, review the generated PR and merge it once `nix flake check` passes.
+If the follow-up job fails, fix the failure and rerun that job, or update the pin using the instructions in [nix/package.nix](nix/package.nix).
+The scheduled Nix workflow compares the pin on `main` with the latest stable release.
+
 ## Writing documentation
 
 The docs are for people running and writing rules for Rustinel.
