@@ -673,6 +673,32 @@ impl NormalizedEvent {
                 Field::ProcessId => f.process_id.as_deref().map(Value::String),
                 _ => None,
             },
+            EventFields::RemoteThread(f) => match key {
+                Field::SourceProcessId => Some(Value::U64(u64::from(f.source_process_id))),
+                Field::TargetProcessId => Some(Value::U64(u64::from(f.target_process_id))),
+                Field::NewThreadId => f.new_thread_id.map(|id| Value::U64(u64::from(id))),
+                Field::StartAddress => f.start_address.as_deref().map(Value::String),
+                Field::StartModule => f.start_module.as_deref().map(Value::String),
+                Field::SourceImage => f.source_image.as_deref().map(Value::String),
+                Field::SourceCommandLine => f.source_command_line.as_deref().map(Value::String),
+                Field::SourceParentProcessId => f
+                    .source_parent_process_id
+                    .map(|id| Value::U64(u64::from(id))),
+                Field::SourceParentImage => f.source_parent_image.as_deref().map(Value::String),
+                Field::SourceParentCommandLine => {
+                    f.source_parent_command_line.as_deref().map(Value::String)
+                }
+                Field::TargetImage => f.target_image.as_deref().map(Value::String),
+                Field::TargetCommandLine => f.target_command_line.as_deref().map(Value::String),
+                Field::TargetParentProcessId => f
+                    .target_parent_process_id
+                    .map(|id| Value::U64(u64::from(id))),
+                Field::TargetParentImage => f.target_parent_image.as_deref().map(Value::String),
+                Field::TargetParentCommandLine => {
+                    f.target_parent_command_line.as_deref().map(Value::String)
+                }
+                _ => None,
+            },
             EventFields::ImageLoad(f) => match key {
                 Field::ImageLoaded => f.image_loaded.as_deref().map(Value::String),
                 Field::ProcessImage => f.image.as_deref().map(Value::String),
@@ -776,6 +802,7 @@ pub enum EventCategory {
     ImageLoad,
     /// A kernel image (driver) load. Carries [`ImageLoadFields`].
     DriverLoad,
+    RemoteThread,
     Scripting,
     PowerShellModule,
     PowerShellClassicStart,
@@ -793,7 +820,7 @@ pub enum EventCategory {
 
 impl EventCategory {
     /// Every category, for tables that must cover each one.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Process,
         Self::Network,
         Self::File,
@@ -801,6 +828,7 @@ impl EventCategory {
         Self::Dns,
         Self::ImageLoad,
         Self::DriverLoad,
+        Self::RemoteThread,
         Self::Scripting,
         Self::PowerShellModule,
         Self::PowerShellClassicStart,

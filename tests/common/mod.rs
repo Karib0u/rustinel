@@ -785,6 +785,7 @@ pub fn event_fields_from_payload(event: RawEvent) -> EventFields {
         RawPayload::ImageLoad(fields) | RawPayload::DriverLoad(fields) => {
             EventFields::ImageLoad(fields)
         }
+        RawPayload::RemoteThread(fields) => EventFields::RemoteThread(fields),
         RawPayload::Scripting(fields) => EventFields::PowerShellScript(fields),
         RawPayload::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
         RawPayload::PowerShellClassicStart(fields) => EventFields::PowerShellClassicStart(fields),

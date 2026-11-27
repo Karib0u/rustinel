@@ -307,7 +307,7 @@ impl EtwSensor {
         let _classic = super::classic::ClassicSession::start(
             Arc::clone(&state),
             tx.clone(),
-            Arc::clone(&self.loss_counters),
+            Arc::clone(self.loss_counters()),
             self.process_flush_interval_ms,
         )?;
 
@@ -361,7 +361,7 @@ impl EtwSensor {
                 ),
             ],
             Arc::clone(&self.shutdown),
-            Arc::clone(&self.loss_counters),
+            Arc::clone(self.loss_counters()),
         ) {
             Ok(worker) => worker,
             Err(err) => {
@@ -369,12 +369,12 @@ impl EtwSensor {
                 let _ = super::super::loss::stop_and_record(
                     TRACE_SESSION_NAME,
                     super::super::loss::Session::Main,
-                    &self.loss_counters,
+                    self.loss_counters(),
                 );
                 let _ = super::super::loss::stop_and_record(
                     PROCESS_TRACE_SESSION_NAME,
                     super::super::loss::Session::Process,
-                    &self.loss_counters,
+                    self.loss_counters(),
                 );
                 let _ = process_worker.join();
                 drop(process_trace);
@@ -397,12 +397,12 @@ impl EtwSensor {
                 let _ = super::super::loss::stop_and_record(
                     TRACE_SESSION_NAME,
                     super::super::loss::Session::Main,
-                    &self.loss_counters,
+                    self.loss_counters(),
                 );
                 let _ = super::super::loss::stop_and_record(
                     PROCESS_TRACE_SESSION_NAME,
                     super::super::loss::Session::Process,
-                    &self.loss_counters,
+                    self.loss_counters(),
                 );
                 let _ = process_worker.join();
                 let _ = loss_monitor.join();
@@ -475,12 +475,12 @@ impl EtwSensor {
         let _ = super::super::loss::stop_and_record(
             TRACE_SESSION_NAME,
             super::super::loss::Session::Main,
-            &self.loss_counters,
+            self.loss_counters(),
         );
         let _ = super::super::loss::stop_and_record(
             PROCESS_TRACE_SESSION_NAME,
             super::super::loss::Session::Process,
-            &self.loss_counters,
+            self.loss_counters(),
         );
 
         let process_result = process_worker
@@ -510,7 +510,7 @@ impl EtwSensor {
         handle: ferrisetw::native::TraceHandle,
     ) -> Result<std::thread::JoinHandle<Result<()>>> {
         let shutdown = Arc::clone(&self.shutdown);
-        let loss_counters = Arc::clone(&self.loss_counters);
+        let loss_counters = Arc::clone(self.loss_counters());
         std::thread::Builder::new()
             .name("etw-process-trace".into())
             .spawn(move || {
