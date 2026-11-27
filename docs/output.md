@@ -123,7 +123,7 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | Dataset | Events |
 | --- | --- |
 | `edr.process` | Process start and exit |
-| `edr.network` | Network connections |
+| `edr.network` | Connections and [Linux socket activity](sigma.md#logsources) |
 | `edr.file` | File activity |
 | `edr.dns` | DNS queries |
 | `edr.registry` | Registry (Windows) |

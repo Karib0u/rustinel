@@ -205,7 +205,11 @@ pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16)
             2 => vec!["end".to_string()],
             _ => vec!["info".to_string()],
         },
-        EventCategory::Network => vec!["connection".to_string()],
+        EventCategory::Network => {
+            let kind = event_actions::row_for_code(category, opcode)
+                .map_or("connection", |row| row.ecs_type);
+            vec![kind.to_string()]
+        }
         EventCategory::File | EventCategory::Registry => {
             vec![file_or_registry_row(category, opcode).1.to_string()]
         }
@@ -269,7 +273,8 @@ pub(super) fn ecs_event_action(
             _ => "process-info",
         },
         EventCategory::ProcessAccess => "process-access",
-        EventCategory::Network => "network-connection",
+        EventCategory::Network => event_actions::row_for_code(category, opcode)
+            .map_or("network-connection", |row| row.ecs_action),
         EventCategory::File | EventCategory::Registry => file_or_registry_row(category, opcode).0,
         EventCategory::Dns => "dns-query",
         EventCategory::ImageLoad => "image-load",

@@ -9,32 +9,34 @@ use aya_ebpf::{
 
 use crate::events::{connect_result_is_connection, event_metadata, NetworkEvent};
 use crate::process::current_process_start_time;
+use crate::socket_tuple_abi::{raw_socket, AF_INET, AF_INET6, AF_PACKET, NETWORK_RAW_SOCKET};
 use crate::telemetry::{record_map_full, record_ring_full, record_submitted, NETWORK_FAMILY};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NetworkTracepointOffsets {
-    pub connect_fd: u32,
     pub connect_addr: u32,
     pub connect_ret: u32,
+    pub socket_family: u32,
+    pub socket_type: u32,
+    pub socket_protocol: u32,
+    pub socket_ret: u32,
 }
 
 #[no_mangle]
 pub static NETWORK_TRACEPOINT_OFFSETS: NetworkTracepointOffsets = NetworkTracepointOffsets {
-    connect_fd: 0,
     connect_addr: 0,
     connect_ret: 0,
+    socket_family: 0,
+    socket_type: 0,
+    socket_protocol: 0,
+    socket_ret: 0,
 };
 
 #[inline(always)]
 unsafe fn tracepoint_offset(value: *const u32) -> usize {
     core::ptr::read_volatile(value) as usize
 }
-
-/// AF_INET (IPv4).
-const AF_INET: u16 = 2;
-/// AF_INET6 (IPv6).
-const AF_INET6: u16 = 10;
 
 /// IPv4 socket address as laid out by the C ABI.
 #[repr(C)]
@@ -96,9 +98,6 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
     let _ = NETWORK_PENDING.remove(&tid);
 
     let uid = crate::task_identity::effective_uid().unwrap_or(u32::MAX);
-    let fd = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
-        NETWORK_TRACEPOINT_OFFSETS.connect_fd
-    )))? as i32;
 
     // Read pointer to user-space sockaddr structure.
     let uservaddr: u64 = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
@@ -139,7 +138,7 @@ unsafe fn try_handle_connect(ctx: &TracePointContext) -> Result<u32, i64> {
         source_seq: 0,
         pid,
         uid,
-        fd,
+        socket_protocol: 0,
         // Filled in by the exit handler, which is the only place the outcome
         // is known.
         ret: 0,
@@ -179,14 +178,106 @@ unsafe fn try_handle_connect_exit(ctx: &TracePointContext) -> Result<u32, i64> {
     }
     event.ret = ret;
 
+    submit_network(event);
+    Ok(0)
+}
+
+#[inline(always)]
+pub(crate) fn submit_network(mut event: NetworkEvent) -> bool {
     let Some(mut entry) = NETWORK_RING.reserve::<NetworkEvent>(0) else {
         record_ring_full(NETWORK_FAMILY);
-        return Ok(0);
+        return false;
     };
     (event.event_time_ns, event.source_seq) = event_metadata();
     entry.write(event);
     entry.submit(0);
     record_submitted(NETWORK_FAMILY);
+    true
+}
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RawSocket {
+    protocol: u32,
+    family: u16,
+    _pad: u16,
+}
+
+#[map]
+static RAW_SOCKET_PENDING: HashMap<u32, RawSocket> = HashMap::with_max_entries(1024, 0);
+
+#[tracepoint]
+pub fn handle_raw_socket(ctx: TracePointContext) -> u32 {
+    unsafe { raw_socket_enter(&ctx) }.unwrap_or(1)
+}
+
+#[inline(always)]
+unsafe fn raw_socket_enter(ctx: &TracePointContext) -> Result<u32, i64> {
+    let family = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.socket_family
+    )))? as u16;
+    let socket_type = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.socket_type
+    )))? as i32;
+    let tid = bpf_get_current_pid_tgid() as u32;
+    if !raw_socket(family, socket_type) {
+        let _ = RAW_SOCKET_PENDING.remove(&tid);
+        return Ok(0);
+    }
+    let protocol = ctx.read_at::<u64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.socket_protocol
+    )))? as u32;
+    let socket = RawSocket {
+        family,
+        protocol: if family == AF_PACKET {
+            u16::from_be(protocol as u16) as u32
+        } else {
+            protocol
+        },
+        _pad: 0,
+    };
+    if RAW_SOCKET_PENDING.insert(&tid, &socket, 0).is_err() {
+        record_map_full(NETWORK_FAMILY);
+    }
+    Ok(0)
+}
+
+#[tracepoint]
+pub fn handle_raw_socket_exit(ctx: TracePointContext) -> u32 {
+    unsafe { raw_socket_exit(&ctx) }.unwrap_or(1)
+}
+
+#[inline(always)]
+unsafe fn raw_socket_exit(ctx: &TracePointContext) -> Result<u32, i64> {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let tid = pid_tgid as u32;
+    let Some(pending) = RAW_SOCKET_PENDING.get(&tid) else {
+        return Ok(0);
+    };
+    let socket = *pending;
+    let _ = RAW_SOCKET_PENDING.remove(&tid);
+    let ret = ctx.read_at::<i64>(tracepoint_offset(core::ptr::addr_of!(
+        NETWORK_TRACEPOINT_OFFSETS.socket_ret
+    )))? as i32;
+    if ret < 0 {
+        return Ok(0);
+    }
+    let pid = (pid_tgid >> 32) as u32;
+    submit_network(NetworkEvent {
+        event_time_ns: 0,
+        source_seq: 0,
+        pid,
+        uid: crate::task_identity::effective_uid().unwrap_or(u32::MAX),
+        socket_protocol: socket.protocol,
+        ret,
+        dport: 0,
+        sport: 0,
+        af: socket.family,
+        protocol: 0,
+        tuple_flags: NETWORK_RAW_SOCKET,
+        daddr: [0; 16],
+        saddr: [0; 16],
+        process_start_time: current_process_start_time(pid),
+    });
     Ok(0)
 }

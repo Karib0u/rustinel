@@ -44,6 +44,7 @@ pub enum CanonicalField {
     /// The audit record types one event stands for.
     AuditType,
     AccountName,
+    Action,
     AncestorImages,
     CdHash,
     Channel,
@@ -234,6 +235,7 @@ const DERIVED_FIELDS: &[&str] = &[
 pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("AccessOutcome", CanonicalField::AccessOutcome),
     field("AccountName", CanonicalField::AccountName),
+    field("Action", CanonicalField::Action),
     alias("AncestorImages", CanonicalField::AncestorImages),
     field("CdHash", CanonicalField::CdHash),
     field("CgroupId", CanonicalField::CgroupId),

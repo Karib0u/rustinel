@@ -389,6 +389,12 @@ pub struct EcsAlert {
     #[serde(rename = "network.transport", skip_serializing_if = "Option::is_none")]
     pub network_transport: Option<String>,
 
+    #[serde(
+        rename = "edr.network.socket_protocol",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub edr_network_socket_protocol: Option<String>,
+
     #[serde(rename = "network.type", skip_serializing_if = "Option::is_none")]
     pub network_type: Option<String>,
 

@@ -103,6 +103,8 @@ impl PipelineProbes {
                     ("ebpf_ring", family.kernel_ring_full),
                     ("ebpf_oversized", family.kernel_oversized),
                     ("ebpf_map_full", family.kernel_map_full),
+                    ("ebpf_rate_limited", family.kernel_rate_limited),
+                    ("ebpf_read_errors", family.kernel_read_errors),
                 ] {
                     if total > 0 {
                         totals.push(super::LossTotal::new(channel, family.ring.clone(), total));

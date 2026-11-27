@@ -886,6 +886,18 @@ fn linux_ebpf_results(snapshot: &TelemetrySnapshot) -> Vec<DiagnosticResult> {
                 family.ring, family.kernel_map_full
             ));
         }
+        if family.kernel_rate_limited > 0 {
+            findings.push(format!(
+                "{} hooks suppressed {} events under the rate budget",
+                family.ring, family.kernel_rate_limited
+            ));
+        }
+        if family.kernel_read_errors > 0 {
+            findings.push(format!(
+                "{} hooks failed to read {} events",
+                family.ring, family.kernel_read_errors
+            ));
+        }
         if family.short_reads > 0 {
             findings.push(format!(
                 "{} ring produced {} short reads",
@@ -1496,6 +1508,9 @@ mod tests {
             kernel_ring_full: 0,
             kernel_oversized: 0,
             kernel_map_full: 0,
+            kernel_deduplicated: 0,
+            kernel_rate_limited: 0,
+            kernel_read_errors: 0,
             userspace_received: 10,
             userspace_decoded: 10,
             short_reads: 0,

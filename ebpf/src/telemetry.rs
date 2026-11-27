@@ -19,6 +19,9 @@ pub struct KernelCounters {
     pub kernel_ring_full: u64,
     pub kernel_oversized: u64,
     pub kernel_map_full: u64,
+    pub kernel_deduplicated: u64,
+    pub kernel_rate_limited: u64,
+    pub kernel_read_errors: u64,
 }
 
 #[map]
@@ -73,5 +76,38 @@ pub fn record_map_full(family: u32) {
     };
     unsafe {
         increment(&mut (*counters).kernel_map_full);
+    }
+}
+
+#[inline(always)]
+pub fn record_deduplicated(family: u32) {
+    let Some(counters) = LINUX_EBPF_COUNTERS.get_ptr_mut(family) else {
+        return;
+    };
+    unsafe {
+        increment(&mut (*counters).kernel_seen);
+        increment(&mut (*counters).kernel_deduplicated);
+    }
+}
+
+#[inline(always)]
+pub fn record_rate_limited(family: u32) {
+    let Some(counters) = LINUX_EBPF_COUNTERS.get_ptr_mut(family) else {
+        return;
+    };
+    unsafe {
+        increment(&mut (*counters).kernel_seen);
+        increment(&mut (*counters).kernel_rate_limited);
+    }
+}
+
+#[inline(always)]
+pub fn record_read_error(family: u32) {
+    let Some(counters) = LINUX_EBPF_COUNTERS.get_ptr_mut(family) else {
+        return;
+    };
+    unsafe {
+        increment(&mut (*counters).kernel_seen);
+        increment(&mut (*counters).kernel_read_errors);
     }
 }

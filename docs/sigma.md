@@ -115,6 +115,8 @@ Stable reason codes in schema version 1 are:
 | `service: auditd` | | ✓ | |
 | `service: auth`, `service: sshd`, `service: sudo` | | ✓ | |
 
+For Linux `network_connection` rules (Event ID 3), see [Linux socket actions and fields](field-availability.md#linux-socket-actions).
+
 A rule whose `product` does not match the platform is skipped.
 A rule for a logsource the platform does not collect loads but never fires.
 On Linux and macOS, `service: sysmon` selects the Sysmon-compatible field view over native telemetry; it does not claim that Sysmon collected the event.

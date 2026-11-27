@@ -497,7 +497,12 @@ impl Btf {
         })
     }
 
-    fn function(&self, name: &str, returns_sock: bool) -> Result<usize> {
+    fn socket_function(
+        &self,
+        name: &str,
+        first_pointee: &str,
+        returns_sock: bool,
+    ) -> Result<usize> {
         let func = self
             .types
             .iter()
@@ -521,50 +526,93 @@ impl Btf {
             .ty)?;
         ensure!(first.kind == 2, "expected socket argument pointer");
         ensure!(
-            self.ty(first.size_type)?.name == if returns_sock { "sock" } else { "socket" },
+            self.ty(first.size_type)?.name == first_pointee,
             "unexpected socket argument"
         );
         Ok(proto.members.len())
     }
 
-    fn socket_layout(&self) -> Result<SocketLayout> {
-        use super::socket_tuple_abi::SocketOffsets;
+    fn socket_accept_program(&self) -> Result<&'static str> {
         ensure!(
-            self.function("inet_stream_connect", false)? == 4,
+            self.socket_function("inet_stream_connect", "socket", false)? == 4,
             "unsupported stream connect prototype"
         );
         ensure!(
-            self.function("inet_dgram_connect", false)? == 4,
+            self.socket_function("inet_dgram_connect", "socket", false)? == 4,
             "unsupported datagram connect prototype"
         );
-        let accept_args = self.function("inet_csk_accept", true)?;
+        let accept_args = self.socket_function("inet_csk_accept", "sock", true)?;
         ensure!(
             matches!(accept_args, 2 | 4),
             "unsupported accept prototype: {accept_args} arguments"
         );
+        Ok(if accept_args == 2 {
+            "handle_accept2"
+        } else {
+            "handle_accept4"
+        })
+    }
+
+    fn socket_offsets(&self) -> Result<super::socket_tuple_abi::SocketOffsets> {
+        use super::socket_tuple_abi::SocketOffsets;
         let field = |name, width| self.socket_field("sock", &["__sk_common", name], width);
         let (protocol, protocol_width) = match self.socket_field("sock", &["sk_protocol"], 1) {
             Ok(offset) => (offset, 1),
             Err(_) => (self.socket_field("sock", &["sk_protocol"], 2)?, 2),
         };
+        Ok(SocketOffsets {
+            socket_sk: self.socket_field("socket", &["sk"], 8)?,
+            family: field("skc_family", 2)?,
+            saddr: field("skc_rcv_saddr", 4)?,
+            daddr: field("skc_daddr", 4)?,
+            sport: field("skc_num", 2)?,
+            dport: field("skc_dport", 2)?,
+            saddr6: field("skc_v6_rcv_saddr", 16)?,
+            daddr6: field("skc_v6_daddr", 16)?,
+            protocol,
+            protocol_width,
+        })
+    }
+
+    fn validate_listen(&self) -> Result<()> {
+        ensure!(
+            self.socket_function("inet_listen", "socket", false)? == 2,
+            "unsupported inet_listen prototype"
+        );
+        Ok(())
+    }
+
+    fn validate_udp_send(&self, name: &str) -> Result<()> {
+        ensure!(
+            self.socket_function(name, "sock", false)? == 3
+                && self.function_parameter(name, "msg", "msghdr")? == 1,
+            "unsupported {name} prototype"
+        );
+        Ok(())
+    }
+
+    fn udp_offsets(&self) -> Result<super::socket_tuple_abi::UdpOffsets> {
+        let msg = self
+            .types
+            .iter()
+            .find(|ty| ty.kind == 4 && ty.name == "msghdr")
+            .context("missing msghdr")?;
+        let (msg_name, ty) = self.member(msg, "msg_name", 0)?;
+        ensure!(self.ty(ty)?.kind == 2, "msghdr.msg_name is not a pointer");
+        ensure!(
+            msg_name <= 65535,
+            "UDP message offset exceeds verifier bounds"
+        );
+        Ok(super::socket_tuple_abi::UdpOffsets {
+            state: self.socket_field("sock", &["__sk_common", "skc_state"], 1)?,
+            msg_name,
+        })
+    }
+
+    fn socket_layout(&self) -> Result<SocketLayout> {
         Ok(SocketLayout {
-            offsets: SocketOffsets {
-                socket_sk: self.socket_field("socket", &["sk"], 8)?,
-                family: field("skc_family", 2)?,
-                saddr: field("skc_rcv_saddr", 4)?,
-                daddr: field("skc_daddr", 4)?,
-                sport: field("skc_num", 2)?,
-                dport: field("skc_dport", 2)?,
-                saddr6: field("skc_v6_rcv_saddr", 16)?,
-                daddr6: field("skc_v6_daddr", 16)?,
-                protocol,
-                protocol_width,
-            },
-            accept_program: if accept_args == 2 {
-                "handle_accept2"
-            } else {
-                "handle_accept4"
-            },
+            offsets: self.socket_offsets()?,
+            accept_program: self.socket_accept_program()?,
         })
     }
 
@@ -763,6 +811,30 @@ impl FileIdentityLayout {
     }
 }
 
+pub(super) struct NetworkLayouts {
+    pub offsets: super::socket_tuple_abi::SocketOffsets,
+    pub accept_program: Result<&'static str>,
+    pub listen: Result<()>,
+    pub udp: Result<super::socket_tuple_abi::UdpOffsets>,
+    pub udp4: Result<()>,
+    pub udp6: Result<()>,
+}
+
+impl NetworkLayouts {
+    pub fn load() -> Result<Self> {
+        let bytes = std::fs::read(BTF_PATH).context("reading kernel BTF")?;
+        let btf = Btf::parse(&bytes)?;
+        Ok(Self {
+            offsets: btf.socket_offsets()?,
+            accept_program: btf.socket_accept_program(),
+            listen: btf.validate_listen(),
+            udp: btf.udp_offsets(),
+            udp4: btf.validate_udp_send("udp_sendmsg"),
+            udp6: btf.validate_udp_send("udpv6_sendmsg"),
+        })
+    }
+}
+
 pub struct SocketLayout {
     pub offsets: super::socket_tuple_abi::SocketOffsets,
     pub accept_program: &'static str,
@@ -833,6 +905,7 @@ mod socket_tests {
                         member("skc_dport", 2, 12),
                         member("skc_num", 2, 14),
                         member("skc_family", 2, 16),
+                        member("skc_state", 1, 18),
                         member("skc_v6_daddr", 4, 56),
                         member("skc_v6_rcv_saddr", 4, 72),
                     ],
@@ -861,6 +934,30 @@ mod socket_tests {
                 func("inet_dgram_connect", 10), // 11,12
                 proto(7, accept_args, 7),
                 func("inet_csk_accept", 13), // 13,14
+                Type {
+                    kind: 2,
+                    ..Type::default()
+                }, // 15 void pointer
+                composite("msghdr", 64, vec![member("msg_name", 15, 8)]), // 16
+                Type {
+                    kind: 2,
+                    size_type: 16,
+                    ..Type::default()
+                }, // 17 msghdr pointer
+                Type {
+                    kind: 13,
+                    size_type: 3,
+                    members: vec![
+                        member("sk", 7, 0),
+                        member("msg", 17, 0),
+                        member("len", 3, 0),
+                    ],
+                    ..Type::default()
+                }, // 18
+                func("udp_sendmsg", 18),
+                func("udpv6_sendmsg", 18),
+                proto(9, 2, 3),
+                func("inet_listen", 21),
             ],
         }
     }
@@ -882,6 +979,26 @@ mod socket_tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn listen_and_udp_validate_their_own_kernel_layouts() {
+        let mut btf = fixture(548, 3);
+        // The connection tier can degrade independently.
+        assert!(btf.socket_accept_program().is_err());
+        assert!(btf.validate_listen().is_ok());
+        assert!(btf.validate_udp_send("udp_sendmsg").is_ok());
+        assert!(btf.validate_udp_send("udpv6_sendmsg").is_ok());
+        let udp = btf.udp_offsets().unwrap();
+        assert_eq!(udp.state, 18);
+        assert_eq!(udp.msg_name, 8);
+
+        btf.types[18].members.swap(1, 2);
+        assert!(btf.validate_udp_send("udp_sendmsg").is_err());
+        btf.types[21].members.pop();
+        assert!(btf.validate_listen().is_err());
+        btf.types[16].members[0].ty = 3;
+        assert!(btf.udp_offsets().is_err());
     }
 
     #[test]

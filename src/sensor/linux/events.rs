@@ -605,7 +605,7 @@ mod tests {
             source_seq: 0,
             pid: 42,
             uid: 1000,
-            fd: 3,
+            socket_protocol: 0,
             ret: 0,
             dport: 53,
             sport: 0,

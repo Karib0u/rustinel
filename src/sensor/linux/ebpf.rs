@@ -11,11 +11,11 @@
 //!
 //! Requirements: Linux 5.8+ and eBPF privileges; runtime BTF enables task identity.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use aya::maps::{Array, MapData, PerCpuArray, RingBuf};
 use aya::programs::{FEntry, FExit, KProbe, TracePoint};
 use aya::{Ebpf, EbpfLoader};
@@ -25,7 +25,8 @@ use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, warn};
 
 use super::telemetry::{LinuxEbpfCounters, LinuxEbpfFamily, LinuxEbpfKernelSample};
-use crate::models::{DnsQueryFields, FileEventFields, NetworkConnectionFields};
+use crate::models::event_actions::row_for_action;
+use crate::models::{DnsQueryFields, EventCategory, FileEventFields, NetworkConnectionFields};
 use crate::sensor::{
     Platform, ProcessStartKey, RawEvent, RawLinuxProcess, RawPayload, RawProcessEvent,
     RawProcessPlatform, RawUserId, Sensor, SensorAction, SensorNormalization,
@@ -71,6 +72,9 @@ struct KernelCounterRow {
     kernel_ring_full: u64,
     kernel_oversized: u64,
     kernel_map_full: u64,
+    kernel_deduplicated: u64,
+    kernel_rate_limited: u64,
+    kernel_read_errors: u64,
 }
 
 // SAFETY: `KernelCounterRow` is repr(C) and made only of fixed-width integers with no padding, so
@@ -262,7 +266,7 @@ impl Sensor for EbpfSensor {
             "syscalls",
             "sys_enter_vfork",
         )?;
-        if !attach_socket_tuple(&mut bpf)? {
+        if !attach_network_fexit(&mut bpf)? {
             attach_tracepoint(&mut bpf, "handle_connect", "syscalls", "sys_enter_connect")?;
             attach_tracepoint(
                 &mut bpf,
@@ -271,6 +275,7 @@ impl Sensor for EbpfSensor {
                 "sys_exit_connect",
             )?;
         }
+        attach_raw_socket(&mut bpf);
         attach_tracepoint(&mut bpf, "handle_openat", "syscalls", "sys_enter_openat")?;
         attach_optional_tracepoint(&mut bpf, "handle_open", "syscalls", "sys_enter_open")?;
         attach_optional_tracepoint(&mut bpf, "handle_open_exit", "syscalls", "sys_exit_open")?;
@@ -618,6 +623,15 @@ fn refresh_kernel_counters(
                     .kernel_oversized
                     .saturating_add(value.kernel_oversized);
                 total.kernel_map_full = total.kernel_map_full.saturating_add(value.kernel_map_full);
+                total.kernel_deduplicated = total
+                    .kernel_deduplicated
+                    .saturating_add(value.kernel_deduplicated);
+                total.kernel_rate_limited = total
+                    .kernel_rate_limited
+                    .saturating_add(value.kernel_rate_limited);
+                total.kernel_read_errors = total
+                    .kernel_read_errors
+                    .saturating_add(value.kernel_read_errors);
                 total
             });
         telemetry.set_kernel_sample(family, sample);
@@ -1011,75 +1025,100 @@ fn build_network_event_with_clock(
     ev: &NetworkEvent,
     time_converter: BootTimeConverter,
 ) -> Option<RawEvent> {
-    // The kernel emits only attempts that connected, so this rejects nothing
-    // in practice. It is the decode-side half of that contract: a refused or
-    // unreachable destination is an attempt, not a connection, and a rule
-    // matching "connection to suspicious IP" must not fire on one.
-    if !connect_result_is_connection(ev.ret) {
-        return None;
-    }
-    if ev.dport == 0 {
-        return None;
-    }
+    use super::socket_tuple_abi::{
+        INBOUND, NETWORK_KIND_MASK, NETWORK_LISTEN, NETWORK_RAW_SOCKET, NETWORK_UDP_SEND,
+        TUPLE_MEASURED,
+    };
 
-    let destination_ip = match ev.af {
-        2 => {
-            // AF_INET
-            let dst = Ipv4Addr::new(ev.daddr[0], ev.daddr[1], ev.daddr[2], ev.daddr[3]);
-            if dst.is_unspecified() {
-                return None;
-            }
-            dst.to_string()
+    let mut fields = NetworkConnectionFields {
+        process_id: Some(ev.pid.to_string()),
+        user: linux_user_id(ev.uid),
+        ..Default::default()
+    };
+    let measured = ev.tuple_flags & TUPLE_MEASURED != 0;
+    let action = match ev.tuple_flags & NETWORK_KIND_MASK {
+        NETWORK_LISTEN if ev.ret == 0 && measured && ev.sport != 0 => {
+            fields.source_ip = Some(network_ip(ev.af, ev.saddr)?.to_string());
+            fields.source_port = Some(ev.sport.to_string());
+            SensorAction::Listen
         }
-        10 => {
-            // AF_INET6
-            let dst = Ipv6Addr::from(ev.daddr);
-            if dst.is_unspecified() {
-                return None;
+        NETWORK_UDP_SEND if ev.ret >= 0 && ev.protocol == 17 => {
+            set_network_destination(ev, &mut fields)?;
+            fields.initiated = Some(true);
+            SensorAction::UdpSend
+        }
+        NETWORK_RAW_SOCKET if ev.ret >= 0 => {
+            fields.protocol = Some(raw_socket_protocol(ev.af, ev.socket_protocol));
+            SensorAction::RawSocket
+        }
+        0 if connect_result_is_connection(ev.ret) => {
+            set_network_destination(ev, &mut fields)?;
+            if measured {
+                fields.source_ip = Some(network_ip(ev.af, ev.saddr)?.to_string());
+                fields.source_port = Some(ev.sport.to_string());
             }
-            dst.to_string()
+            fields.initiated = Some(ev.tuple_flags & INBOUND == 0);
+            SensorAction::Connect
         }
         _ => return None,
     };
-
-    let user = linux_user_id(ev.uid);
+    if action != SensorAction::RawSocket {
+        fields.protocol = ev.transport().map(str::to_string);
+    }
+    let normalization = row_for_action(EventCategory::Network, action).map_or(
+        SensorNormalization {
+            event_id: EVENT_ID_NETWORK_CONNECT,
+            action_code: 0,
+        },
+        |row| row.normalization(),
+    );
 
     Some(RawEvent {
         process_name: None,
         provenance: Default::default(),
         platform: Platform::Linux,
         provider: "ebpf",
-        action: SensorAction::Connect,
-        normalization: SensorNormalization {
-            event_id: EVENT_ID_NETWORK_CONNECT,
-            action_code: 0,
-        },
+        action,
+        normalization,
         pid: Some(ev.pid),
         timestamp: time_converter.system_time(ev.event_time_ns),
         source_seq: Some(ev.source_seq),
         process_start_key: process_start_key(ev.pid, ev.process_start_time),
         parent_process_start_key: None,
-        payload: RawPayload::Network(NetworkConnectionFields {
-            destination_ip: Some(destination_ip),
-            source_ip: (ev.tuple_flags & super::socket_tuple_abi::TUPLE_MEASURED != 0).then(|| {
-                if ev.af == 2 {
-                    Ipv4Addr::new(ev.saddr[0], ev.saddr[1], ev.saddr[2], ev.saddr[3]).to_string()
-                } else {
-                    Ipv6Addr::from(ev.saddr).to_string()
-                }
-            }),
-            destination_port: Some(ev.dport.to_string()),
-            source_port: (ev.tuple_flags & super::socket_tuple_abi::TUPLE_MEASURED != 0)
-                .then(|| ev.sport.to_string()),
-            process_id: Some(ev.pid.to_string()),
-            // Enriched by the normalizer from ProcessCache if PID is known.
-            image: None,
-            user,
-            destination_hostname: None,
-            protocol: ev.transport().map(str::to_string),
-            initiated: Some(ev.tuple_flags & super::socket_tuple_abi::INBOUND == 0),
-        }),
+        payload: RawPayload::Network(fields),
     })
+}
+
+fn network_ip(family: u16, address: [u8; 16]) -> Option<IpAddr> {
+    use super::socket_tuple_abi::{AF_INET, AF_INET6};
+
+    match family {
+        AF_INET => Some(Ipv4Addr::new(address[0], address[1], address[2], address[3]).into()),
+        AF_INET6 => Some(Ipv6Addr::from(address).into()),
+        _ => None,
+    }
+}
+
+fn set_network_destination(ev: &NetworkEvent, fields: &mut NetworkConnectionFields) -> Option<()> {
+    let ip = network_ip(ev.af, ev.daddr)?;
+    if ev.dport == 0 || ip.is_unspecified() {
+        return None;
+    }
+    fields.destination_ip = Some(ip.to_string());
+    fields.destination_port = Some(ev.dport.to_string());
+    Some(())
+}
+
+fn raw_socket_protocol(family: u16, protocol: u32) -> String {
+    use super::socket_tuple_abi::{AF_INET, AF_INET6, AF_PACKET};
+
+    match (family, protocol) {
+        (AF_PACKET, _) => format!("ethertype:0x{protocol:04x}"),
+        (AF_INET, 1) => "icmp".to_string(),
+        (AF_INET6, 58) => "icmpv6".to_string(),
+        (AF_INET | AF_INET6, _) => format!("ip:{protocol}"),
+        _ => format!("family:{family}:{protocol}"),
+    }
 }
 
 fn build_file_event_with_clock(
@@ -1267,29 +1306,134 @@ fn linux_user_id(uid: u32) -> Option<String> {
     (uid != u32::MAX).then(|| uid.to_string())
 }
 
-/// Try the complete tuple tier before enabling the syscall fallback. Failure
-/// detaches every partial attachment so the fallback cannot duplicate events.
-fn attach_socket_tuple(bpf: &mut LoadedEbpf) -> Result<bool> {
-    let mut loaded = Vec::new();
-    let result = (|| -> Result<()> {
-        let layout = super::task_btf::SocketLayout::load()?;
+fn attach_network_fexit(bpf: &mut LoadedEbpf) -> Result<bool> {
+    let setup = (|| -> Result<_> {
+        let layouts = super::task_btf::NetworkLayouts::load()?;
         let btf = aya::Btf::from_sys_fs()?;
-        aya::maps::Array::<_, super::socket_tuple_abi::SocketOffsets>::try_from(
+        Array::<_, super::socket_tuple_abi::SocketOffsets>::try_from(
             bpf.map_mut("SOCKET_OFFSETS")
                 .context("missing socket offsets map")?,
         )?
-        .set(0, &layout.offsets, 0)?;
+        .set(0, &layouts.offsets, 0)?;
+        Ok((layouts, btf))
+    })();
+    let (layouts, btf) = match setup {
+        Ok(setup) => setup,
+        Err(error) => {
+            let reason = format!("{error:#}");
+            for feature in ["network_tuple", "network_listen", "network_udp_send"] {
+                bpf.counters()
+                    .record_hook(feature, "runtime_btf", false, Some(&reason));
+            }
+            warn!(%reason, "kernel socket tuple unavailable; using connect syscalls");
+            return Ok(false);
+        }
+    };
+
+    let listen = layouts.listen.and_then(|()| {
+        let cleanup: &mut FEntry = bpf
+            .program_mut("handle_listen_cleanup")
+            .context("missing listen cleanup program")?
+            .try_into()?;
+        cleanup
+            .load("inet_sock_destruct", &btf)
+            .context("load inet_sock_destruct")?;
+        cleanup.attach().context("attach inet_sock_destruct")?;
+        attach_socket_fexit(bpf, "handle_listen", "inet_listen", &btf)
+    });
+    record_network_hook(bpf, "network_listen", "handle_listen", listen);
+    let udp = layouts.udp.and_then(|offsets| {
+        Array::<_, super::socket_tuple_abi::UdpOffsets>::try_from(
+            bpf.map_mut("UDP_OFFSETS")
+                .context("missing UDP offsets map")?,
+        )?
+        .set(0, &offsets, 0)
+        .context("write UDP offsets")
+    });
+    match udp {
+        Ok(()) => {
+            for (name, target, prototype) in [
+                ("handle_udp4_send", "udp_sendmsg", layouts.udp4),
+                ("handle_udp6_send", "udpv6_sendmsg", layouts.udp6),
+            ] {
+                let result = prototype.and_then(|()| attach_socket_fexit(bpf, name, target, &btf));
+                record_network_hook(bpf, "network_udp_send", name, result);
+            }
+        }
+        Err(error) => record_network_hook(bpf, "network_udp_send", "runtime_btf", Err(error)),
+    }
+    attach_socket_tuple(bpf, layouts.accept_program, &btf)
+}
+
+fn attach_socket_fexit(
+    bpf: &mut LoadedEbpf,
+    name: &str,
+    target: &str,
+    btf: &aya::Btf,
+) -> Result<()> {
+    let program: &mut FExit = bpf
+        .program_mut(name)
+        .context("missing socket program")?
+        .try_into()?;
+    program
+        .load(target, btf)
+        .with_context(|| format!("load {target}"))?;
+    program
+        .attach()
+        .with_context(|| format!("attach {target}"))?;
+    Ok(())
+}
+
+fn record_network_hook(bpf: &LoadedEbpf, feature: &str, program: &str, result: Result<()>) {
+    match result {
+        Ok(()) => bpf.counters().record_hook(feature, program, true, None),
+        Err(error) => {
+            let reason = format!("{error:#}");
+            bpf.counters()
+                .record_hook(feature, program, false, Some(&reason));
+            warn!(program, %reason, "eBPF hook failed to attach");
+        }
+    }
+}
+
+fn attach_raw_socket(bpf: &mut LoadedEbpf) {
+    for (program, tracepoint) in [
+        ("handle_raw_socket_exit", "sys_exit_socket"),
+        ("handle_raw_socket", "sys_enter_socket"),
+    ] {
+        let result = if let Some(reason) = TracepointLayouts::current_unavailable_reason(program) {
+            Err(anyhow!("{reason}"))
+        } else {
+            try_attach_tracepoint(bpf, program, "syscalls", tracepoint)
+        };
+        let attached = result.is_ok();
+        record_network_hook(bpf, "network_raw_socket", program, result);
+        if !attached {
+            break;
+        }
+        bpf.syscall_cpus.queue(program, "syscalls", tracepoint);
+    }
+}
+
+/// Try the complete connection tuple tier before enabling the syscall fallback.
+fn attach_socket_tuple(
+    bpf: &mut LoadedEbpf,
+    accept_program: Result<&'static str>,
+    btf: &aya::Btf,
+) -> Result<bool> {
+    let mut loaded = Vec::new();
+    let result = (|| -> Result<()> {
         for (name, target) in [
             ("handle_stream_connect", "inet_stream_connect"),
             ("handle_dgram_connect", "inet_dgram_connect"),
-            (layout.accept_program, "inet_csk_accept"),
+            (accept_program?, "inet_csk_accept"),
         ] {
             let program: &mut FExit = bpf
                 .program_mut(name)
                 .context("missing socket program")?
                 .try_into()?;
             program
-                .load(target, &btf)
+                .load(target, btf)
                 .with_context(|| format!("load {target}"))?;
             loaded.push(name);
             program
@@ -1501,6 +1645,7 @@ fn features_for_program(program: &str) -> &'static [&'static str] {
         | "handle_process_fork"
         | "handle_process_vfork" => &["process"],
         "handle_connect" | "handle_connect_exit" => &["network"],
+        "handle_raw_socket" | "handle_raw_socket_exit" => &["network_raw_socket"],
         "handle_sendto"
         | "handle_sendmsg"
         | "handle_sendmmsg"
@@ -2062,6 +2207,183 @@ mod tests {
         }
     }
 
+    fn network_record(kind: u8) -> NetworkEvent {
+        NetworkEvent {
+            event_time_ns: 0,
+            source_seq: 23,
+            pid: 4242,
+            uid: 1000,
+            socket_protocol: 0,
+            ret: 0,
+            dport: 0,
+            sport: 0,
+            af: libc::AF_INET6 as u16,
+            protocol: 0,
+            tuple_flags: kind,
+            daddr: [0; 16],
+            saddr: [0; 16],
+            process_start_time: 123_456,
+        }
+    }
+
+    #[test]
+    fn new_network_actions_decode_only_the_fields_the_hook_measured() {
+        use super::super::socket_tuple_abi::{
+            AF_PACKET, NETWORK_LISTEN, NETWORK_RAW_SOCKET, NETWORK_UDP_SEND, TUPLE_MEASURED,
+        };
+
+        let mut listen = network_record(NETWORK_LISTEN | TUPLE_MEASURED);
+        listen.sport = 4445;
+        listen.protocol = 6;
+        let event = build_network_event(&listen).unwrap();
+        assert_eq!(event.action, SensorAction::Listen);
+        let RawPayload::Network(fields) = event.payload else {
+            panic!("expected network fields");
+        };
+        assert_eq!(fields.source_ip.as_deref(), Some("::"));
+        assert_eq!(fields.source_port.as_deref(), Some("4445"));
+        assert_eq!(fields.protocol.as_deref(), Some("tcp"));
+        assert!(fields.destination_ip.is_none());
+        assert!(fields.destination_port.is_none());
+        assert!(fields.initiated.is_none());
+        listen.ret = -libc::EADDRINUSE;
+        assert!(build_network_event(&listen).is_none());
+
+        let mut udp = network_record(NETWORK_UDP_SEND);
+        udp.ret = 32;
+        udp.protocol = 17;
+        udp.daddr = "2001:db8::1".parse::<Ipv6Addr>().unwrap().octets();
+        udp.dport = 9999;
+        let event = build_network_event(&udp).unwrap();
+        assert_eq!(event.action, SensorAction::UdpSend);
+        let RawPayload::Network(fields) = event.payload else {
+            panic!("expected network fields");
+        };
+        assert_eq!(fields.destination_ip.as_deref(), Some("2001:db8::1"));
+        assert_eq!(fields.destination_port.as_deref(), Some("9999"));
+        assert_eq!(fields.protocol.as_deref(), Some("udp"));
+        assert_eq!(fields.initiated, Some(true));
+        assert!(fields.source_ip.is_none());
+        assert!(fields.source_port.is_none());
+        udp.ret = 0;
+        assert!(build_network_event(&udp).is_some(), "empty datagrams count");
+        udp.ret = -libc::EAGAIN;
+        assert!(build_network_event(&udp).is_none());
+        udp.ret = 1;
+        udp.dport = 0;
+        assert!(build_network_event(&udp).is_none());
+
+        let mut raw = network_record(NETWORK_RAW_SOCKET);
+        raw.af = AF_PACKET;
+        raw.socket_protocol = 0x86dd;
+        raw.ret = 9;
+        let event = build_network_event(&raw).unwrap();
+        assert_eq!(event.action, SensorAction::RawSocket);
+        let RawPayload::Network(fields) = event.payload else {
+            panic!("expected network fields");
+        };
+        assert_eq!(fields.protocol.as_deref(), Some("ethertype:0x86dd"));
+        assert!(fields.destination_ip.is_none());
+        assert!(fields.source_ip.is_none());
+        assert!(fields.initiated.is_none());
+        raw.ret = -libc::EPERM;
+        assert!(build_network_event(&raw).is_none());
+        raw.ret = 0;
+        raw.tuple_flags |= NETWORK_UDP_SEND;
+        assert!(build_network_event(&raw).is_none(), "ambiguous event kind");
+    }
+
+    #[test]
+    fn linux_socket_actions_match_sigma_and_survive_recording() {
+        use super::super::socket_tuple_abi::{
+            AF_INET, AF_PACKET, NETWORK_LISTEN, NETWORK_RAW_SOCKET, NETWORK_UDP_SEND,
+            TUPLE_MEASURED,
+        };
+        use crate::field_availability::{missing_always_fields, populated_never_fields};
+        use crate::models::ecs::EcsAlert;
+
+        let mut listen = network_record(NETWORK_LISTEN | TUPLE_MEASURED);
+        listen.af = AF_INET;
+        listen.saddr[..4].copy_from_slice(&[127, 0, 0, 1]);
+        listen.sport = 4445;
+        listen.protocol = 6;
+        let mut udp = network_record(NETWORK_UDP_SEND);
+        udp.af = AF_INET;
+        udp.daddr[..4].copy_from_slice(&[192, 0, 2, 1]);
+        udp.dport = 9999;
+        udp.protocol = 17;
+        let mut raw = network_record(NETWORK_RAW_SOCKET);
+        raw.af = AF_PACKET;
+        raw.socket_protocol = 3;
+
+        let rules_dir = tempfile::tempdir().unwrap();
+        let cases = [
+            (
+                listen,
+                "network-listen",
+                "SourcePort",
+                "4445",
+                SensorAction::Listen,
+            ),
+            (
+                udp,
+                "network-udp-send",
+                "DestinationPort",
+                "9999",
+                SensorAction::UdpSend,
+            ),
+            (
+                raw,
+                "network-raw-socket",
+                "Protocol",
+                "ethertype:0x0003",
+                SensorAction::RawSocket,
+            ),
+        ];
+        for (_, action, field, value, _) in cases {
+            std::fs::write(
+                rules_dir.path().join(format!("{action}.yml")),
+                format!(
+                    r#"title: {action}
+logsource:
+  product: linux
+  category: network_connection
+detection:
+  selection:
+    Action: {action}
+    {field}: '{value}'
+  condition: selection
+"#
+                ),
+            )
+            .unwrap();
+        }
+        let mut engine = Engine::new_for_platform(Platform::Linux);
+        engine.load_rules(rules_dir.path()).unwrap();
+        assert!(engine.stats().failed_rules.is_empty());
+        let normalizer = Normalizer::new(Arc::new(HostState::default()));
+        for (record, name, field, value, action) in cases {
+            let decoded = build_network_event(&record).unwrap();
+            let normalized = normalizer.normalize(&decoded).unwrap();
+            assert_eq!(normalized.get_field("Action"), Some(name));
+            assert_eq!(normalized.get_field(field), Some(value));
+            assert!(missing_always_fields(&normalized).is_empty());
+            assert!(populated_never_fields(&normalized).is_empty());
+            let capture = serde_json::to_vec(&normalized).unwrap();
+            let replay = CanonicalEvent::from_normalized(serde_json::from_slice(&capture).unwrap());
+            assert_eq!(replay.action, action);
+            let alerts = engine.check_event(replay.normalized());
+            assert_eq!(alerts.len(), 1);
+            assert_eq!(alerts[0].rule_name, name);
+            let ecs = EcsAlert::from(&alerts[0]);
+            assert_eq!(ecs.event_action.as_deref(), Some(name));
+            if action == SensorAction::RawSocket {
+                assert_eq!(ecs.edr_network_socket_protocol.as_deref(), Some(value));
+                assert!(ecs.network_transport.is_none());
+            }
+        }
+    }
+
     #[test]
     fn build_network_event_omits_unmeasured_source_and_protocol_guessing() {
         let mut daddr = [0u8; 16];
@@ -2072,7 +2394,7 @@ mod tests {
             source_seq: 0,
             pid: 77,
             uid: 1000,
-            fd: -1,
+            socket_protocol: 0,
             ret: 0,
             dport: 443,
             sport: 51324,
@@ -2131,7 +2453,7 @@ mod tests {
             source_seq: 0,
             pid: 77,
             uid: 1000,
-            fd: -1,
+            socket_protocol: 0,
             ret: 0,
             dport: 53,
             sport: 0,
@@ -2164,7 +2486,7 @@ mod tests {
             source_seq: 0,
             pid: 88,
             uid: 1000,
-            fd: -1,
+            socket_protocol: 0,
             ret: 0,
             dport: 8443,
             sport: 5353,
@@ -2211,7 +2533,7 @@ mod tests {
                 source_seq: 0,
                 pid: 77,
                 uid: 1000,
-                fd: -1,
+                socket_protocol: 0,
                 ret: result,
                 dport: 443,
                 sport: 0,
@@ -2243,7 +2565,7 @@ mod tests {
                 source_seq: 0,
                 pid: 77,
                 uid: 1000,
-                fd: -1,
+                socket_protocol: 0,
                 ret: result,
                 dport: 443,
                 sport: 0,
@@ -2274,7 +2596,7 @@ mod tests {
             source_seq: 0,
             pid: 77,
             uid: 1000,
-            fd: -1,
+            socket_protocol: 0,
             ret: 0,
             dport: 443,
             sport: 0,
@@ -2866,7 +3188,7 @@ mod tests {
             source_seq: 0,
             pid: 4242,
             uid: 1000,
-            fd: -1,
+            socket_protocol: 0,
             ret: 0,
             dport: 443,
             sport: 40000,

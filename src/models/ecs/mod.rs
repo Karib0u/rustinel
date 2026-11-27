@@ -296,6 +296,7 @@ impl From<&Alert> for EcsAlert {
             source_port: None,
             destination_domain: None,
             network_transport: None,
+            edr_network_socket_protocol: None,
             network_type: None,
             network_protocol: None,
             network_direction: None,
@@ -427,10 +428,14 @@ impl From<&Alert> for EcsAlert {
                 ecs.source_ip = f.source_ip.clone();
                 ecs.source_port = parse_u16(&f.source_port);
                 ecs.destination_domain = f.destination_hostname.clone();
-                ecs.network_transport = f
-                    .protocol
-                    .clone()
-                    .or_else(|| network_transport_from_opcode(opcode));
+                if opcode == super::event_actions::NETWORK_RAW_SOCKET_CODE {
+                    ecs.edr_network_socket_protocol = f.protocol.clone();
+                } else {
+                    ecs.network_transport = f
+                        .protocol
+                        .clone()
+                        .or_else(|| network_transport_from_opcode(opcode));
+                }
                 if let Some(ip) = ecs.source_ip.as_deref().or(ecs.destination_ip.as_deref()) {
                     ecs.network_type = network_type_from_ip(ip);
                 }
@@ -766,9 +771,24 @@ mod tests {
                 );
 
                 // Sigma logsource categories.
+                let aliases;
                 let categories = match row.category {
                     EventCategory::File => Engine::sigma_file_categories_for_event(&view),
-                    _ => Engine::sigma_registry_categories_for_event(&view),
+                    EventCategory::Registry => Engine::sigma_registry_categories_for_event(&view),
+                    EventCategory::Network => {
+                        aliases = Engine::concrete_logsource_aliases(
+                            view.platform,
+                            view.category,
+                            view.event_id,
+                            view.opcode,
+                        );
+                        aliases
+                            .iter()
+                            .filter(|alias| alias.product.is_some())
+                            .filter_map(|alias| alias.category.as_deref())
+                            .collect()
+                    }
+                    _ => unreachable!(),
                 };
                 assert_eq!(categories, row.sigma_categories, "sigma: {label}");
             }

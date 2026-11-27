@@ -39,6 +39,18 @@ It counts missing images and invalid targets for records that reach normalizatio
 The per-category ingress counters report accepted records and queue drops.
 ETW reports kernel-buffer loss for the shared session and cannot attribute it to individual providers.
 
+## Linux socket actions
+
+Linux eBPF reports three additional actions under `product: linux`, `category: network_connection` (Event ID 3).
+
+| `Action` | Fields |
+| --- | --- |
+| `network-listen` | `SourceIp` and `SourcePort` are the local listening address and port. Wildcard addresses are preserved. |
+| `network-udp-send` | `DestinationIp`, `DestinationPort`, `Protocol: udp`, and `Initiated: true` describe a successful send from an unconnected UDP socket. |
+| `network-raw-socket` | `Protocol` holds the requested socket protocol, such as `ethertype:0x0003` for AF_PACKET, `icmp`, `icmpv6`, `ip:255`, or `family:29:1` for another Linux address family. |
+
+ECS alerts use these names in `event.action` and include `edr.network.socket_protocol` for raw sockets.
+
 <!-- BEGIN GENERATED FIELD AVAILABILITY -->
 This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.
 Edit that table and run `cargo run --bin generate-docs`.
@@ -77,6 +89,18 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | linux | `auth_log` | `0` | `sudo` | `TargetUserName` | no parser claimed the line; match its text through `Message` |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `DestinationHostname` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `DestinationIp` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `DestinationPort` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `Initiated` | listen does not establish a flow |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `DestinationHostname` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `DestinationIp` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `DestinationPort` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `Initiated` | socket creation does not establish a flow |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `SourceIp` | socket creation does not bind the local endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `SourcePort` | socket creation does not bind the local endpoint |
+| `sysmon` | linux | `network_connection` | `3 / udpsend` | `udp_sendmsg or udpv6_sendmsg fexit with runtime BTF` | `SourceIp` | the UDP hook captures the remote tuple |
+| `sysmon` | linux | `network_connection` | `3 / udpsend` | `udp_sendmsg or udpv6_sendmsg fexit with runtime BTF` | `SourcePort` | the UDP hook captures the remote tuple |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Description` | PE version resources are Windows-only |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `FileVersion` | PE version resources are Windows-only |
