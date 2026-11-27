@@ -183,7 +183,11 @@ fn required_permanent_gaps_are_recorded() {
     assert!(has_never(Platform::Windows, "task_creation", "TaskContent"));
     assert!(has_never(Platform::Windows, "dns_query", "RecordType"));
     assert!(has_never(Platform::Windows, "pipe_created", "*"));
-    assert!(has_never(Platform::Windows, "create_remote_thread", "*"));
+    assert!(has_never(
+        Platform::Windows,
+        "create_remote_thread",
+        "StartFunction"
+    ));
 }
 
 #[test]

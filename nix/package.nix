@@ -1,7 +1,8 @@
 # Version and hash synchronization
 #
 # The `version` and `hashes` below are pinned to a GitHub release tarball.
-# To update when a new rustinel release is published:
+# The release workflow opens a pin-update PR for stable releases.
+# To update the pin manually if the workflow fails:
 #
 #   1. Set `version` to the new release tag (without the leading "v").
 #   2. Recompute the SRI hash for each architecture:
@@ -49,10 +50,10 @@
 }:
 
 let
-  version = "1.9.0";
+  version = "1.11.0";
   hashes = {
-    x86_64-linux = "sha256-3Zgrp3tTAyXc3tyiZ4gQ7frmhx2DF68fFHmf0U0eCa4=";
-    aarch64-linux = "sha256-qka7d8jh3HiNMHFCy1vfYG8Zag3ZuRbEsVj3IZ/u2RI=";
+    x86_64-linux = "sha256-Iwzr+8/sWMQszPelLrOBKNwxtBJ0r9egjjIi54aK9/E=";
+    aarch64-linux = "sha256-/UaIMI+66IhH9awxrs8aGYyLO4Aa0UPN5ISZKGDUN0c=";
   };
   archMap = {
     x86_64-linux = "x86_64-unknown-linux-musl";
@@ -104,7 +105,7 @@ stdenv.mkDerivation {
     # `--replace-fail` makes the build fail loudly if any of these strings
     # ever drift from the bundled config.toml. The `directory = "logs"` pair
     # matches twice by design (logging.directory and alerts.directory); a
-    # future third occurrence would be swept up silently — revisit if the
+    # future third occurrence would be swept up silently. Revisit if the
     # config grows another `directory = "logs"` field.
     #
     # `directory = "captures"` was added to the bundled config after the v1.3.0

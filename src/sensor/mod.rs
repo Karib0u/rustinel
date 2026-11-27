@@ -18,6 +18,10 @@ mod network_events;
 mod process;
 #[cfg(windows)]
 pub mod windows;
+#[cfg(any(windows, test))]
+mod windows_process_identity;
+#[cfg(any(windows, test))]
+mod windows_thread;
 
 pub use crate::models::event_actions::{self, SensorNormalization};
 pub use crate::vocab::{Platform, ProcessStartKey, SensorAction};
@@ -34,8 +38,8 @@ use tokio::sync::mpsc::Sender;
 use crate::models::{
     ApplicationEventFields, AuthLogFields, DnsQueryFields, EventCategory, EventFields,
     FileEventFields, ImageLoadFields, NetworkConnectionFields, PowerShellClassicStartFields,
-    PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields, SecurityAuditFields,
-    ServiceCreationFields, TaskCreationFields, WmiEventFields,
+    PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields, RemoteThreadFields,
+    SecurityAuditFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
 };
 
 /// Cross-platform sensor interface.
@@ -132,6 +136,7 @@ pub enum RawPayload {
     Registry(RegistryEventFields),
     ImageLoad(ImageLoadFields),
     DriverLoad(ImageLoadFields),
+    RemoteThread(RemoteThreadFields),
     Scripting(PowerShellScriptFields),
     PowerShellModule(PowerShellModuleFields),
     PowerShellClassicStart(PowerShellClassicStartFields),
@@ -155,6 +160,7 @@ impl RawPayload {
             Self::Registry(_) => EventCategory::Registry,
             Self::ImageLoad(_) => EventCategory::ImageLoad,
             Self::DriverLoad(_) => EventCategory::DriverLoad,
+            Self::RemoteThread(_) => EventCategory::RemoteThread,
             Self::Scripting(_) => EventCategory::Scripting,
             Self::PowerShellModule(_) => EventCategory::PowerShellModule,
             Self::PowerShellClassicStart(_) => EventCategory::PowerShellClassicStart,
@@ -178,6 +184,7 @@ impl RawPayload {
             Self::Dns(fields) => EventFields::DnsQuery(fields),
             Self::Registry(fields) => EventFields::RegistryEvent(fields),
             Self::ImageLoad(fields) | Self::DriverLoad(fields) => EventFields::ImageLoad(fields),
+            Self::RemoteThread(fields) => EventFields::RemoteThread(fields),
             Self::Scripting(fields) => EventFields::PowerShellScript(fields),
             Self::PowerShellModule(fields) => EventFields::PowerShellModule(fields),
             Self::PowerShellClassicStart(fields) => EventFields::PowerShellClassicStart(fields),
@@ -202,6 +209,7 @@ impl TryFrom<EventFields> for RawPayload {
             EventFields::DnsQuery(fields) => Ok(Self::Dns(fields)),
             EventFields::RegistryEvent(fields) => Ok(Self::Registry(fields)),
             EventFields::ImageLoad(fields) => Ok(Self::ImageLoad(fields)),
+            EventFields::RemoteThread(fields) => Ok(Self::RemoteThread(fields)),
             EventFields::PowerShellScript(fields) => Ok(Self::Scripting(fields)),
             EventFields::PowerShellModule(fields) => Ok(Self::PowerShellModule(fields)),
             EventFields::PowerShellClassicStart(fields) => Ok(Self::PowerShellClassicStart(fields)),

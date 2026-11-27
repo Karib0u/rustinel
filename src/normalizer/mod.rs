@@ -128,6 +128,7 @@ where
             RawPayload::ImageLoad(fields) | RawPayload::DriverLoad(fields) => {
                 self.normalize_image_load(event, fields.clone(), &mut provenance)
             }
+            RawPayload::RemoteThread(fields) => Some(EventFields::RemoteThread(fields.clone())),
             RawPayload::Scripting(fields) => {
                 self.normalize_powershell(event, fields.clone(), &mut provenance)
             }

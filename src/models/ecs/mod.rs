@@ -473,6 +473,15 @@ impl From<&Alert> for EcsAlert {
                 ecs.process_executable = f.image.clone();
                 ecs.process_pid = parse_u64(&f.process_id);
             }
+            EventFields::RemoteThread(f) => {
+                ecs.process_pid = Some(u64::from(f.source_process_id));
+                ecs.process_executable = f.source_image.clone();
+                ecs.process_name = f.source_image.as_deref().and_then(basename);
+                ecs.process_command_line = f.source_command_line.clone();
+                ecs.process_parent_pid = f.source_parent_process_id.map(u64::from);
+                ecs.process_parent_executable = f.source_parent_image.clone();
+                ecs.process_parent_command_line = f.source_parent_command_line.clone();
+            }
             EventFields::ImageLoad(f) => {
                 ecs.file_path = f.image_loaded.clone();
                 ecs.file_original_file_name = f.original_file_name.clone();

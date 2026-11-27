@@ -1212,6 +1212,19 @@ fn evaluate_item(
         return Truth::FALSE;
     }
 
+    // An unresolved thread address omits StartModule. A resolved address
+    // always supplies a nonempty image path.
+    if contract.category == "create_remote_thread"
+        && field == "StartModule"
+        && item.field.modifiers.is_empty()
+        && !item.values.is_empty()
+        && item.values.iter().all(|value| {
+            matches!(value, SigmaValue::String(text) if text.as_plain().is_some_and(|text| text.is_empty()))
+        })
+    {
+        return Truth::FALSE;
+    }
+
     let invariants = invariant_values(contract, field);
     if !invariants.is_empty() {
         // How many of the values the shape can hold some listed value matches.
@@ -1642,6 +1655,24 @@ fn potential_fidelity(platform: Platform, logsource: &LogSourceKey, field: &str)
     {
         values.insert(Fidelity::Derived);
         values.insert(Fidelity::BestEffort);
+    }
+    if category == "create_remote_thread"
+        && matches!(
+            field,
+            "SourceImage"
+                | "SourceCommandLine"
+                | "SourceParentProcessId"
+                | "SourceParentImage"
+                | "SourceParentCommandLine"
+                | "TargetImage"
+                | "TargetCommandLine"
+                | "TargetParentProcessId"
+                | "TargetParentImage"
+                | "TargetParentCommandLine"
+                | "StartModule"
+        )
+    {
+        values.insert(Fidelity::Derived);
     }
     if platform == Platform::Windows && category == "registry_event" && field == "TargetObject" {
         values.insert(Fidelity::Derived);
