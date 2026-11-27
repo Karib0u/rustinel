@@ -24,9 +24,9 @@ const SINCE_1_6_0: Option<&str> = Some("1.6.0");
 const SINCE_1_7_0: Option<&str> = Some("1.7.0");
 /// Marks availability that has landed but is not in any release yet.
 ///
-/// Declare new work as `Some("1.9.1")` rather than guessing the next
-/// version. Preparing a release replaces every use with the version being
-/// released, and CI refuses a release tag whose contract still contains it.
+/// Use `Some(UNRELEASED)` for new work. During release preparation, stamp
+/// each field with the release version. CI refuses tags whose contracts still
+/// contain the marker.
 pub const UNRELEASED: &str = "unreleased";
 /// Linux DNS response decoding (#439).
 const SINCE_DNS_RESPONSES: Option<&str> = Some("1.8.0");
@@ -47,8 +47,8 @@ const SINCE_PROCESS_USER: Option<&str> = Some("1.8.0");
 const SINCE_WINDOWS_CHANNEL: Option<&str> = Some("1.8.0");
 /// Classic Windows PowerShell event 400 collection (#323).
 const SINCE_POWERSHELL_CLASSIC_START: Option<&str> = Some("1.9.0");
-const SINCE_REMOTE_THREAD: Option<&str> = Some(UNRELEASED);
-const SINCE_POWERSHELL_CORE: Option<&str> = Some(UNRELEASED);
+const SINCE_REMOTE_THREAD: Option<&str> = Some("1.12.0");
+const SINCE_POWERSHELL_CORE: Option<&str> = Some("1.12.0");
 pub(crate) const POWERSHELL_CORE_ETW_PROVIDER: &str = "etw_powershell_core";
 /// Defender Operational event collection (#483).
 const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
@@ -56,7 +56,7 @@ const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 /// Derived DNS name fields (#801).
 const SINCE_DNS_DERIVED: Option<&str> = Some("1.11.0");
-const SINCE_PROCESS_ANCESTRY: Option<&str> = Some(UNRELEASED);
+const SINCE_PROCESS_ANCESTRY: Option<&str> = Some("1.12.0");
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
 /// Security 4740 and the gated long-tail events 4672, 4799 and 5140 (#805).
@@ -66,8 +66,8 @@ const SINCE_SECURITY_DOMAIN_CONTROLLER: Option<&str> = Some("1.11.0");
 /// DNS messages cut at the capture limit keep the name they have (#804).
 const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 /// Linux auth and authpriv journal records (#644).
-const SINCE_AUTH_LOG: Option<&str> = Some(UNRELEASED);
-const SINCE_PROCESS_ACCESS: Option<&str> = Some(UNRELEASED);
+const SINCE_AUTH_LOG: Option<&str> = Some("1.12.0");
+const SINCE_PROCESS_ACCESS: Option<&str> = Some("1.12.0");
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1996,19 +1996,21 @@ const LINUX_NETWORK: &[FieldContract] = &[
     ),
 ];
 
+const SINCE_LINUX_SOCKET_ACTIONS: Option<&str> = Some("1.12.0");
+
 macro_rules! linux_socket_fields {
     ($($field:expr),+ $(,)?) => {
         &[
-            always("Action", Some(UNRELEASED)),
-            always("ProcessId", Some(UNRELEASED)),
+            always("Action", SINCE_LINUX_SOCKET_ACTIONS),
+            always("ProcessId", SINCE_LINUX_SOCKET_ACTIONS),
             conditional(
                 "User",
-                Some(UNRELEASED),
+                SINCE_LINUX_SOCKET_ACTIONS,
                 "runtime BTF resolves effective credentials and the kernel read succeeds",
             ),
             conditional(
                 "Image",
-                Some(UNRELEASED),
+                SINCE_LINUX_SOCKET_ACTIONS,
                 "the process identity is still present in the process cache",
             ),
             $($field),+
@@ -2018,61 +2020,77 @@ macro_rules! linux_socket_fields {
 
 const NO_SOCKET_PEER: &str = "this socket operation has no remote endpoint";
 const LINUX_LISTEN: &[FieldContract] = linux_socket_fields![
-    always("SourceIp", Some(UNRELEASED)),
-    always("SourcePort", Some(UNRELEASED)),
+    always("SourceIp", SINCE_LINUX_SOCKET_ACTIONS),
+    always("SourcePort", SINCE_LINUX_SOCKET_ACTIONS),
     conditional(
         "Protocol",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "sk_protocol names a known transport"
     ),
-    never("DestinationIp", Some(UNRELEASED), NO_SOCKET_PEER),
-    never("DestinationPort", Some(UNRELEASED), NO_SOCKET_PEER),
-    never("DestinationHostname", Some(UNRELEASED), NO_SOCKET_PEER),
+    never("DestinationIp", SINCE_LINUX_SOCKET_ACTIONS, NO_SOCKET_PEER),
+    never(
+        "DestinationPort",
+        SINCE_LINUX_SOCKET_ACTIONS,
+        NO_SOCKET_PEER
+    ),
+    never(
+        "DestinationHostname",
+        SINCE_LINUX_SOCKET_ACTIONS,
+        NO_SOCKET_PEER
+    ),
     never(
         "Initiated",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "listen does not establish a flow"
     ),
 ];
 const LINUX_UDP_SEND: &[FieldContract] = linux_socket_fields![
-    always("DestinationIp", Some(UNRELEASED)),
-    always("DestinationPort", Some(UNRELEASED)),
-    always("Protocol", Some(UNRELEASED)),
-    always("Initiated", Some(UNRELEASED)),
+    always("DestinationIp", SINCE_LINUX_SOCKET_ACTIONS),
+    always("DestinationPort", SINCE_LINUX_SOCKET_ACTIONS),
+    always("Protocol", SINCE_LINUX_SOCKET_ACTIONS),
+    always("Initiated", SINCE_LINUX_SOCKET_ACTIONS),
     conditional(
         "DestinationHostname",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "a preceding observed DNS answer resolves the destination",
     ),
     never(
         "SourceIp",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "the UDP hook captures the remote tuple"
     ),
     never(
         "SourcePort",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "the UDP hook captures the remote tuple"
     ),
 ];
 const LINUX_RAW_SOCKET: &[FieldContract] = linux_socket_fields![
-    always("Protocol", Some(UNRELEASED)),
+    always("Protocol", SINCE_LINUX_SOCKET_ACTIONS),
     never(
         "SourceIp",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "socket creation does not bind the local endpoint"
     ),
     never(
         "SourcePort",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "socket creation does not bind the local endpoint"
     ),
-    never("DestinationIp", Some(UNRELEASED), NO_SOCKET_PEER),
-    never("DestinationPort", Some(UNRELEASED), NO_SOCKET_PEER),
-    never("DestinationHostname", Some(UNRELEASED), NO_SOCKET_PEER),
+    never("DestinationIp", SINCE_LINUX_SOCKET_ACTIONS, NO_SOCKET_PEER),
+    never(
+        "DestinationPort",
+        SINCE_LINUX_SOCKET_ACTIONS,
+        NO_SOCKET_PEER
+    ),
+    never(
+        "DestinationHostname",
+        SINCE_LINUX_SOCKET_ACTIONS,
+        NO_SOCKET_PEER
+    ),
     never(
         "Initiated",
-        Some(UNRELEASED),
+        SINCE_LINUX_SOCKET_ACTIONS,
         "socket creation does not establish a flow"
     ),
 ];
