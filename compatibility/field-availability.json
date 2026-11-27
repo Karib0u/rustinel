@@ -10,7 +10,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "Channel",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the real-time audit trace is routed by provider and event ID"
     },
@@ -23,7 +23,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "DesiredAccess",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -35,7 +35,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "ReturnCode",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -47,7 +47,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "AccessOutcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -59,7 +59,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "SourceProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the ETW header contains a valid caller PID"
     },
@@ -72,7 +72,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "TargetProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the target PID carried by the payload is not the invalid target sentinel"
     },
@@ -85,7 +85,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "SourceImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the source lifetime resolves to an image in process state"
     },
@@ -98,7 +98,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "TargetImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the target lifetime resolves to an image in process state"
     },
@@ -111,7 +111,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "SourceUser",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "process state has a user for the source lifetime"
     },
@@ -124,7 +124,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "TargetUser",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "process state has a user for the target lifetime"
     },
@@ -137,7 +137,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "GrantedAccess",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "Audit-API event 5 records the requested DesiredAccess and ReturnCode. Actual granted rights are unknown even when the call succeeds."
     },
@@ -150,7 +150,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Audit-API-Calls",
       "field": "CallTrace",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "Audit-API event 5 does not collect a call stack"
     },
@@ -163,7 +163,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "GrandparentImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "two stable ancestor identities resolve in the process cache and the grandparent image is known"
@@ -177,7 +177,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "GrandparentCommandLine",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "two stable ancestor identities resolve in the process cache and the grandparent command line is known"
@@ -191,7 +191,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "AncestorImages",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "the process cache can supply images from a chain of up to eight stable ancestor identities"
@@ -2550,7 +2550,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "Channel",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "PowerShellCore/Operational",
       "availability": "always"
     },
@@ -2563,7 +2563,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "ScriptBlockText",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "event 4104 contains script block text"
     },
@@ -2576,7 +2576,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "ScriptBlockId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "event 4104 contains a script-block identifier"
     },
@@ -2589,7 +2589,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "MessageNumber",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "event 4104 carries the fragment number"
     },
@@ -2602,7 +2602,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "MessageTotal",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "event 4104 carries the fragment count"
     },
@@ -2615,7 +2615,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "Path",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the script block is associated with a file"
     },
@@ -2628,7 +2628,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the ETW header contains a process ID"
     },
@@ -2641,7 +2641,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "derived from the process cache when the process identity is known"
     },
@@ -2654,7 +2654,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "User",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the PowerShellCore 4104 payload does not carry a user"
     },
@@ -2745,7 +2745,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "Channel",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "PowerShellCore/Operational",
       "availability": "always"
     },
@@ -2758,7 +2758,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "ContextInfo",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "Module Logging is enabled and event 4103 carries context"
     },
@@ -2771,7 +2771,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "Payload",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "Module Logging is enabled and event 4103 carries a payload"
     },
@@ -2784,7 +2784,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the ETW header contains a process ID"
     },
@@ -2797,7 +2797,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "derived from the process cache when the process identity is known"
     },
@@ -2810,7 +2810,7 @@
       "provider": "etw_powershell_core",
       "source": "PowerShellCore",
       "field": "User",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the PowerShellCore 4103 payload has no standalone user field"
     },
@@ -18944,7 +18944,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "Channel",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "Microsoft-Windows-Kernel-Process/Analytic",
       "availability": "always"
     },
@@ -18957,7 +18957,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SourceProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -18969,7 +18969,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "TargetProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -18981,7 +18981,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "NewThreadId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "ThreadID is present in the thread start"
     },
@@ -18994,7 +18994,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "StartAddress",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "Win32StartAddr is present in the thread start"
     },
@@ -19007,7 +19007,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "StartModule",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the start address resolves to an observed image range in the target process lifetime"
     },
@@ -19033,7 +19033,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SourceImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "image is known for the source process lifetime"
     },
@@ -19046,7 +19046,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "TargetImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "image is known for the target process lifetime"
     },
@@ -19059,7 +19059,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SourceCommandLine",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "command line is known for the source process lifetime"
     },
@@ -19072,7 +19072,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "TargetCommandLine",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "command line is known for the target process lifetime"
     },
@@ -19085,7 +19085,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SourceParentProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "parent PID is known for the source process lifetime"
     },
@@ -19098,7 +19098,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "TargetParentProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "parent PID is known for the target process lifetime"
     },
@@ -19111,7 +19111,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SourceParentImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "parent image is known for the source process lifetime"
     },
@@ -19124,7 +19124,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "TargetParentImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "parent image is known for the target process lifetime"
     },
@@ -19137,7 +19137,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "SourceParentCommandLine",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "parent command line is known for the source process lifetime"
     },
@@ -19150,7 +19150,7 @@
       "provider": "etw",
       "source": "Microsoft-Windows-Kernel-Process",
       "field": "TargetParentCommandLine",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "parent command line is known for the target process lifetime"
     },
@@ -19163,7 +19163,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "GrandparentImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "two stable ancestor identities resolve in the process cache and the grandparent image is known"
@@ -19177,7 +19177,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "GrandparentCommandLine",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "two stable ancestor identities resolve in the process cache and the grandparent command line is known"
@@ -19191,7 +19191,7 @@
       "provider": "ebpf",
       "source": "execve tracepoints",
       "field": "AncestorImages",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "the process cache can supply images from a chain of up to eight stable ancestor identities"
@@ -19742,7 +19742,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "Action",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19754,7 +19754,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19766,7 +19766,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "User",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -19779,7 +19779,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -19792,7 +19792,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19804,7 +19804,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "SourcePort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19816,7 +19816,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "Protocol",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "sk_protocol names a known transport"
     },
@@ -19829,7 +19829,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "DestinationIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "this socket operation has no remote endpoint"
     },
@@ -19842,7 +19842,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "DestinationPort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "this socket operation has no remote endpoint"
     },
@@ -19855,7 +19855,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "DestinationHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "this socket operation has no remote endpoint"
     },
@@ -19868,7 +19868,7 @@
       "provider": "ebpf",
       "source": "inet_listen fexit with runtime BTF",
       "field": "Initiated",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "listen does not establish a flow"
     },
@@ -19881,7 +19881,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "Action",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19893,7 +19893,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19905,7 +19905,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "User",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -19918,7 +19918,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -19931,7 +19931,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "DestinationIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19943,7 +19943,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "DestinationPort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19955,7 +19955,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "Protocol",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19967,7 +19967,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "Initiated",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -19979,7 +19979,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "DestinationHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "a preceding observed DNS answer resolves the destination"
     },
@@ -19992,7 +19992,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the UDP hook captures the remote tuple"
     },
@@ -20005,7 +20005,7 @@
       "provider": "ebpf",
       "source": "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
       "field": "SourcePort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the UDP hook captures the remote tuple"
     },
@@ -20018,7 +20018,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "Action",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20030,7 +20030,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20042,7 +20042,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "User",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "runtime BTF resolves effective credentials and the kernel read succeeds"
     },
@@ -20055,7 +20055,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the process identity is still present in the process cache"
     },
@@ -20068,7 +20068,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "Protocol",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20080,7 +20080,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "socket creation does not bind the local endpoint"
     },
@@ -20093,7 +20093,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "SourcePort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "socket creation does not bind the local endpoint"
     },
@@ -20106,7 +20106,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "DestinationIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "this socket operation has no remote endpoint"
     },
@@ -20119,7 +20119,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "DestinationPort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "this socket operation has no remote endpoint"
     },
@@ -20132,7 +20132,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "DestinationHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "this socket operation has no remote endpoint"
     },
@@ -20145,7 +20145,7 @@
       "provider": "ebpf",
       "source": "socket syscall tracepoints",
       "field": "Initiated",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "socket creation does not establish a flow"
     },
@@ -20674,7 +20674,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20685,7 +20685,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -20697,7 +20697,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -20709,7 +20709,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20720,7 +20720,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -20732,7 +20732,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "no parser claimed the line; match its text through `Message`"
     },
@@ -20744,7 +20744,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20755,7 +20755,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -20767,7 +20767,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -20779,7 +20779,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20790,7 +20790,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -20802,7 +20802,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "no parser claimed the line; match its text through `Message`"
     },
@@ -20814,7 +20814,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20825,7 +20825,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -20837,7 +20837,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -20849,7 +20849,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20860,7 +20860,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -20872,7 +20872,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "no parser claimed the line; match its text through `Message`"
     },
@@ -20884,7 +20884,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20895,7 +20895,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -20907,7 +20907,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -20919,7 +20919,7 @@
       "provider": "journald",
       "source": "su",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20930,7 +20930,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -20942,7 +20942,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "no parser claimed the line; match its text through `Message`"
     },
@@ -20954,7 +20954,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -20965,7 +20965,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -20977,7 +20977,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -20989,7 +20989,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21000,7 +21000,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "success",
       "availability": "always"
     },
@@ -21012,7 +21012,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "sshd",
       "availability": "always"
     },
@@ -21024,7 +21024,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21035,7 +21035,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "AuthenticationMethod",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21046,7 +21046,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead"
     },
@@ -21058,7 +21058,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`"
     },
@@ -21070,7 +21070,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourcePort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21081,7 +21081,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "KeyType",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the login used a public key or certificate"
     },
@@ -21093,7 +21093,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "KeyFingerprint",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the login used a public key or certificate"
     },
@@ -21105,7 +21105,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21116,7 +21116,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -21128,7 +21128,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -21140,7 +21140,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21151,7 +21151,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -21163,7 +21163,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "sshd",
       "availability": "always"
     },
@@ -21175,7 +21175,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21186,7 +21186,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "AuthenticationMethod",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21197,7 +21197,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "InvalidUser",
-      "since": "unreleased",
+      "since": "1.12.0",
       "values": [
         "true"
       ],
@@ -21212,7 +21212,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead"
     },
@@ -21224,7 +21224,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`"
     },
@@ -21236,7 +21236,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourcePort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21247,7 +21247,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21258,7 +21258,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -21270,7 +21270,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -21282,7 +21282,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21293,7 +21293,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -21305,7 +21305,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "sshd",
       "availability": "always"
     },
@@ -21317,7 +21317,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21328,7 +21328,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "InvalidUser",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "true",
       "availability": "always"
     },
@@ -21340,7 +21340,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead"
     },
@@ -21352,7 +21352,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`"
     },
@@ -21364,7 +21364,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourcePort",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21375,7 +21375,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21386,7 +21386,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -21398,7 +21398,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -21410,7 +21410,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21421,7 +21421,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -21433,7 +21433,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21444,7 +21444,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix names the account (`user=`) only when it exists"
     },
@@ -21456,7 +21456,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a requesting user (`ruser=`), as sudo and su do"
     },
@@ -21468,7 +21468,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix printed the caller's `uid=`"
     },
@@ -21480,7 +21480,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Terminal",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a terminal (`tty=`)"
     },
@@ -21492,7 +21492,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead"
     },
@@ -21504,7 +21504,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SourceHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`"
     },
@@ -21516,7 +21516,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21527,7 +21527,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -21539,7 +21539,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -21551,7 +21551,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21562,7 +21562,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -21574,7 +21574,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21585,7 +21585,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix names the account (`user=`) only when it exists"
     },
@@ -21597,7 +21597,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a requesting user (`ruser=`), as sudo and su do"
     },
@@ -21609,7 +21609,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix printed the caller's `uid=`"
     },
@@ -21621,7 +21621,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Terminal",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a terminal (`tty=`)"
     },
@@ -21633,7 +21633,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead"
     },
@@ -21645,7 +21645,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`"
     },
@@ -21657,7 +21657,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21668,7 +21668,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -21680,7 +21680,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -21692,7 +21692,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21703,7 +21703,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -21715,7 +21715,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21726,7 +21726,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix names the account (`user=`) only when it exists"
     },
@@ -21738,7 +21738,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a requesting user (`ruser=`), as sudo and su do"
     },
@@ -21750,7 +21750,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix printed the caller's `uid=`"
     },
@@ -21762,7 +21762,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Terminal",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a terminal (`tty=`)"
     },
@@ -21774,7 +21774,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead"
     },
@@ -21786,7 +21786,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SourceHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`"
     },
@@ -21798,7 +21798,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21809,7 +21809,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -21821,7 +21821,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -21833,7 +21833,7 @@
       "provider": "journald",
       "source": "su",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21844,7 +21844,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -21856,7 +21856,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21867,7 +21867,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix names the account (`user=`) only when it exists"
     },
@@ -21879,7 +21879,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a requesting user (`ruser=`), as sudo and su do"
     },
@@ -21891,7 +21891,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "pam_unix printed the caller's `uid=`"
     },
@@ -21903,7 +21903,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Terminal",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the PAM caller set a terminal (`tty=`)"
     },
@@ -21915,7 +21915,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a literal IP address; a host name (sshd `UseDNS yes`, PAM `rhost`) is in `SourceHostname` instead"
     },
@@ -21927,7 +21927,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SourceHostname",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the line names a host name rather than an IP address, such as with sshd `UseDNS yes`"
     },
@@ -21939,7 +21939,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21950,7 +21950,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -21962,7 +21962,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -21974,7 +21974,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -21985,7 +21985,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -21997,7 +21997,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22008,7 +22008,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22019,7 +22019,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22030,7 +22030,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the opening process has a login name; pam_unix prints `by (uid=1001)` when it has none"
     },
@@ -22042,7 +22042,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22053,7 +22053,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22065,7 +22065,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22076,7 +22076,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22088,7 +22088,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22100,7 +22100,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22111,7 +22111,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -22123,7 +22123,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22134,7 +22134,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22145,7 +22145,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22156,7 +22156,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the opening process has a login name; pam_unix prints `by (uid=1001)` when it has none"
     },
@@ -22168,7 +22168,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22179,7 +22179,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22191,7 +22191,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22202,7 +22202,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22214,7 +22214,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22226,7 +22226,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22237,7 +22237,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -22249,7 +22249,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22260,7 +22260,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22271,7 +22271,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22282,7 +22282,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the opening process has a login name; pam_unix prints `by (uid=1001)` when it has none"
     },
@@ -22294,7 +22294,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22305,7 +22305,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22317,7 +22317,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22328,7 +22328,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22340,7 +22340,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22352,7 +22352,7 @@
       "provider": "journald",
       "source": "su",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22363,7 +22363,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -22375,7 +22375,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22386,7 +22386,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22397,7 +22397,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22408,7 +22408,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the opening process has a login name; pam_unix prints `by (uid=1001)` when it has none"
     },
@@ -22420,7 +22420,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SubjectUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22431,7 +22431,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22443,7 +22443,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22454,7 +22454,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22466,7 +22466,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22478,7 +22478,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22489,7 +22489,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -22501,7 +22501,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22512,7 +22512,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22523,7 +22523,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "pam_unix names only the user when a session closes"
     },
@@ -22535,7 +22535,7 @@
       "provider": "journald",
       "source": "other privileged auth facility writers",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22547,7 +22547,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22558,7 +22558,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22570,7 +22570,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22582,7 +22582,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22593,7 +22593,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -22605,7 +22605,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22616,7 +22616,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22627,7 +22627,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "pam_unix names only the user when a session closes"
     },
@@ -22639,7 +22639,7 @@
       "provider": "journald",
       "source": "sshd",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22651,7 +22651,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22662,7 +22662,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22674,7 +22674,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22686,7 +22686,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22697,7 +22697,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -22709,7 +22709,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22720,7 +22720,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22731,7 +22731,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "pam_unix names only the user when a session closes"
     },
@@ -22743,7 +22743,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22755,7 +22755,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22766,7 +22766,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22778,7 +22778,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22790,7 +22790,7 @@
       "provider": "journald",
       "source": "su",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22801,7 +22801,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line reports no authentication outcome: a session boundary or an unparsed line"
     },
@@ -22813,7 +22813,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22824,7 +22824,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22835,7 +22835,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "pam_unix names only the user when a session closes"
     },
@@ -22847,7 +22847,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -22859,7 +22859,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22870,7 +22870,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -22882,7 +22882,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -22894,7 +22894,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22905,7 +22905,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "success",
       "availability": "always"
     },
@@ -22917,7 +22917,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "sudo",
       "availability": "always"
     },
@@ -22929,7 +22929,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -22940,7 +22940,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -22952,7 +22952,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "USER",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -22964,7 +22964,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "PWD",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -22976,7 +22976,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "COMMAND",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -22988,7 +22988,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TTY",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "sudo ran on a terminal and the line is unambiguous"
     },
@@ -23000,7 +23000,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "GROUP",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the caller asked for a group (`-g`) and the line is unambiguous"
     },
@@ -23012,7 +23012,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ENV",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the caller set environment variables and the line is unambiguous"
     },
@@ -23024,7 +23024,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -23036,7 +23036,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23047,7 +23047,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -23059,7 +23059,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -23071,7 +23071,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23082,7 +23082,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -23094,7 +23094,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "sudo",
       "availability": "always"
     },
@@ -23106,7 +23106,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23117,7 +23117,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -23129,7 +23129,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "USER",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -23141,7 +23141,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "PWD",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -23153,7 +23153,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "COMMAND",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the sudo line is unambiguous: the working directory and command are the caller's text, so a line in which a key appears twice or the command imitates a key leaves every key field absent"
     },
@@ -23165,7 +23165,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "TTY",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "sudo ran on a terminal and the line is unambiguous"
     },
@@ -23177,7 +23177,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "GROUP",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the caller asked for a group (`-g`) and the line is unambiguous"
     },
@@ -23189,7 +23189,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "ENV",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "the caller set environment variables and the line is unambiguous"
     },
@@ -23201,7 +23201,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -23213,7 +23213,7 @@
       "provider": "journald",
       "source": "sudo",
       "field": "Reason",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23224,7 +23224,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23235,7 +23235,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -23247,7 +23247,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -23259,7 +23259,7 @@
       "provider": "journald",
       "source": "su",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23270,7 +23270,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "success",
       "availability": "always"
     },
@@ -23282,7 +23282,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "su",
       "availability": "always"
     },
@@ -23294,7 +23294,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23305,7 +23305,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23316,7 +23316,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Terminal",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23327,7 +23327,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -23339,7 +23339,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Message",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23350,7 +23350,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Program",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald recorded `SYSLOG_IDENTIFIER` or `_COMM`"
     },
@@ -23362,7 +23362,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Image",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "conditional",
       "reason": "journald read `/proc/<pid>/exe` before the sender exited; it does so on receipt"
     },
@@ -23374,7 +23374,7 @@
       "provider": "journald",
       "source": "su",
       "field": "ProcessId",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23385,7 +23385,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Outcome",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "failure",
       "availability": "always"
     },
@@ -23397,7 +23397,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Service",
-      "since": "unreleased",
+      "since": "1.12.0",
       "value": "su",
       "availability": "always"
     },
@@ -23409,7 +23409,7 @@
       "provider": "journald",
       "source": "su",
       "field": "TargetUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23420,7 +23420,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SubjectUserName",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23431,7 +23431,7 @@
       "provider": "journald",
       "source": "su",
       "field": "Terminal",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "always"
     },
     {
@@ -23442,7 +23442,7 @@
       "provider": "journald",
       "source": "su",
       "field": "SourceIp",
-      "since": "unreleased",
+      "since": "1.12.0",
       "availability": "never",
       "reason": "the line names no remote address"
     },
@@ -24515,7 +24515,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "GrandparentImage",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "two stable ancestor identities resolve in the process cache and the grandparent image is known"
@@ -24529,7 +24529,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "GrandparentCommandLine",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "two stable ancestor identities resolve in the process cache and the grandparent command line is known"
@@ -24543,7 +24543,7 @@
       "provider": "esf",
       "source": "Endpoint Security exec",
       "field": "AncestorImages",
-      "since": "unreleased",
+      "since": "1.12.0",
       "fidelity": "derived",
       "availability": "conditional",
       "reason": "the process cache can supply images from a chain of up to eight stable ancestor identities"
