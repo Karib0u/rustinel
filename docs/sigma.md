@@ -157,6 +157,7 @@ Rustinel maps those names to canonical event accessors after collection, so sens
 | Events | Fields |
 | --- | --- |
 | Process | `Image`, `CommandLine`, `ProcessId`, `ParentImage`, `ParentCommandLine`, `ParentProcessId`, `User`, `CurrentDirectory`, `IntegrityLevel` |
+| Process creation | `GrandparentImage`, `GrandparentCommandLine`, `AncestorImages` |
 | Process, Windows only | `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash` |
 | Image load, Windows only | `ImageLoaded`, `Image`, `ProcessId`, `OriginalFileName`, `Product`, `Description`, `Company`, `FileVersion`, `Hashes`, `Imphash`, `Signed`, `Signature`, `SignatureStatus` |
 | Process, Linux only | `ImageTruncated`, `CgroupId`, `CgroupPath`, `ContainerId`, `ContainerRuntime` |
@@ -208,6 +209,32 @@ Things that differ from Sysmon:
 - **Security events** keep Windows' formatting: `SubjectLogonId` is `0x3e4`, not `996`, and `AccessList` holds `%%4417`-style codes.
 - **PowerShell `ContextInfo` and `Payload`** are free text in the host's display language.
 - **Classic PowerShell `Data`** is the raw event 400 engine-start description from the `Windows PowerShell` channel.
+
+### Process ancestry
+
+`GrandparentImage`, `GrandparentCommandLine`, and `AncestorImages` are Rustinel extensions in the `sysmon` view for `process_creation` on Windows, Linux, and macOS.
+`AncestorImages` contains up to eight cached images in nearest-first order, starting with the parent when its image is known.
+The grandparent fields describe the second process in the chain and are present only when its respective value is known.
+A missing or expired process identity ends the walk. Startup inventory can supply an image, but its parent PID alone cannot extend the chain.
+
+```yaml
+title: PowerShell descendant of a server process
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '\powershell.exe'
+    AncestorImages|endswith:
+      - '\w3wp.exe'
+      - '\sqlservr.exe'
+  condition: selection
+```
+
+In rsigma-eval 0.27.0, a string comparison such as `AncestorImages|contains` or `AncestorImages|endswith` can match any member.
+Rule value lists are OR by default. With `|all`, every rule value must match, and different ancestors can satisfy different values.
+For predicates that must hold on the same ancestor, declare `sigma-version: 3` and use an `AncestorImages[any]` block with `.` referring to the current image.
+The [process ancestry decision](adr/process-ancestry.md) records the cache limits and the matching semantics.
 
 ## Linux authentication events
 

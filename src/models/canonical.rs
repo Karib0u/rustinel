@@ -161,6 +161,7 @@ pub(crate) mod tests {
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,
+                ancestry: None,
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,

@@ -10,6 +10,9 @@ In the JSON, each entry's `since` is the first release with its current availabi
 If availability narrows, `since` records the release that introduced the narrower guarantee.
 `unreleased` marks availability on the development branch that no release has shipped yet; a released contract never contains it.
 
+`GrandparentImage`, `GrandparentCommandLine`, and `AncestorImages` have `availability: conditional` and `fidelity: derived` for Sysmon-view process creation on Windows, Linux, and macOS.
+See [process ancestry in Sigma rules](sigma.md#process-ancestry) for presence and matching details.
+
 <!-- BEGIN GENERATED FIELD AVAILABILITY -->
 This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.
 Edit that table and run `cargo run --bin generate-docs`.

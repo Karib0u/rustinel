@@ -395,6 +395,7 @@ fn missing_always_fields_detect_decoder_contract_drift() {
             parent_process_id: None,
             parent_image: None,
             parent_command_line: None,
+            ancestry: None,
             parent_user: None,
             current_directory: None,
             integrity_level: None,

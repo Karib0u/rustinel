@@ -327,6 +327,7 @@ pub mod mapping {
                         .then(|| event.parent_pid.to_string()),
                     parent_image: None,
                     parent_command_line: None,
+                    ancestry: None,
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,

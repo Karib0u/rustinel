@@ -5,6 +5,7 @@
 //! while preserving shared enrichment and cache behavior.
 
 use std::net::IpAddr;
+use std::num::NonZeroU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -339,24 +340,40 @@ where
                 }
 
                 if let Some(key) = event.process_start_key.filter(|key| key.pid == pid) {
-                    self.state.processes().add_with_provenance(
+                    let processes = self.state.processes();
+                    let parent = event.parent_process_start_key.filter(|parent| {
+                        parent.pid != key.pid
+                            && Some(parent.pid) == parent_pid
+                            && parent.start_time != 0
+                    });
+                    let observed_at = SystemTime::now();
+                    processes.insert(
                         pid,
-                        key.start_time,
-                        image,
-                        fields.command_line.clone(),
-                        fields.user.clone(),
-                        parent_pid,
-                        fields.parent_image.clone(),
-                        fields.parent_command_line.clone(),
-                        fields.original_file_name.clone(),
-                        fields.product.clone(),
-                        fields.description.clone(),
-                        fields.company.clone(),
-                        fields.file_version.clone(),
-                        fields.current_directory.clone(),
-                        fields.integrity_level.clone(),
-                        provenance.clone(),
+                        ProcessMetadata {
+                            creation_time: key.start_time,
+                            image_name: image,
+                            command_line: fields.command_line.clone(),
+                            user: fields.user.clone(),
+                            parent_pid,
+                            parent_start_time: parent
+                                .and_then(|key| NonZeroU64::new(key.start_time)),
+                            parent_image: fields.parent_image.clone(),
+                            parent_command_line: fields.parent_command_line.clone(),
+                            original_filename: fields.original_file_name.clone(),
+                            product: fields.product.clone(),
+                            description: fields.description.clone(),
+                            company: fields.company.clone(),
+                            file_version: fields.file_version.clone(),
+                            current_directory: fields.current_directory.clone(),
+                            integrity_level: fields.integrity_level.clone(),
+                            provenance: provenance.clone(),
+                        },
+                        observed_at,
                     );
+                    if let Some(parent) = parent {
+                        fields.ancestry =
+                            self.process_ancestry(key, parent, observed_at, provenance);
+                    }
                 } else {
                     self.state.record_attribution_loss();
                 }
@@ -366,6 +383,47 @@ where
         }
 
         Some(EventFields::ProcessCreation(fields))
+    }
+
+    fn process_ancestry(
+        &self,
+        child: ProcessStartKey,
+        parent: ProcessStartKey,
+        observed_at: SystemTime,
+        provenance: &mut Provenance,
+    ) -> Option<Box<ProcessAncestry>> {
+        let mut ancestry = ProcessAncestry::default();
+        self.state
+            .processes()
+            .visit_ancestors(child, parent, observed_at, |depth, ancestor| {
+                if !ancestor.image_name.is_empty() {
+                    ancestry.images.push(ancestor.image_name.clone());
+                    provenance.inherit(&ancestor.provenance, "Image", "AncestorImages");
+                    if depth == 1 {
+                        ancestry.grandparent_image = Some(ancestor.image_name.clone());
+                        provenance.mark_derived("GrandparentImage");
+                        provenance.inherit(&ancestor.provenance, "Image", "GrandparentImage");
+                    }
+                }
+                if depth == 1 {
+                    if let Some(command_line) =
+                        ancestor.command_line.as_ref().filter(|cmd| !cmd.is_empty())
+                    {
+                        ancestry.grandparent_command_line = Some(command_line.clone());
+                        provenance.mark_derived("GrandparentCommandLine");
+                        provenance.inherit(
+                            &ancestor.provenance,
+                            "CommandLine",
+                            "GrandparentCommandLine",
+                        );
+                    }
+                }
+            });
+        if !ancestry.images.is_empty() {
+            provenance.mark_derived("AncestorImages");
+        }
+        (!ancestry.images.is_empty() || ancestry.grandparent_command_line.is_some())
+            .then(|| Box::new(ancestry))
     }
 
     fn normalize_file(
@@ -1265,6 +1323,7 @@ mod tests {
                     parent_process_id: Some("7".to_string()),
                     parent_image: None,
                     parent_command_line: None,
+                    ancestry: None,
                     parent_user: None,
                     current_directory: (platform != Platform::Windows).then(|| "/tmp".to_string()),
                     integrity_level: None,
@@ -1326,6 +1385,7 @@ mod tests {
                     parent_process_id: None,
                     parent_image: None,
                     parent_command_line: None,
+                    ancestry: None,
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,
@@ -1481,6 +1541,7 @@ mod tests {
                     parent_process_id: None,
                     parent_image: None,
                     parent_command_line: None,
+                    ancestry: None,
                     parent_user: None,
                     current_directory: None,
                     integrity_level: None,
@@ -2053,8 +2114,228 @@ mod tests {
                     field: "ParentCommandLine".into(),
                     fidelity: Fidelity::Derived,
                 },
+                FieldProvenance {
+                    field: "AncestorImages".into(),
+                    fidelity: Fidelity::Derived,
+                },
             ]
         );
+    }
+
+    fn ancestry_start(
+        platform: Platform,
+        provider: &'static str,
+        pid: u32,
+        image: &str,
+        parent: Option<ProcessStartKey>,
+    ) -> RawEvent {
+        let mut event = process_start_event(platform, provider, pid);
+        event.process_start_key = Some(ProcessStartKey {
+            pid,
+            start_time: u64::from(pid) * 100,
+        });
+        event.parent_process_start_key = parent;
+        let RawPayload::Process(raw) = &mut event.payload else {
+            unreachable!();
+        };
+        raw.parent_process_id = parent.map(|key| key.pid);
+        raw.image = Some(image.to_string());
+        raw.command_line = Some(format!("{image} --fixture"));
+        if let crate::sensor::RawProcessPlatform::MacOS(mac) = raw.platform.as_mut() {
+            let exec = mac.exec.as_mut().unwrap();
+            exec.signed = Some(false);
+            exec.signature_status = Some("unsigned".into());
+            exec.codesigning_flags = Some(0);
+            exec.is_platform_binary = Some(false);
+        }
+        event
+    }
+
+    #[test]
+    fn three_hop_ancestry_survives_recording_and_matches_sigma_rules() {
+        let rules = tempfile::tempdir().unwrap();
+        let detections = [
+            ("Grandparent image", "GrandparentImage|endswith: w3wp.exe"),
+            (
+                "Grandparent command",
+                "GrandparentCommandLine|endswith: 'w3wp.exe --fixture'",
+            ),
+            ("Ancestor suffix", "AncestorImages|endswith: SERVICES.EXE"),
+            (
+                "Ancestor list",
+                "AncestorImages|contains: [missing.exe, w3wp.exe]",
+            ),
+            (
+                "Across ancestors",
+                "AncestorImages|contains|all: [services.exe, cmd.exe]",
+            ),
+            (
+                "One ancestor",
+                "AncestorImages[any]:\n      .|contains: services.exe",
+            ),
+            (
+                "Child is excluded",
+                "AncestorImages|contains: powershell.exe",
+            ),
+            (
+                "All values required",
+                "AncestorImages|contains|all: [w3wp.exe, missing.exe]",
+            ),
+            (
+                "Predicates on the same member",
+                "AncestorImages[any]:\n      .|contains|all: [services.exe, cmd.exe]",
+            ),
+        ];
+        for (index, (title, detection)) in detections.into_iter().enumerate() {
+            let version = if detection.contains("[any]") {
+                "sigma-version: 3\n"
+            } else {
+                ""
+            };
+            std::fs::write(
+                rules.path().join(format!("{index}.yml")),
+                format!(
+                    "title: {title}\n{version}logsource: {{category: process_creation}}\n\
+                     detection:\n  selection:\n    {detection}\n  condition: selection\n"
+                ),
+            )
+            .unwrap();
+        }
+
+        for (platform, provider, prefix) in [
+            (Platform::Windows, "etw", r"C:\Windows\System32\"),
+            (Platform::Linux, "ebpf", "/usr/bin/"),
+            (Platform::MacOS, "esf", "/usr/bin/"),
+        ] {
+            let normalizer = build_normalizer();
+            let mut parent = None;
+            let mut normalized = None;
+            for (index, name) in ["services.exe", "w3wp.exe", "cmd.exe", "powershell.exe"]
+                .into_iter()
+                .enumerate()
+            {
+                let event = ancestry_start(
+                    platform,
+                    provider,
+                    40_000 + index as u32,
+                    &format!("{prefix}{name}"),
+                    parent,
+                );
+                normalized = normalizer.normalize(&event);
+                assert!(normalized.is_some());
+                parent = event.process_start_key;
+            }
+            let event = normalized.unwrap();
+            let serialized = serde_json::to_value(&event).unwrap();
+            let paths =
+                ["cmd.exe", "w3wp.exe", "services.exe"].map(|name| format!("{prefix}{name}"));
+            assert_eq!(
+                serialized["fields"]["AncestorImages"],
+                serde_json::json!(paths)
+            );
+            assert_eq!(serialized["fields"]["GrandparentImage"], paths[1]);
+            let replayed: NormalizedEvent = serde_json::from_value(serialized).unwrap();
+            assert_eq!(
+                replayed
+                    .field_view(FieldViewName::SYSMON)
+                    .get("AncestorImages"),
+                Some(CanonicalValue::StringList(&paths))
+            );
+            for field in [
+                "GrandparentImage",
+                "GrandparentCommandLine",
+                "AncestorImages",
+            ] {
+                assert!(replayed.provenance.has(field, Fidelity::Derived));
+                assert!(replayed
+                    .field_view(FieldViewName::AUDITD)
+                    .get(field)
+                    .is_none());
+            }
+            let mut engine = crate::engine::Engine::new_for_platform(platform)
+                .with_sigma_match_mode(crate::engine::SigmaMatchMode::All);
+            engine.load_rules(rules.path()).unwrap();
+            let mut matched: Vec<_> = engine
+                .evaluate_event(&replayed)
+                .into_iter()
+                .map(|alert| alert.rule_name)
+                .collect();
+            matched.sort();
+            assert_eq!(
+                matched,
+                [
+                    "Across ancestors",
+                    "Ancestor list",
+                    "Ancestor suffix",
+                    "Grandparent command",
+                    "Grandparent image",
+                    "One ancestor",
+                ],
+                "{platform:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ancestry_at_startup_ends_at_pid_only_inventory_links() {
+        let host = StubHost::new();
+        let normalizer = Normalizer::new(&host);
+        let old_parent = ancestry_start(Platform::Linux, "ebpf", 10, "/bin/unrelated", None);
+        normalizer.normalize(&old_parent).unwrap();
+        host.processes.add(
+            20,
+            2_000,
+            "/bin/seeded".into(),
+            None,
+            None,
+            Some(10),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let parent = ProcessStartKey {
+            pid: 20,
+            start_time: 2_000,
+        };
+        let child = ancestry_start(Platform::Linux, "ebpf", 30, "/bin/child", Some(parent));
+        let event = normalizer.normalize(&child).unwrap();
+        let output = serde_json::to_value(&event).unwrap();
+        assert_eq!(
+            output["fields"]["AncestorImages"],
+            serde_json::json!(["/bin/seeded"])
+        );
+        assert!(output["fields"].get("GrandparentImage").is_none());
+        assert!(output["fields"].get("GrandparentCommandLine").is_none());
+
+        let grandchild = ancestry_start(
+            Platform::Linux,
+            "ebpf",
+            40,
+            "/bin/grandchild",
+            child.process_start_key,
+        );
+        let event = normalizer.normalize(&grandchild).unwrap();
+        let output = serde_json::to_value(&event).unwrap();
+        assert_eq!(
+            output["fields"]["AncestorImages"],
+            serde_json::json!(["/bin/child", "/bin/seeded"])
+        );
+        assert_eq!(output["fields"]["GrandparentImage"], "/bin/seeded");
+        assert!(output["fields"].get("GrandparentCommandLine").is_none());
+
+        let mut missing_key = child;
+        missing_key.parent_process_start_key = None;
+        let event = normalizer.normalize(&missing_key).unwrap();
+        assert!(event
+            .field_view(FieldViewName::SYSMON)
+            .get("AncestorImages")
+            .is_none());
     }
 
     #[test]

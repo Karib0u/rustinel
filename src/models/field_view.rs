@@ -44,6 +44,7 @@ pub enum CanonicalField {
     /// The audit record types one event stands for.
     AuditType,
     AccountName,
+    AncestorImages,
     CdHash,
     Channel,
     Code,
@@ -84,6 +85,8 @@ pub enum CanonicalField {
     EventType,
     FileVersion,
     FilterName,
+    GrandparentCommandLine,
+    GrandparentImage,
     Hashes,
     HostProcess,
     ImageLoaded,
@@ -157,6 +160,7 @@ pub enum CanonicalValue<'a> {
     String(&'a str),
     /// A fact several records carry at once, such as audit `type`.
     Strs(&'static [&'static str]),
+    StringList(&'a [String]),
     /// Two values of one field, such as the source and target `name` of a
     /// rename.
     Pair(&'a str, &'a str),
@@ -190,10 +194,13 @@ const fn alias(name: &'static str, canonical: CanonicalField) -> FieldMapping {
     }
 }
 
-/// Read-only fields computed from another field. They are addressable by
+/// Fields with derived values. They are addressable by
 /// name but are not enumerated, so keyword matching never sees them.
 #[cfg(test)]
 const DERIVED_FIELDS: &[&str] = &[
+    "AncestorImages",
+    "GrandparentCommandLine",
+    "GrandparentImage",
     "QueryLabelCount",
     "QueryLongestLabel",
     "QueryNameLength",
@@ -207,6 +214,7 @@ const DERIVED_FIELDS: &[&str] = &[
 /// names, and Rustinel fidelity fields in this table.
 pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("AccountName", CanonicalField::AccountName),
+    alias("AncestorImages", CanonicalField::AncestorImages),
     field("CdHash", CanonicalField::CdHash),
     field("CgroupId", CanonicalField::CgroupId),
     field("CgroupPath", CanonicalField::CgroupPath),
@@ -239,6 +247,11 @@ pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("EventType", CanonicalField::EventType),
     field("FileVersion", CanonicalField::FileVersion),
     field("FilterName", CanonicalField::FilterName),
+    alias(
+        "GrandparentCommandLine",
+        CanonicalField::GrandparentCommandLine,
+    ),
+    alias("GrandparentImage", CanonicalField::GrandparentImage),
     field("Hashes", CanonicalField::Hashes),
     field("HostProcess", CanonicalField::HostProcess),
     field("Image", CanonicalField::ProcessImage),

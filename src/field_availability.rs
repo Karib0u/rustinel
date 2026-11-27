@@ -8,7 +8,7 @@
 use semver::Version;
 use serde::Serialize;
 
-use crate::models::{EventCategory, FieldViewName, NormalizedEvent};
+use crate::models::{EventCategory, Fidelity, FieldViewName, NormalizedEvent};
 use crate::vocab::{Platform, SensorAction};
 
 pub const SCHEMA_VERSION: u16 = 3;
@@ -55,6 +55,7 @@ const SINCE_DEFENDER: Option<&str> = Some("1.9.0");
 const SINCE_WMI_OPERATIONAL: Option<&str> = Some("1.9.0");
 /// Derived DNS name fields (#801).
 const SINCE_DNS_DERIVED: Option<&str> = Some("1.11.0");
+const SINCE_PROCESS_ANCESTRY: Option<&str> = Some(UNRELEASED);
 /// Application channel collection (#316).
 const SINCE_APPLICATION: Option<&str> = Some("1.9.0");
 /// Security 4740 and the gated long-tail events 4672, 4799 and 5140 (#805).
@@ -110,6 +111,9 @@ pub struct FieldContract {
     /// any of them.
     #[serde(skip_serializing_if = "<[&str]>::is_empty")]
     pub values: &'static [&'static str],
+    /// A fidelity limitation inherent to this field's source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fidelity: Option<Fidelity>,
     #[serde(flatten)]
     pub availability: Availability,
 }
@@ -161,6 +165,7 @@ const fn always(field: &'static str, since: Option<&'static str>) -> FieldContra
         since,
         value: None,
         values: &[],
+        fidelity: None,
         availability: Availability::Always,
     }
 }
@@ -175,6 +180,7 @@ const fn always_value(
         since,
         value: Some(value),
         values: &[],
+        fidelity: None,
         availability: Availability::Always,
     }
 }
@@ -189,6 +195,7 @@ const fn always_values(
         since,
         value: None,
         values,
+        fidelity: None,
         availability: Availability::Always,
     }
 }
@@ -204,6 +211,7 @@ const fn conditional_values(
         since,
         value: None,
         values,
+        fidelity: None,
         availability: Availability::Conditional(reason),
     }
 }
@@ -218,6 +226,7 @@ const fn conditional(
         since,
         value: None,
         values: &[],
+        fidelity: None,
         availability: Availability::Conditional(reason),
     }
 }
@@ -232,11 +241,42 @@ const fn never(
         since,
         value: None,
         values: &[],
+        fidelity: None,
         availability: Availability::Never(reason),
     }
 }
 
+const fn derived(
+    field: &'static str,
+    since: Option<&'static str>,
+    reason: &'static str,
+) -> FieldContract {
+    FieldContract {
+        fidelity: Some(Fidelity::Derived),
+        ..conditional(field, since, reason)
+    }
+}
+
+const GRANDPARENT_IMAGE: FieldContract = derived(
+    "GrandparentImage",
+    SINCE_PROCESS_ANCESTRY,
+    "two stable ancestor identities resolve in the process cache and the grandparent image is known",
+);
+const GRANDPARENT_COMMAND_LINE: FieldContract = derived(
+    "GrandparentCommandLine",
+    SINCE_PROCESS_ANCESTRY,
+    "two stable ancestor identities resolve in the process cache and the grandparent command line is known",
+);
+const ANCESTOR_IMAGES: FieldContract = derived(
+    "AncestorImages",
+    SINCE_PROCESS_ANCESTRY,
+    "the process cache can supply images from a chain of up to eight stable ancestor identities",
+);
+
 const WINDOWS_PROCESS: &[FieldContract] = &[
+    GRANDPARENT_IMAGE,
+    GRANDPARENT_COMMAND_LINE,
+    ANCESTOR_IMAGES,
     always_value(
         "Channel",
         SINCE_WINDOWS_CHANNEL,
@@ -1757,6 +1797,9 @@ const WINDOWS_APPLICATION_ERROR: &[FieldContract] = &[
 ];
 
 const LINUX_PROCESS: &[FieldContract] = &[
+    GRANDPARENT_IMAGE,
+    GRANDPARENT_COMMAND_LINE,
+    ANCESTOR_IMAGES,
     always("Image", SINCE_BASELINE),
     always("ImageSource", SINCE_1_6_0),
     always("ProcessId", SINCE_BASELINE),
@@ -2217,6 +2260,9 @@ const LINUX_DNS: &[FieldContract] = &[
 ];
 
 const MACOS_PROCESS: &[FieldContract] = &[
+    GRANDPARENT_IMAGE,
+    GRANDPARENT_COMMAND_LINE,
+    ANCESTOR_IMAGES,
     always("Image", SINCE_1_1_0),
     always("ProcessId", SINCE_1_1_0),
     always("ProcessStartTime", SINCE_1_1_0),
@@ -4062,6 +4108,8 @@ struct BaselineEntry<'a> {
     value: Option<&'a str>,
     #[serde(skip_serializing_if = "<[&str]>::is_empty")]
     values: &'a [&'a str],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fidelity: Option<Fidelity>,
     #[serde(flatten)]
     availability: Availability,
 }
@@ -4084,6 +4132,7 @@ pub fn compatibility_json() -> String {
                 since: field.since,
                 value: field.value,
                 values: field.values,
+                fidelity: field.fidelity,
                 availability: field.availability,
             })
         })
