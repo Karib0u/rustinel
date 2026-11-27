@@ -1377,6 +1377,7 @@ mod tests {
             registry: None,
             file_attribution: None,
             etw_decode: None,
+            windows_thread_starts: None,
             etw_provider_watch: None,
             alert_webhooks: Vec::new(),
         }

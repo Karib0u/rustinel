@@ -31,13 +31,25 @@ pub(super) const POWERSHELL_EVENT_SCRIPT_BLOCK: u16 = 4104;
 /// Microsoft-Windows-Kernel-Process manifest image-load event. Unlike the
 /// classic provider's opcode 10 record, Windows 11 emits this as event 5 with
 /// opcode 0.
-const KERNEL_PROCESS_EVENT_IMAGE_LOAD: u16 = 5;
+pub(super) const KERNEL_PROCESS_EVENT_IMAGE_LOAD: u16 = 5;
+pub(super) const KERNEL_PROCESS_EVENT_IMAGE_UNLOAD: u16 = 6;
+pub(super) const KERNEL_PROCESS_EVENT_THREAD_START: u16 = 3;
+pub(super) const KERNEL_PROCESS_EVENT_IDS: &[u16] = &[
+    1,
+    2,
+    KERNEL_PROCESS_EVENT_THREAD_START,
+    KERNEL_PROCESS_EVENT_IMAGE_LOAD,
+    KERNEL_PROCESS_EVENT_IMAGE_UNLOAD,
+];
 
 fn kernel_process_route(event_id: u16, opcode: u8) -> Option<(EventCategory, SensorAction)> {
     match (event_id, opcode) {
-        (_, 1) => Some((EventCategory::Process, SensorAction::Start)),
-        (_, 2) => Some((EventCategory::Process, SensorAction::Stop)),
-        (_, 10) | (KERNEL_PROCESS_EVENT_IMAGE_LOAD, 0) => {
+        (1, _) | (0, 1) => Some((EventCategory::Process, SensorAction::Start)),
+        (2, _) | (0, 2) => Some((EventCategory::Process, SensorAction::Stop)),
+        (KERNEL_PROCESS_EVENT_THREAD_START, _) => {
+            Some((EventCategory::RemoteThread, SensorAction::Start))
+        }
+        (KERNEL_PROCESS_EVENT_IMAGE_LOAD, _) | (0, 10) => {
             Some((EventCategory::ImageLoad, SensorAction::Load))
         }
         _ => None,
@@ -405,6 +417,7 @@ impl EtwRouting {
             EventCategory::Process
             | EventCategory::ImageLoad
             | EventCategory::DriverLoad
+            | EventCategory::RemoteThread
             | EventCategory::Scripting
             | EventCategory::PowerShellModule => unreachable!(),
             EventCategory::AuthLog => unreachable!("auth log records come from the Linux journal"),
@@ -427,6 +440,8 @@ mod tests {
         assert_eq!(kernel_process_route(5, 0), expected);
         assert_eq!(kernel_process_route(0, 10), expected);
         assert_eq!(kernel_process_route(4, 0), None);
+        assert_eq!(kernel_process_route(4, 2), None);
+        assert_eq!(kernel_process_route(6, 2), None);
     }
 
     #[test]

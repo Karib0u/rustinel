@@ -5,6 +5,7 @@
 | Telemetry | Windows | Linux | macOS |
 | --- | :---: | :---: | :---: |
 | Process start and exit | ✓ | ✓ | ✓ |
+| Cross-process thread starts | ✓ | | |
 | Network connections | ✓ | ✓ | ✓ ¹ |
 | File create, modify, rename, delete | ✓ | ✓ | ✓ |
 | DNS queries | ✓ | ✓ ² | ✓ ² |
@@ -41,7 +42,6 @@ A blank cell in the table above is one of three things.
 | Named pipes (`pipe_created`) | Unavailable without a driver | Windows | Kernel-File ETW records no pipe name or creator for a pipe exchange. |
 | Process tampering | Unavailable without a driver | Windows | The only source is the Threat Intelligence provider, which is closed to a process that is not a protected process light. |
 | Process access | Planned | Windows | Kernel-Audit-API-Calls gives the access, but not the true `GrantedAccess`, see [Limitations](limitations.md#windows). |
-| Remote threads | Planned | Windows | Thread starts give the source and target process, with field gaps for rules that need module or function names. |
 | File reads of sensitive paths | Planned | Windows, Linux | Bounded to sensitive paths, not every read. |
 | Alternate data streams | Planned | Windows | Stream names come from ETW, but contents and hashes need a bounded read. |
 | Raw device reads | Planned | Windows | Raw reads of physical drives. |
@@ -66,16 +66,43 @@ These are deliberate boundaries, not gaps to close.
 
 ## SigmaHQ rules
 
-CI loads every rule from SigmaHQ commit `da9bb07` (3,783 rules) and checks the result against a pinned baseline.
+CI loads every rule from SigmaHQ commit `c04ad420` (3,793 rules) and checks the result against a pinned baseline.
 Rules that load against a collector on each platform:
 
 | Platform | Rules |
 | --- | ---: |
-| Windows | 2,709 |
-| Linux | 178 |
+| Windows | 2,753 |
+| Linux | 237 |
 | macOS | 86 |
 
 The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `cron` or `syslog`.
+
+### Windows cross-process thread rules
+
+All 15 pinned `create_remote_thread` rules load.
+`rustinel sigma doctor --platform windows` reports 13 as `degraded` and two as `can-never-fire`.
+Every field listed below is conditional unless marked unavailable.
+
+| Rule | Verdict | Detection fields |
+| --- | --- | --- |
+| CACTUSTORCH Remote Thread Creation | Degraded | `SourceImage`, `TargetImage`, `StartModule` (null selection) |
+| Potential CobaltStrike Process Injection | Degraded | `StartAddress` |
+| Remote Thread Created In KeePass.EXE | Degraded | `TargetImage` |
+| CreateRemoteThread API and LoadLibrary | Can never fire | `StartModule`, `StartFunction` (unavailable) |
+| Potential Bumblebee Remote Thread Creation | Degraded | `SourceImage`, `TargetImage` |
+| Remote Thread Creation In Mstsc.Exe From Suspicious Location | Degraded | `SourceImage`, `TargetImage` |
+| Remote Thread Creation Via PowerShell | Degraded | `SourceImage`, `SourceParentImage` |
+| Potential Credential Dumping Attempt Via PowerShell Remote Thread | Degraded | `SourceImage`, `TargetImage` |
+| Remote Thread Creation Via PowerShell In Uncommon Target | Degraded | `SourceImage`, `TargetImage` |
+| Password Dumper Remote Thread in LSASS | Can never fire | `TargetImage`, `StartModule` (requires an empty string) |
+| Rare Remote Thread Creation By Uncommon Source Image | Degraded | `SourceImage`, `TargetImage` |
+| Remote Thread Created In Shell Application | Degraded | `SourceImage`, `TargetImage` |
+| Remote Thread Creation By Uncommon Source Image | Degraded | `SourceImage`, `SourceCommandLine`, `SourceParentImage`, `TargetImage`, `TargetParentProcessId` |
+| Remote Thread Creation In Uncommon Target Image | Degraded | `SourceImage`, `TargetImage`, `StartFunction` (unavailable for exclusions) |
+| Remote Thread Creation Ttdinject.exe Proxy | Degraded | `SourceImage` |
+
+A null selection on `StartModule` matches when the field is absent, including when startup or eviction gaps leave a mapped address unresolved.
+The empty-string selection cannot match because resolved module paths are nonempty and unresolved paths are omitted.
 
 ## Rules that load but never fire
 
@@ -101,7 +128,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
-| `sysmon` | windows | 219 | 1150 | 67 |
+| `sysmon` | windows | 222 | 1163 | 67 |
 | `sysmon` | linux | 142 | 156 | 59 |
 | `sysmon` | macos | 27 | 28 | 28 |
 | `auditd` | linux | 15 | 23 | 47 |

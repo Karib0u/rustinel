@@ -502,6 +502,10 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();
         }
+        EventFields::RemoteThread(f) => {
+            pid = Some(f.source_process_id);
+            image = f.source_image.clone();
+        }
         EventFields::ImageLoad(f) => {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();

@@ -83,6 +83,9 @@ impl CanonicalEvent {
 }
 
 fn process_id_from_view(event: &NormalizedEvent) -> Option<u32> {
+    if let super::EventFields::RemoteThread(fields) = &event.fields {
+        return Some(fields.source_process_id);
+    }
     event
         .get_field("ProcessId")
         .and_then(|value| value.parse().ok())
@@ -108,6 +111,7 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
         }
         EventCategory::Dns => SensorAction::Query,
         EventCategory::ImageLoad | EventCategory::DriverLoad => SensorAction::Load,
+        EventCategory::RemoteThread => SensorAction::Start,
         EventCategory::Scripting => SensorAction::Execute,
         EventCategory::PowerShellModule => SensorAction::Load,
         EventCategory::PowerShellClassicStart => SensorAction::Start,

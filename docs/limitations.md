@@ -86,7 +86,7 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Long script blocks are evaluated one fragment at a time.
   Module logging (4103) covers both engines, needs [module logging policy](windows-logging.md#powershell-module-logging), and emits text in the host's language.
   Classic engine starts include version 2 through event 400.
-- **No telemetry** for named pipes, process tampering, or network data volume, and not yet for remote threads, process access, or file reads.
+- **No telemetry** for named pipes, process tampering, or network data volume, and not yet for process access or file reads.
   Named pipes and process tampering need a kernel driver.
   The rest are planned, see [Platform coverage](coverage.md#telemetry-that-is-missing).
 - **Injection needs a driver or a protected process.**
