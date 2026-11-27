@@ -21,8 +21,6 @@ use aya_ebpf::{
     programs::{FEntryContext, FExitContext},
 };
 
-use core::intrinsics::{atomic_cxchg, atomic_xadd, AtomicOrdering::Relaxed};
-
 const IPPROTO_UDP: u8 = 17;
 const TCP_ESTABLISHED: u8 = 1;
 const EEXIST: i32 = -17;
@@ -225,6 +223,8 @@ pub static UDP_OFFSETS: Array<UdpOffsets> = Array::with_max_entries(1, 0);
 static UDP_PEERS: LruHashMap<UdpPeer, u8> = LruHashMap::with_max_entries(8192, 0);
 #[map]
 static UDP_BUDGET: Array<u64> = Array::with_max_entries(1, 0);
+#[map]
+static UDP_BUDGET_LOCK: HashMap<u32, u8> = HashMap::with_max_entries(1, 0);
 
 #[fexit]
 pub fn handle_udp4_send(ctx: FExitContext) -> u32 {
@@ -330,21 +330,23 @@ unsafe fn claim_udp_peer(key: &UdpPeer, now: u64) -> bool {
 
 #[inline(always)]
 unsafe fn claim_udp_budget(window: u64) -> bool {
-    let Some(ptr) = UDP_BUDGET.get_ptr_mut(0) else {
+    // Inserting this single key serializes the counter across CPUs on kernels
+    // that cannot use compare-and-swap in tracing programs. Contenders drop
+    // their candidate immediately so a send never waits on another CPU.
+    if UDP_BUDGET_LOCK.insert(&0, &1, BPF_NOEXIST as u64).is_err() {
+        record_rate_limited(NETWORK_FAMILY);
         return false;
-    };
-    let mut previous = atomic_xadd::<u64, u64, { Relaxed }>(ptr, 0);
-    // A stale invocation cannot reset a budget that has already advanced.
-    for _ in 0..3 {
-        let Some(next) = udp_budget_update(previous, window) else {
-            break;
-        };
-        let actual = atomic_cxchg::<u64, { Relaxed }, { Relaxed }>(ptr, previous, next).0;
-        if actual == previous {
-            return true;
-        }
-        previous = actual;
     }
-    record_rate_limited(NETWORK_FAMILY);
-    false
+    let granted = UDP_BUDGET.get_ptr_mut(0).is_some_and(|budget| {
+        let Some(next) = udp_budget_update(*budget, window) else {
+            return false;
+        };
+        *budget = next;
+        true
+    });
+    let _ = UDP_BUDGET_LOCK.remove(&0);
+    if !granted {
+        record_rate_limited(NETWORK_FAMILY);
+    }
+    granted
 }
