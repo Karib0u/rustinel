@@ -79,7 +79,8 @@ The rest are skipped: they target another platform, a cloud or network product, 
 
 ### Windows cross-process thread rules
 
-All 15 pinned `create_remote_thread` rules load. `rustinel sigma doctor --platform windows` reports 13 as `degraded` and two as `can-never-fire`.
+All 15 pinned `create_remote_thread` rules load.
+`rustinel sigma doctor --platform windows` reports 13 as `degraded` and two as `can-never-fire`.
 Every field listed below is conditional unless marked unavailable.
 
 | Rule | Verdict | Detection fields |
