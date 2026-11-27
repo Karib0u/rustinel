@@ -314,7 +314,7 @@ impl EtwSensor {
         let main_builder = build_session(
             TRACE_SESSION_NAME,
             session_properties(),
-            EtwProviders::main_session(),
+            EtwProviders::main_session(self.process_access),
             &state,
             tx,
         );
@@ -330,6 +330,9 @@ impl EtwSensor {
             .start()
             .map_err(|err| anyhow::anyhow!("Failed to start ETW trace: {err:?}"))?;
         info!("ETW trace session '{TRACE_SESSION_NAME}' started successfully");
+        if self.process_access {
+            state.counters().process_access.start();
+        }
 
         request_registry_value_data();
         seed_registry_paths(&state);
@@ -431,7 +434,7 @@ impl EtwSensor {
             .extension::<crate::sensor::windows::WindowsHostExtension>()
             .counters;
         let provider_watch = super::super::provider_watch::spawn(
-            super::expected_providers(),
+            super::expected_providers(self.process_access),
             _classic
                 .is_running()
                 .then_some(super::super::provider_watch::ClassicExpectation {
@@ -629,7 +632,7 @@ mod tests {
         // enabled on both is a duplicate of every event it carries.
         let mut split: Vec<&str> = EtwProviders::process_session()
             .iter()
-            .chain(EtwProviders::main_session().iter())
+            .chain(EtwProviders::main_session(true).iter())
             .map(|provider| provider.name)
             .collect();
         let mut all: Vec<&str> = EtwProviders::all()

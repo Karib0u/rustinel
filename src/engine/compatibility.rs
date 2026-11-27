@@ -684,6 +684,11 @@ fn analyze_detection(
         ));
         return report;
     }
+    if let Some(logsource) = report.logsource.as_mut() {
+        logsource.collector_active = contracts
+            .iter()
+            .any(|contract| collector_enabled_for_contract(config, contract));
+    }
 
     let routed_event_ids = routed_event_ids(&contracts);
     let mut enabled_viable = false;
@@ -1528,6 +1533,9 @@ fn routes_for_contract(contract: &EventFieldContract) -> Vec<LogSourceKey> {
 }
 
 fn collector_enabled_for_contract(config: &AppConfig, contract: &EventFieldContract) -> bool {
+    if contract.platform == Platform::Windows && contract.category == "process_access" {
+        return config.windows.etw_process_access;
+    }
     if contract.platform == Platform::Windows && contract.category == "security" {
         match contract.event_id {
             Some(5152 | 5156 | 5157) => {
@@ -1624,6 +1632,15 @@ fn potential_fidelity(platform: Platform, logsource: &LogSourceKey, field: &str)
         values.insert(Fidelity::Derived);
     }
     if category != "process_creation" && matches!(field, "Image" | "User") {
+        values.insert(Fidelity::Derived);
+    }
+    if platform == Platform::Windows
+        && category == "process_access"
+        && matches!(
+            field,
+            "SourceImage" | "SourceUser" | "TargetImage" | "TargetUser"
+        )
+    {
         values.insert(Fidelity::Derived);
     }
     if platform == Platform::MacOS
@@ -1924,6 +1941,68 @@ mod tests {
         let dir = TempDir::new().expect("temporary rules directory");
         fs::write(dir.path().join("rules.yml"), yaml).expect("write fixture");
         analyze_rules(dir.path(), platform, &AppConfig::default()).expect("analyze rules")
+    }
+
+    #[test]
+    fn process_access_doctor_checks_requested_rights_and_the_collector_toggle() {
+        let dir = TempDir::new().expect("temporary rules directory");
+        for (title, selection) in [
+            ("request", "    EventID: 5\n    DesiredAccess: '0x1000'\n    ReturnCode: '0'\n    AccessOutcome: success"),
+            ("image", "    SourceImage|endswith: '\\caller.exe'"),
+            ("grant", "    GrantedAccess: '0x1000'"),
+            ("sysmon-event-id", "    EventID: 10"),
+        ] {
+            fs::write(
+                dir.path().join(format!("{title}.yml")),
+                format!("title: {title}\nlogsource:\n  product: windows\n  category: process_access\ndetection:\n  selection:\n{selection}\n  condition: selection\n"),
+            )
+            .unwrap();
+        }
+        let mut config = AppConfig::default();
+        let disabled = analyze_rules(dir.path(), Platform::Windows, &config).unwrap();
+        let request = disabled
+            .documents
+            .iter()
+            .find(|rule| rule.title == "request")
+            .unwrap();
+        assert_eq!(request.verdict, CompatibilityVerdict::CanNeverFire);
+        assert!(!request.logsource.as_ref().unwrap().collector_active);
+        assert!(request
+            .reasons
+            .iter()
+            .any(|reason| reason.code == ReasonCode::CollectorDisabled));
+
+        config.windows.etw_process_access = true;
+        let enabled = analyze_rules(dir.path(), Platform::Windows, &config).unwrap();
+        for document in &enabled.documents {
+            match document.title.as_str() {
+                "request" => {
+                    assert_eq!(document.verdict, CompatibilityVerdict::CanFire);
+                    assert!(document.logsource.as_ref().unwrap().collector_active);
+                    for field in &document.fields {
+                        assert_eq!(field.availability, FieldCompatibilityStatus::Always);
+                    }
+                }
+                "image" => assert_eq!(document.verdict, CompatibilityVerdict::Degraded),
+                "grant" => {
+                    assert_eq!(document.verdict, CompatibilityVerdict::CanNeverFire);
+                    assert_eq!(
+                        document.fields[0].availability,
+                        FieldCompatibilityStatus::Never
+                    );
+                    assert!(document
+                        .reasons
+                        .iter()
+                        .any(|reason| reason.code == ReasonCode::UnavailableField
+                            && reason.message.contains("DesiredAccess")));
+                }
+                "sysmon-event-id" => {
+                    assert_eq!(document.verdict, CompatibilityVerdict::CanNeverFire)
+                }
+                _ => panic!("unexpected document {document:?}"),
+            }
+        }
+        assert_eq!(enabled.documents.len(), 4);
     }
 
     #[test]

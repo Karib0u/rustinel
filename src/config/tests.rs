@@ -489,6 +489,7 @@ fn test_windows_etw_flush_default() {
     let cfg = AppConfig::default();
     assert_eq!(cfg.windows.etw_flush_interval_ms, 20);
     assert_eq!(cfg.windows.etw_process_flush_interval_ms, 5);
+    assert!(!cfg.windows.etw_process_access);
     assert!(!cfg.windows.security_filtering_platform_connections);
     assert!(!cfg.windows.security_long_tail_events);
     assert!(!cfg.windows.security_domain_controller_events);
@@ -520,6 +521,7 @@ fn config_builder_uses_windows_etw_flush_default() {
 
     assert_eq!(cfg.windows.etw_flush_interval_ms, 20);
     assert_eq!(cfg.windows.etw_process_flush_interval_ms, 5);
+    assert!(!cfg.windows.etw_process_access);
     assert!(!cfg.windows.security_filtering_platform_connections);
     assert!(!cfg.windows.security_long_tail_events);
     assert!(!cfg.windows.security_domain_controller_events);

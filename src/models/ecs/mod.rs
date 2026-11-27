@@ -353,6 +353,7 @@ impl From<&Alert> for EcsAlert {
             edr_wmi_namespace: None,
             edr_wmi_event_type: None,
             edr_process_target_image: None,
+            edr_process_access: None,
             edr_security: None,
             edr_auth_log: None,
             related_ip: None,
@@ -366,6 +367,14 @@ impl From<&Alert> for EcsAlert {
 
         // Map internal fields to ECS based on event type
         match &alert.event.fields {
+            EventFields::ProcessAccess(f) => {
+                ecs.process_executable = f.source_image.clone();
+                ecs.process_pid = parse_u64(&f.source_process_id);
+                apply_user_fields(&mut ecs, f.source_user.as_deref());
+                ecs.edr_process_target_image = f.target_image.clone();
+                ecs.event_outcome = Some(f.access_outcome.as_str().to_string());
+                ecs.edr_process_access = Some(f.clone());
+            }
             EventFields::ProcessCreation(f) => {
                 ecs.windows_process_metadata = f.windows.clone();
                 ecs.user_id = f

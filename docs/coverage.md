@@ -5,6 +5,7 @@
 | Telemetry | Windows | Linux | macOS |
 | --- | :---: | :---: | :---: |
 | Process start and exit | ✓ | ✓ | ✓ |
+| Process access attempts | Opt-in ⁶ | | |
 | Network connections | ✓ | ✓ | ✓ ¹ |
 | File create, modify, rename, delete | ✓ | ✓ | ✓ |
 | DNS queries | ✓ | ✓ ² | ✓ ² |
@@ -28,6 +29,7 @@
    This is a dense event stream, so enabling a broad rule corpus can increase CPU and memory use during DLL-heavy workloads.
 5. Read from the systemd journal, see [Linux authentication events](linux-auth-log.md).
    Hosts without journald have none.
+6. Set `windows.etw_process_access = true` to collect OpenProcess attempts. See the [process access field contract](field-availability.md#process-access).
 
 macOS support is experimental.
 Detailed gaps are in [Limitations](limitations.md).
@@ -40,7 +42,6 @@ A blank cell in the table above is one of three things.
 | --- | --- | --- | --- |
 | Named pipes (`pipe_created`) | Unavailable without a driver | Windows | Kernel-File ETW records no pipe name or creator for a pipe exchange. |
 | Process tampering | Unavailable without a driver | Windows | The only source is the Threat Intelligence provider, which is closed to a process that is not a protected process light. |
-| Process access | Planned | Windows | Kernel-Audit-API-Calls gives the access, but not the true `GrantedAccess`, see [Limitations](limitations.md#windows). |
 | Remote threads | Planned | Windows | Thread starts give the source and target process, with field gaps for rules that need module or function names. |
 | File reads of sensitive paths | Planned | Windows, Linux | Bounded to sensitive paths, not every read. |
 | Alternate data streams | Planned | Windows | Stream names come from ETW, but contents and hashes need a bounded read. |
@@ -66,16 +67,18 @@ These are deliberate boundaries, not gaps to close.
 
 ## SigmaHQ rules
 
-CI loads every rule from SigmaHQ commit `da9bb07` (3,783 rules) and checks the result against a pinned baseline.
-Rules that load against a collector on each platform:
+CI loads 3,793 rule files from SigmaHQ commit `c04ad42` and checks the result against a pinned baseline.
+These counts show which rules route to a collector on each platform.
 
 | Platform | Rules |
 | --- | ---: |
-| Windows | 2,709 |
-| Linux | 178 |
+| Windows | 2,767 |
+| Linux | 237 |
 | macOS | 86 |
 
 The rest are skipped: they target another platform, a cloud or network product, or a Linux log service Rustinel does not read, such as `cron` or `syslog`.
+
+The Windows total includes 29 `process_access` rules. With `windows.etw_process_access` enabled, `sigma doctor` rated four degraded because their viable branches depend on cached process identities. It rated the other 25 unsatisfiable under the available field contract.
 
 ## Rules that load but never fire
 
@@ -101,7 +104,7 @@ These count fields, not rules: a rule that references a `Never` field inside an 
 
 | View | Platform | Always | Conditional | Never |
 | --- | --- | ---: | ---: | ---: |
-| `sysmon` | windows | 219 | 1150 | 67 |
+| `sysmon` | windows | 222 | 1156 | 70 |
 | `sysmon` | linux | 129 | 148 | 47 |
 | `sysmon` | macos | 27 | 28 | 28 |
 | `auditd` | linux | 15 | 23 | 47 |

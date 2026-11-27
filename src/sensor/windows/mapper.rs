@@ -49,7 +49,7 @@ fn action_code_for_record(
         // `SetValueKey`, not `CreateKey`), so reading the opcode could only
         // ever produce a wrong answer. The routed action is the truth (#279).
         EventCategory::Registry => registry_action_code(action),
-        EventCategory::Dns => 0,
+        EventCategory::Dns | EventCategory::ProcessAccess => 0,
         EventCategory::Scripting => 0,
         EventCategory::PowerShellModule => 0,
         EventCategory::PowerShellClassicStart => 0,
@@ -93,7 +93,7 @@ fn raw_event_id_for_record(
         EventCategory::Network => record.event_id(),
         EventCategory::File => u16::from(action_code),
         EventCategory::Registry => u16::from(action_code),
-        EventCategory::Dns => record.event_id(),
+        EventCategory::Dns | EventCategory::ProcessAccess => record.event_id(),
         EventCategory::Scripting => record.event_id(),
         EventCategory::PowerShellModule => record.event_id(),
         EventCategory::PowerShellClassicStart => record.event_id(),
@@ -140,6 +140,7 @@ pub fn map_to_sysmon_id(category: EventCategory, action_code: u8, raw_event_id: 
             _ => raw_event_id,
         },
         EventCategory::Dns
+        | EventCategory::ProcessAccess
         | EventCategory::Wmi
         | EventCategory::Scripting
         | EventCategory::PowerShellModule

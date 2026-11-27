@@ -90,6 +90,11 @@ pub(super) fn decode_record(
     state: &EtwState,
 ) -> DecodedEtwEvents {
     state.counters().etw_decode.record_received();
+    if record.provider_id() == state.routing.audit_api_calls_guid
+        && record.event_id() == crate::sensor::windows_process_access::OPEN_PROCESS_ID
+    {
+        state.counters().process_access.record_received();
+    }
 
     let mut decoded = if record.provider_id() == state.routing.kernel_registry_guid {
         decode_kernel_registry_record(record, schema_locator, state)
@@ -143,6 +148,9 @@ pub(super) fn decode_single_record(
     let parser = Parser::create(record, &schema);
     let props = LiveProperties::new(&parser);
     let event = decode_routed(&props, record, category, action, state);
+    if category == EventCategory::ProcessAccess && event.is_some() {
+        state.counters().process_access.record_decoded();
+    }
     props.finish(record);
     event
 }
@@ -160,6 +168,19 @@ pub(super) fn decode_routed(
 ) -> Option<RawEvent> {
     let decoded = match category {
         EventCategory::Process => decode_process(parser, record, action),
+        EventCategory::ProcessAccess => {
+            let pid = header_actor_pid(record);
+            crate::sensor::windows_process_access::decode(pid, |name| {
+                parser
+                    .get_u32(name)
+                    .or_else(|| u32::try_from(parser.get_u64(name)?).ok())
+            })
+            .map(|access| DecodedEtwEvent {
+                pid,
+                process_start_key: None,
+                payload: RawPayload::ProcessAccess(access),
+            })
+        }
         EventCategory::Network => decode_network(parser, record),
         EventCategory::File => unreachable!("kernel-file records are diverted above"),
         EventCategory::Registry => unreachable!("kernel-registry records are diverted above"),

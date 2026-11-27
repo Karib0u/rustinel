@@ -65,6 +65,7 @@ const SINCE_SECURITY_DOMAIN_CONTROLLER: Option<&str> = Some("1.11.0");
 const SINCE_DNS_TRUNCATION: Option<&str> = Some("1.10.0");
 /// Linux auth and authpriv journal records (#644).
 const SINCE_AUTH_LOG: Option<&str> = Some(UNRELEASED);
+const SINCE_PROCESS_ACCESS: Option<&str> = Some(UNRELEASED);
 
 /// Whether a field can be present for one precise sensor event shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -235,6 +236,21 @@ const fn never(
         availability: Availability::Never(reason),
     }
 }
+
+const WINDOWS_PROCESS_ACCESS: &[FieldContract] = &[
+    never("Channel", SINCE_PROCESS_ACCESS, "the real-time audit trace is routed by provider and event ID"),
+    always("DesiredAccess", SINCE_PROCESS_ACCESS),
+    always("ReturnCode", SINCE_PROCESS_ACCESS),
+    always("AccessOutcome", SINCE_PROCESS_ACCESS),
+    conditional("SourceProcessId", SINCE_PROCESS_ACCESS, "the ETW header contains a valid caller PID"),
+    conditional("TargetProcessId", SINCE_PROCESS_ACCESS, "the target PID carried by the payload is not the invalid target sentinel"),
+    conditional("SourceImage", SINCE_PROCESS_ACCESS, "the source lifetime resolves to an image in process state"),
+    conditional("TargetImage", SINCE_PROCESS_ACCESS, "the target lifetime resolves to an image in process state"),
+    conditional("SourceUser", SINCE_PROCESS_ACCESS, "process state has a user for the source lifetime"),
+    conditional("TargetUser", SINCE_PROCESS_ACCESS, "process state has a user for the target lifetime"),
+    never("GrantedAccess", SINCE_PROCESS_ACCESS, "Audit-API event 5 records the requested DesiredAccess and ReturnCode. Actual granted rights are unknown even when the call succeeds."),
+    never("CallTrace", SINCE_PROCESS_ACCESS, "Audit-API event 5 does not collect a call stack"),
+];
 
 const WINDOWS_PROCESS: &[FieldContract] = &[
     always_value(
@@ -2656,6 +2672,15 @@ pub const WMI_TRACE_EVENT_IDS: &[u16] = &[1, 2, 11, 12, 14, 15, 16, 17, 22, 23, 
 pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     contract!(
         Windows,
+        "process_access",
+        Some(5),
+        Access,
+        "etw",
+        "Microsoft-Windows-Kernel-Audit-API-Calls",
+        WINDOWS_PROCESS_ACCESS
+    ),
+    contract!(
+        Windows,
         "process_creation",
         Some(1),
         Start,
@@ -3780,6 +3805,7 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
 pub const fn category_name(category: EventCategory) -> &'static str {
     match category {
         EventCategory::Process => "process_creation",
+        EventCategory::ProcessAccess => "process_access",
         EventCategory::Network => "network_connection",
         EventCategory::File => "file_event",
         EventCategory::Registry => "registry_event",

@@ -10,6 +10,26 @@ In the JSON, each entry's `since` is the first release with its current availabi
 If availability narrows, `since` records the release that introduced the narrower guarantee.
 `unreleased` marks availability on the development branch that no release has shipped yet; a released contract never contains it.
 
+## Process access
+
+The shared `ProcessAccess` event describes a subject attempting to access another process. It carries the source and target identity when available, the requested access in the collector's vocabulary, an outcome (`success`, `failure`, or `unknown`), and the native result code if the collector observed it. Future producers can leave fields absent when their source cannot measure them.
+
+The Windows collector routes `Microsoft-Windows-Kernel-Audit-API-Calls` event 5 to Sigma `product: windows`, `category: process_access`. `EventID` remains `5`. The fields are:
+
+| Field | Meaning |
+| --- | --- |
+| `SourceProcessId`, `TargetProcessId` | Caller PID from the ETW header and attempted target PID from the payload. The invalid target sentinel `4294967295` leaves the target PID absent. |
+| `SourceImage`, `TargetImage`, `SourceUser`, `TargetUser` | Resolved against the lifetimes active at the event timestamp. Rustinel uses its bounded process cache, with no per-event live process queries or wait for missing state. |
+| `DesiredAccess` | Requested mask as lowercase hexadecimal, such as `0x1000` or `0x2000000` (`MAXIMUM_ALLOWED`). |
+| `ReturnCode` | Native `NTSTATUS` bit pattern in unsigned decimal, such as `0` for success or `3221225506` for access denied. |
+| `AccessOutcome` | `success` or `failure` based on `NT_SUCCESS`. A rule can select `success` if it requires a handle to have been opened. |
+
+`GrantedAccess` stays absent for every event. A successful explicit `0x1000` request opened a handle with `0x1000` granted. A successful `MAXIMUM_ALLOWED` request for `0x2000000` opened a handle with `0x1fffff` granted. [Issue #302 validation](https://github.com/Karib0u/rustinel/issues/302)
+
+Sigma doctor reports a rule that requires `GrantedAccess` as unsatisfiable.
+
+The `windows_process_access` telemetry snapshot reports received and decoded records. It counts missing images and invalid targets for records that reach normalization. The per-category ingress counters report accepted records and queue drops. ETW reports kernel-buffer loss for the shared session and cannot attribute it to individual providers.
+
 <!-- BEGIN GENERATED FIELD AVAILABILITY -->
 This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.
 Edit that table and run `cargo run --bin generate-docs`.
@@ -98,6 +118,9 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | windows | `file_event` | `11 / create, 2 / set, 23 / delete, 65 / modify, 71 / rename` | `Microsoft-Windows-Kernel-File` | `SourceFilename` | Kernel-File does not provide the old name on emitted rename events |
 | `sysmon` | windows | `image_load` | `7 / load` | `Microsoft-Windows-Kernel-Process` | `User` | Kernel-Process image-load events contain no user identity |
 | `sysmon` | windows | `pipe_created` | `17` | `Microsoft-Windows-Kernel-File` | `*` | named-pipe activity is not carried by Microsoft-Windows-Kernel-File and is not available from ETW |
+| `sysmon` | windows | `process_access` | `5 / access` | `Microsoft-Windows-Kernel-Audit-API-Calls` | `CallTrace` | Audit-API event 5 does not collect a call stack |
+| `sysmon` | windows | `process_access` | `5 / access` | `Microsoft-Windows-Kernel-Audit-API-Calls` | `Channel` | the real-time audit trace is routed by provider and event ID |
+| `sysmon` | windows | `process_access` | `5 / access` | `Microsoft-Windows-Kernel-Audit-API-Calls` | `GrantedAccess` | Audit-API event 5 records the requested DesiredAccess and ReturnCode. Actual granted rights are unknown even when the call succeeds. |
 | `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `CgroupId` | Windows process events do not have a Linux kernel cgroup identifier |
 | `sysmon` | windows | `process_creation` | `1 / start` | `Microsoft-Windows-Kernel-Process` | `TargetImage` | a process-creation event has no target process |
 | `sysmon` | windows | `ps_module` | `4103 / execute` | `PowerShellCore` | `User` | the PowerShellCore 4103 payload has no standalone user field |

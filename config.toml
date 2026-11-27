@@ -172,6 +172,8 @@ webhooks = false # also send each heartbeat to the alert webhooks
 [windows]
 etw_flush_interval_ms = 20
 etw_process_flush_interval_ms = 5
+# Opt in to OpenProcess attempt telemetry. Volume depends on the host workload.
+etw_process_access = false
 security_filtering_platform_connections = false
 security_long_tail_events = false
 security_domain_controller_events = false

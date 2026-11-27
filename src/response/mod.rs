@@ -486,6 +486,12 @@ fn extract_process_info(alert: &Alert) -> (Option<u32>, Option<String>) {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();
         }
+        EventFields::ProcessAccess(f) => {
+            return (
+                parse_pid(f.source_process_id.as_deref()),
+                f.source_image.clone(),
+            );
+        }
         EventFields::FileEvent(f) => {
             pid = parse_pid(f.process_id.as_deref());
             image = f.image.clone();

@@ -581,6 +581,9 @@ pub struct WindowsConfig {
     /// the main session's 20 ms. Zero disables it, and gives up roughly 83% of
     /// short-lived command lines with it.
     pub etw_process_flush_interval_ms: u64,
+    /// Subscribe to Kernel-Audit-API-Calls OpenProcess attempts. Off by
+    /// default because the event rate depends on the host workload.
+    pub etw_process_access: bool,
     /// Subscribe to the per-connection Windows Filtering Platform audit events:
     /// 5156 (connection allowed), 5157 (connection blocked) and 5152 (packet
     /// dropped).
@@ -731,6 +734,7 @@ impl AppConfig {
             .set_default("windows.etw_process_flush_interval_ms", 5i64)?
             .set_default("windows.security_filtering_platform_connections", false)?
             .set_default("windows.security_long_tail_events", false)?
+            .set_default("windows.etw_process_access", false)?
             .set_default("windows.security_domain_controller_events", false)?;
 
         let builder = builder.add_source(file_source);
@@ -1219,6 +1223,7 @@ impl Default for AppConfig {
                 etw_process_flush_interval_ms: 5,
                 security_filtering_platform_connections: false,
                 security_long_tail_events: false,
+                etw_process_access: false,
                 security_domain_controller_events: false,
             },
         };

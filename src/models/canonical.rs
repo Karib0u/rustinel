@@ -83,9 +83,12 @@ impl CanonicalEvent {
 }
 
 fn process_id_from_view(event: &NormalizedEvent) -> Option<u32> {
-    event
-        .get_field("ProcessId")
-        .and_then(|value| value.parse().ok())
+    let field = if event.category == super::EventCategory::ProcessAccess {
+        "SourceProcessId"
+    } else {
+        "ProcessId"
+    };
+    event.get_field(field).and_then(|value| value.parse().ok())
 }
 
 fn action_from_view(event: &NormalizedEvent) -> SensorAction {
@@ -112,6 +115,7 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
         EventCategory::PowerShellClassicStart => SensorAction::Start,
         EventCategory::Wmi | EventCategory::Service | EventCategory::Task => SensorAction::Register,
         EventCategory::Security
+        | EventCategory::ProcessAccess
         | EventCategory::Defender
         | EventCategory::Application
         | EventCategory::AuthLog => SensorAction::Access,

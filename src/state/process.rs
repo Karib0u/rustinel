@@ -261,9 +261,27 @@ impl ProcessCache {
     /// Get full metadata for a given compound key (PID, CreationTime)
     /// This is the precise lookup method that avoids PID reuse issues
     pub fn get_metadata_by_key(&self, pid: u32, creation_time: u64) -> Option<ProcessMetadata> {
+        self.read_metadata_by_key(pid, creation_time, Clone::clone)
+    }
+
+    pub(crate) fn access_identity(
+        &self,
+        key: crate::vocab::ProcessStartKey,
+    ) -> Option<(String, Option<String>)> {
+        self.read_metadata_by_key(key.pid, key.start_time, |process| {
+            (process.image_name.clone(), process.user.clone())
+        })
+    }
+
+    fn read_metadata_by_key<T>(
+        &self,
+        pid: u32,
+        creation_time: u64,
+        read: impl FnOnce(&ProcessMetadata) -> T,
+    ) -> Option<T> {
         let cache = self.cache.read().unwrap();
         if let Some(meta) = cache.entries.get(&(pid, creation_time)) {
-            return Some(meta.clone());
+            return Some(read(meta));
         }
 
         let now = now_secs();
@@ -273,7 +291,7 @@ impl ProcessCache {
         if now.saturating_sub(entry.death_time) > GRAVEYARD_TTL_SECS {
             return None;
         }
-        Some(entry.metadata.clone())
+        Some(read(&entry.metadata))
     }
 
     /// Attach asynchronously resolved PE metadata to the exact process

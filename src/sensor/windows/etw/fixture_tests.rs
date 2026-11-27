@@ -176,6 +176,82 @@ fn process_start_and_stop_keep_native_facts() {
     assert_eq!(p.image.as_deref(), Some("cmd.exe"));
 }
 
+#[test]
+fn audit_api_calls_routes_and_attributes_only_open_process_records() {
+    use super::props::{GuidText, RecordedHeader, RecordedProperties, RecordedValue};
+    use crate::sensor::windows_process_access::OPEN_PROCESS_ID;
+    use crate::sensor::ProcessStartKey;
+
+    let timestamp = 134_000_000_000_000_000;
+    let source = ProcessStartKey {
+        pid: 42,
+        start_time: timestamp - 200,
+    };
+    let target = ProcessStartKey {
+        pid: 100,
+        start_time: timestamp - 100,
+    };
+    let later_target = ProcessStartKey {
+        pid: 100,
+        start_time: timestamp + 100,
+    };
+    let state = EtwState::with_process_identities(
+        [source, later_target, target],
+        Arc::new(crate::state::HostState::default()),
+    );
+    let mut record = RecordedRecord {
+        header: RecordedHeader {
+            provider: GuidText(state.routing.audit_api_calls_guid),
+            event_id: OPEN_PROCESS_ID,
+            opcode: 0,
+            version: 0,
+            process_id: source.pid,
+            timestamp: i64::try_from(timestamp).unwrap(),
+        },
+        properties: RecordedProperties(
+            [
+                (
+                    "TargetProcessId".to_string(),
+                    RecordedValue::U32(target.pid),
+                ),
+                ("DesiredAccess".to_string(), RecordedValue::U32(4096)),
+                ("ReturnCode".to_string(), RecordedValue::U32(0)),
+            ]
+            .into(),
+        ),
+    };
+    let mut event = feed(&state, &record).primary.unwrap();
+    state.attribute_process_identity(&mut event);
+    assert_eq!(event.pid, Some(source.pid));
+    assert_eq!(event.process_start_key, Some(source));
+    assert_eq!(event.normalization.event_id, OPEN_PROCESS_ID);
+    let RawPayload::ProcessAccess(access) = event.payload else {
+        panic!("expected process access");
+    };
+    assert_eq!(access.target_start_key, Some(target));
+
+    record
+        .properties
+        .0
+        .insert("TargetProcessId".to_string(), RecordedValue::U32(u32::MAX));
+    record
+        .properties
+        .0
+        .insert("ReturnCode".to_string(), RecordedValue::U32(0xc000_000b));
+    let mut invalid = feed(&state, &record).primary.unwrap();
+    state.attribute_process_identity(&mut invalid);
+    let RawPayload::ProcessAccess(access) = invalid.payload else {
+        panic!("expected failed process access");
+    };
+    assert_eq!(access.target_start_key, None);
+    assert_eq!(access.fields.target_process_id, None);
+
+    for event_id in [4, 6] {
+        record.header.event_id = event_id;
+        assert!(feed(&state, &record).primary.is_none());
+    }
+}
+
 /// Windows 11 reports an image load as Kernel-Process event 5 with opcode 0.
 /// Routing on the opcode alone dropped them all (fixed in #547).
 #[test]

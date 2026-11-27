@@ -15,6 +15,7 @@ use super::EventCategory;
 #[allow(clippy::large_enum_variant)]
 pub enum EventFields {
     ProcessCreation(ProcessCreationFields),
+    ProcessAccess(ProcessAccessFields),
     FileEvent(FileEventFields),
     RegistryEvent(RegistryEventFields),
     NetworkConnection(NetworkConnectionFields),
@@ -51,6 +52,9 @@ impl EventFields {
     ) -> Result<Self, serde_json::Error> {
         match category {
             EventCategory::Process => serde_json::from_value(payload).map(Self::ProcessCreation),
+            EventCategory::ProcessAccess => {
+                serde_json::from_value(payload).map(Self::ProcessAccess)
+            }
             EventCategory::Network => serde_json::from_value(payload).map(Self::NetworkConnection),
             EventCategory::File => serde_json::from_value(payload).map(Self::FileEvent),
             EventCategory::Registry => serde_json::from_value(payload).map(Self::RegistryEvent),
@@ -168,7 +172,54 @@ pub struct WindowsProcessMetadata {
     pub session_id: Option<u32>,
 }
 
-/// Process creation/access event fields (Sigma: process_creation, process_access)
+/// A process attempting to access another process. Either identity can be
+/// partial. Requested access and the native result code are optional because
+/// some collectors only report the operation or its outcome.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ProcessAccessFields {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_process_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_process_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_user: Option<String>,
+    /// Requested access in the collector's native vocabulary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desired_access: Option<String>,
+    /// The collector's native return code, if it observed the result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_code: Option<String>,
+    #[serde(default)]
+    pub access_outcome: ProcessAccessOutcome,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessAccessOutcome {
+    Success,
+    Failure,
+    #[default]
+    Unknown,
+}
+
+impl ProcessAccessOutcome {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Failure => "failure",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Process creation event fields (Sigma: process_creation).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessCreationFields {
     #[serde(flatten, default)]

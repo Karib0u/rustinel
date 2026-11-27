@@ -74,9 +74,9 @@ pub use snapshot::{
     snapshot_path, ChannelSnapshot, EtwDecodeFailureSnapshot, EtwDecodeSnapshot,
     EtwProviderWatchSnapshot, FileAttributionSnapshot, FileRundownSnapshot,
     LinuxActivityProcessSnapshot, LinuxActivitySnapshot, LinuxEbpfFamilySnapshot,
-    LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, ProcessCommandLineSnapshot, RegistrySnapshot,
-    SensorEventCategorySnapshot, SensorTelemetry, SnapshotRead, TelemetrySnapshot,
-    SNAPSHOT_FILE_NAME,
+    LinuxEbpfFeatureSnapshot, LinuxEbpfSnapshot, ProcessAccessSnapshot, ProcessCommandLineSnapshot,
+    RegistrySnapshot, SensorEventCategorySnapshot, SensorTelemetry, SnapshotRead,
+    TelemetrySnapshot, SNAPSHOT_FILE_NAME,
 };
 pub(crate) use snapshot::{spawn_reporter, write_final_snapshot};
 
@@ -198,7 +198,8 @@ impl SensorEventCategoryCounters {
 
 /// Static for the same reason as [`CHANNELS`]: `try_send_sensor_event` is
 /// called from sensor callbacks that hold no pipeline handle.
-static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 17] = [
+static SENSOR_EVENT_CATEGORIES: [SensorEventCategoryCounters; 18] = [
+    SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
     SensorEventCategoryCounters::new(),
@@ -237,6 +238,7 @@ fn sensor_event_category(category: EventCategory) -> (usize, &'static str) {
         EventCategory::Application => (14, "application"),
         EventCategory::DriverLoad => (15, "driver_load"),
         EventCategory::AuthLog => (16, "auth_log"),
+        EventCategory::ProcessAccess => (17, "process_access"),
     }
 }
 
@@ -259,6 +261,7 @@ fn sensor_event_category_snapshots() -> Vec<SensorEventCategorySnapshot> {
         EventCategory::Defender,
         EventCategory::Application,
         EventCategory::AuthLog,
+        EventCategory::ProcessAccess,
     ]
     .into_iter()
     .filter_map(|category| {

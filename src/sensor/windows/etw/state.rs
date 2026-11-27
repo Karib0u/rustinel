@@ -51,6 +51,17 @@ impl ProcessIdentityIndex {
             stopped_at: None,
         });
         lifetimes.sort_unstable_by_key(|lifetime| lifetime.key.start_time);
+        // A new start is an upper bound on the previous lifetime even if its
+        // stop was lost. Handle starts arriving out of order across sessions.
+        for index in 1..lifetimes.len() {
+            let last_possible_stop = lifetimes[index].key.start_time - 1;
+            let previous = &mut lifetimes[index - 1];
+            previous.stopped_at = Some(
+                previous
+                    .stopped_at
+                    .map_or(last_possible_stop, |stop| stop.min(last_possible_stop)),
+            );
+        }
         self.order.insert((key.start_time, key.pid));
         while self.order.len() > self.max_entries {
             if let Some((start_time, pid)) = self.order.pop_first() {
@@ -70,18 +81,24 @@ impl ProcessIdentityIndex {
             .get_mut(&key.pid)
             .and_then(|lifetimes| lifetimes.iter_mut().find(|lifetime| lifetime.key == key))
         {
-            lifetime.stopped_at = Some(stopped_at);
+            lifetime.stopped_at = Some(
+                lifetime
+                    .stopped_at
+                    .map_or(stopped_at, |stop| stop.min(stopped_at)),
+            );
         }
     }
 
     fn resolve(&self, pid: u32, event_at: u64) -> Option<ProcessStartKey> {
-        self.by_pid.get(&pid)?.iter().rev().find_map(|lifetime| {
-            let started = lifetime.key.start_time <= event_at;
-            let not_stopped = lifetime
-                .stopped_at
-                .is_none_or(|stopped_at| event_at <= stopped_at);
-            (started && not_stopped).then_some(lifetime.key)
-        })
+        // Once a newer generation has started, a missing stop for a previous
+        // generation cannot make that previous process live again.
+        self.by_pid
+            .get(&pid)?
+            .iter()
+            .rev()
+            .find(|lifetime| lifetime.key.start_time <= event_at)
+            .filter(|lifetime| lifetime.stopped_at.is_none_or(|stop| event_at <= stop))
+            .map(|lifetime| lifetime.key)
     }
 
     fn attribute(&mut self, event: &mut RawEvent) {
@@ -113,6 +130,14 @@ impl ProcessIdentityIndex {
 
         if event.process_start_key.is_none() {
             event.process_start_key = event.pid.and_then(|pid| self.resolve(pid, event_at));
+        }
+        if let RawPayload::ProcessAccess(access) = &mut event.payload {
+            access.target_start_key = access
+                .fields
+                .target_process_id
+                .as_deref()
+                .and_then(|value| value.parse().ok())
+                .and_then(|pid| self.resolve(pid, event_at));
         }
     }
 
@@ -447,6 +472,32 @@ mod tests {
         }
         assert!(index.resolve(42, 1).is_none());
         assert_eq!(index.resolve(42, 99).unwrap().start_time, 99);
+    }
+
+    #[test]
+    fn a_missing_old_stop_does_not_restore_a_reused_pid_after_exit() {
+        let old = ProcessStartKey {
+            pid: 42,
+            start_time: 100,
+        };
+        let new = ProcessStartKey {
+            pid: 42,
+            start_time: 300,
+        };
+        let mut index = ProcessIdentityIndex::default();
+        index.observe_start(new);
+        index.observe_start(old);
+        index.observe_stop(new, 400);
+
+        assert_eq!(index.resolve(42, 200), Some(old));
+        assert_eq!(index.resolve(42, 350), Some(new));
+        assert_eq!(index.resolve(42, 401), None);
+        index.cleanup(PROCESS_IDENTITY_CLEANUP_100NS + 400);
+        assert_eq!(
+            index.resolve(42, PROCESS_IDENTITY_CLEANUP_100NS + 400),
+            None
+        );
+        assert_eq!(index.count(), 0);
     }
 
     #[test]

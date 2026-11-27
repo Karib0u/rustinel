@@ -229,6 +229,7 @@ impl Engine {
         matches!(
             category,
             "process_creation"
+                | "process_access"
                 | "network_connection"
                 | "file_event"
                 | "file_create"
@@ -320,6 +321,7 @@ impl Engine {
                 LogSourceKey::from_parts(Some("macos"), Some(SYSMON_VIEW), Some("dns_query")),
             ],
             Platform::Windows => vec![
+                LogSourceKey::from_parts(Some("windows"), None, Some("process_access")),
                 LogSourceKey::from_parts(
                     Some("windows"),
                     Some(SYSMON_VIEW),
@@ -597,6 +599,13 @@ impl Engine {
         let mut aliases = Vec::new();
 
         match category {
+            EventCategory::ProcessAccess => {
+                aliases.push(LogSourceKey::from_parts(
+                    Some(platform_product(platform)),
+                    None,
+                    Some("process_access"),
+                ));
+            }
             EventCategory::Process => {
                 aliases.push(LogSourceKey::from_parts(
                     Some(platform_product(platform)),

@@ -149,6 +149,14 @@ pub enum CanonicalField {
     User,
     UserName,
     Details,
+    AccessOutcome,
+    DesiredAccess,
+    ReturnCode,
+    SourceImage,
+    SourceProcessId,
+    SourceUser,
+    TargetProcessId,
+    TargetUser,
 }
 
 /// A canonical value without imposing one external schema's representation.
@@ -206,6 +214,7 @@ const DERIVED_FIELDS: &[&str] = &[
 /// historically exposed. Keep aliases such as `ImagePath`, lowercase DNS
 /// names, and Rustinel fidelity fields in this table.
 pub const SYSMON_FIELDS: &[FieldMapping] = &[
+    field("AccessOutcome", CanonicalField::AccessOutcome),
     field("AccountName", CanonicalField::AccountName),
     field("CdHash", CanonicalField::CdHash),
     field("CgroupId", CanonicalField::CgroupId),
@@ -227,6 +236,7 @@ pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("CurrentDirectory", CanonicalField::CurrentDirectory),
     field("Data", CanonicalField::Data),
     field("Description", CanonicalField::Description),
+    field("DesiredAccess", CanonicalField::DesiredAccess),
     field("Destination", CanonicalField::Destination),
     field("DestinationHostname", CanonicalField::DestinationHostname),
     field("DestinationIp", CanonicalField::DestinationIp),
@@ -293,6 +303,7 @@ pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("RealUserId", CanonicalField::RealUserId),
     field("RecordType", CanonicalField::DnsRecordType),
     field("ResultCode", CanonicalField::ResultCode),
+    field("ReturnCode", CanonicalField::ReturnCode),
     field("Script", CanonicalField::Script),
     field("ScriptBlockId", CanonicalField::ScriptBlockId),
     field("ScriptBlockText", CanonicalField::ScriptBlockText),
@@ -305,12 +316,17 @@ pub const SYSMON_FIELDS: &[FieldMapping] = &[
     field("Signed", CanonicalField::Signed),
     field("SigningId", CanonicalField::SigningId),
     field("SourceFilename", CanonicalField::SourceFilename),
+    field("SourceImage", CanonicalField::SourceImage),
     field("SourceIp", CanonicalField::SourceIp),
     field("SourcePort", CanonicalField::SourcePort),
+    field("SourceProcessId", CanonicalField::SourceProcessId),
+    field("SourceUser", CanonicalField::SourceUser),
     field("StartType", CanonicalField::StartType),
     field("TargetFilename", CanonicalField::TargetFilename),
     field("TargetImage", CanonicalField::TargetImage),
     field("TargetObject", CanonicalField::TargetObject),
+    field("TargetProcessId", CanonicalField::TargetProcessId),
+    field("TargetUser", CanonicalField::TargetUser),
     field("TaskContent", CanonicalField::TaskContent),
     field("TaskName", CanonicalField::TaskName),
     field("TeamId", CanonicalField::TeamId),
