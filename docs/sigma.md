@@ -215,7 +215,8 @@ Things that differ from Sysmon:
 `GrandparentImage`, `GrandparentCommandLine`, and `AncestorImages` are Rustinel extensions in the `sysmon` view for `process_creation` on Windows, Linux, and macOS.
 `AncestorImages` contains up to eight cached images in nearest-first order, starting with the parent when its image is known.
 The grandparent fields describe the second process in the chain and are present only when its respective value is known.
-A missing or expired process identity ends the walk. Startup inventory can supply an image, but its parent PID alone cannot extend the chain.
+A missing or expired process identity ends the walk.
+Startup inventory can supply an image, but its parent PID alone cannot extend the chain.
 
 ```yaml
 title: PowerShell descendant of a server process
@@ -232,7 +233,8 @@ detection:
 ```
 
 In rsigma-eval 0.27.0, a string comparison such as `AncestorImages|contains` or `AncestorImages|endswith` can match any member.
-Rule value lists are OR by default. With `|all`, every rule value must match, and different ancestors can satisfy different values.
+Rule value lists are OR by default.
+With `|all`, every rule value must match, and different ancestors can satisfy different values.
 For predicates that must hold on the same ancestor, declare `sigma-version: 3` and use an `AncestorImages[any]` block with `.` referring to the current image.
 The [process ancestry decision](adr/process-ancestry.md) records the cache limits and the matching semantics.
 
