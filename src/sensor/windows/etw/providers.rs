@@ -4,6 +4,7 @@ use super::routing::{
     KERNEL_FILE_ROUTED_EVENT_IDS, KERNEL_PROCESS_EVENT_IDS, KERNEL_REGISTRY_ROUTED_EVENT_IDS,
     POWERSHELL_EVENT_MODULE_LOGGING, POWERSHELL_EVENT_SCRIPT_BLOCK,
 };
+use crate::sensor::windows_process_access::{OPEN_PROCESS_ID, PROVIDER};
 use ferrisetw::GUID;
 
 /// ETW provider metadata.
@@ -20,6 +21,8 @@ pub(super) struct EtwProviders;
 
 impl EtwProviders {
     pub(super) const KERNEL_PROCESS_GUID: &'static str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
+    pub(super) const KERNEL_AUDIT_API_CALLS_GUID: &'static str =
+        "e02a841c-75a3-4fa7-afc8-ae09cf9b7f23";
     pub(super) const KERNEL_NETWORK_GUID: &'static str = "7dd42a49-5329-4832-8dfd-43d979153a88";
     pub(super) const KERNEL_FILE_GUID: &'static str = "edd08927-9cc4-4e65-b970-c2560fb5c289";
     pub(super) const KERNEL_REGISTRY_GUID: &'static str = "70eb4f03-c1de-4f73-a051-33d13d5413bd";
@@ -220,8 +223,8 @@ impl EtwProviders {
     }
 
     /// Providers on the main, burst-tolerant session.
-    pub(super) fn main_session() -> Vec<EtwProvider> {
-        vec![
+    pub(super) fn main_session(process_access: bool) -> Vec<EtwProvider> {
+        let mut providers = vec![
             Self::kernel_network(),
             Self::kernel_file(),
             Self::kernel_registry(),
@@ -230,7 +233,17 @@ impl EtwProviders {
             Self::powershell_core(),
             Self::wmi_activity(),
             Self::task_scheduler(),
-        ]
+        ];
+        if process_access {
+            providers.push(EtwProvider {
+                guid: GUID::from(Self::KERNEL_AUDIT_API_CALLS_GUID),
+                name: PROVIDER,
+                level: 5,
+                keywords: 0,
+                event_ids: &[OPEN_PROCESS_ID],
+            });
+        }
+        providers
     }
 
     /// Every provider this build subscribes to, across both sessions.
@@ -238,17 +251,9 @@ impl EtwProviders {
     /// The names are what [`super::routing::EtwRouting::provider_name`] labels
     /// decode failures with, which is what keeps that label space bounded.
     pub(super) fn all() -> Vec<EtwProvider> {
-        vec![
-            Self::kernel_process(),
-            Self::kernel_network(),
-            Self::kernel_file(),
-            Self::kernel_registry(),
-            Self::dns_client(),
-            Self::powershell(),
-            Self::powershell_core(),
-            Self::wmi_activity(),
-            Self::task_scheduler(),
-        ]
+        let mut providers = Self::process_session();
+        providers.extend(Self::main_session(true));
+        providers
     }
 }
 
@@ -258,6 +263,23 @@ mod tests {
     use super::super::routing::kernel_registry_route;
     use super::*;
     use crate::models::EventCategory;
+
+    #[test]
+    fn process_access_is_opt_in_and_filters_to_open_process() {
+        assert!(!EtwProviders::main_session(false)
+            .iter()
+            .any(|provider| provider.name == PROVIDER));
+        let providers = EtwProviders::main_session(true);
+        let audit = providers
+            .iter()
+            .find(|provider| provider.name == PROVIDER)
+            .unwrap();
+        assert_eq!(
+            audit.guid,
+            GUID::from(EtwProviders::KERNEL_AUDIT_API_CALLS_GUID)
+        );
+        assert_eq!(audit.event_ids, &[5]);
+    }
 
     #[test]
     fn file_keywords_enable_close_and_set_information() {

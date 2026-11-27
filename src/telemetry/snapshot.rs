@@ -581,6 +581,9 @@ pub struct TelemetrySnapshot {
     /// reader never started, and on snapshots written before #644.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linux_journal: Option<super::LinuxJournalSnapshot>,
+    /// OpenProcess event volume and attribution gaps. Absent when disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_process_access: Option<ProcessAccessSnapshot>,
     /// Classic/manifest source correlation outcomes.
     #[serde(default)]
     pub windows_process_correlation: super::ProcessCorrelationSnapshot,
@@ -633,6 +636,7 @@ impl TelemetrySnapshot {
             macos_collectors: sensors.macos_collectors,
             windows_event_log: sensors.windows_event_log,
             linux_journal: sensors.linux_journal,
+            windows_process_access: sensors.windows_process_access,
             windows_process_correlation: sensors.process_correlation,
             windows_process_command_line: sensors.process_command_line,
             registry: sensors.registry,
@@ -769,6 +773,7 @@ pub struct SensorTelemetry {
     pub etw_decode: Option<EtwDecodeSnapshot>,
     pub windows_thread_starts: Option<ThreadStartSnapshot>,
     pub etw_provider_watch: Option<EtwProviderWatchSnapshot>,
+    pub windows_process_access: Option<ProcessAccessSnapshot>,
     pub process_correlation: super::ProcessCorrelationSnapshot,
     pub process_command_line: Option<ProcessCommandLineSnapshot>,
     pub field_fidelity: Vec<super::FieldFidelitySnapshot>,
@@ -776,6 +781,15 @@ pub struct SensorTelemetry {
     pub macos_collectors: Option<super::MacosCollectorSnapshot>,
     pub windows_event_log: Vec<super::EventLogSnapshot>,
     pub linux_journal: Option<super::LinuxJournalSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessAccessSnapshot {
+    pub received: u64,
+    pub decoded: u64,
+    pub source_image_misses: u64,
+    pub target_image_misses: u64,
+    pub invalid_targets: u64,
 }
 
 /// Outcome of reading the snapshot file.
@@ -913,6 +927,7 @@ mod tests {
             macos_collectors: None,
             windows_event_log: Vec::new(),
             linux_journal: None,
+            windows_process_access: None,
             windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,

@@ -104,6 +104,7 @@ struct SubjectIdentity {
     wmi_namespace: Option<String>,
     wmi_event_type: Option<String>,
     process_target_image: Option<String>,
+    process_access: Option<Box<crate::models::ProcessAccessFields>>,
 }
 
 impl DedupKey {
@@ -166,6 +167,7 @@ impl DedupKey {
                 wmi_namespace: ecs.edr_wmi_namespace.clone(),
                 wmi_event_type: ecs.edr_wmi_event_type.clone(),
                 process_target_image: ecs.edr_process_target_image.clone(),
+                process_access: ecs.edr_process_access.clone().map(Box::new),
             },
         }
     }
@@ -459,6 +461,39 @@ mod tests {
             dedup.record(&ecs_b, &alert),
             "different event subjects must use separate dedup keys"
         );
+    }
+
+    #[test]
+    fn process_access_success_and_failure_are_distinct_alerts() {
+        use crate::models::{ProcessAccessFields, ProcessAccessOutcome};
+
+        let mut alert = make_alert("Process Access", r"C:\Windows\caller.exe");
+        alert.event.platform = Platform::Windows;
+        alert.event.provider = "etw".to_string();
+        alert.event.category = EventCategory::ProcessAccess;
+        alert.event.event_id = 5;
+        alert.event.event_id_string = "5".to_string();
+        alert.event.opcode = 0;
+        let fields = ProcessAccessFields {
+            source_process_id: Some("42".to_string()),
+            target_process_id: Some("100".to_string()),
+            desired_access: Some("0x1000".to_string()),
+            return_code: Some("0".to_string()),
+            access_outcome: ProcessAccessOutcome::Success,
+            ..Default::default()
+        };
+        alert.event.fields = EventFields::ProcessAccess(fields.clone());
+        let dedup = Deduplicator::new(60, 1000);
+        assert!(dedup.record(&EcsAlert::from(&alert), &alert));
+
+        alert.event.fields = EventFields::ProcessAccess(ProcessAccessFields {
+            return_code: Some("3221225506".to_string()),
+            access_outcome: ProcessAccessOutcome::Failure,
+            ..fields
+        });
+        let ecs = EcsAlert::from(&alert);
+        assert!(dedup.record(&ecs, &alert));
+        assert!(!dedup.record(&ecs, &alert));
     }
 
     #[test]

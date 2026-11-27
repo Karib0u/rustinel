@@ -676,6 +676,9 @@ pub struct EcsAlert {
     )]
     pub edr_process_target_image: Option<String>,
 
+    #[serde(rename = "edr.process.access", skip_serializing_if = "Option::is_none")]
+    pub edr_process_access: Option<crate::models::ProcessAccessFields>,
+
     // ========================================================================
     // Windows Security Channel Fields
     // ========================================================================

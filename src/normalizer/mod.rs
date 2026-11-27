@@ -14,7 +14,8 @@ use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::models::*;
 use crate::sensor::{
-    Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessEvent, SensorAction,
+    Platform, ProcessStartKey, RawEvent, RawPayload, RawProcessAccess, RawProcessEvent,
+    SensorAction,
 };
 use crate::state::container::ContainerResolution;
 use crate::state::{DnsCache, HostState, ProcessCache, ProcessMetadata, SidCache};
@@ -35,6 +36,8 @@ pub trait NormalizerHost {
     fn next_ingest_seq(&self) -> u64;
     /// Count an event whose process could not be attributed.
     fn record_attribution_loss(&self);
+    /// Account for process access identities missing after cache enrichment.
+    fn record_process_access_attribution(&self, _fields: &ProcessAccessFields) {}
     /// Count canonical fields emitted despite a `Never` availability contract.
     fn record_field_contract_violations(&self, _count: usize) {}
     /// Count the fields with known fidelity limits that an event carried.
@@ -70,6 +73,14 @@ impl NormalizerHost for HostState {
 
     fn record_attribution_loss(&self) {
         HostState::record_attribution_loss(self);
+    }
+
+    #[cfg(windows)]
+    fn record_process_access_attribution(&self, fields: &ProcessAccessFields) {
+        self.extension::<crate::sensor::windows::WindowsHostExtension>()
+            .counters
+            .process_access
+            .record_attribution(fields);
     }
 
     fn record_field_contract_violations(&self, count: usize) {
@@ -117,6 +128,9 @@ where
         let mut provenance = event.provenance.clone();
         let fields = match &event.payload {
             RawPayload::Process(fields) => self.normalize_process(event, fields, &mut provenance),
+            RawPayload::ProcessAccess(access) => {
+                Some(self.normalize_process_access(event, access, &mut provenance))
+            }
             RawPayload::Network(fields) => {
                 self.normalize_network(event, fields.clone(), &mut provenance)
             }
@@ -193,6 +207,46 @@ where
         );
         self.state.record_provenance(&normalized.provenance);
         Some(normalized)
+    }
+
+    fn normalize_process_access(
+        &self,
+        event: &RawEvent,
+        access: &RawProcessAccess,
+        provenance: &mut Provenance,
+    ) -> EventFields {
+        let mut fields = access.fields.clone();
+        let cache = self.state.processes();
+        if let Some((image, user)) = event
+            .process_start_key
+            .and_then(|key| cache.access_identity(key))
+        {
+            if !image.is_empty() {
+                fields.source_image = Some(image);
+                provenance.mark_derived("SourceImage");
+            }
+            if user.is_some() {
+                fields.source_user = user;
+                provenance.mark_derived("SourceUser");
+            }
+        }
+        if let Some((image, user)) = access
+            .target_start_key
+            .and_then(|key| cache.access_identity(key))
+        {
+            if !image.is_empty() {
+                fields.target_image = Some(image);
+                provenance.mark_derived("TargetImage");
+            }
+            if user.is_some() {
+                fields.target_user = user;
+                provenance.mark_derived("TargetUser");
+            }
+        }
+        if event.platform == Platform::Windows {
+            self.state.record_process_access_attribution(&fields);
+        }
+        EventFields::ProcessAccess(fields)
     }
 
     fn normalize_process(

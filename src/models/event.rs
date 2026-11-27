@@ -510,6 +510,18 @@ impl NormalizedEvent {
         }
 
         match &self.fields {
+            EventFields::ProcessAccess(f) => match key {
+                Field::SourceProcessId => f.source_process_id.as_deref().map(Value::String),
+                Field::SourceImage => f.source_image.as_deref().map(Value::String),
+                Field::SourceUser => f.source_user.as_deref().map(Value::String),
+                Field::TargetProcessId => f.target_process_id.as_deref().map(Value::String),
+                Field::TargetImage => f.target_image.as_deref().map(Value::String),
+                Field::TargetUser => f.target_user.as_deref().map(Value::String),
+                Field::DesiredAccess => f.desired_access.as_deref().map(Value::String),
+                Field::ReturnCode => f.return_code.as_deref().map(Value::String),
+                Field::AccessOutcome => Some(Value::String(f.access_outcome.as_str())),
+                _ => None,
+            },
             EventFields::ProcessCreation(f) => match key {
                 Field::Signed => f
                     .exec
@@ -827,6 +839,7 @@ impl NormalizedEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventCategory {
     Process,
+    ProcessAccess,
     Network,
     File,
     Registry,
@@ -852,7 +865,7 @@ pub enum EventCategory {
 
 impl EventCategory {
     /// Every category, for tables that must cover each one.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Process,
         Self::Network,
         Self::File,
@@ -871,6 +884,7 @@ impl EventCategory {
         Self::Defender,
         Self::Application,
         Self::AuthLog,
+        Self::ProcessAccess,
     ];
 }
 

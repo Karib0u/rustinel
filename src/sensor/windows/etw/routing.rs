@@ -329,6 +329,7 @@ pub(super) fn refine_registry_create_action(parser: &impl EtwProperties) -> Opti
 
 pub(super) struct EtwRouting {
     pub(super) kernel_process_guid: GUID,
+    pub(super) audit_api_calls_guid: GUID,
     pub(super) kernel_file_guid: GUID,
     pub(super) kernel_registry_guid: GUID,
     pub(super) powershell_guid: GUID,
@@ -360,6 +361,7 @@ impl EtwRouting {
 
         Self {
             kernel_process_guid: EtwProviders::kernel_process().guid,
+            audit_api_calls_guid: GUID::from(EtwProviders::KERNEL_AUDIT_API_CALLS_GUID),
             kernel_file_guid: EtwProviders::kernel_file().guid,
             kernel_registry_guid: EtwProviders::kernel_registry().guid,
             powershell_guid: EtwProviders::powershell().guid,
@@ -389,6 +391,11 @@ impl EtwRouting {
             return kernel_process_route(record.event_id(), record.opcode());
         }
 
+        if provider_guid == self.audit_api_calls_guid {
+            return (record.event_id() == crate::sensor::windows_process_access::OPEN_PROCESS_ID)
+                .then_some((EventCategory::ProcessAccess, SensorAction::Access));
+        }
+
         if provider_guid == self.powershell_guid || provider_guid == self.powershell_core_guid {
             return powershell_route(record.event_id());
         }
@@ -415,6 +422,7 @@ impl EtwRouting {
                 unreachable!("event log categories use the event log sources")
             }
             EventCategory::Process
+            | EventCategory::ProcessAccess
             | EventCategory::ImageLoad
             | EventCategory::DriverLoad
             | EventCategory::RemoteThread

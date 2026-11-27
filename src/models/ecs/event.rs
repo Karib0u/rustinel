@@ -16,7 +16,7 @@ pub(super) fn alert_severity_to_event_severity(severity: AlertSeverity) -> u8 {
 
 pub(super) fn ecs_event_category(category: EventCategory, event_id: u16) -> Vec<String> {
     match category {
-        EventCategory::Process => vec!["process".to_string()],
+        EventCategory::Process | EventCategory::ProcessAccess => vec!["process".to_string()],
         EventCategory::Network => vec!["network".to_string()],
         EventCategory::File => vec!["file".to_string()],
         EventCategory::Registry => vec!["registry".to_string()],
@@ -199,6 +199,7 @@ fn file_or_registry_row(category: EventCategory, opcode: u8) -> (&'static str, &
 
 pub(super) fn ecs_event_type(category: EventCategory, opcode: u8, event_id: u16) -> Vec<String> {
     match category {
+        EventCategory::ProcessAccess => vec!["access".to_string()],
         EventCategory::Process => match opcode {
             1 => vec!["start".to_string()],
             2 => vec!["end".to_string()],
@@ -271,6 +272,7 @@ pub(super) fn ecs_event_action(
             2 => "process-end",
             _ => "process-info",
         },
+        EventCategory::ProcessAccess => "process-access",
         EventCategory::Network => event_actions::row_for_code(category, opcode)
             .map_or("network-connection", |row| row.ecs_action),
         EventCategory::File | EventCategory::Registry => file_or_registry_row(category, opcode).0,
@@ -309,6 +311,7 @@ pub(super) fn ecs_event_action(
 pub(super) fn event_dataset(category: EventCategory) -> String {
     let suffix = match category {
         EventCategory::Process => "process",
+        EventCategory::ProcessAccess => "process_access",
         EventCategory::Network => "network",
         EventCategory::File => "file",
         EventCategory::Registry => "registry",

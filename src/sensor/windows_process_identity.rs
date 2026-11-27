@@ -117,6 +117,14 @@ impl ProcessIdentityIndex {
         if event.process_start_key.is_none() {
             event.process_start_key = event.pid.and_then(|pid| self.resolve(pid, event_at));
         }
+        if let RawPayload::ProcessAccess(access) = &mut event.payload {
+            access.target_start_key = access
+                .fields
+                .target_process_id
+                .as_deref()
+                .and_then(|value| value.parse().ok())
+                .and_then(|pid| self.resolve(pid, event_at));
+        }
     }
 
     fn cleanup(&mut self, now: u64) {

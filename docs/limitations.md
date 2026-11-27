@@ -86,13 +86,18 @@ Fields each platform never fills are listed in [Field availability](field-availa
   Long script blocks are evaluated one fragment at a time.
   Module logging (4103) covers both engines, needs [module logging policy](windows-logging.md#powershell-module-logging), and emits text in the host's language.
   Classic engine starts include version 2 through event 400.
-- **No telemetry** for named pipes, process tampering, or network data volume, and not yet for process access or file reads.
+- **Process access is opt-in** with `windows.etw_process_access = true`.
+  Kernel-Audit-API-Calls event 5 records OpenProcess attempts, including failures.
+  Source and target images and users depend on the matching process lifetime being present in the cache.
+  An invalid target has no target PID or image.
+  Collection requires an elevated real-time ETW session.
+  Provider availability across supported Windows builds and session modes is still being validated.
+- **No telemetry** for named pipes, process tampering, or network data volume, and not yet for file reads.
   Named pipes and process tampering need a kernel driver.
   The rest are planned, see [Platform coverage](coverage.md#telemetry-that-is-missing).
 - **Injection needs a driver or a protected process.**
   APC injection, remote memory writes, and the true `GrantedAccess` of a process handle come from the Threat Intelligence provider, which only a protected process light can consume.
   Rustinel ships no driver and does not run as one, so these stay out of reach.
-  Process access is planned from Kernel-Audit-API-Calls, which does not carry `GrantedAccess`.
 - **`IntegrityLevel`** exists on process start events only.
 
 ## Linux

@@ -1372,6 +1372,7 @@ mod tests {
             macos_collectors: None,
             windows_event_log: Vec::new(),
             linux_journal: None,
+            windows_process_access: None,
             windows_process_correlation: Default::default(),
             windows_process_command_line: None,
             registry: None,

@@ -46,9 +46,14 @@ pub(super) const PROCESS_TRACE_SESSION_NAME: &str = "rustinel-etw-process";
 
 /// Everything the agent enables on its manifest sessions, for the provider
 /// watch to compare against the live sessions.
-pub(super) fn expected_providers() -> Vec<super::provider_watch::ExpectedProvider> {
+pub(super) fn expected_providers(
+    process_access: bool,
+) -> Vec<super::provider_watch::ExpectedProvider> {
     let sessions = [
-        (TRACE_SESSION_NAME, providers::EtwProviders::main_session()),
+        (
+            TRACE_SESSION_NAME,
+            providers::EtwProviders::main_session(process_access),
+        ),
         (
             PROCESS_TRACE_SESSION_NAME,
             providers::EtwProviders::process_session(),
@@ -79,6 +84,7 @@ pub struct EtwSensor {
     event_log_directory: std::path::PathBuf,
     flush_interval_ms: u64,
     process_flush_interval_ms: u64,
+    process_access: bool,
     security_filtering_platform_connections: bool,
     security_long_tail_events: bool,
     security_domain_controller_events: bool,
@@ -105,6 +111,7 @@ impl EtwSensor {
             .join("event-log"),
             flush_interval_ms,
             process_flush_interval_ms,
+            process_access: false,
             security_filtering_platform_connections: false,
             security_long_tail_events: false,
             security_domain_controller_events: false,
@@ -113,6 +120,12 @@ impl EtwSensor {
 
     pub fn with_host_state(mut self, host: Arc<crate::state::HostState>) -> Self {
         self.host = host;
+        self
+    }
+
+    /// See `windows.etw_process_access`.
+    pub fn with_process_access(mut self, enabled: bool) -> Self {
+        self.process_access = enabled;
         self
     }
 

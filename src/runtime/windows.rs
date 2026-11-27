@@ -308,6 +308,7 @@ fn sensors(config: &AppConfig, host: &Arc<HostState>, mode: RunMode) -> SensorSe
         config.windows.etw_process_flush_interval_ms,
     )
     .with_host_state(Arc::clone(host))
+    .with_process_access(config.windows.etw_process_access)
     .with_event_log_directory(config.logging.directory.join(event_log))
     .with_security_filtering_platform_connections(
         config.windows.security_filtering_platform_connections,
