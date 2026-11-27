@@ -24,6 +24,9 @@ pub enum FieldId {
     ParentProcessId,
     ParentImage,
     ParentCommandLine,
+    GrandparentImage,
+    GrandparentCommandLine,
+    AncestorImages,
     ParentUser,
     User,
     OriginalFileName,
@@ -52,6 +55,9 @@ impl FieldId {
             Self::ParentProcessId => "ParentProcessId",
             Self::ParentImage => "ParentImage",
             Self::ParentCommandLine => "ParentCommandLine",
+            Self::GrandparentImage => "GrandparentImage",
+            Self::GrandparentCommandLine => "GrandparentCommandLine",
+            Self::AncestorImages => "AncestorImages",
             Self::ParentUser => "ParentUser",
             Self::User => "User",
             Self::OriginalFileName => "OriginalFileName",
@@ -82,6 +88,9 @@ impl From<&str> for FieldId {
             "ParentProcessId" => Self::ParentProcessId,
             "ParentImage" => Self::ParentImage,
             "ParentCommandLine" => Self::ParentCommandLine,
+            "GrandparentImage" => Self::GrandparentImage,
+            "GrandparentCommandLine" => Self::GrandparentCommandLine,
+            "AncestorImages" => Self::AncestorImages,
             "ParentUser" => Self::ParentUser,
             "User" => Self::User,
             "OriginalFileName" => Self::OriginalFileName,
@@ -408,7 +417,10 @@ impl NormalizedEvent {
         match self.field_view(FieldViewName::DEFAULT).get(key)? {
             CanonicalValue::String(value) => Some(value),
             CanonicalValue::Bool(value) => Some(if value { "true" } else { "false" }),
-            CanonicalValue::U64(_) | CanonicalValue::Strs(_) | CanonicalValue::Pair(..) => None,
+            CanonicalValue::U64(_)
+            | CanonicalValue::Strs(_)
+            | CanonicalValue::StringList(_)
+            | CanonicalValue::Pair(..) => None,
         }
     }
 
@@ -614,6 +626,22 @@ impl NormalizedEvent {
                 Field::ParentProcessId => f.parent_process_id.as_deref().map(Value::String),
                 Field::ParentImage => f.parent_image.as_deref().map(Value::String),
                 Field::ParentCommandLine => f.parent_command_line.as_deref().map(Value::String),
+                Field::GrandparentImage => f
+                    .ancestry
+                    .as_deref()?
+                    .grandparent_image
+                    .as_deref()
+                    .map(Value::String),
+                Field::GrandparentCommandLine => f
+                    .ancestry
+                    .as_deref()?
+                    .grandparent_command_line
+                    .as_deref()
+                    .map(Value::String),
+                Field::AncestorImages => {
+                    let images = &f.ancestry.as_deref()?.images;
+                    (!images.is_empty()).then_some(Value::StringList(images))
+                }
                 Field::ParentUser => f.parent_user.as_deref().map(Value::String),
                 Field::User => f.user.as_deref().map(Value::String),
                 Field::LogonId => f.logon_id.as_deref().map(Value::String),
@@ -1076,6 +1104,7 @@ mod round_trip_tests {
                 parent_process_id: Some("6120".to_string()),
                 parent_image: Some("/usr/bin/login".to_string()),
                 parent_command_line: Some("login -pf analyst".to_string()),
+                ancestry: None,
                 parent_user: Some("root".to_string()),
                 current_directory: Some("/Users/analyst".to_string()),
                 integrity_level: None,
@@ -1340,6 +1369,7 @@ mod round_trip_tests {
                 parent_process_id: None,
                 parent_image: None,
                 parent_command_line: None,
+                ancestry: None,
                 parent_user: None,
                 current_directory: None,
                 integrity_level: None,
@@ -1396,6 +1426,7 @@ mod round_trip_tests {
             parent_process_id: None,
             parent_image: None,
             parent_command_line: None,
+            ancestry: None,
             parent_user: None,
             current_directory: Some(current_directory.to_string()),
             integrity_level: None,

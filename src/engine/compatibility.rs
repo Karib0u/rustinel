@@ -1402,6 +1402,9 @@ fn record_field(
 ) -> Availability {
     let availability = availability_for_contract(contract, field);
     let entry = fields.entry(field.to_string()).or_default();
+    if let Some(fidelity) = field_in_contract(contract, field).and_then(|field| field.fidelity) {
+        entry.fidelity.insert(fidelity);
+    }
     match availability {
         Availability::Always => entry.saw_always = true,
         Availability::Conditional(reason) => {
@@ -1420,11 +1423,7 @@ fn availability_for_contract(contract: &EventFieldContract, field: &str) -> Avai
     if matches!(field, "EventID" | "timestamp" | "event_time") {
         return Availability::Always;
     }
-    let field = crate::models::field_view::contract_field_name(contract.view, field);
-    contract
-        .fields
-        .iter()
-        .find(|candidate| candidate.field == field || candidate.field == "*")
+    field_in_contract(contract, field)
         .map(|candidate| candidate.availability)
         .unwrap_or(Availability::Never(
             if contract.view == FieldViewName::AUDITD {
@@ -1433,6 +1432,17 @@ fn availability_for_contract(contract: &EventFieldContract, field: &str) -> Avai
                 "the field is not exposed by this event shape in the sysmon field view"
             },
         ))
+}
+
+fn field_in_contract<'a>(
+    contract: &'a EventFieldContract,
+    field: &str,
+) -> Option<&'a field_availability::FieldContract> {
+    let field = crate::models::field_view::contract_field_name(contract.view, field);
+    contract
+        .fields
+        .iter()
+        .find(|candidate| candidate.field == field || candidate.field == "*")
 }
 
 /// Every value `field` can hold on this shape, when the shape fixes it.
@@ -2285,6 +2295,38 @@ detection:
         );
         let parent = report(&yaml("ParentImage"), Platform::MacOS);
         assert_eq!(parent.documents[0].verdict, CompatibilityVerdict::Degraded);
+    }
+
+    #[test]
+    fn process_ancestry_fields_are_conditional_and_derived_on_each_platform() {
+        let rule = r#"title: Process ancestry
+logsource:
+  category: process_creation
+detection:
+  selection:
+    GrandparentImage|endswith: w3wp.exe
+    GrandparentCommandLine|contains: w3wp.exe
+    AncestorImages|contains: services.exe
+  condition: selection
+"#;
+        for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
+            let report = report(rule, platform);
+            let document = &report.documents[0];
+            assert_eq!(document.verdict, CompatibilityVerdict::Degraded);
+            for name in [
+                "GrandparentImage",
+                "GrandparentCommandLine",
+                "AncestorImages",
+            ] {
+                let field = document
+                    .fields
+                    .iter()
+                    .find(|field| field.field == name)
+                    .unwrap();
+                assert_eq!(field.availability, FieldCompatibilityStatus::Conditional);
+                assert_eq!(field.fidelity, [Fidelity::Derived]);
+            }
+        }
     }
 
     #[test]

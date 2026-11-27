@@ -1,10 +1,9 @@
 //! Adapter exposing a [`NormalizedEvent`] to the RSigma evaluator.
 //!
 //! [`RsigmaEvent`] implements [`rsigma_eval::Event`] over a borrowed
-//! [`NormalizedEvent`]. Field lookups are the detection hot path and stay
-//! zero-copy by delegating to [`NormalizedEvent::get_field`], wrapping the
-//! borrowed `&str` in `EventValue::Str(Cow::Borrowed(..))` with no allocation
-//! or JSON conversion.
+//! [`NormalizedEvent`]. Field lookups read the selected [`FieldView`] directly.
+//! String values borrow the event data, including the members of an
+//! `EventValue::Array`.
 //!
 //! The keyword and field-enumeration methods are cold paths (keyword-only
 //! rules and the daemon field-observability surface, neither of which is on
@@ -66,6 +65,9 @@ impl<'a> RsigmaEvent<'a> {
                         .map(|value| Value::String(value.to_string()))
                         .collect(),
                 ),
+                CanonicalValue::StringList(values) => {
+                    Value::Array(values.iter().cloned().map(Value::String).collect())
+                }
                 CanonicalValue::Pair(first, second) => Value::Array(vec![
                     Value::String(first.to_string()),
                     Value::String(second.to_string()),
@@ -140,6 +142,12 @@ impl Event for RsigmaEvent<'_> {
                     .map(|value| EventValue::Str(Cow::Borrowed(*value)))
                     .collect(),
             )),
+            CanonicalValue::StringList(values) => Some(EventValue::Array(
+                values
+                    .iter()
+                    .map(|value| EventValue::Str(Cow::Borrowed(value)))
+                    .collect(),
+            )),
             CanonicalValue::Pair(first, second) => Some(EventValue::Array(vec![
                 EventValue::Str(Cow::Borrowed(first)),
                 EventValue::Str(Cow::Borrowed(second)),
@@ -200,6 +208,9 @@ impl Event for RsigmaEvent<'_> {
                 match value {
                     CanonicalValue::String(value) => visit(value),
                     CanonicalValue::Strs(values) => values.iter().for_each(|value| visit(value)),
+                    CanonicalValue::StringList(values) => {
+                        values.iter().for_each(|value| visit(value))
+                    }
                     CanonicalValue::Pair(first, second) => {
                         visit(first);
                         visit(second);
@@ -429,6 +440,7 @@ mod tests {
             parent_process_id: None,
             parent_image: None,
             parent_command_line: None,
+            ancestry: None,
             parent_user: None,
             current_directory: None,
             integrity_level: None,
