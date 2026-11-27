@@ -95,7 +95,8 @@ fn action_from_view(event: &NormalizedEvent) -> SensorAction {
     match event.category {
         EventCategory::Process if event.opcode == 2 || event.event_id == 5 => SensorAction::Stop,
         EventCategory::Process => SensorAction::Start,
-        EventCategory::Network => SensorAction::Connect,
+        EventCategory::Network => event_actions::row_for_code(event.category, event.opcode)
+            .map_or(SensorAction::Connect, |row| row.action),
         EventCategory::File | EventCategory::Registry => {
             event_actions::row_for_code(event.category, event.opcode).map_or_else(
                 || {

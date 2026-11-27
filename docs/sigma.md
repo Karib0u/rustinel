@@ -114,6 +114,14 @@ Stable reason codes in schema version 1 are:
 | `service: auditd` | | ✓ | |
 | `service: auth`, `service: sshd`, `service: sudo` | | ✓ | |
 
+Linux eBPF reports three additional actions under `product: linux`, `category: network_connection` (Event ID 3).
+
+| `Action` | Fields |
+| --- | --- |
+| `network-listen` | `SourceIp` and `SourcePort` are the local listening address and port. Wildcard addresses are preserved. |
+| `network-udp-send` | `DestinationIp`, `DestinationPort`, `Protocol: udp`, and `Initiated: true` describe a successful send from an unconnected UDP socket. |
+| `network-raw-socket` | `Protocol` holds the requested socket protocol, such as `ethertype:0x0003` for AF_PACKET, `icmp`, `icmpv6`, `ip:255`, or `family:29:1` for another Linux address family. |
+
 A rule whose `product` does not match the platform is skipped.
 A rule for a logsource the platform does not collect loads but never fires.
 On Linux and macOS, `service: sysmon` selects the Sysmon-compatible field view over native telemetry; it does not claim that Sysmon collected the event.

@@ -48,6 +48,18 @@ Edit that table and run `cargo run --bin generate-docs`.
 | `sysmon` | linux | `auth_log` | `0` | `sudo` | `TargetUserName` | no parser claimed the line; match its text through `Message` |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)` | `CreationUtcTime` | the eBPF file probes do not read file timestamps |
 | `sysmon` | linux | `file_event` | `create, delete, modify, rename` | `native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)` | `PreviousCreationUtcTime` | the eBPF file probes do not read file timestamps |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `DestinationHostname` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `DestinationIp` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `DestinationPort` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / listen` | `inet_listen fexit with runtime BTF` | `Initiated` | listen does not establish a flow |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `DestinationHostname` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `DestinationIp` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `DestinationPort` | this socket operation has no remote endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `Initiated` | socket creation does not establish a flow |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `SourceIp` | socket creation does not bind the local endpoint |
+| `sysmon` | linux | `network_connection` | `3 / rawsocket` | `socket syscall tracepoints` | `SourcePort` | socket creation does not bind the local endpoint |
+| `sysmon` | linux | `network_connection` | `3 / udpsend` | `udp_sendmsg or udpv6_sendmsg fexit with runtime BTF` | `SourceIp` | the UDP hook captures the remote tuple |
+| `sysmon` | linux | `network_connection` | `3 / udpsend` | `udp_sendmsg or udpv6_sendmsg fexit with runtime BTF` | `SourcePort` | the UDP hook captures the remote tuple |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Company` | PE version resources are Windows-only |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `Description` | PE version resources are Windows-only |
 | `sysmon` | linux | `process_creation` | `1 / start` | `execve tracepoints` | `FileVersion` | PE version resources are Windows-only |

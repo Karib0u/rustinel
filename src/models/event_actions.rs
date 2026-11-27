@@ -1,4 +1,4 @@
-//! The single table that gives file and registry actions their meaning.
+//! Shared numbering and output names for file, registry, and Linux socket actions.
 //!
 //! A file or registry event carries `(category, opcode, event_id)`, and five
 //! consumers used to decode that triple by hand: the sensors (which number
@@ -37,7 +37,7 @@ impl SensorNormalization {
     }
 }
 
-/// Everything downstream consumers need to know about one file or registry action.
+/// Shared metadata for a numbered event action.
 #[derive(Debug, Clone, Copy)]
 pub struct EventActionRow {
     pub category: EventCategory,
@@ -85,8 +85,13 @@ pub struct UnknownActionRow {
 
 const FILE: EventCategory = EventCategory::File;
 const REGISTRY: EventCategory = EventCategory::Registry;
+const NETWORK: EventCategory = EventCategory::Network;
 
-/// File events.
+pub const NETWORK_LISTEN_CODE: u8 = 90;
+pub const NETWORK_UDP_SEND_CODE: u8 = 91;
+pub const NETWORK_RAW_SOCKET_CODE: u8 = 92;
+
+/// Numbered event actions.
 ///
 /// The identifiers are Sysmon-compatible where Sysmon has an equivalent event
 /// (2 = FileCreateTime, 11 = FileCreate, 23 = FileDelete). Sysmon has no
@@ -179,6 +184,36 @@ pub const EVENT_ACTIONS: &[EventActionRow] = &[
         ecs_action: "registry-set",
         ecs_type: "change",
         sigma_categories: &["registry_event", "registry_set"],
+    },
+    EventActionRow {
+        category: NETWORK,
+        action: SensorAction::Listen,
+        event_id: 3,
+        action_code: NETWORK_LISTEN_CODE,
+        alias_codes: &[],
+        ecs_action: "network-listen",
+        ecs_type: "start",
+        sigma_categories: &["network_connection"],
+    },
+    EventActionRow {
+        category: NETWORK,
+        action: SensorAction::UdpSend,
+        event_id: 3,
+        action_code: NETWORK_UDP_SEND_CODE,
+        alias_codes: &[],
+        ecs_action: "network-udp-send",
+        ecs_type: "protocol",
+        sigma_categories: &["network_connection"],
+    },
+    EventActionRow {
+        category: NETWORK,
+        action: SensorAction::RawSocket,
+        event_id: 3,
+        action_code: NETWORK_RAW_SOCKET_CODE,
+        alias_codes: &[],
+        ecs_action: "network-raw-socket",
+        ecs_type: "creation",
+        sigma_categories: &["network_connection"],
     },
 ];
 

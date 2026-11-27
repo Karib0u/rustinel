@@ -146,6 +146,11 @@ Fields each platform never fills are listed in [Field availability](field-availa
   `doctor` warns with `linux_ebpf_network_tuple_capability`.
 - **Loopback connections and failed connects are not reported.**
   A connect still in progress is reported and not retracted if it later fails.
+- **Listen and unconnected UDP send events depend on runtime BTF and the socket hooks.**
+  The sensor reports each successful IPv4 or IPv6 listener once per socket lifetime, including loopback and wildcard binds.
+  It reports the first successful unconnected UDP send per process and remote IP and port in each fixed 10-second monotonic window, subject to a shared limit of 128 events per monotonic second.
+  The network ring counters report deduplicated events, rate-limited events, and kernel read, map, and ring losses.
+  Raw and packet socket creation uses socket syscall tracepoints and works without BTF.
 - **Process identity fields need BTF.**
   Without it, `User` and related fields are empty and `doctor` warns with `linux_task_<field>`.
 - **File object identity needs BTF.**

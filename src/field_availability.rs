@@ -1936,6 +1936,87 @@ const LINUX_NETWORK: &[FieldContract] = &[
     ),
 ];
 
+macro_rules! linux_socket_fields {
+    ($($field:expr),+ $(,)?) => {
+        &[
+            always("Action", Some(UNRELEASED)),
+            always("ProcessId", Some(UNRELEASED)),
+            conditional(
+                "User",
+                Some(UNRELEASED),
+                "runtime BTF resolves effective credentials and the kernel read succeeds",
+            ),
+            conditional(
+                "Image",
+                Some(UNRELEASED),
+                "the process identity is still present in the process cache",
+            ),
+            $($field),+
+        ]
+    };
+}
+
+const NO_SOCKET_PEER: &str = "this socket operation has no remote endpoint";
+const LINUX_LISTEN: &[FieldContract] = linux_socket_fields![
+    always("SourceIp", Some(UNRELEASED)),
+    always("SourcePort", Some(UNRELEASED)),
+    conditional(
+        "Protocol",
+        Some(UNRELEASED),
+        "sk_protocol names a known transport"
+    ),
+    never("DestinationIp", Some(UNRELEASED), NO_SOCKET_PEER),
+    never("DestinationPort", Some(UNRELEASED), NO_SOCKET_PEER),
+    never("DestinationHostname", Some(UNRELEASED), NO_SOCKET_PEER),
+    never(
+        "Initiated",
+        Some(UNRELEASED),
+        "listen does not establish a flow"
+    ),
+];
+const LINUX_UDP_SEND: &[FieldContract] = linux_socket_fields![
+    always("DestinationIp", Some(UNRELEASED)),
+    always("DestinationPort", Some(UNRELEASED)),
+    always("Protocol", Some(UNRELEASED)),
+    always("Initiated", Some(UNRELEASED)),
+    conditional(
+        "DestinationHostname",
+        Some(UNRELEASED),
+        "a preceding observed DNS answer resolves the destination",
+    ),
+    never(
+        "SourceIp",
+        Some(UNRELEASED),
+        "the UDP hook captures the remote tuple"
+    ),
+    never(
+        "SourcePort",
+        Some(UNRELEASED),
+        "the UDP hook captures the remote tuple"
+    ),
+];
+const LINUX_RAW_SOCKET: &[FieldContract] = linux_socket_fields![
+    always("Protocol", Some(UNRELEASED)),
+    never(
+        "SourceIp",
+        Some(UNRELEASED),
+        "socket creation does not bind the local endpoint"
+    ),
+    never(
+        "SourcePort",
+        Some(UNRELEASED),
+        "socket creation does not bind the local endpoint"
+    ),
+    never("DestinationIp", Some(UNRELEASED), NO_SOCKET_PEER),
+    never("DestinationPort", Some(UNRELEASED), NO_SOCKET_PEER),
+    never("DestinationHostname", Some(UNRELEASED), NO_SOCKET_PEER),
+    never(
+        "Initiated",
+        Some(UNRELEASED),
+        "socket creation does not establish a flow"
+    ),
+];
+
 const LINUX_FILE_SOURCE: &str =
     "native file syscall tracepoints (io_uring and IA32 activity counts depend on kernel support)";
 
@@ -3609,6 +3690,33 @@ pub const FIELD_AVAILABILITY: &[EventFieldContract] = &[
     ),
     contract!(
         Linux,
+        "network_connection",
+        Some(3),
+        Listen,
+        "ebpf",
+        "inet_listen fexit with runtime BTF",
+        LINUX_LISTEN
+    ),
+    contract!(
+        Linux,
+        "network_connection",
+        Some(3),
+        UdpSend,
+        "ebpf",
+        "udp_sendmsg or udpv6_sendmsg fexit with runtime BTF",
+        LINUX_UDP_SEND
+    ),
+    contract!(
+        Linux,
+        "network_connection",
+        Some(3),
+        RawSocket,
+        "ebpf",
+        "socket syscall tracepoints",
+        LINUX_RAW_SOCKET
+    ),
+    contract!(
+        Linux,
         "file_event",
         None,
         Create,
@@ -3967,6 +4075,9 @@ const fn action_code_matches(action: SensorAction, opcode: u8) -> bool {
         SensorAction::Stop => opcode == 2,
         SensorAction::Connect => opcode == 0 || opcode == 12,
         SensorAction::Accept => opcode == 15,
+        SensorAction::Listen => opcode == crate::models::event_actions::NETWORK_LISTEN_CODE,
+        SensorAction::UdpSend => opcode == crate::models::event_actions::NETWORK_UDP_SEND_CODE,
+        SensorAction::RawSocket => opcode == crate::models::event_actions::NETWORK_RAW_SOCKET_CODE,
         SensorAction::Create => opcode == 36 || opcode == 64,
         SensorAction::Modify => opcode == 65,
         SensorAction::Delete => opcode == 38 || opcode == 70,

@@ -52,6 +52,9 @@ pub struct LinuxEbpfKernelSample {
     pub kernel_ring_full: u64,
     pub kernel_oversized: u64,
     pub kernel_map_full: u64,
+    pub kernel_deduplicated: u64,
+    pub kernel_rate_limited: u64,
+    pub kernel_read_errors: u64,
 }
 
 #[derive(Debug, Default)]
@@ -61,6 +64,9 @@ struct LinuxEbpfFamilyCounters {
     kernel_ring_full: AtomicU64,
     kernel_oversized: AtomicU64,
     kernel_map_full: AtomicU64,
+    kernel_deduplicated: AtomicU64,
+    kernel_rate_limited: AtomicU64,
+    kernel_read_errors: AtomicU64,
     userspace_received: AtomicU64,
     userspace_decoded: AtomicU64,
     short_reads: AtomicU64,
@@ -78,6 +84,9 @@ impl LinuxEbpfFamilyCounters {
             kernel_ring_full: AtomicU64::new(0),
             kernel_oversized: AtomicU64::new(0),
             kernel_map_full: AtomicU64::new(0),
+            kernel_deduplicated: AtomicU64::new(0),
+            kernel_rate_limited: AtomicU64::new(0),
+            kernel_read_errors: AtomicU64::new(0),
             userspace_received: AtomicU64::new(0),
             userspace_decoded: AtomicU64::new(0),
             short_reads: AtomicU64::new(0),
@@ -174,6 +183,15 @@ impl LinuxEbpfCounters {
         counters
             .kernel_map_full
             .store(sample.kernel_map_full, Ordering::Relaxed);
+        counters
+            .kernel_deduplicated
+            .store(sample.kernel_deduplicated, Ordering::Relaxed);
+        counters
+            .kernel_rate_limited
+            .store(sample.kernel_rate_limited, Ordering::Relaxed);
+        counters
+            .kernel_read_errors
+            .store(sample.kernel_read_errors, Ordering::Relaxed);
     }
 
     pub fn record_received(&self, family: LinuxEbpfFamily) {
@@ -257,6 +275,9 @@ impl LinuxEbpfCounters {
                         kernel_ring_full: counters.kernel_ring_full.load(Ordering::Relaxed),
                         kernel_oversized: counters.kernel_oversized.load(Ordering::Relaxed),
                         kernel_map_full: counters.kernel_map_full.load(Ordering::Relaxed),
+                        kernel_deduplicated: counters.kernel_deduplicated.load(Ordering::Relaxed),
+                        kernel_rate_limited: counters.kernel_rate_limited.load(Ordering::Relaxed),
+                        kernel_read_errors: counters.kernel_read_errors.load(Ordering::Relaxed),
                         userspace_received,
                         userspace_decoded: counters.userspace_decoded.load(Ordering::Relaxed),
                         short_reads: counters.short_reads.load(Ordering::Relaxed),
@@ -289,6 +310,9 @@ fn linux_feature_is_active(feature: &LinuxEbpfFeatureSnapshot) -> bool {
                 && attached("handle_dgram_connect")
                 && (attached("handle_accept2") || attached("handle_accept4"))
         }
+        "network_listen" => attached("handle_listen"),
+        "network_udp_send" => attached("handle_udp4_send") || attached("handle_udp6_send"),
+        "network_raw_socket" => attached("handle_raw_socket") && attached("handle_raw_socket_exit"),
         "dns" => ["handle_sendto", "handle_sendmsg", "handle_sendmmsg"]
             .into_iter()
             .any(attached),
@@ -355,6 +379,28 @@ mod tests {
         assert!(linux_feature_is_active(&linux_feature(
             "file",
             &["handle_unlinkat", "handle_unlinkat_exit"]
+        )));
+    }
+
+    #[test]
+    fn new_network_features_report_pairing_and_partial_ip_coverage() {
+        assert!(linux_feature_is_active(&linux_feature(
+            "network_listen",
+            &["handle_listen"],
+        )));
+        for hook in ["handle_udp4_send", "handle_udp6_send"] {
+            assert!(linux_feature_is_active(&linux_feature(
+                "network_udp_send",
+                &[hook],
+            )));
+        }
+        assert!(!linux_feature_is_active(&linux_feature(
+            "network_raw_socket",
+            &["handle_raw_socket_exit"],
+        )));
+        assert!(linux_feature_is_active(&linux_feature(
+            "network_raw_socket",
+            &["handle_raw_socket_exit", "handle_raw_socket"],
         )));
     }
 

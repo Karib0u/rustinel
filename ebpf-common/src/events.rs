@@ -112,25 +112,23 @@ pub fn connect_result_is_connection(result: i32) -> bool {
 pub struct NetworkEvent {
     pub event_time_ns: u64,
     pub source_seq: u64,
-    /// Thread group ID of the connecting process.
+    /// Thread group ID of the process responsible for the network event.
     pub pid: u32,
     /// Effective UID.
     pub uid: u32,
-    /// Socket descriptor in the syscall fallback; -1 in the fexit tier.
-    pub fd: i32,
-    /// `connect(2)` return value: 0, or the negative errno of a connect that
-    /// is still under way. Failed attempts are never emitted, so this is
-    /// always one of the values [`connect_result_is_connection`] accepts.
+    /// Raw socket protocol argument, in host byte order for AF_PACKET.
+    pub socket_protocol: u32,
+    /// Return value of the observed operation.
     pub ret: i32,
     /// Destination port in **host** byte order.
     pub dport: u16,
     /// Source port (best-effort; may be 0 before bind completes).
     pub sport: u16,
-    /// Address family: 2 = AF_INET, 10 = AF_INET6.
+    /// Linux address family.
     pub af: u16,
     /// IP protocol number read from sk_protocol; zero in the syscall fallback.
     pub protocol: u8,
-    /// TUPLE_MEASURED and INBOUND from socket_tuple_abi.
+    /// Tuple flags and event kind from socket_tuple_abi.
     pub tuple_flags: u8,
     /// Destination address. For AF_INET: first 4 bytes hold the IPv4 address
     /// (network byte order); remaining bytes are zero. For AF_INET6: all 16
@@ -138,7 +136,7 @@ pub struct NetworkEvent {
     pub daddr: [u8; 16],
     /// Source address (best-effort; may be all-zero at connect time).
     pub saddr: [u8; 16],
-    /// Sensor-minted identity for the process that opened the connection.
+    /// Sensor-minted process identity.
     pub process_start_time: u64,
 }
 

@@ -35,6 +35,7 @@ run() {
 run linux_task_identity live_task_identity_matches_proc
 run linux_task_identity live_ebpf_process_reaches_yara_memory_scan
 run linux_socket_tuple live_tuple_and_connection_churn
+run linux_socket_tuple live_listen_udp_and_raw_sockets
 run linux_file_paths bare_read_only_reuse_cannot_consume_an_old_directory_index_entry
 run linux_container_context live_container_context_reaches_sigma
 

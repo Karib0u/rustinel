@@ -363,6 +363,12 @@ pub struct LinuxEbpfFamilySnapshot {
     pub kernel_ring_full: u64,
     pub kernel_oversized: u64,
     pub kernel_map_full: u64,
+    #[serde(default)]
+    pub kernel_deduplicated: u64,
+    #[serde(default)]
+    pub kernel_rate_limited: u64,
+    #[serde(default)]
+    pub kernel_read_errors: u64,
     pub userspace_received: u64,
     pub userspace_decoded: u64,
     pub short_reads: u64,
@@ -389,6 +395,9 @@ impl LinuxEbpfFamilySnapshot {
                 .kernel_submitted
                 .saturating_add(self.kernel_ring_full)
                 .saturating_add(self.kernel_oversized)
+                .saturating_add(self.kernel_deduplicated)
+                .saturating_add(self.kernel_rate_limited)
+                .saturating_add(self.kernel_read_errors)
     }
 
     pub fn receive_is_reconciled(&self) -> bool {
@@ -412,13 +421,16 @@ impl LinuxEbpfFamilySnapshot {
 
     pub fn describe(&self) -> String {
         format!(
-            "{} ring: {} seen, {} submitted, {} in flight, {} ring full, {} map full, {} received, {} decoded, {} emitted, {} internal, {} dropped",
+            "{} ring: {} seen, {} submitted, {} in flight, {} ring full, {} map full, {} deduplicated, {} rate limited, {} read errors, {} received, {} decoded, {} emitted, {} internal, {} dropped",
             self.ring,
             self.kernel_seen,
             self.kernel_submitted,
             self.queue_occupancy(),
             self.kernel_ring_full,
             self.kernel_map_full,
+            self.kernel_deduplicated,
+            self.kernel_rate_limited,
+            self.kernel_read_errors,
             self.userspace_received,
             self.userspace_decoded,
             self.canonical_emitted,
@@ -996,6 +1008,9 @@ mod tests {
             kernel_ring_full: 4,
             kernel_oversized: 1,
             kernel_map_full: 0,
+            kernel_deduplicated: 0,
+            kernel_rate_limited: 0,
+            kernel_read_errors: 0,
             userspace_received: 100,
             userspace_decoded: 99,
             short_reads: 1,
@@ -1021,6 +1036,9 @@ mod tests {
             kernel_ring_full: 0,
             kernel_oversized: 0,
             kernel_map_full: 0,
+            kernel_deduplicated: 0,
+            kernel_rate_limited: 0,
+            kernel_read_errors: 0,
             userspace_received: 10,
             userspace_decoded: 10,
             short_reads: 0,

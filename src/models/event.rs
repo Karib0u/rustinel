@@ -624,6 +624,10 @@ impl NormalizedEvent {
                 _ => None,
             },
             EventFields::NetworkConnection(f) => match key {
+                Field::Action if self.platform == Platform::Linux && self.provider == "ebpf" => {
+                    super::event_actions::row_for_code(EventCategory::Network, self.opcode)
+                        .map(|row| Value::String(row.ecs_action))
+                }
                 Field::DestinationIp => f.destination_ip.as_deref().map(Value::String),
                 Field::SourceIp => f.source_ip.as_deref().map(Value::String),
                 Field::DestinationPort => f.destination_port.as_deref().map(Value::String),

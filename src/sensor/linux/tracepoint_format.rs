@@ -33,9 +33,12 @@ pub(super) struct ProcessTracepointOffsets {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct NetworkTracepointOffsets {
-    pub connect_fd: u32,
     pub connect_addr: u32,
     pub connect_ret: u32,
+    pub socket_family: u32,
+    pub socket_type: u32,
+    pub socket_protocol: u32,
+    pub socket_ret: u32,
 }
 
 #[repr(C)]
@@ -240,10 +243,9 @@ impl TracepointLayouts {
             "handle_connect",
             "syscalls",
             "sys_enter_connect",
-            &[FieldSpec::one("fd", 8), FieldSpec::one("uservaddr", 8)],
+            &[FieldSpec::one("uservaddr", 8)],
         ) {
-            self.network.connect_fd = v[0];
-            self.network.connect_addr = v[1];
+            self.network.connect_addr = v[0];
         }
         if let Some(v) = self.fields(
             "handle_connect_exit",
@@ -252,6 +254,28 @@ impl TracepointLayouts {
             &[FieldSpec::one("ret", 8)],
         ) {
             self.network.connect_ret = v[0];
+        }
+        if let Some(v) = self.fields(
+            "handle_raw_socket",
+            "syscalls",
+            "sys_enter_socket",
+            &[
+                FieldSpec::one("family", 8),
+                FieldSpec::one("type", 8),
+                FieldSpec::one("protocol", 8),
+            ],
+        ) {
+            self.network.socket_family = v[0];
+            self.network.socket_type = v[1];
+            self.network.socket_protocol = v[2];
+        }
+        if let Some(v) = self.fields(
+            "handle_raw_socket_exit",
+            "syscalls",
+            "sys_exit_socket",
+            &[FieldSpec::one("ret", 8)],
+        ) {
+            self.network.socket_ret = v[0];
         }
     }
 

@@ -342,7 +342,7 @@ pub struct RegistryEventFields {
 }
 
 /// Network connection event fields (Sigma: network_connection)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct NetworkConnectionFields {
     #[serde(rename = "DestinationIp", skip_serializing_if = "Option::is_none")]
     pub destination_ip: Option<String>,
