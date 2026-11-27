@@ -778,6 +778,7 @@ pub fn assert_normalized_field_eq(event: &NormalizedEvent, field: &str, expected
 
 pub fn event_fields_from_payload(event: RawEvent) -> EventFields {
     match event.payload {
+        RawPayload::ProcessAccess(access) => EventFields::ProcessAccess(access.fields),
         RawPayload::Process(fields) => EventFields::ProcessCreation(fields.compatibility_fields()),
         RawPayload::Network(fields) => EventFields::NetworkConnection(fields),
         RawPayload::File(fields) => EventFields::FileEvent(fields),

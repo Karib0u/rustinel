@@ -19,6 +19,9 @@ mod process;
 #[cfg(windows)]
 pub mod windows;
 #[cfg(any(windows, test))]
+#[path = "windows/etw/process_access.rs"]
+mod windows_process_access;
+#[cfg(any(windows, test))]
 mod windows_process_identity;
 #[cfg(any(windows, test))]
 mod windows_thread;
@@ -38,8 +41,9 @@ use tokio::sync::mpsc::Sender;
 use crate::models::{
     ApplicationEventFields, AuthLogFields, DnsQueryFields, EventCategory, EventFields,
     FileEventFields, ImageLoadFields, NetworkConnectionFields, PowerShellClassicStartFields,
-    PowerShellModuleFields, PowerShellScriptFields, RegistryEventFields, RemoteThreadFields,
-    SecurityAuditFields, ServiceCreationFields, TaskCreationFields, WmiEventFields,
+    PowerShellModuleFields, PowerShellScriptFields, ProcessAccessFields, RegistryEventFields,
+    RemoteThreadFields, SecurityAuditFields, ServiceCreationFields, TaskCreationFields,
+    WmiEventFields,
 };
 
 /// Cross-platform sensor interface.
@@ -130,6 +134,7 @@ impl Default for SensorEventRouter {
 #[derive(Debug, Clone)]
 pub enum RawPayload {
     Process(RawProcessEvent),
+    ProcessAccess(RawProcessAccess),
     Network(NetworkConnectionFields),
     File(FileEventFields),
     Dns(DnsQueryFields),
@@ -149,11 +154,20 @@ pub enum RawPayload {
     AuthLog(AuthLogFields),
 }
 
+/// Access facts plus the lifetime of the target, if the sensor could resolve it.
+/// The source lifetime uses `RawEvent::process_start_key` like other events.
+#[derive(Debug, Clone)]
+pub struct RawProcessAccess {
+    pub fields: ProcessAccessFields,
+    pub target_start_key: Option<ProcessStartKey>,
+}
+
 impl RawPayload {
     /// Return the shared event category for this payload.
     pub fn category(&self) -> EventCategory {
         match self {
             Self::Process(_) => EventCategory::Process,
+            Self::ProcessAccess(_) => EventCategory::ProcessAccess,
             Self::Network(_) => EventCategory::Network,
             Self::File(_) => EventCategory::File,
             Self::Dns(_) => EventCategory::Dns,
@@ -179,6 +193,7 @@ impl RawPayload {
     pub fn into_event_fields(self) -> EventFields {
         match self {
             Self::Process(fields) => EventFields::ProcessCreation(fields.compatibility_fields()),
+            Self::ProcessAccess(access) => EventFields::ProcessAccess(access.fields),
             Self::Network(fields) => EventFields::NetworkConnection(fields),
             Self::File(fields) => EventFields::FileEvent(fields),
             Self::Dns(fields) => EventFields::DnsQuery(fields),
@@ -204,6 +219,10 @@ impl TryFrom<EventFields> for RawPayload {
 
     fn try_from(fields: EventFields) -> std::result::Result<Self, Self::Error> {
         match fields {
+            EventFields::ProcessAccess(fields) => Ok(Self::ProcessAccess(RawProcessAccess {
+                fields,
+                target_start_key: None,
+            })),
             EventFields::NetworkConnection(fields) => Ok(Self::Network(fields)),
             EventFields::FileEvent(fields) => Ok(Self::File(fields)),
             EventFields::DnsQuery(fields) => Ok(Self::Dns(fields)),

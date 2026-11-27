@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use super::registry_paths::PathSource;
 use crate::telemetry::{
     EtwDecodeFailureSnapshot, EtwDecodeSnapshot, FileAttributionSnapshot, FileRundownSnapshot,
-    RegistrySnapshot, SensorTelemetry, ThreadStartSnapshot,
+    ProcessAccessSnapshot, RegistrySnapshot, SensorTelemetry, ThreadStartSnapshot,
 };
 
 /// Every Windows counter set, one per runtime.
@@ -21,6 +21,7 @@ pub(crate) struct WindowsCounters {
     pub(crate) registry: RegistryCounters,
     pub(crate) file_attribution: FileAttributionCounters,
     pub(crate) etw_decode: EtwDecodeCounters,
+    pub(crate) process_access: ProcessAccessCounters,
     pub(crate) thread_starts: ThreadStartCounters,
     pub(super) loss: std::sync::Arc<super::loss::LossCounters>,
     pub(crate) provider_watch: std::sync::Arc<super::provider_watch::ProviderWatchCounters>,
@@ -32,6 +33,7 @@ impl WindowsCounters {
         out.registry = self.registry.snapshot();
         out.file_attribution = self.file_attribution.snapshot();
         out.etw_decode = self.etw_decode.snapshot();
+        out.windows_process_access = self.process_access.snapshot();
         out.windows_thread_starts = self.thread_starts.snapshot(self.loss.process_total());
         out.etw_provider_watch = self.provider_watch.snapshot();
         out.windows_event_log = self.event_log.snapshot();
@@ -104,6 +106,53 @@ impl ThreadStartCounters {
             processing_max_ns: load(&self.processing_max_ns),
             process_session_events_lost,
         })
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ProcessAccessCounters {
+    started: AtomicBool,
+    received: AtomicU64,
+    decoded: AtomicU64,
+    source_image_misses: AtomicU64,
+    target_image_misses: AtomicU64,
+    invalid_targets: AtomicU64,
+}
+
+impl ProcessAccessCounters {
+    pub(crate) fn start(&self) {
+        self.started.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_received(&self) {
+        self.received.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_decoded(&self) {
+        self.decoded.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_attribution(&self, fields: &crate::models::ProcessAccessFields) {
+        if fields.source_image.is_none() {
+            self.source_image_misses.fetch_add(1, Ordering::Relaxed);
+        }
+        if fields.target_process_id.is_none() {
+            self.invalid_targets.fetch_add(1, Ordering::Relaxed);
+        } else if fields.target_image.is_none() {
+            self.target_image_misses.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn snapshot(&self) -> Option<ProcessAccessSnapshot> {
+        self.started
+            .load(Ordering::Relaxed)
+            .then(|| ProcessAccessSnapshot {
+                received: self.received.load(Ordering::Relaxed),
+                decoded: self.decoded.load(Ordering::Relaxed),
+                source_image_misses: self.source_image_misses.load(Ordering::Relaxed),
+                target_image_misses: self.target_image_misses.load(Ordering::Relaxed),
+                invalid_targets: self.invalid_targets.load(Ordering::Relaxed),
+            })
     }
 }
 

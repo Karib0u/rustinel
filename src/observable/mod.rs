@@ -62,6 +62,7 @@ pub type Observables<'a> = SmallVec<[Observable<'a>; 8]>;
 /// | Event | Observables |
 /// | --- | --- |
 /// | Process | `Image`, `ParentImage`, `TargetImage`; paths, hosts, and IPs in `CommandLine` operands |
+/// | Process access | `SourceImage`, `TargetImage` |
 /// | File | `TargetFilename`, `SourceFilename` |
 /// | Registry | Absolute paths, hosts, and IPs in `Details` |
 /// | Network | `DestinationIp`, `SourceIp`, `DestinationHostname` |
@@ -78,6 +79,10 @@ pub fn extract(event: &NormalizedEvent) -> Observables<'_> {
     let mut out = Observables::new();
 
     match &event.fields {
+        EventFields::ProcessAccess(f) => {
+            push_path(&mut out, f.source_image.as_deref());
+            push_path(&mut out, f.target_image.as_deref());
+        }
         EventFields::ProcessCreation(f) => {
             push_path(&mut out, f.image.as_deref());
             push_path(&mut out, f.parent_image.as_deref());
