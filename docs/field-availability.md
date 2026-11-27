@@ -13,6 +13,18 @@ If availability narrows, `since` records the release that introduced the narrowe
 `GrandparentImage`, `GrandparentCommandLine`, and `AncestorImages` have `availability: conditional` and `fidelity: derived` for Sysmon-view process creation on Windows, Linux, and macOS.
 See [process ancestry in Sigma rules](sigma.md#process-ancestry) for presence and matching details.
 
+## Linux socket actions
+
+Linux eBPF reports three additional actions under `product: linux`, `category: network_connection` (Event ID 3).
+
+| `Action` | Fields |
+| --- | --- |
+| `network-listen` | `SourceIp` and `SourcePort` are the local listening address and port. Wildcard addresses are preserved. |
+| `network-udp-send` | `DestinationIp`, `DestinationPort`, `Protocol: udp`, and `Initiated: true` describe a successful send from an unconnected UDP socket. |
+| `network-raw-socket` | `Protocol` holds the requested socket protocol, such as `ethertype:0x0003` for AF_PACKET, `icmp`, `icmpv6`, `ip:255`, or `family:29:1` for another Linux address family. |
+
+ECS alerts use these names in `event.action` and include `edr.network.socket_protocol` for raw sockets.
+
 <!-- BEGIN GENERATED FIELD AVAILABILITY -->
 This table is generated from `FIELD_AVAILABILITY` in `src/field_availability.rs`.
 Edit that table and run `cargo run --bin generate-docs`.
