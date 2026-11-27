@@ -122,6 +122,8 @@ Linux eBPF reports three additional actions under `product: linux`, `category: n
 | `network-udp-send` | `DestinationIp`, `DestinationPort`, `Protocol: udp`, and `Initiated: true` describe a successful send from an unconnected UDP socket. |
 | `network-raw-socket` | `Protocol` holds the requested socket protocol, such as `ethertype:0x0003` for AF_PACKET, `icmp`, `icmpv6`, `ip:255`, or `family:29:1` for another Linux address family. |
 
+ECS alerts use these names in `event.action` and include `edr.network.socket_protocol` for raw sockets.
+
 A rule whose `product` does not match the platform is skipped.
 A rule for a logsource the platform does not collect loads but never fires.
 On Linux and macOS, `service: sysmon` selects the Sysmon-compatible field view over native telemetry; it does not claim that Sysmon collected the event.

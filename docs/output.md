@@ -123,7 +123,7 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | Dataset | Events |
 | --- | --- |
 | `edr.process` | Process start and exit |
-| `edr.network` | Connections, listeners, unconnected UDP sends, and raw socket creation |
+| `edr.network` | Connections and [Linux socket activity](sigma.md#logsources) |
 | `edr.file` | File activity |
 | `edr.dns` | DNS queries |
 | `edr.registry` | Registry (Windows) |
@@ -137,9 +137,6 @@ Rustinel targets ECS 9.5.0, and moves to a newer release only after checking eve
 | `edr.security` | Security audit events (Windows) |
 | `edr.auth_log` | Authentication log records (Linux) |
 | `edr.agent` | Operational alerts about the agent itself: [sensor loss](#sensor-loss-alerts), [ETW provider tamper](#etw-provider-tamper-alerts), and [start and stop](agent-health.md#lifecycle-alerts) |
-
-Linux socket activity uses `event.action` values `network-listen`, `network-udp-send`, and `network-raw-socket`.
-Raw socket creation includes `edr.network.socket_protocol`.
 
 ### Sensor loss alerts
 
